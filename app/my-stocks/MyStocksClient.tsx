@@ -49,6 +49,7 @@ interface PurchaseRecommendation {
   analyzedAt?: string;
   buyTiming?: "market" | "dip" | null;
   sellTiming?: "market" | "rebound" | null;
+  marketSignal?: string | null;
   styleAnalyses?: Record<string, PurchaseStyleAnalysis> | null;
 }
 
@@ -284,6 +285,7 @@ export default function MyStocksClient() {
               analyzedAt: result.value.data.analyzedAt,
               buyTiming: result.value.data.buyTiming,
               sellTiming: result.value.data.sellTiming,
+              marketSignal: result.value.data.marketSignal ?? null,
               styleAnalyses: result.value.data.styleAnalyses ?? null,
             };
           }

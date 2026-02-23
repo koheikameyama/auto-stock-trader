@@ -101,7 +101,8 @@
       "sell": "売却"
     },
     "simulation": "購入シミュレーション",
-    "simulationTitle": "購入後分析シミュレーション"
+    "simulationTitle": "購入後分析シミュレーション",
+    "confidenceLabel": "AI分析の信頼度"
   },
   "featured": {
     "title": "今日の注目銘柄",

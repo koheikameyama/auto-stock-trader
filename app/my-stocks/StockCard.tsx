@@ -16,6 +16,7 @@ import {
   INVESTMENT_THEME_CONFIG,
   EARNINGS_DATE_BADGE,
   INVESTMENT_STYLE_CONFIG,
+  MARKET_SIGNAL_CONFIG,
 } from "@/lib/constants";
 import { useTranslations } from "next-intl";
 import dayjs from "dayjs";
@@ -100,6 +101,7 @@ interface PurchaseRecommendation {
   caution: string;
   buyTiming?: "market" | "dip" | null;
   sellTiming?: "market" | "rebound" | null;
+  marketSignal?: string | null;
   styleAnalyses?: Record<string, PurchaseStyleAnalysis> | null;
 }
 
@@ -182,6 +184,7 @@ export default function StockCard({
           caution: styleData.caution,
           buyTiming: styleData.buyTiming as "market" | "dip" | null,
           sellTiming: styleData.sellTiming as "market" | "rebound" | null,
+          marketSignal: styleData.marketSignal,
         }
       : recommendation
     : undefined;
@@ -543,20 +546,75 @@ export default function StockCard({
                     })}
                   </div>
                 )}
-                <div className="bg-blue-50 rounded-lg p-3">
-                  <p className="text-xs sm:text-sm text-gray-700">
-                    <span className="font-semibold text-blue-700">
-                      💡 AI分析:{" "}
-                    </span>
+                {/* AI分析カード（StockAnalysisCardと同等のレイアウト） */}
+                <div className="bg-white rounded-lg shadow-sm p-3 border-l-4 border-blue-500">
+                  {/* ヘッダー + ステータスバッジ + マーケットシグナル */}
+                  <div className="mb-2">
+                    <p className="font-semibold text-gray-800 mb-1.5 text-xs sm:text-sm">
+                      💡 AIアドバイス
+                    </p>
+                    <div className="flex items-center gap-2">
+                      {aiJudgment && (
+                        <span
+                          className={`inline-block px-2.5 py-0.5 ${aiJudgment.bg} ${aiJudgment.color} rounded-full text-xs font-semibold`}
+                        >
+                          {aiJudgment.text}
+                        </span>
+                      )}
+                      {effectiveRecommendation.marketSignal &&
+                        MARKET_SIGNAL_CONFIG[effectiveRecommendation.marketSignal] && (
+                          <span
+                            className={`inline-flex items-center gap-0.5 px-2 py-0.5 ${MARKET_SIGNAL_CONFIG[effectiveRecommendation.marketSignal].bg} ${MARKET_SIGNAL_CONFIG[effectiveRecommendation.marketSignal].color} rounded-full text-xs font-medium`}
+                          >
+                            <span>{MARKET_SIGNAL_CONFIG[effectiveRecommendation.marketSignal].icon}</span>
+                            <span>{MARKET_SIGNAL_CONFIG[effectiveRecommendation.marketSignal].text}</span>
+                          </span>
+                        )}
+                    </div>
+                  </div>
+                  {/* AI分析テキスト */}
+                  <p className="text-xs sm:text-sm text-gray-700 leading-relaxed mb-3">
                     {effectiveRecommendation.reason}
                   </p>
+                  {/* 信頼度バー */}
+                  {effectiveRecommendation.confidence != null &&
+                    (() => {
+                      const pct = Math.round(effectiveRecommendation.confidence * 100);
+                      const color =
+                        pct >= 75
+                          ? "bg-green-500"
+                          : pct >= 50
+                            ? "bg-yellow-500"
+                            : "bg-red-400";
+                      const label = pct >= 75 ? "高" : pct >= 50 ? "中" : "低";
+                      return (
+                        <div className="pt-2 border-t border-gray-100">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs text-gray-500">
+                              {t("confidenceLabel")}
+                            </span>
+                            <span
+                              className={`text-xs font-semibold ${pct >= 75 ? "text-green-600" : pct >= 50 ? "text-yellow-600" : "text-red-500"}`}
+                            >
+                              {label} {pct}%
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div
+                              className={`${color} h-2 rounded-full transition-all`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })()}
                   {/* Analysis Time for Watchlist */}
                   {analyzedAt &&
                     (() => {
                       const { label, relative, colorClass } =
                         formatAnalysisTime(analyzedAt);
                       return (
-                        <p className="mt-2 text-xs text-gray-400 text-right border-t border-gray-200 pt-2">
+                        <p className="mt-2 text-xs text-gray-400 text-right border-t border-gray-100 pt-2">
                           <span className={colorClass}>{label}</span> | {relative}
                         </p>
                       );
