@@ -15,9 +15,7 @@ import {
   FETCH_FAIL_WARNING_THRESHOLD,
   INVESTMENT_THEME_CONFIG,
   EARNINGS_DATE_BADGE,
-  INVESTMENT_STYLE_CONFIG,
 } from "@/lib/constants";
-import { useTranslations } from "next-intl";
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
@@ -26,7 +24,6 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 import DelistedWarning from "@/app/components/DelistedWarning";
 import CopyableTicker from "@/app/components/CopyableTicker";
-import StockAnalysisCard from "@/app/components/StockAnalysisCard";
 import EditTransactionDialog from "./EditTransactionDialog";
 
 interface Transaction {
@@ -78,21 +75,6 @@ interface StockPrice {
   marketTime?: number | null;
 }
 
-interface PurchaseStyleAnalysis {
-  recommendation: string;
-  confidence: number;
-  statusType: string;
-  marketSignal: string;
-  advice: string;
-  reason: string;
-  caution: string;
-  buyCondition: string | null;
-  buyTiming: string | null;
-  dipTargetPrice: number | null;
-  sellTiming: string | null;
-  sellTargetPrice: number | null;
-}
-
 interface PurchaseRecommendation {
   recommendation: "buy" | "stay" | "avoid";
   confidence: number;
@@ -100,7 +82,6 @@ interface PurchaseRecommendation {
   caution: string;
   buyTiming?: "market" | "dip" | null;
   sellTiming?: "market" | "rebound" | null;
-  styleAnalyses?: Record<string, PurchaseStyleAnalysis> | null;
 }
 
 interface StockCardProps {
@@ -109,7 +90,6 @@ interface StockCardProps {
   priceLoaded?: boolean;
   isStale?: boolean;
   recommendation?: PurchaseRecommendation;
-  userInvestmentStyle?: string;
   portfolioRecommendation?: "buy" | "sell" | "hold" | null;
   analyzedAt?: string | null;
   onAdditionalPurchase?: () => void;
@@ -120,15 +100,12 @@ interface StockCardProps {
   onTransactionUpdated?: () => void;
 }
 
-const STYLE_KEYS = ["CONSERVATIVE", "BALANCED", "AGGRESSIVE"] as const;
-
 export default function StockCard({
   stock,
   price,
   priceLoaded = false,
   isStale = false,
   recommendation,
-  userInvestmentStyle = "BALANCED",
   portfolioRecommendation,
   analyzedAt,
   onAdditionalPurchase,
@@ -138,15 +115,12 @@ export default function StockCard({
   onDelete,
   onTransactionUpdated,
 }: StockCardProps) {
-  const t = useTranslations("stocks.styleAnalysis");
   const [showTransactions, setShowTransactions] = useState(false);
   const [selectedTransaction, setSelectedTransaction] =
     useState<Transaction | null>(null);
   const [openMenuTransactionId, setOpenMenuTransactionId] = useState<
     string | null
   >(null);
-  const [selectedStyle, setSelectedStyle] = useState<string>(userInvestmentStyle);
-  const [isSimulating, setIsSimulating] = useState(false);
   const isHolding = stock.type === "portfolio";
   const isWatchlist = stock.type === "watchlist";
   const quantity = stock.quantity || 0;
@@ -166,30 +140,10 @@ export default function StockCard({
   const profit = currentValue - totalCost;
   const profitPercent = totalCost > 0 ? (profit / totalCost) * 100 : 0;
 
-  // スタイル別分析データの存在チェックとマージ
-  const hasStyleAnalyses = isWatchlist && recommendation?.styleAnalyses && Object.keys(recommendation.styleAnalyses).length > 0;
-  const isUserStyle = selectedStyle === userInvestmentStyle;
-  const styleData = hasStyleAnalyses ? recommendation?.styleAnalyses?.[selectedStyle] ?? null : null;
-
-  // 選択中のスタイルに基づいて表示用recommendationを算出
-  const effectiveRecommendation = recommendation
-    ? styleData && !isUserStyle
-      ? {
-          ...recommendation,
-          recommendation: styleData.recommendation as "buy" | "stay" | "avoid",
-          confidence: styleData.confidence,
-          reason: styleData.reason,
-          caution: styleData.caution,
-          buyTiming: styleData.buyTiming as "market" | "dip" | null,
-          sellTiming: styleData.sellTiming as "market" | "rebound" | null,
-        }
-      : recommendation
-    : undefined;
-
   // AI Purchase Judgment using real recommendations (for watchlist)
   const getAIPurchaseJudgment = () => {
-    if (!effectiveRecommendation) return null;
-    return PURCHASE_JUDGMENT_CONFIG[effectiveRecommendation.recommendation] || null;
+    if (!recommendation) return null;
+    return PURCHASE_JUDGMENT_CONFIG[recommendation.recommendation] || null;
   };
 
   // AI Status Badge using statusType (for portfolio)
@@ -231,30 +185,30 @@ export default function StockCard({
         {aiJudgment && !isDisabled && (
           <div className="absolute top-3 right-3 sm:top-4 sm:right-4 flex items-center gap-1.5">
             {isWatchlist &&
-            effectiveRecommendation?.recommendation === "buy" &&
-            effectiveRecommendation.buyTiming ? (
+            recommendation?.recommendation === "buy" &&
+            recommendation.buyTiming ? (
               <span
                 className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                  effectiveRecommendation.buyTiming === "market"
+                  recommendation.buyTiming === "market"
                     ? "bg-green-100 text-green-700"
                     : "bg-yellow-100 text-yellow-700"
                 }`}
               >
-                {effectiveRecommendation.buyTiming === "market"
+                {recommendation.buyTiming === "market"
                   ? "成り行きOK"
                   : "押し目待ち"}
               </span>
             ) : isWatchlist &&
-              effectiveRecommendation?.recommendation === "avoid" &&
-              effectiveRecommendation.sellTiming ? (
+              recommendation?.recommendation === "avoid" &&
+              recommendation.sellTiming ? (
               <span
                 className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                  effectiveRecommendation.sellTiming === "market"
+                  recommendation.sellTiming === "market"
                     ? "bg-red-100 text-red-700"
                     : "bg-yellow-100 text-yellow-700"
                 }`}
               >
-                {effectiveRecommendation.sellTiming === "market"
+                {recommendation.sellTiming === "market"
                   ? "即見送り"
                   : "戻り待ち"}
               </span>
@@ -499,69 +453,25 @@ export default function StockCard({
                   最新の株価が取得できないため分析がおこなえませんでした
                 </p>
               </div>
-            ) : effectiveRecommendation?.reason ? (
-              <div className="space-y-2">
-                {/* 投資スタイル切り替えタブ */}
-                {hasStyleAnalyses && (
-                  <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-                    {STYLE_KEYS.map((style) => {
-                      const config = INVESTMENT_STYLE_CONFIG[style];
-                      const isSelected = selectedStyle === style;
-                      const isDefault = userInvestmentStyle === style;
-                      const styleResult = recommendation?.styleAnalyses?.[style];
-                      return (
-                        <button
-                          key={style}
-                          onClick={() => setSelectedStyle(style)}
-                          className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-all ${
-                            isSelected
-                              ? "bg-white shadow-sm text-gray-900"
-                              : "text-gray-500 hover:text-gray-700"
-                          }`}
-                        >
-                          <span>{config.icon}</span>
-                          <span className="hidden sm:inline">{config.text}</span>
-                          <span className="sm:hidden">{t(`tabs.${style}`)}</span>
-                          {isDefault && (
-                            <span className="ml-0.5 w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />
-                          )}
-                          {styleResult && (
-                            <span className={`ml-0.5 text-[10px] font-bold ${
-                              styleResult.recommendation === "buy"
-                                ? "text-green-600"
-                                : styleResult.recommendation === "stay"
-                                  ? "text-yellow-600"
-                                  : "text-red-600"
-                            }`}>
-                              {styleResult.recommendation === "buy" ? t("labels.buy") :
-                               styleResult.recommendation === "stay" ? t("labels.stay") :
-                               styleResult.recommendation === "avoid" ? t("labels.avoid") : ""}
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-                <div className="bg-blue-50 rounded-lg p-3">
-                  <p className="text-xs sm:text-sm text-gray-700">
-                    <span className="font-semibold text-blue-700">
-                      💡 AI分析:{" "}
-                    </span>
-                    {effectiveRecommendation.reason}
-                  </p>
-                  {/* Analysis Time for Watchlist */}
-                  {analyzedAt &&
-                    (() => {
-                      const { label, relative, colorClass } =
-                        formatAnalysisTime(analyzedAt);
-                      return (
-                        <p className="mt-2 text-xs text-gray-400 text-right border-t border-gray-200 pt-2">
-                          <span className={colorClass}>{label}</span> | {relative}
-                        </p>
-                      );
-                    })()}
-                </div>
+            ) : recommendation?.reason ? (
+              <div className="bg-blue-50 rounded-lg p-3">
+                <p className="text-xs sm:text-sm text-gray-700">
+                  <span className="font-semibold text-blue-700">
+                    💡 AI分析:{" "}
+                  </span>
+                  {recommendation.reason}
+                </p>
+                {/* Analysis Time for Watchlist */}
+                {analyzedAt &&
+                  (() => {
+                    const { label, relative, colorClass } =
+                      formatAnalysisTime(analyzedAt);
+                    return (
+                      <p className="mt-2 text-xs text-gray-400 text-right border-t border-gray-200 pt-2">
+                        <span className={colorClass}>{label}</span> | {relative}
+                      </p>
+                    );
+                  })()}
               </div>
             ) : null)}
 
@@ -731,14 +641,6 @@ export default function StockCard({
                   {ACTION_BUTTON_LABELS.purchase}
                 </button>
               )}
-              {isWatchlist && !isDisabled && (
-                <button
-                  onClick={() => setIsSimulating(true)}
-                  className="px-2 py-1 text-xs font-medium rounded transition-colors text-indigo-600 hover:bg-indigo-50"
-                >
-                  🧪 {t("simulation")}
-                </button>
-              )}
               {isWatchlist && !isDisabled && onTrackClick && (
                 <button
                   onClick={() => onTrackClick()}
@@ -816,43 +718,6 @@ export default function StockCard({
         />
       )}
 
-      {/* Purchase Simulation Modal */}
-      {isSimulating && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col relative overflow-hidden">
-            <button
-              onClick={() => setIsSimulating(false)}
-              className="absolute right-4 top-4 text-gray-400 hover:text-gray-600 transition-colors z-20 bg-white/80 rounded-full p-1 shadow-sm"
-            >
-              <svg
-                className="w-6 h-6"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
-            <div className="overflow-y-auto p-6 pt-12">
-              <div className="text-left">
-                <h3 className="text-base font-bold text-gray-800 mb-4">
-                  {stock.stock.name} - {t("simulationTitle")}
-                </h3>
-                <StockAnalysisCard
-                  stockId={stock.stockId}
-                  isSimulation={true}
-                  autoGenerate={true}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }
