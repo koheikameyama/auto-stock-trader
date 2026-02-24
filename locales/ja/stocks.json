@@ -142,6 +142,10 @@
     "alertSet": "🔔 通知設定中（¥{price}）",
     "setBuyAlert": "🔔 買い時通知を設定",
     "postPurchaseSimulation": "購入後分析シミュレーション",
+    "watchlistTabs": {
+      "aiPurchaseJudgment": "AI購入判断",
+      "howToBuy": "この銘柄を買うには"
+    },
     "trackThisStock": "この銘柄を追跡しますか？",
     "trackingDescription": "追跡すると、AI分析なしで株価だけを追いかけられます。気になるリストからは移動されます。",
     "passForNow": "見送る",

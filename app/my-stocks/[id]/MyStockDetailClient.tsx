@@ -137,6 +137,7 @@ export default function MyStockDetailClient({
   const [showTrackingModal, setShowTrackingModal] = useState(false);
   const [analysisDate, setAnalysisDate] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
+  const [watchlistTab, setWatchlistTab] = useState("ai-judgment");
 
   // Individual TP/SL state (rates in %)
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -627,32 +628,59 @@ export default function MyStockDetailClient({
             }
           />
 
-          {/* Purchase Simulation Section */}
-          {purchaseSimulationData && currentPrice > 0 && (
-            <PurchaseSimulation
-              currentPrice={currentPrice}
-              stockSector={stock.stock.sector}
-              holdingsWithGains={purchaseSimulationData.holdingsWithGains}
-              currentSectors={purchaseSimulationData.currentSectors}
-              totalPortfolioValue={purchaseSimulationData.totalPortfolioValue}
-              remainingBudget={purchaseSimulationData.remainingBudget}
-            />
-          )}
+          {/* AI Purchase Judgment & Purchase Simulation Tabs */}
+          <section className="bg-white rounded-xl shadow-md mb-6">
+            {/* Tab Headers */}
+            <div className="flex border-b border-gray-200">
+              {[
+                { id: "ai-judgment", label: t("watchlistTabs.aiPurchaseJudgment") },
+                ...(purchaseSimulationData && currentPrice > 0
+                  ? [{ id: "how-to-buy", label: t("watchlistTabs.howToBuy") }]
+                  : []),
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setWatchlistTab(tab.id)}
+                  className={`flex-1 px-4 py-3 text-sm font-semibold transition-colors ${
+                    watchlistTab === tab.id
+                      ? "text-blue-600 border-b-2 border-blue-600"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
 
-          {/* AI Purchase Recommendation Section */}
-          <div className="flex justify-end mb-2">
-            <button
-              onClick={() => setIsSimulating(true)}
-              className="text-xs bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 px-3 py-1.5 rounded-full font-bold flex items-center gap-1.5 transition-colors"
-            >
-              {t('postPurchaseSimulation')}
-            </button>
-          </div>
-          <section className="bg-white rounded-xl shadow-md p-4 sm:p-6 mb-6">
-            <PurchaseRecommendation
-              stockId={stock.stockId}
-              onAnalysisDateLoaded={setAnalysisDate}
-            />
+            {/* Tab Content */}
+            <div className="p-4 sm:p-6">
+              {watchlistTab === "ai-judgment" && (
+                <>
+                  <div className="flex justify-end mb-2">
+                    <button
+                      onClick={() => setIsSimulating(true)}
+                      className="text-xs bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 px-3 py-1.5 rounded-full font-bold flex items-center gap-1.5 transition-colors"
+                    >
+                      {t('postPurchaseSimulation')}
+                    </button>
+                  </div>
+                  <PurchaseRecommendation
+                    stockId={stock.stockId}
+                    onAnalysisDateLoaded={setAnalysisDate}
+                  />
+                </>
+              )}
+              {watchlistTab === "how-to-buy" && purchaseSimulationData && currentPrice > 0 && (
+                <PurchaseSimulation
+                  currentPrice={currentPrice}
+                  stockSector={stock.stock.sector}
+                  holdingsWithGains={purchaseSimulationData.holdingsWithGains}
+                  currentSectors={purchaseSimulationData.currentSectors}
+                  totalPortfolioValue={purchaseSimulationData.totalPortfolioValue}
+                  remainingBudget={purchaseSimulationData.remainingBudget}
+                />
+              )}
+            </div>
           </section>
 
           {/* Simulation Result Modal */}

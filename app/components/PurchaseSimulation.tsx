@@ -79,7 +79,7 @@ export default function PurchaseSimulation({
   afterSectors.sort((a, b) => b.value - a.value);
 
   return (
-    <section className="bg-white rounded-xl shadow-md p-4 sm:p-6 mb-6">
+    <div>
       <h2 className="text-lg sm:text-xl font-bold text-gray-900">
         {t("title")}
       </h2>
@@ -215,6 +215,6 @@ export default function PurchaseSimulation({
           </div>
         </div>
       </div>
-    </section>
+    </div>
   );
 }
