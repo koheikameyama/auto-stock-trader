@@ -784,7 +784,7 @@ export default function StockAnalysisCard({
                           成行での売却を検討
                         </span>
                       </div>
-                      {effectiveAnalysis.suggestedSellPrice ? (
+                      {effectiveAnalysis.suggestedSellPrice && effectiveAnalysis.averagePurchasePrice && effectiveAnalysis.suggestedSellPrice > effectiveAnalysis.averagePurchasePrice ? (
                         <p className="text-xs text-blue-600 mt-0.5">
                           💡 {effectiveAnalysis.suggestedSellPrice.toLocaleString()}
                           円の指値注文で利益を確保する方法もあります
