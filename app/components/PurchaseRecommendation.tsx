@@ -2,11 +2,27 @@
 
 import { useEffect, useState } from "react";
 import AnalysisTimestamp from "./AnalysisTimestamp";
-import { UPDATE_SCHEDULES } from "@/lib/constants";
+import { UPDATE_SCHEDULES, INVESTMENT_STYLE_CONFIG } from "@/lib/constants";
+import { useTranslations } from "next-intl";
 
 interface PurchaseRecommendationProps {
   stockId: string;
   onAnalysisDateLoaded?: (date: string | null) => void;
+}
+
+interface StyleAnalysisData {
+  recommendation: string;
+  confidence: number;
+  statusType?: string;
+  marketSignal?: string;
+  advice?: string;
+  reason?: string;
+  caution?: string;
+  buyCondition?: string | null;
+  buyTiming?: string | null;
+  dipTargetPrice?: number | null;
+  sellTiming?: string | null;
+  sellTargetPrice?: number | null;
 }
 
 interface RecommendationData {
@@ -56,6 +72,8 @@ interface RecommendationData {
   // 売りタイミング（avoid時）
   sellTiming?: "market" | "rebound" | null;
   sellTargetPrice?: number | null;
+  // 投資スタイル別分析
+  styleAnalyses?: Record<string, StyleAnalysisData> | null;
 }
 
 function AvoidSellTimingSection({
@@ -102,15 +120,20 @@ function AvoidSellTimingSection({
   return null;
 }
 
+const STYLE_KEYS = ["CONSERVATIVE", "BALANCED", "AGGRESSIVE"] as const;
+
 export default function PurchaseRecommendation({
   stockId,
   onAnalysisDateLoaded,
 }: PurchaseRecommendationProps) {
+  const t = useTranslations("stocks.styleAnalysis");
   const [data, setData] = useState<RecommendationData | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [noData, setNoData] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [userInvestmentStyle, setUserInvestmentStyle] = useState<string>("BALANCED");
+  const [selectedStyle, setSelectedStyle] = useState<string>("BALANCED");
 
   async function fetchRecommendation() {
     setLoading(true);
@@ -171,6 +194,17 @@ export default function PurchaseRecommendation({
   }
 
   useEffect(() => {
+    // ユーザーの投資スタイル設定を取得
+    fetch("/api/settings")
+      .then((res) => res.ok ? res.json() : null)
+      .then((settings) => {
+        if (settings?.settings?.investmentStyle) {
+          setUserInvestmentStyle(settings.settings.investmentStyle);
+          setSelectedStyle(settings.settings.investmentStyle);
+        }
+      })
+      .catch(() => {});
+
     fetchRecommendation();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stockId]);
@@ -259,8 +293,30 @@ export default function PurchaseRecommendation({
     );
   }
 
+  // スタイル別データのオーバーライド
+  const hasStyleAnalyses = data.styleAnalyses && Object.keys(data.styleAnalyses).length > 0;
+  const isUserStyle = selectedStyle === userInvestmentStyle;
+  const styleData = data.styleAnalyses?.[selectedStyle] ?? null;
+
+  // 選択スタイルがユーザーのデフォルトでない場合、スタイルデータでオーバーライド
+  const effectiveData: RecommendationData = styleData && !isUserStyle
+    ? {
+        ...data,
+        recommendation: styleData.recommendation as "buy" | "stay" | "avoid",
+        confidence: styleData.confidence,
+        reason: styleData.reason ?? data.reason,
+        caution: styleData.caution ?? data.caution,
+        marketSignal: styleData.marketSignal ?? data.marketSignal,
+        buyCondition: styleData.buyCondition ?? data.buyCondition,
+        buyTiming: (styleData.buyTiming as "market" | "dip" | null) ?? data.buyTiming,
+        dipTargetPrice: styleData.dipTargetPrice ?? data.dipTargetPrice,
+        sellTiming: (styleData.sellTiming as "market" | "rebound" | null) ?? data.sellTiming,
+        sellTargetPrice: styleData.sellTargetPrice ?? data.sellTargetPrice,
+      }
+    : data;
+
   // 信頼度パーセンテージ
-  const confidencePercent = Math.round(data.confidence * 100);
+  const confidencePercent = Math.round(effectiveData.confidence * 100);
 
   const getTrendIcon = (trend: string | null | undefined) => {
     switch (trend) {
@@ -329,16 +385,16 @@ export default function PurchaseRecommendation({
   };
 
   const MarketSignalRow = () => {
-    if (!data?.marketSignal) return null;
+    if (!effectiveData?.marketSignal) return null;
     return (
       <div className="flex items-center gap-2 mb-3">
         <span className="text-xs text-gray-500">マーケットシグナル</span>
-        {getMarketSignalBadge(data.marketSignal)}
+        {getMarketSignalBadge(effectiveData.marketSignal)}
       </div>
     );
   };
 
-  // 価格帯予測セクション（A）
+  // 価格帯予測セクション（A）- 価格帯予測はスタイルに依存しないので元のdataを使用
   const PredictionSection = () => {
     const hasPrediction =
       data?.shortTermTrend || data?.midTermTrend || data?.longTermTrend;
@@ -428,18 +484,18 @@ export default function PurchaseRecommendation({
   // AI推奨価格セクション（ウォッチリスト：指値 + 購入後の損切りライン）
   const AIPriceSection = () => {
     // 指値も損切りもない場合は非表示
-    if (!data?.limitPrice && !data?.stopLossPrice) return null;
+    if (!effectiveData?.limitPrice && !effectiveData?.stopLossPrice) return null;
 
-    const currentPrice = data.currentPrice;
-    const limitPriceNum = data.limitPrice;
-    const stopLossPriceNum = data.stopLossPrice;
+    const currentPrice = effectiveData.currentPrice;
+    const limitPriceNum = effectiveData.limitPrice;
+    const stopLossPriceNum = effectiveData.stopLossPrice;
     const priceDiff =
       currentPrice && limitPriceNum ? limitPriceNum - currentPrice : 0;
     // buy推奨時のみ「今が買い時」と表示する（stay/avoid時は矛盾を避けるため単なる指値として表示）
     // また「押し目買い推奨（dip）」の時に「成行で購入OK」と出ると矛盾するため、"market"の時のみとする
     const isNowBuyTime =
-      data.recommendation === "buy" &&
-      data.buyTiming === "market" &&
+      effectiveData.recommendation === "buy" &&
+      effectiveData.buyTiming === "market" &&
       currentPrice &&
       limitPriceNum &&
       Math.abs(priceDiff / currentPrice) < 0.01;
@@ -483,7 +539,7 @@ export default function PurchaseRecommendation({
     );
   };
 
-  // 深掘り評価セクション（B）
+  // 深掘り評価セクション（B）- パーソナライズ系はスタイルに依存しないので元のdataを使用
   const DeepEvaluationSection = () => {
     if (!data?.positives && !data?.concerns && !data?.suitableFor) return null;
     return (
@@ -594,9 +650,9 @@ export default function PurchaseRecommendation({
 
   // 購入タイミングセクション（buy推奨時のみ）
   const BuyTimingSection = () => {
-    if (data?.recommendation !== "buy" || !data?.buyTiming) return null;
+    if (effectiveData?.recommendation !== "buy" || !effectiveData?.buyTiming) return null;
 
-    if (data.buyTiming === "market") {
+    if (effectiveData.buyTiming === "market") {
       return (
         <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
           <div className="flex items-center gap-2 mb-1">
@@ -611,7 +667,7 @@ export default function PurchaseRecommendation({
       );
     }
 
-    if (data.buyTiming === "dip") {
+    if (effectiveData.buyTiming === "dip") {
       return (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
           <div className="flex items-center gap-2 mb-1">
@@ -619,11 +675,11 @@ export default function PurchaseRecommendation({
               押し目買い推奨
             </span>
           </div>
-          {data.dipTargetPrice && (
+          {effectiveData.dipTargetPrice && (
             <p className="text-sm text-gray-700 mb-2">
               25日移動平均線の
               <span className="font-bold">
-                ¥{formatPrice(data.dipTargetPrice)}
+                ¥{formatPrice(effectiveData.dipTargetPrice!)}
               </span>
               付近まで待つとより有利です。
             </p>
@@ -637,6 +693,54 @@ export default function PurchaseRecommendation({
     }
 
     return null;
+  };
+
+  // 投資スタイル切り替えタブ
+  const StyleTabs = () => {
+    if (!hasStyleAnalyses) return null;
+    return (
+      <div className="flex gap-1 bg-gray-100 rounded-lg p-1 mb-3">
+        {STYLE_KEYS.map((style) => {
+          const config = INVESTMENT_STYLE_CONFIG[style];
+          const isSelected = selectedStyle === style;
+          const isDefault = userInvestmentStyle === style;
+          const styleResult = data.styleAnalyses?.[style];
+          return (
+            <button
+              key={style}
+              onClick={() => setSelectedStyle(style)}
+              className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-all ${
+                isSelected
+                  ? "bg-white shadow-sm text-gray-900"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              <span>{config.icon}</span>
+              <span className="hidden sm:inline">{config.text}</span>
+              <span className="sm:hidden">{t(`tabs.${style}`)}</span>
+              {isDefault && (
+                <span className="ml-0.5 w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />
+              )}
+              {styleResult && (
+                <span className={`ml-0.5 text-[10px] font-bold ${
+                  styleResult.recommendation === "buy"
+                    ? "text-green-600"
+                    : styleResult.recommendation === "stay" || styleResult.recommendation === "hold"
+                      ? "text-yellow-600"
+                      : "text-red-600"
+                }`}>
+                  {styleResult.recommendation === "buy" ? t("labels.buy") :
+                   styleResult.recommendation === "stay" ? t("labels.stay") :
+                   styleResult.recommendation === "hold" ? t("labels.hold") :
+                   styleResult.recommendation === "avoid" ? t("labels.avoid") :
+                   styleResult.recommendation === "sell" ? t("labels.sell") : ""}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    );
   };
 
   // ヘッダーコンポーネント
@@ -676,10 +780,11 @@ export default function PurchaseRecommendation({
   );
 
   // 買い推奨
-  if (data.recommendation === "buy") {
+  if (effectiveData.recommendation === "buy") {
     return (
       <div>
         <ReanalyzeHeader />
+        <StyleTabs />
         <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg shadow-md p-4 sm:p-6 mb-4">
           <div className="flex items-center gap-2 mb-4">
             <span className="text-2xl">💡</span>
@@ -688,7 +793,7 @@ export default function PurchaseRecommendation({
             </h3>
           </div>
 
-          <p className="text-sm text-gray-700 mb-4">{data.reason}</p>
+          <p className="text-sm text-gray-700 mb-4">{effectiveData.reason}</p>
 
           {/* 購入タイミング */}
           <BuyTimingSection />
@@ -700,7 +805,7 @@ export default function PurchaseRecommendation({
           <DeepEvaluationSection />
 
           <div className="bg-amber-50 border-l-4 border-amber-400 p-3 mb-4">
-            <p className="text-xs text-amber-800">⚠️ {data.caution}</p>
+            <p className="text-xs text-amber-800">⚠️ {effectiveData.caution}</p>
           </div>
 
           <MarketSignalRow />
@@ -733,10 +838,11 @@ export default function PurchaseRecommendation({
   }
 
   // 見送り推奨（avoid）
-  if (data.recommendation === "avoid") {
+  if (effectiveData.recommendation === "avoid") {
     return (
       <div>
         <ReanalyzeHeader />
+        <StyleTabs />
         <div className="bg-gradient-to-br from-red-50 to-rose-50 rounded-lg shadow-md p-4 sm:p-6 mb-4">
           <div className="flex items-center gap-2 mb-4">
             <span className="text-2xl">🚫</span>
@@ -745,7 +851,7 @@ export default function PurchaseRecommendation({
             </h3>
           </div>
 
-          <p className="text-sm text-gray-700 mb-4">{data.reason}</p>
+          <p className="text-sm text-gray-700 mb-4">{effectiveData.reason}</p>
 
           <div className="bg-red-100 border-l-4 border-red-500 p-3 mb-4">
             <p className="text-xs text-red-800 font-semibold">
@@ -759,12 +865,12 @@ export default function PurchaseRecommendation({
 
           {/* 売りタイミング */}
           <AvoidSellTimingSection
-            sellTiming={data.sellTiming}
-            sellTargetPrice={data.sellTargetPrice}
+            sellTiming={effectiveData.sellTiming}
+            sellTargetPrice={effectiveData.sellTargetPrice}
           />
 
           <div className="bg-amber-50 border-l-4 border-amber-400 p-3 mb-4">
-            <p className="text-xs text-amber-800">⚠️ {data.caution}</p>
+            <p className="text-xs text-amber-800">⚠️ {effectiveData.caution}</p>
           </div>
 
           <MarketSignalRow />
@@ -800,6 +906,7 @@ export default function PurchaseRecommendation({
   return (
     <div>
       <ReanalyzeHeader />
+      <StyleTabs />
       <div className="bg-gradient-to-br from-blue-50 to-sky-50 rounded-lg shadow-md p-4 sm:p-6 mb-4">
         <div className="flex items-center gap-2 mb-4">
           <span className="text-2xl">⏳</span>
@@ -808,7 +915,7 @@ export default function PurchaseRecommendation({
           </h3>
         </div>
 
-        <p className="text-sm text-gray-700 mb-4">{data.reason}</p>
+        <p className="text-sm text-gray-700 mb-4">{effectiveData.reason}</p>
 
         {/* D. パーソナライズ */}
         <PersonalizedSection />
@@ -820,12 +927,12 @@ export default function PurchaseRecommendation({
         </div>
 
         {/* C. 買い時条件 */}
-        {data.buyCondition && (
+        {effectiveData.buyCondition && (
           <div className="bg-emerald-50 border-l-4 border-emerald-400 p-3 mb-4">
             <p className="text-xs font-semibold text-emerald-700 mb-2">
               📈 こうなったら買い時
             </p>
-            <p className="text-sm text-emerald-800">{data.buyCondition}</p>
+            <p className="text-sm text-emerald-800">{effectiveData.buyCondition}</p>
           </div>
         )}
 
@@ -833,7 +940,7 @@ export default function PurchaseRecommendation({
         <DeepEvaluationSection />
 
         <div className="bg-amber-50 border-l-4 border-amber-400 p-3 mb-4">
-          <p className="text-xs text-amber-800">⚠️ {data.caution}</p>
+          <p className="text-xs text-amber-800">⚠️ {effectiveData.caution}</p>
         </div>
 
         <MarketSignalRow />

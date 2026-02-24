@@ -109,10 +109,14 @@ export default function StockAnalysisCard({
     setLoading(true);
     setError("");
     try {
-      // シミュレーションモードの場合はシミュレーション用API
+      // シミュレーション → simulated-portfolio-analysis
+      // ポートフォリオ（quantity有） → portfolio-analysis
+      // ウォッチリスト（quantity無） → purchase-recommendation
       const endpoint = isSimulation
         ? `/api/stocks/${stockId}/simulated-portfolio-analysis`
-        : `/api/stocks/${stockId}/portfolio-analysis`;
+        : quantity
+          ? `/api/stocks/${stockId}/portfolio-analysis`
+          : `/api/stocks/${stockId}/purchase-recommendation`;
 
       const response = await fetch(endpoint);
 
