@@ -207,10 +207,10 @@ export function buildPortfolioStockResponse(params: {
     shortTerm: portfolioStock.shortTerm,
     mediumTerm: portfolioStock.mediumTerm,
     longTerm: portfolioStock.longTerm,
-    takeProfitRate: portfolioStock.takeProfitRate
+    takeProfitRate: portfolioStock.takeProfitRate != null
       ? Number(portfolioStock.takeProfitRate)
       : null,
-    stopLossRate: portfolioStock.stopLossRate
+    stopLossRate: portfolioStock.stopLossRate != null
       ? Number(portfolioStock.stopLossRate)
       : null,
     statusType: portfolioStock.statusType,

@@ -334,10 +334,10 @@ async function handleUpdate(
       shortTerm: updated.shortTerm,
       mediumTerm: updated.mediumTerm,
       longTerm: updated.longTerm,
-      takeProfitRate: updated.takeProfitRate
+      takeProfitRate: updated.takeProfitRate != null
         ? Number(updated.takeProfitRate)
         : null,
-      stopLossRate: updated.stopLossRate ? Number(updated.stopLossRate) : null,
+      stopLossRate: updated.stopLossRate != null ? Number(updated.stopLossRate) : null,
       transactions: updated.transactions.map((t) => ({
         id: t.id,
         type: t.type,

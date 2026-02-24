@@ -260,8 +260,8 @@ export async function GET(request: NextRequest) {
         shortTerm: ps.shortTerm,
         mediumTerm: ps.mediumTerm,
         longTerm: ps.longTerm,
-        takeProfitRate: ps.takeProfitRate ? Number(ps.takeProfitRate) : null,
-        stopLossRate: ps.stopLossRate ? Number(ps.stopLossRate) : null,
+        takeProfitRate: ps.takeProfitRate != null ? Number(ps.takeProfitRate) : null,
+        stopLossRate: ps.stopLossRate != null ? Number(ps.stopLossRate) : null,
         recommendation,
         analyzedAt,
         // ステータス

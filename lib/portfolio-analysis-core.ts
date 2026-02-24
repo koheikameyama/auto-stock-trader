@@ -334,10 +334,10 @@ export async function executePortfolioAnalysis(
     gapFillContext,
     supportResistanceContext,
     trendlineContext,
-    takeProfitRate: portfolioStock.takeProfitRate
+    takeProfitRate: portfolioStock.takeProfitRate != null
       ? Number(portfolioStock.takeProfitRate)
       : null,
-    stopLossRate: portfolioStock.stopLossRate
+    stopLossRate: portfolioStock.stopLossRate != null
       ? Number(portfolioStock.stopLossRate)
       : null,
     defaultTakeProfitRate: userSettings?.targetReturnRate,

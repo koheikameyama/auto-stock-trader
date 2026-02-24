@@ -208,10 +208,10 @@ export async function POST(
       shortTerm: result.shortTerm,
       mediumTerm: result.mediumTerm,
       longTerm: result.longTerm,
-      takeProfitRate: result.takeProfitRate
+      takeProfitRate: result.takeProfitRate != null
         ? Number(result.takeProfitRate)
         : null,
-      stopLossRate: result.stopLossRate ? Number(result.stopLossRate) : null,
+      stopLossRate: result.stopLossRate != null ? Number(result.stopLossRate) : null,
       transactions: result.transactions.map((t) => ({
         id: t.id,
         type: t.type,

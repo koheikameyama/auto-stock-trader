@@ -243,10 +243,10 @@ async function StockDetailContent({
     averagePurchasePrice: calculatedAveragePrice,
     purchaseDate: calculatedPurchaseDate,
     // Individual TP/SL settings (rates in %)
-    takeProfitRate: portfolioStock?.takeProfitRate
+    takeProfitRate: portfolioStock?.takeProfitRate != null
       ? Number(portfolioStock.takeProfitRate)
       : null,
-    stopLossRate: portfolioStock?.stopLossRate
+    stopLossRate: portfolioStock?.stopLossRate != null
       ? Number(portfolioStock.stopLossRate)
       : null,
     // Watchlist fields

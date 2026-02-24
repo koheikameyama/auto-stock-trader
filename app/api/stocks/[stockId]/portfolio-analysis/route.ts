@@ -105,10 +105,10 @@ export async function GET(
     const todayJST = dayjs().tz("Asia/Tokyo").startOf("day")
 
     // 個別設定を優先、なければユーザー設定をフォールバック
-    const targetReturnRate = portfolioStock.takeProfitRate
+    const targetReturnRate = portfolioStock.takeProfitRate != null
       ? Number(portfolioStock.takeProfitRate)
       : userSettings?.targetReturnRate ?? null
-    const stopLossRate = portfolioStock.stopLossRate
+    const stopLossRate = portfolioStock.stopLossRate != null
       ? Number(portfolioStock.stopLossRate)
       : userSettings?.stopLossRate ?? null
 
