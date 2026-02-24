@@ -24,7 +24,7 @@
   },
   "notificationSchedule": {
     "title": "通知スケジュール",
-    "stockAnalysis": "ポートフォリオ分析・購入レコメンド（平日）",
+    "stockAnalysis": "保有銘柄分析・購入レコメンド（平日）",
     "personalRecommendations": "あなたへのおすすめ更新（平日）"
   },
   "investmentStyleSection": {
@@ -180,7 +180,7 @@
     "timezone": "タイムゾーン"
   },
   "portfolio": {
-    "title": "ポートフォリオ設定",
+    "title": "保有銘柄設定",
     "defaultTakeProfitRate": "デフォルト利確率",
     "defaultStopLossRate": "デフォルト損切率",
     "riskTolerance": "リスク許容度",

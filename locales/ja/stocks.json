@@ -75,10 +75,10 @@
     "resistance": "レジスタンスライン"
   },
   "actions": {
-    "addToPortfolio": "ポートフォリオに追加",
-    "addToWatchlist": "ウォッチリストに追加",
-    "removeFromPortfolio": "ポートフォリオから削除",
-    "removeFromWatchlist": "ウォッチリストから削除",
+    "addToPortfolio": "保有銘柄に追加",
+    "addToWatchlist": "気になる銘柄に追加",
+    "removeFromPortfolio": "保有銘柄から削除",
+    "removeFromWatchlist": "気になる銘柄から削除",
     "track": "追跡する",
     "untrack": "追跡を解除"
   },

@@ -747,7 +747,7 @@ export default function MyStocksClient() {
                 : "text-gray-500 hover:text-gray-700"
             }`}
           >
-            {t('tabs.watchlistAlt')} ({watchlistStocks.length})
+            {t('tabs.watchlist')} ({watchlistStocks.length})
           </button>
           <button
             onClick={() => setActiveTab("tracked")}

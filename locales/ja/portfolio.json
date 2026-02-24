@@ -1,5 +1,5 @@
 {
-  "title": "ポートフォリオ",
+  "title": "マイ銘柄",
   "myStocks": "マイ銘柄",
   "description": "気になる銘柄と保有銘柄を一覧管理",
   "backToDashboard": "ダッシュボードに戻る",
@@ -19,8 +19,7 @@
   },
   "tabs": {
     "holdings": "保有中",
-    "watchlist": "ウォッチリスト",
-    "watchlistAlt": "気になる",
+    "watchlist": "気になる",
     "sold": "売却済み",
     "soldAlt": "過去の保有",
     "tracked": "追跡銘柄",
@@ -37,8 +36,8 @@
     "title": "銘柄を追加",
     "searchPlaceholder": "銘柄名またはティッカーで検索",
     "selectType": "追加先を選択",
-    "portfolio": "ポートフォリオ",
-    "watchlist": "ウォッチリスト",
+    "portfolio": "保有中",
+    "watchlist": "気になる",
     "purchaseDate": "購入日",
     "quantity": "株数",
     "purchasePrice": "購入価格",
@@ -95,7 +94,7 @@
     "movedToSold": "過去の保有に移動しました"
   },
   "analysis": {
-    "title": "ポートフォリオ分析",
+    "title": "保有銘柄分析",
     "overallAnalysis": "総合分析",
     "composition": "構成",
     "history": "履歴",
@@ -108,8 +107,8 @@
     "enableAlerts": "アラートを有効にする"
   },
   "limits": {
-    "portfolioMax": "ポートフォリオは最大{max}銘柄まで追加できます",
-    "watchlistMax": "ウォッチリストは最大{max}銘柄まで追加できます",
+    "portfolioMax": "保有銘柄は最大{max}銘柄まで追加できます",
+    "watchlistMax": "気になる銘柄は最大{max}銘柄まで追加できます",
     "trackedMax": "追跡銘柄は最大{max}銘柄まで追加できます"
   },
   "importCsv": {
