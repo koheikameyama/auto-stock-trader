@@ -51,5 +51,8 @@
   },
   "badge": {
     "tokyoStockExchange": "東証限定"
+  },
+  "tooltip": {
+    "showDescription": "用語の説明を表示"
   }
 }
