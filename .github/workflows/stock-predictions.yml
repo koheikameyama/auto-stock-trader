@@ -2,9 +2,9 @@ name: Stock Predictions & Analysis
 
 on:
   schedule:
-    # 前場・後場の開始時と大引けの3回実行
-    - cron: '0 0 * * 1-5'    # 9:00 JST - 前場開始（月〜金）
-    - cron: '30 3 * * 1-5'   # 12:30 JST - 後場開始
+    # 寄付き後・後場寄付き後・大引けの3回実行
+    - cron: '30 0 * * 1-5'   # 9:30 JST - 前場寄付き後（月〜金）
+    - cron: '0 4 * * 1-5'    # 13:00 JST - 後場寄付き後
     - cron: '30 6 * * 1-5'   # 15:30 JST - 大引け
   workflow_dispatch:
     inputs:
