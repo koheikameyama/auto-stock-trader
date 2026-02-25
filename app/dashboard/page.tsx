@@ -145,7 +145,7 @@ export default async function DashboardPage() {
                             : "bg-gray-100 text-gray-600"
                         }`}
                       >
-                        {t('investmentStyle.takeProfit')}{" "}
+                        {t('investmentStyle.sellTarget')}{" "}
                         {user.settings.targetReturnRate
                           ? `+${user.settings.targetReturnRate}%`
                           : t('investmentStyle.aiManaged')}
@@ -157,7 +157,7 @@ export default async function DashboardPage() {
                             : "bg-gray-100 text-gray-600"
                         }`}
                       >
-                        {t('investmentStyle.stopLoss')}{" "}
+                        {t('investmentStyle.exitLine')}{" "}
                         {user.settings.stopLossRate
                           ? `${user.settings.stopLossRate}%`
                           : t('investmentStyle.aiManaged')}

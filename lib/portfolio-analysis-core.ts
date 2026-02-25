@@ -64,22 +64,22 @@ export class AnalysisError extends Error {
 function calculatePricesFromRates(params: {
   currentPrice: number;
   averagePrice: number;
-  takeProfitRate: number | null;
-  stopLossRate: number | null;
+  sellTargetRate: number | null;
+  exitRate: number | null;
 }): {
   suggestedSellPrice: number | null;
   suggestedStopLossPrice: number | null;
 } {
-  const { currentPrice, averagePrice, takeProfitRate, stopLossRate } = params;
+  const { currentPrice, averagePrice, sellTargetRate, exitRate } = params;
 
   const suggestedSellPrice =
-    takeProfitRate != null
-      ? Math.round(currentPrice * (1 + takeProfitRate))
+    sellTargetRate != null
+      ? Math.round(currentPrice * (1 + sellTargetRate))
       : null;
 
   let suggestedStopLossPrice: number | null = null;
-  if (stopLossRate != null) {
-    const rawStopLoss = Math.round(currentPrice * (1 - stopLossRate));
+  if (exitRate != null) {
+    const rawStopLoss = Math.round(currentPrice * (1 - exitRate));
     const hasUnrealizedGain = currentPrice > averagePrice;
     suggestedStopLossPrice = hasUnrealizedGain
       ? Math.max(rawStopLoss, Math.round(averagePrice))
@@ -437,10 +437,10 @@ export async function executePortfolioAnalysis(
                     sellReason: { type: ["string", "null"] },
                     sellCondition: { type: ["string", "null"] },
                     suggestedSellPercent: { type: ["integer", "null"], enum: [25, 50, 75, 100, null] },
-                    suggestedStopLossRate: { type: ["number", "null"] },
-                    suggestedTakeProfitRate: { type: ["number", "null"] },
+                    suggestedExitRate: { type: ["number", "null"] },
+                    suggestedSellTargetRate: { type: ["number", "null"] },
                   },
-                  required: ["recommendation", "confidence", "statusType", "advice", "shortTerm", "sellReason", "sellCondition", "suggestedSellPercent", "suggestedStopLossRate", "suggestedTakeProfitRate"],
+                  required: ["recommendation", "confidence", "statusType", "advice", "shortTerm", "sellReason", "sellCondition", "suggestedSellPercent", "suggestedExitRate", "suggestedSellTargetRate"],
                   additionalProperties: false,
                 },
                 BALANCED: {
@@ -454,10 +454,10 @@ export async function executePortfolioAnalysis(
                     sellReason: { type: ["string", "null"] },
                     sellCondition: { type: ["string", "null"] },
                     suggestedSellPercent: { type: ["integer", "null"], enum: [25, 50, 75, 100, null] },
-                    suggestedStopLossRate: { type: ["number", "null"] },
-                    suggestedTakeProfitRate: { type: ["number", "null"] },
+                    suggestedExitRate: { type: ["number", "null"] },
+                    suggestedSellTargetRate: { type: ["number", "null"] },
                   },
-                  required: ["recommendation", "confidence", "statusType", "advice", "shortTerm", "sellReason", "sellCondition", "suggestedSellPercent", "suggestedStopLossRate", "suggestedTakeProfitRate"],
+                  required: ["recommendation", "confidence", "statusType", "advice", "shortTerm", "sellReason", "sellCondition", "suggestedSellPercent", "suggestedExitRate", "suggestedSellTargetRate"],
                   additionalProperties: false,
                 },
                 AGGRESSIVE: {
@@ -471,10 +471,10 @@ export async function executePortfolioAnalysis(
                     sellReason: { type: ["string", "null"] },
                     sellCondition: { type: ["string", "null"] },
                     suggestedSellPercent: { type: ["integer", "null"], enum: [25, 50, 75, 100, null] },
-                    suggestedStopLossRate: { type: ["number", "null"] },
-                    suggestedTakeProfitRate: { type: ["number", "null"] },
+                    suggestedExitRate: { type: ["number", "null"] },
+                    suggestedSellTargetRate: { type: ["number", "null"] },
                   },
-                  required: ["recommendation", "confidence", "statusType", "advice", "shortTerm", "sellReason", "sellCondition", "suggestedSellPercent", "suggestedStopLossRate", "suggestedTakeProfitRate"],
+                  required: ["recommendation", "confidence", "statusType", "advice", "shortTerm", "sellReason", "sellCondition", "suggestedSellPercent", "suggestedExitRate", "suggestedSellTargetRate"],
                   additionalProperties: false,
                 },
               },
@@ -610,8 +610,8 @@ export async function executePortfolioAnalysis(
         calculatePricesFromRates({
           currentPrice,
           averagePrice,
-          takeProfitRate: sa.suggestedTakeProfitRate,
-          stopLossRate: sa.suggestedStopLossRate,
+          sellTargetRate: sa.suggestedSellTargetRate,
+          exitRate: sa.suggestedExitRate,
         });
       sa.suggestedSellPrice = suggestedSellPrice;
       sa.suggestedStopLossPrice = suggestedStopLossPrice;
@@ -983,10 +983,10 @@ export async function executeSimulatedPortfolioAnalysis(
                     sellReason: { type: ["string", "null"] },
                     sellCondition: { type: ["string", "null"] },
                     suggestedSellPercent: { type: ["integer", "null"], enum: [25, 50, 75, 100, null] },
-                    suggestedStopLossRate: { type: ["number", "null"] },
-                    suggestedTakeProfitRate: { type: ["number", "null"] },
+                    suggestedExitRate: { type: ["number", "null"] },
+                    suggestedSellTargetRate: { type: ["number", "null"] },
                   },
-                  required: ["recommendation", "confidence", "statusType", "advice", "shortTerm", "sellReason", "sellCondition", "suggestedSellPercent", "suggestedStopLossRate", "suggestedTakeProfitRate"],
+                  required: ["recommendation", "confidence", "statusType", "advice", "shortTerm", "sellReason", "sellCondition", "suggestedSellPercent", "suggestedExitRate", "suggestedSellTargetRate"],
                   additionalProperties: false,
                 },
                 BALANCED: {
@@ -1000,10 +1000,10 @@ export async function executeSimulatedPortfolioAnalysis(
                     sellReason: { type: ["string", "null"] },
                     sellCondition: { type: ["string", "null"] },
                     suggestedSellPercent: { type: ["integer", "null"], enum: [25, 50, 75, 100, null] },
-                    suggestedStopLossRate: { type: ["number", "null"] },
-                    suggestedTakeProfitRate: { type: ["number", "null"] },
+                    suggestedExitRate: { type: ["number", "null"] },
+                    suggestedSellTargetRate: { type: ["number", "null"] },
                   },
-                  required: ["recommendation", "confidence", "statusType", "advice", "shortTerm", "sellReason", "sellCondition", "suggestedSellPercent", "suggestedStopLossRate", "suggestedTakeProfitRate"],
+                  required: ["recommendation", "confidence", "statusType", "advice", "shortTerm", "sellReason", "sellCondition", "suggestedSellPercent", "suggestedExitRate", "suggestedSellTargetRate"],
                   additionalProperties: false,
                 },
                 AGGRESSIVE: {
@@ -1017,10 +1017,10 @@ export async function executeSimulatedPortfolioAnalysis(
                     sellReason: { type: ["string", "null"] },
                     sellCondition: { type: ["string", "null"] },
                     suggestedSellPercent: { type: ["integer", "null"], enum: [25, 50, 75, 100, null] },
-                    suggestedStopLossRate: { type: ["number", "null"] },
-                    suggestedTakeProfitRate: { type: ["number", "null"] },
+                    suggestedExitRate: { type: ["number", "null"] },
+                    suggestedSellTargetRate: { type: ["number", "null"] },
                   },
-                  required: ["recommendation", "confidence", "statusType", "advice", "shortTerm", "sellReason", "sellCondition", "suggestedSellPercent", "suggestedStopLossRate", "suggestedTakeProfitRate"],
+                  required: ["recommendation", "confidence", "statusType", "advice", "shortTerm", "sellReason", "sellCondition", "suggestedSellPercent", "suggestedExitRate", "suggestedSellTargetRate"],
                   additionalProperties: false,
                 },
               },
@@ -1155,8 +1155,8 @@ export async function executeSimulatedPortfolioAnalysis(
         calculatePricesFromRates({
           currentPrice,
           averagePrice,
-          takeProfitRate: sa.suggestedTakeProfitRate,
-          stopLossRate: sa.suggestedStopLossRate,
+          sellTargetRate: sa.suggestedSellTargetRate,
+          exitRate: sa.suggestedExitRate,
         });
       sa.suggestedSellPrice = suggestedSellPrice;
       sa.suggestedStopLossPrice = suggestedStopLossPrice;

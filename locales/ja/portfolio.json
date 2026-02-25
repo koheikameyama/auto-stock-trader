@@ -101,8 +101,8 @@
     "performance": "パフォーマンス"
   },
   "settings": {
-    "takeProfitLine": "利確ライン",
-    "stopLossLine": "損切りライン",
+    "sellTargetLine": "売却目標",
+    "exitLine": "撤退ライン",
     "targetBuyPrice": "目標購入価格",
     "enableAlerts": "アラートを有効にする"
   },

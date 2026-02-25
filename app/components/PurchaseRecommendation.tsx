@@ -26,8 +26,8 @@ interface StyleAnalysisData {
   dipTargetPrice?: number | null;
   sellTiming?: string | null;
   sellTargetPrice?: number | null;
-  suggestedStopLossRate?: number | null;
-  suggestedTakeProfitRate?: number | null;
+  suggestedExitRate?: number | null;
+  suggestedSellTargetRate?: number | null;
 }
 
 interface RecommendationData {
@@ -78,8 +78,8 @@ interface RecommendationData {
   sellTiming?: "market" | "rebound" | null;
   sellTargetPrice?: number | null;
   // リスク管理メタパラメータ
-  suggestedStopLossRate?: number | null;
-  suggestedTakeProfitRate?: number | null;
+  suggestedExitRate?: number | null;
+  suggestedSellTargetRate?: number | null;
   // 投資スタイル別分析
   styleAnalyses?: Record<string, StyleAnalysisData> | null;
 }
@@ -320,13 +320,13 @@ export default function PurchaseRecommendation({
         dipTargetPrice: styleData.dipTargetPrice ?? data.dipTargetPrice,
         sellTiming: (styleData.sellTiming as "market" | "rebound" | null) ?? data.sellTiming,
         sellTargetPrice: styleData.sellTargetPrice ?? data.sellTargetPrice,
-        suggestedStopLossRate: styleData.suggestedStopLossRate ?? null,
-        suggestedTakeProfitRate: styleData.suggestedTakeProfitRate ?? null,
+        suggestedExitRate: styleData.suggestedExitRate ?? (styleData as any).suggestedStopLossRate ?? null,
+        suggestedSellTargetRate: styleData.suggestedSellTargetRate ?? (styleData as any).suggestedTakeProfitRate ?? null,
       }
     : {
         ...data,
-        suggestedStopLossRate: styleData?.suggestedStopLossRate ?? null,
-        suggestedTakeProfitRate: styleData?.suggestedTakeProfitRate ?? null,
+        suggestedExitRate: styleData?.suggestedExitRate ?? (styleData as any)?.suggestedStopLossRate ?? null,
+        suggestedSellTargetRate: styleData?.suggestedSellTargetRate ?? (styleData as any)?.suggestedTakeProfitRate ?? null,
       };
 
   // 信頼度パーセンテージ
@@ -497,7 +497,7 @@ export default function PurchaseRecommendation({
 
   // AI推奨価格セクション（ウォッチリスト：指値 + 購入後の撤退ライン）
   const AIPriceSection = () => {
-    // 指値も損切りもない場合は非表示
+    // 指値も撤退ラインもない場合は非表示
     if (!effectiveData?.limitPrice && !effectiveData?.stopLossPrice) return null;
 
     const currentPrice = effectiveData.currentPrice;
@@ -745,10 +745,10 @@ export default function PurchaseRecommendation({
     return null;
   };
 
-  // リスク管理セクション（損切り率・利確率）
+  // リスク管理セクション（撤退ライン率・売却目標率）
   const RiskManagementSection = () => {
-    const stopLoss = effectiveData?.suggestedStopLossRate;
-    const takeProfit = effectiveData?.suggestedTakeProfitRate;
+    const stopLoss = effectiveData?.suggestedExitRate;
+    const takeProfit = effectiveData?.suggestedSellTargetRate;
     if (!stopLoss && !takeProfit) return null;
 
     const stopLossPercent = stopLoss ? Math.round(stopLoss * 100) : null;
@@ -771,10 +771,10 @@ export default function PurchaseRecommendation({
           )}
           {takeProfitPercent && (
             <div>
-              <p className="text-xs text-gray-500">{t("riskManagement.takeProfit")}</p>
+              <p className="text-xs text-gray-500">{t("riskManagement.sellTarget")}</p>
               <p className="text-base font-bold text-green-600">+{takeProfitPercent}%</p>
               <p className="text-xs text-gray-400">
-                {t("riskManagement.takeProfitDesc", { rate: String(takeProfitPercent) })}
+                {t("riskManagement.sellTargetDesc", { rate: String(takeProfitPercent) })}
               </p>
             </div>
           )}
@@ -855,7 +855,7 @@ export default function PurchaseRecommendation({
           {/* 購入タイミング */}
           <BuyTimingSection />
 
-          {/* リスク管理（損切り率・利確率） */}
+          {/* リスク管理（撤退ライン率・売却目標率） */}
           <RiskManagementSection />
 
           {/* D. パーソナライズ */}
@@ -1053,7 +1053,7 @@ export default function PurchaseRecommendation({
           </div>
         )}
 
-        {/* リスク管理（損切り率・利確率） */}
+        {/* リスク管理（撤退ライン率・売却目標率） */}
         <RiskManagementSection />
 
         {/* B. 深掘り評価 */}

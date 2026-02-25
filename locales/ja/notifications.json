@@ -45,7 +45,7 @@
       "icon": "🎯"
     },
     "stop_loss": {
-      "label": "損切り",
+      "label": "撤退ライン到達",
       "icon": "⚠️"
     },
     "default": {

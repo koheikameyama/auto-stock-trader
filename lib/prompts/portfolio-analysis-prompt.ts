@@ -162,8 +162,8 @@ ${newsContext}${marketContext}${sectorTrendContext}
       "sellReason": "売却理由（sellの場合のみ、holdやbuyの場合はnull）",
       "sellCondition": "売却条件（sellの場合のみ、holdやbuyの場合はnull）",
       "suggestedSellPercent": 推奨売却割合（25, 50, 75, 100のいずれか。sellの場合のみ、holdやbuyの場合はnull）,
-      "suggestedStopLossRate": 推奨撤退ライン率（0.03〜0.10。慎重派は狭め。数値のみ）,
-      "suggestedTakeProfitRate": 推奨売却目標率（0.05〜0.20。慎重派は控えめ。数値のみ）
+      "suggestedExitRate": 推奨撤退ライン率（0.03〜0.10。慎重派は狭め。数値のみ）,
+      "suggestedSellTargetRate": 推奨売却目標率（0.05〜0.20。慎重派は控えめ。数値のみ）
     },
     "BALANCED": {
       "recommendation": "buy" | "hold" | "sell",
@@ -174,8 +174,8 @@ ${newsContext}${marketContext}${sectorTrendContext}
       "sellReason": "売却理由（sellの場合のみ、holdやbuyの場合はnull）",
       "sellCondition": "売却条件（sellの場合のみ、holdやbuyの場合はnull）",
       "suggestedSellPercent": 推奨売却割合（25, 50, 75, 100のいずれか。sellの場合のみ、holdやbuyの場合はnull）,
-      "suggestedStopLossRate": 推奨撤退ライン率（0.05〜0.15。バランス型は中間。数値のみ）,
-      "suggestedTakeProfitRate": 推奨売却目標率（0.10〜0.40。バランス型は中間。数値のみ）
+      "suggestedExitRate": 推奨撤退ライン率（0.05〜0.15。バランス型は中間。数値のみ）,
+      "suggestedSellTargetRate": 推奨売却目標率（0.10〜0.40。バランス型は中間。数値のみ）
     },
     "AGGRESSIVE": {
       "recommendation": "buy" | "hold" | "sell",
@@ -186,8 +186,8 @@ ${newsContext}${marketContext}${sectorTrendContext}
       "sellReason": "売却理由（sellの場合のみ、holdやbuyの場合はnull）",
       "sellCondition": "売却条件（sellの場合のみ、holdやbuyの場合はnull）",
       "suggestedSellPercent": 推奨売却割合（25, 50, 75, 100のいずれか。sellの場合のみ、holdやbuyの場合はnull）,
-      "suggestedStopLossRate": 推奨撤退ライン率（0.07〜0.20。積極派は広め。数値のみ）,
-      "suggestedTakeProfitRate": 推奨売却目標率（0.15〜0.50以上。積極派は高め。数値のみ）
+      "suggestedExitRate": 推奨撤退ライン率（0.07〜0.20。積極派は広め。数値のみ）,
+      "suggestedSellTargetRate": 推奨売却目標率（0.15〜0.50以上。積極派は高め。数値のみ）
     }
   }
 }
@@ -233,7 +233,7 @@ ${PROMPT_NEWS_CONSTRAINTS}
 - shortTerm: 主にテクニカル指標を根拠として、「様子見」「買い増し検討」「売却検討」のいずれかの判断を必ず結論に含める
 - mediumTerm: 主にファンダメンタルとトレンドを根拠として、今月の見通しと推奨行動を必ず結論に含める
 - longTerm: 主に事業展望・財務状況を根拠として、長期継続の判断を必ず結論に含める
-- suggestedStopLossRate / suggestedTakeProfitRate: 各スタイルごとに異なる率を設定すること（絶対価格はシステムが自動算出する）
+- suggestedExitRate / suggestedSellTargetRate: 各スタイルごとに異なる率を設定すること（絶対価格はシステムが自動算出する）
 - sellCondition: どの指標がどの水準になったら売るかを具体的に記述する。価格ではなく率や指標水準で条件を記述すること
 - 損切りも重要な選択肢: 損失が大きく、回復の見込みが薄い場合は損切りを提案する
 
@@ -246,14 +246,14 @@ ${PROMPT_NEWS_CONSTRAINTS}
 - 例（良い）: 「テクニカル・ファンダメンタルの現時点評価からは、この価格帯での保有継続は合理的」
 - 例（悪い）: 「含み損が-15%あるため、もう少し待って買値に戻ってから売却しましょう」
 
-【撤退ライン率・売却目標率（suggestedStopLossRate / suggestedTakeProfitRate）の算出指針】
-- 現在価格を基準に撤退ライン率（損切り率）と売却目標率（利確率）を算出する
+【撤退ライン率・売却目標率（suggestedExitRate / suggestedSellTargetRate）の算出指針】
+- 現在価格を基準に撤退ライン率と売却目標率を算出する
 - ボラティリティが高い銘柄 → 撤退ライン率を広めに（日々のノイズで刈られないように）
 - ボラティリティが低い銘柄 → 撤退ライン率を狭めに（効率的なリスク管理）
 - スタイル別の目安:
-  * 慎重派: 撤退0.03〜0.10、利確0.05〜0.20
-  * バランス型: 撤退0.05〜0.15、利確0.10〜0.40
-  * 積極派: 撤退0.07〜0.20、利確0.15〜0.50以上
+  * 慎重派: 撤退0.03〜0.10、売却目標0.05〜0.20
+  * バランス型: 撤退0.05〜0.15、売却目標0.10〜0.40
+  * 積極派: 撤退0.07〜0.20、売却目標0.15〜0.50以上
 - hold や buy の場合でも参考値として必ず算出すること（null にしない）
 - 絶対価格（売却目標・撤退ライン）はシステムが率から自動算出するため、AIは率のみ出力すること
 
@@ -302,7 +302,7 @@ ${PROMPT_NEWS_CONSTRAINTS}
 - 例（上昇）: 「好決算を受けて買いが集中し、レジスタンスラインを突破しました」
 
 【ステータス（statusType）の選択指針】
-1. 【即時売却】: 損切りライン到達、または致命的なトレンド崩壊（長期トレンド転換）。
+1. 【即時売却】: 撤退ライン到達、または致命的なトレンド崩壊（長期トレンド転換）。
 2. 【戻り売り】: 下落トレンドだが、一時的な反発（リバウンド）が見込めるため、戻ったところでの利益確定・損切りを推奨。
 3. 【ホールド】: 短期的なノイズや窓埋めはあるが、支持線（サポート）で止まる可能性が高く、静観が妥当。
 4. 【押し目買い】: 上昇トレンド中の健全な調整。支持線付近での追加購入の好機。

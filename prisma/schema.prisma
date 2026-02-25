@@ -516,8 +516,8 @@ model UserDailyRecommendation {
   position        Int // 表示順序（1, 2, 3）
   reason          String   @db.Text // AIが生成した初心者向け理由
   investmentTheme String? // 投資テーマ: "短期成長" | "中長期安定成長" | "高配当" | "割安反発" | "テクニカル好転" | "安定ディフェンシブ"
-  takeProfitRate  Float? // AI推奨利確率（例: 0.15 = 15%）
-  stopLossRate    Float? // AI推奨損切り率（例: 0.05 = 5%）
+  sellTargetRate  Float? // AI推奨売却目標率（現在価格基準、例: 0.15 = 15%）
+  exitRate        Float? // AI推奨撤退ライン率（現在価格基準、例: 0.05 = 5%）
   createdAt       DateTime @default(now())
 
   @@unique([userId, date, position])

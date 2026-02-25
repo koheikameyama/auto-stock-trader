@@ -467,8 +467,8 @@ async function filterByPurchaseRecommendation(
     reason: string;
     investmentTheme: string;
     expectedExitStrategy: {
-      takeProfitRate: number;
-      stopLossRate: number;
+      sellTargetRate: number;
+      exitRate: number;
     };
   }>,
   candidates: ScoredStock[],
@@ -478,8 +478,8 @@ async function filterByPurchaseRecommendation(
     reason: string;
     investmentTheme: string;
     expectedExitStrategy: {
-      takeProfitRate: number;
-      stopLossRate: number;
+      sellTargetRate: number;
+      exitRate: number;
     };
   }>
 > {
@@ -737,8 +737,8 @@ async function selectWithAI(
   reason: string;
   investmentTheme: string;
   expectedExitStrategy: {
-    takeProfitRate: number;
-    stopLossRate: number;
+    sellTargetRate: number;
+    exitRate: number;
   };
 }> | null> {
   const styleLabel = getStyleLabel(investmentStyle);
@@ -816,10 +816,10 @@ ${ctx.technicalContext}${ctx.candlestickContext}${ctx.chartPatternContext}${ctx.
                     expectedExitStrategy: {
                       type: "object",
                       properties: {
-                        takeProfitRate: { type: "number" },
-                        stopLossRate: { type: "number" },
+                        sellTargetRate: { type: "number" },
+                        exitRate: { type: "number" },
                       },
-                      required: ["takeProfitRate", "stopLossRate"],
+                      required: ["sellTargetRate", "exitRate"],
                       additionalProperties: false,
                     },
                   },
@@ -855,15 +855,15 @@ ${ctx.technicalContext}${ctx.candlestickContext}${ctx.chartPatternContext}${ctx.
           reason?: string;
           investmentTheme?: string;
           expectedExitStrategy?: {
-            takeProfitRate?: number;
-            stopLossRate?: number;
+            sellTargetRate?: number;
+            exitRate?: number;
           };
         }) =>
           s.tickerCode &&
           s.reason &&
           s.investmentTheme &&
-          s.expectedExitStrategy?.takeProfitRate != null &&
-          s.expectedExitStrategy?.stopLossRate != null,
+          s.expectedExitStrategy?.sellTargetRate != null &&
+          s.expectedExitStrategy?.exitRate != null,
       )
       .slice(0, 7);
 
@@ -916,8 +916,8 @@ async function saveRecommendations(
     reason: string;
     investmentTheme: string;
     expectedExitStrategy: {
-      takeProfitRate: number;
-      stopLossRate: number;
+      sellTargetRate: number;
+      exitRate: number;
     };
   }>,
   candidates: ScoredStock[],
@@ -951,8 +951,8 @@ async function saveRecommendations(
           stockId: stock.id,
           reason: rec.reason,
           investmentTheme: rec.investmentTheme,
-          takeProfitRate: rec.expectedExitStrategy.takeProfitRate,
-          stopLossRate: rec.expectedExitStrategy.stopLossRate,
+          sellTargetRate: rec.expectedExitStrategy.sellTargetRate,
+          exitRate: rec.expectedExitStrategy.exitRate,
         },
         create: {
           userId,
@@ -961,8 +961,8 @@ async function saveRecommendations(
           position: idx + 1,
           reason: rec.reason,
           investmentTheme: rec.investmentTheme,
-          takeProfitRate: rec.expectedExitStrategy.takeProfitRate,
-          stopLossRate: rec.expectedExitStrategy.stopLossRate,
+          sellTargetRate: rec.expectedExitStrategy.sellTargetRate,
+          exitRate: rec.expectedExitStrategy.exitRate,
         },
       });
 

@@ -31,14 +31,14 @@
     "label": "あなたの投資スタイル",
     "budget": "資金",
     "budgetUnit": "万円",
-    "takeProfit": "利確",
-    "stopLoss": "損切り",
+    "sellTarget": "売却目標",
+    "exitLine": "撤退ライン",
     "aiManaged": "AIお任せ",
     "edit": "投資スタイルを編集"
   },
   "exitStrategy": {
-    "takeProfit": "推奨利確",
-    "stopLoss": "推奨損切",
+    "sellTarget": "推奨売却目標",
+    "exitLine": "推奨撤退ライン",
     "riskReward": "リスクリワード"
   },
   "nikkei": {

@@ -64,8 +64,8 @@ interface AnalysisData {
   // 投資スタイル別分析
   styleAnalyses: Record<string, StyleAnalysisData> | null;
   // リスク管理率（スタイル別）
-  suggestedStopLossRate?: number | null;
-  suggestedTakeProfitRate?: number | null;
+  suggestedExitRate?: number | null;
+  suggestedSellTargetRate?: number | null;
 }
 
 interface StyleAnalysisData {
@@ -87,8 +87,8 @@ interface StyleAnalysisData {
   suggestedSellPercent?: number | null;
   suggestedSellPrice?: number | null;
   suggestedStopLossPrice?: number | null;
-  suggestedStopLossRate?: number | null;
-  suggestedTakeProfitRate?: number | null;
+  suggestedExitRate?: number | null;
+  suggestedSellTargetRate?: number | null;
 }
 
 
@@ -379,22 +379,22 @@ export default function StockAnalysisCard({
               ...(styleData.suggestedStopLossPrice !== undefined
                 ? { stopLossPrice: styleData.suggestedStopLossPrice }
                 : {}),
-              ...(styleData.suggestedStopLossRate !== undefined
-                ? { suggestedStopLossRate: styleData.suggestedStopLossRate }
+              ...((styleData.suggestedExitRate ?? (styleData as any).suggestedStopLossRate) !== undefined
+                ? { suggestedExitRate: styleData.suggestedExitRate ?? (styleData as any).suggestedStopLossRate }
                 : {}),
-              ...(styleData.suggestedTakeProfitRate !== undefined
-                ? { suggestedTakeProfitRate: styleData.suggestedTakeProfitRate }
+              ...((styleData.suggestedSellTargetRate ?? (styleData as any).suggestedTakeProfitRate) !== undefined
+                ? { suggestedSellTargetRate: styleData.suggestedSellTargetRate ?? (styleData as any).suggestedTakeProfitRate }
                 : {}),
             }
           : {}),
         // ユーザースタイルの場合もstyleDataからrateを取得
         ...(styleData && isUserStyle
           ? {
-              ...(styleData.suggestedStopLossRate !== undefined
-                ? { suggestedStopLossRate: styleData.suggestedStopLossRate }
+              ...((styleData.suggestedExitRate ?? (styleData as any).suggestedStopLossRate) !== undefined
+                ? { suggestedExitRate: styleData.suggestedExitRate ?? (styleData as any).suggestedStopLossRate }
                 : {}),
-              ...(styleData.suggestedTakeProfitRate !== undefined
-                ? { suggestedTakeProfitRate: styleData.suggestedTakeProfitRate }
+              ...((styleData.suggestedSellTargetRate ?? (styleData as any).suggestedTakeProfitRate) !== undefined
+                ? { suggestedSellTargetRate: styleData.suggestedSellTargetRate ?? (styleData as any).suggestedTakeProfitRate }
                 : {}),
             }
           : {}),
@@ -458,13 +458,13 @@ export default function StockAnalysisCard({
         )}
       </div>
 
-      {/* 損切りアラート（ユーザーが損切りラインを設定している場合のみ表示） */}
+      {/* 撤退ラインアラート（ユーザーが撤退ラインを設定している場合のみ表示） */}
       {(() => {
         const currentPrice = effectiveAnalysis?.currentPrice;
         const avgPrice = effectiveAnalysis?.averagePurchasePrice;
         const stopLossRate = effectiveAnalysis?.stopLossRate;
 
-        // 損切りラインが未設定の場合は表示しない
+        // 撤退ラインが未設定の場合は表示しない
         if (
           !currentPrice ||
           !avgPrice ||
@@ -483,7 +483,7 @@ export default function StockAnalysisCard({
             <div className="flex items-center gap-2 mb-3">
               <span className="text-2xl">⚠️</span>
               <p className="font-bold text-red-800">
-                損切りライン到達（{changePercent.toFixed(1)}%）
+                撤退ライン到達（{changePercent.toFixed(1)}%）
               </p>
             </div>
             <div className="bg-white rounded-lg p-3 mb-3">
@@ -500,17 +500,17 @@ export default function StockAnalysisCard({
                 </span>
               </div>
               <div className="flex justify-between items-center text-sm mt-1">
-                <span className="text-gray-600">設定した損切りライン</span>
+                <span className="text-gray-600">設定した撤退ライン</span>
                 <span className="font-semibold">{stopLossRate}%</span>
               </div>
             </div>
             <div className="bg-amber-50 rounded-lg p-3 text-sm">
               <p className="font-semibold text-amber-800 mb-1">
-                💡 損切りとは？
+                💡 撤退ラインとは？
               </p>
               <p className="text-amber-700">
                 損失を限定し、次の投資機会を守る判断です。
-                プロは「損切りルールを守る」ことで資産を守っています。
+                プロは「撤退ルールを守る」ことで資産を守っています。
               </p>
             </div>
           </div>
@@ -620,7 +620,7 @@ export default function StockAnalysisCard({
                             !isTargetReached &&
                             Math.abs(priceDiff / currentPrice) < 0.01;
 
-                          const takeProfitRate = effectiveAnalysis?.suggestedTakeProfitRate;
+                          const takeProfitRate = effectiveAnalysis?.suggestedSellTargetRate;
                           const takeProfitPercent = takeProfitRate ? Math.round(takeProfitRate * 100) : null;
 
                           return (
@@ -673,7 +673,7 @@ export default function StockAnalysisCard({
                           currentPrice &&
                           Math.abs(priceDiff / currentPrice) < 0.03; // 3%以内なら注意
 
-                        const stopLossRate = effectiveAnalysis?.suggestedStopLossRate;
+                        const stopLossRate = effectiveAnalysis?.suggestedExitRate;
                         const stopLossRatePercent = stopLossRate ? Math.round(stopLossRate * 100) : null;
 
                         return (
@@ -717,7 +717,7 @@ export default function StockAnalysisCard({
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                     </svg>
-                    AI売却目標を利確・損切りラインに反映
+                    AI推奨価格を設定に反映
                   </button>
                 )}
               </div>
@@ -894,7 +894,7 @@ export default function StockAnalysisCard({
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                         </svg>
-                        AI売却目標を利確・損切りラインに反映
+                        AI推奨価格を設定に反映
                       </button>
                     );
                   })()

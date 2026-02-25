@@ -433,7 +433,7 @@ export default function MyStockDetailClient({
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-green-50 rounded-lg p-2.5 border border-green-100">
                     <p className="text-[10px] text-green-700 font-bold mb-0.5">
-                      {t("takeProfitLine")}
+                      {t("sellTargetLine")}
                     </p>
                     <p className="text-sm font-bold text-green-800">
                       {currentTpRate != null && averagePrice
@@ -443,7 +443,7 @@ export default function MyStockDetailClient({
                   </div>
                   <div className="bg-red-50 rounded-lg p-2.5 border border-red-100">
                     <p className="text-[10px] text-red-700 font-bold mb-0.5">
-                      {t("stopLossLine")}
+                      {t("exitLine")}
                     </p>
                     <p className="text-sm font-bold text-red-800">
                       {currentSlRate != null && averagePrice

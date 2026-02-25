@@ -124,7 +124,7 @@ def fetch_portfolio_surge_plunge_alerts(conn, surge_threshold: float, plunge_thr
 
 def fetch_portfolio_sell_target_alerts(conn) -> list[dict]:
     """
-    ポートフォリオ銘柄の利確（売り目標）到達アラートをチェック
+    ポートフォリオ銘柄の売却目標到達アラートをチェック
 
     ユーザーが targetReturnRate を設定している銘柄のみ対象。
     → 平均取得単価 * (1 + targetReturnRate/100) を目標価格とする。
@@ -456,7 +456,7 @@ def main():
         logger.info(f"  Fetched style analyses for {len(stock_analyses)} stocks")
 
         for alert in sell_target_alerts:
-            body = f"現在価格 {alert['latestPrice']:,.0f}円（+{alert['gainPercent']:.1f}%）が目標利確価格 {alert['targetPrice']:,.0f}円 を超えました"
+            body = f"現在価格 {alert['latestPrice']:,.0f}円（+{alert['gainPercent']:.1f}%）が売却目標価格 {alert['targetPrice']:,.0f}円 を超えました"
 
             # スタイル別AI分析をメッセージに付加
             user_style = alert.get("investmentStyle", "BALANCED")
@@ -480,7 +480,7 @@ def main():
             })
 
         for alert in stop_loss_alerts:
-            body = f"現在価格 {alert['latestPrice']:,.0f}円（{alert['lossPercent']:.1f}%）が損切りライン {alert['stopLossPrice']:,.0f}円 を下回りました"
+            body = f"現在価格 {alert['latestPrice']:,.0f}円（{alert['lossPercent']:.1f}%）が撤退ライン {alert['stopLossPrice']:,.0f}円 を下回りました"
 
             # スタイル別AI分析をメッセージに付加
             user_style = alert.get("investmentStyle", "BALANCED")
@@ -495,7 +495,7 @@ def main():
                 "userId": alert["userId"],
                 "type": "stop_loss",
                 "stockId": alert["stockId"],
-                "title": f"⚠️ {alert['stockName']}が損切りラインに到達",
+                "title": f"⚠️ {alert['stockName']}が撤退ラインに到達",
                 "body": body,
                 "url": f"/my-stocks/{alert['userStockId']}",
                 "triggerPrice": alert["latestPrice"],
