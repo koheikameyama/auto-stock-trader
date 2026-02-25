@@ -53,6 +53,7 @@ import {
 } from "@/lib/recommendation-scoring";
 import { insertRecommendationOutcome } from "@/lib/outcome-utils";
 import { calculatePortfolioFromTransactions } from "@/lib/portfolio-calculator";
+import { executePurchaseRecommendation } from "@/lib/purchase-recommendation-core";
 
 interface GenerateRequest {
   session?: "morning" | "afternoon" | "evening";
@@ -430,9 +431,21 @@ async function processUser(
     return { userId, success: false, error: "AI selection failed" };
   }
 
-  const saved = await saveRecommendations(
+  // 購入判断で"buy"にならない銘柄をフィルタリング
+  const filteredRecs = await filterByPurchaseRecommendation(
     userId,
     recommendations,
+    topCandidates,
+  );
+
+  if (filteredRecs.length === 0) {
+    console.log(`  All recommendations filtered out by purchase judgment`);
+    return { userId, success: false, error: "All recommendations filtered out" };
+  }
+
+  const saved = await saveRecommendations(
+    userId,
+    filteredRecs,
     topCandidates,
   );
   console.log(`  Saved ${saved} recommendations`);
@@ -440,8 +453,56 @@ async function processUser(
   return {
     userId,
     success: true,
-    recommendations,
+    recommendations: filteredRecs,
   };
+}
+
+const PURCHASE_FILTER_CONCURRENCY = 5;
+const MAX_DAILY_RECOMMENDATIONS = 5;
+
+async function filterByPurchaseRecommendation(
+  userId: string,
+  recommendations: Array<{
+    tickerCode: string;
+    reason: string;
+    investmentTheme: string;
+  }>,
+  candidates: ScoredStock[],
+): Promise<
+  Array<{ tickerCode: string; reason: string; investmentTheme: string }>
+> {
+  const stockMap = new Map(candidates.map((s) => [s.tickerCode, s]));
+  const limit = pLimit(PURCHASE_FILTER_CONCURRENCY);
+
+  const results = await Promise.all(
+    recommendations.map((rec) =>
+      limit(async () => {
+        const stock = stockMap.get(rec.tickerCode);
+        if (!stock) return { rec, keep: true };
+
+        try {
+          const result = await executePurchaseRecommendation(userId, stock.id);
+          const keep = result.recommendation === "buy";
+          console.log(
+            `  ${keep ? "✅" : "❌"} ${rec.tickerCode}: PurchaseRec = ${result.recommendation}`,
+          );
+          return { rec, keep };
+        } catch (error) {
+          console.warn(
+            `  ⚠️ ${rec.tickerCode}: PurchaseRec check failed, keeping`,
+            error,
+          );
+          return { rec, keep: true };
+        }
+      }),
+    ),
+  );
+
+  const filtered = results.filter((r) => r.keep).map((r) => r.rec);
+  console.log(
+    `  Purchase filter: ${recommendations.length} → ${filtered.length} stocks`,
+  );
+  return filtered.slice(0, MAX_DAILY_RECOMMENDATIONS);
 }
 
 async function buildStockContexts(
@@ -765,7 +826,7 @@ ${ctx.technicalContext}${ctx.candlestickContext}${ctx.chartPatternContext}${ctx.
           investmentTheme?: string;
         }) => s.tickerCode && s.reason && s.investmentTheme,
       )
-      .slice(0, 5);
+      .slice(0, 7);
 
     // AI後のログ警告: 危険な銘柄を検出してログに記録（除外はしない）
     for (const selection of validSelections) {
