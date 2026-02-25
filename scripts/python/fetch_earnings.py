@@ -5,7 +5,10 @@ yfinanceから損益計算書データを取得してJSON形式で出力
 """
 
 import json
+import os
 import sys
+
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import yfinance as yf
 

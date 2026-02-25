@@ -5,7 +5,11 @@ yfinanceを使って過去の株価データを取得
 """
 
 import json
+import os
 import sys
+
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
 import yfinance as yf
 
 

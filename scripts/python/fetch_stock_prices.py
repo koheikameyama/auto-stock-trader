@@ -10,6 +10,9 @@ import sys
 import time
 import re
 from datetime import datetime, timedelta
+
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
 import yfinance as yf
 
 # 株価データの鮮度チェック（日数）
