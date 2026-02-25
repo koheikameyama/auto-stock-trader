@@ -11,11 +11,11 @@
 | タイプ | 説明 | トリガー |
 |--------|------|----------|
 | `ideal_entry_price` | 理想の買い値到達 | ウォッチリストの目標価格以下に下落 |
-| `buy_recommendation` | 買い推奨 | AIがbuyと判断 |
+| `buy_recommendation` | 買い推奨 | ユーザーの投資スタイル別分析でbuyと判断 |
 | `surge` | 急騰アラート | 日次変化率 ≥ +5% |
 | `plunge` | 急落アラート | 日次変化率 ≤ -5% |
-| `sell_target` | 売却目標到達 | 利確目標価格に到達 |
-| `stop_loss` | 損切りアラート | 損切りラインに到達 |
+| `sell_target` | 売却目標到達 | 利確目標価格に到達（スタイル別AI判断をメッセージに付加） |
+| `stop_loss` | 損切りアラート | 損切りラインに到達（スタイル別AI判断をメッセージに付加） |
 
 ## 画面構成
 
@@ -146,6 +146,24 @@
 | endpoint | String | プッシュエンドポイント（ユニーク） |
 | p256dh | String | 暗号化キー |
 | auth | String | 認証キー |
+
+## 投資スタイル連携
+
+通知生成時にユーザーの投資スタイル（慎重派/バランス型/積極派）の分析結果を参照する。
+
+### 購入推奨通知（buy_recommendation）
+
+- `PurchaseRecommendation.styleAnalyses[ユーザーのスタイル]`を参照
+- ユーザーのスタイルで`recommendation == "buy"` かつ `confidence >= 閾値`の場合のみ通知
+- スタイル別の確信度・理由を通知本文に使用
+- `styleAnalyses`がない場合はベースの推奨にフォールバック
+
+### 売却目標/損切り通知（sell_target / stop_loss）
+
+- 価格アラートは安全機構のため常に通知する（フィルタリングしない）
+- `StockAnalysis.styleAnalyses[ユーザーのスタイル]`のAI推奨をメッセージに付加
+  - AI推奨が"sell"の場合: 「AIも売却を推奨しています」
+  - AI推奨が"buy"の場合: 「AIはまだ保有継続を推奨しています」（sell_target）/ 「AIは回復を予測しています」（stop_loss）
 
 ## アラート監視スケジュール
 
