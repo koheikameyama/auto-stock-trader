@@ -561,6 +561,10 @@ export async function executePurchaseRecommendation(
         sa.reason = `テクニカル指標で強い下落シグナル（${combinedTechnical.reasons.join("、")}）が出ているため、購入は下げ止まりを確認してからを推奨します。 ${sa.reason}`;
         sa.caution = `最新のローソク足パターン等が強い下落（強さ${combinedTechnical.strength}%）を示しています。${sa.caution}`;
         sa.buyCondition = "テクニカルシグナルが好転し、下げ止まりを確認できたら検討してください";
+        if (styleKey === "CONSERVATIVE") {
+          sa.statusType = "ホールド";
+          sa.advice = `テクニカル指標が下落シグナルを示しています。シグナルの好転を確認してから購入を検討しましょう。`;
+        }
       }
     }
 
@@ -573,6 +577,10 @@ export async function executePurchaseRecommendation(
     if (!skipSafetyRules && isDangerousStock(stock.isProfitable, volatility) && sa.recommendation === "buy") {
       sa.recommendation = "stay";
       sa.caution = `業績が赤字かつボラティリティが${volatility?.toFixed(0)}%と高いため、様子見を推奨します。${sa.caution}`;
+      if (styleKey === "CONSERVATIVE") {
+        sa.statusType = "ホールド";
+        sa.advice = `業績が赤字かつボラティリティが高いため、業績改善を確認してから購入を検討しましょう。`;
+      }
     }
 
     // 市場急落時の強制補正
@@ -580,6 +588,10 @@ export async function executePurchaseRecommendation(
       sa.recommendation = "stay";
       sa.reason = `市場全体が急落しているため、様子見をおすすめします。${sa.reason}`;
       sa.buyCondition = sa.buyCondition || "市場が落ち着いてから検討してください";
+      if (styleKey === "CONSERVATIVE") {
+        sa.statusType = "ホールド";
+        sa.advice = `市場全体が急落中です。市場の安定を確認してから購入を検討しましょう。`;
+      }
     }
 
     // 下方乖離ボーナス

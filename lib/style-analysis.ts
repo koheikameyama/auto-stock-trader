@@ -116,6 +116,10 @@ export function applyPurchaseStyleSafetyRules(params: {
         styleResult.caution = `週間${weekChangeRate!.toFixed(0)}%の下落トレンドのため、様子見を推奨します。${styleResult.caution}`;
         styleResult.buyCondition =
           styleResult.buyCondition || "下落トレンドが落ち着いてから検討してください";
+        if (style === INVESTMENT_STYLES.CONSERVATIVE) {
+          styleResult.statusType = "ホールド";
+          styleResult.advice = `週間${weekChangeRate!.toFixed(0)}%の下落トレンド中です。下げ止まりを確認してから購入を検討しましょう。`;
+        }
       }
 
       // 急騰銘柄の強制補正
@@ -125,6 +129,10 @@ export function applyPurchaseStyleSafetyRules(params: {
       ) {
         styleResult.recommendation = "stay";
         styleResult.caution = `週間+${weekChangeRate!.toFixed(0)}%の急騰銘柄のため、様子見を推奨します。${styleResult.caution}`;
+        if (style === INVESTMENT_STYLES.CONSERVATIVE) {
+          styleResult.statusType = "ホールド";
+          styleResult.advice = `週間+${weekChangeRate!.toFixed(0)}%の急騰後です。高値掴みを避けるため、調整を待ってから購入を検討しましょう。`;
+        }
       }
 
       // 過熱圏の強制補正
@@ -138,6 +146,10 @@ export function applyPurchaseStyleSafetyRules(params: {
           styleResult.confidence + MA_DEVIATION.CONFIDENCE_PENALTY,
         );
         styleResult.caution = `25日移動平均線から+${deviationRate!.toFixed(1)}%乖離しており過熱圏のため、様子見を推奨します。${styleResult.caution}`;
+        if (style === INVESTMENT_STYLES.CONSERVATIVE) {
+          styleResult.statusType = "ホールド";
+          styleResult.advice = `移動平均線から+${deviationRate!.toFixed(1)}%乖離しており過熱圏です。平均線への回帰を待ってから購入を検討しましょう。`;
+        }
       }
     }
 
