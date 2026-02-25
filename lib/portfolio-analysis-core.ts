@@ -501,6 +501,7 @@ export async function executePortfolioAnalysis(
       sa.recommendation === "sell"
     ) {
       sa.recommendation = "hold";
+      sa.statusType = "ホールド";
       sa.sellReason = null;
       sa.suggestedSellPercent = null;
       sa.sellCondition = `25日移動平均線から${deviationRate.toFixed(1)}%の下方乖離で「売られすぎ」の状態です。AIは売却を検討しましたが、大底で売るリスクを避けるため、自律反発を待つ様子見（リバウンド待ち）を推奨します。`;
@@ -520,6 +521,7 @@ export async function executePortfolioAnalysis(
       sa.recommendation === "buy"
     ) {
       sa.recommendation = "hold";
+      sa.statusType = "ホールド";
       sa.shortTerm = `業績が赤字かつボラティリティが${volatility?.toFixed(0)}%と高いため、買い増しは慎重に検討してください。${sa.shortTerm}`;
     }
 
@@ -537,6 +539,7 @@ export async function executePortfolioAnalysis(
       ].filter(Boolean);
       const trendInfo = trendInfoArr.join("・");
       sa.recommendation = "hold";
+      sa.statusType = "ホールド";
       sa.sellReason = null;
       sa.suggestedSellPercent = null;
       sa.sellCondition = `${trendInfo}の見通しが上昇のため、短期的な売りシグナルでの即売却は見送りを推奨します。${result.reconciliationMessage ? `（補足: ${result.reconciliationMessage}）` : ""}`;
@@ -553,6 +556,7 @@ export async function executePortfolioAnalysis(
       profitPercent > PORTFOLIO_ANALYSIS.FORCE_SELL_LOSS_THRESHOLD
     ) {
       sa.recommendation = "hold";
+      sa.statusType = "ホールド";
       sa.sellReason = null;
       sa.suggestedSellPercent = null;
       sa.sellCondition = `購入から日が浅く、重大な状況変化も確認できないため、目先の値動きによる売却は見送りました。${result.reconciliationMessage || ""}`;
@@ -572,6 +576,7 @@ export async function executePortfolioAnalysis(
       const relVsMarket = weekChangeRate - marketData.weekChangeRate;
       if (relVsMarket >= RELATIVE_STRENGTH.OUTPERFORM_SELL_PROTECTION) {
         sa.recommendation = "hold";
+        sa.statusType = "ホールド";
         sa.sellReason = null;
         sa.suggestedSellPercent = null;
         sa.sellCondition = `市場（日経平均${marketData.weekChangeRate >= 0 ? "+" : ""}${marketData.weekChangeRate.toFixed(1)}%）に対して+${relVsMarket.toFixed(1)}%のアウトパフォームで、下落は地合い要因とみられます。${sa.sellCondition || ""}`;
@@ -1035,6 +1040,7 @@ export async function executeSimulatedPortfolioAnalysis(
       sa.recommendation === "sell"
     ) {
       sa.recommendation = "hold";
+      sa.statusType = "ホールド";
       sa.sellReason = null;
       sa.suggestedSellPercent = null;
       sa.sellCondition = `25日移動平均線から${deviationRate.toFixed(1)}%の下方乖離で「売られすぎ」の状態です。AIは売却を検討しましたが、大底で売るリスクを避けるため、自律反発を待つ様子見（リバウンド待ち）を推奨します。`;
@@ -1054,6 +1060,7 @@ export async function executeSimulatedPortfolioAnalysis(
       sa.recommendation === "buy"
     ) {
       sa.recommendation = "hold";
+      sa.statusType = "ホールド";
       sa.shortTerm = `業績が赤字かつボラティリティが${volatility?.toFixed(0)}%と高いため、買い増しは慎重に検討してください。${sa.shortTerm}`;
     }
 
@@ -1071,6 +1078,7 @@ export async function executeSimulatedPortfolioAnalysis(
       ].filter(Boolean);
       const trendInfo = trendInfoArr.join("・");
       sa.recommendation = "hold";
+      sa.statusType = "ホールド";
       sa.sellReason = null;
       sa.suggestedSellPercent = null;
       sa.sellCondition = `${trendInfo}の見通しが上昇のため、短期的な売りシグナルでの即売却は見送りを推奨します。${result.reconciliationMessage ? `（補足: ${result.reconciliationMessage}）` : ""}`;
@@ -1090,6 +1098,7 @@ export async function executeSimulatedPortfolioAnalysis(
       const relVsMarket = weekChangeRate - marketData.weekChangeRate;
       if (relVsMarket >= RELATIVE_STRENGTH.OUTPERFORM_SELL_PROTECTION) {
         sa.recommendation = "hold";
+        sa.statusType = "ホールド";
         sa.sellReason = null;
         sa.suggestedSellPercent = null;
         sa.sellCondition = `市場（日経平均${marketData.weekChangeRate >= 0 ? "+" : ""}${marketData.weekChangeRate.toFixed(1)}%）に対して+${relVsMarket.toFixed(1)}%のアウトパフォームで、下落は地合い要因とみられます。${sa.sellCondition || ""}`;
