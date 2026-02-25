@@ -36,8 +36,8 @@ export async function GET(
 
     const userId = session.user.id
 
-    // ポートフォリオ分析・ユーザー設定・StockAnalysis（価格帯予測）を並列取得
-    const [portfolioStock, userSettings, stockAnalysis] = await Promise.all([
+    // ポートフォリオ分析・ユーザー設定を並列取得
+    const [portfolioStock, userSettings] = await Promise.all([
       prisma.portfolioStock.findFirst({
         where: {
           userId,
@@ -70,11 +70,21 @@ export async function GET(
         where: { userId },
         select: { stopLossRate: true, targetReturnRate: true },
       }),
-      prisma.stockAnalysis.findFirst({
-        where: { stockId },
-        orderBy: { analyzedAt: "desc" },
-      }),
     ])
+
+    // StockAnalysis: lastAnalysisと同時刻のエントリーを取得（購入判断の結果が混入しないようにする）
+    const stockAnalysis = portfolioStock?.lastAnalysis
+      ? (await prisma.stockAnalysis.findFirst({
+          where: { stockId, analyzedAt: portfolioStock.lastAnalysis },
+        })) ??
+        (await prisma.stockAnalysis.findFirst({
+          where: { stockId },
+          orderBy: { analyzedAt: "desc" },
+        }))
+      : await prisma.stockAnalysis.findFirst({
+          where: { stockId },
+          orderBy: { analyzedAt: "desc" },
+        })
 
     if (!portfolioStock) {
       return NextResponse.json(

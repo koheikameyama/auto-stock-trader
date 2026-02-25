@@ -37,22 +37,29 @@ export async function GET(
       )
     }
 
+    // セッションからユーザーの投資スタイルを取得
+    const session = await auth()
+    let userStyle = "BALANCED"
+    if (session?.user?.id) {
+      const userSettings = await prisma.userSettings.findUnique({
+        where: { userId: session.user.id },
+        select: { investmentStyle: true },
+      })
+      if (userSettings?.investmentStyle) {
+        userStyle = userSettings.investmentStyle
+      }
+    }
+
     // 最新の購入判断を取得（過去7日以内）
     const sevenDaysAgo = getDaysAgoForDB(7)
 
-    const [recommendation, analysis] = await Promise.all([
-      prisma.purchaseRecommendation.findFirst({
-        where: {
-          stockId,
-          date: { gte: sevenDaysAgo },
-        },
-        orderBy: { date: "desc" },
-      }),
-      prisma.stockAnalysis.findFirst({
-        where: { stockId },
-        orderBy: { analyzedAt: "desc" },
-      }),
-    ])
+    const recommendation = await prisma.purchaseRecommendation.findFirst({
+      where: {
+        stockId,
+        date: { gte: sevenDaysAgo },
+      },
+      orderBy: { date: "desc" },
+    })
 
     if (!recommendation) {
       return NextResponse.json(
@@ -61,31 +68,49 @@ export async function GET(
       )
     }
 
+    // StockAnalysis: PurchaseRecommendation.updatedAtと同時刻のエントリーを取得（ポートフォリオ分析の結果が混入しないようにする）
+    const analysis =
+      (await prisma.stockAnalysis.findFirst({
+        where: { stockId, analyzedAt: recommendation.updatedAt },
+      })) ??
+      (await prisma.stockAnalysis.findFirst({
+        where: { stockId },
+        orderBy: { analyzedAt: "desc" },
+      }))
+
     // リアルタイム株価を取得
     const { prices: realtimePrices } = await fetchStockPrices([stock.tickerCode])
     const currentPrice = realtimePrices[0]?.currentPrice ?? null
 
-    // レスポンス整形
+    // ユーザーの投資スタイルに合った結果をstyleAnalysesから取得
+    const styleAnalyses = recommendation.styleAnalyses as Record<string, Record<string, unknown>> | null
+    const styleData = styleAnalyses?.[userStyle] as Record<string, unknown> | undefined
+
+    // レスポンス整形（styleDataがあればユーザースタイルの結果でオーバーライド）
     const response = {
       stockId: stock.id,
       stockName: stock.name,
       tickerCode: stock.tickerCode,
       currentPrice,
       marketSignal: recommendation.marketSignal,
-      recommendation: recommendation.recommendation,
-      confidence: recommendation.confidence,
-      reason: recommendation.reason,
-      caution: recommendation.caution,
+      recommendation: (styleData?.recommendation as string) ?? recommendation.recommendation,
+      confidence: (styleData?.confidence as number) ?? recommendation.confidence,
+      reason: (styleData?.reason as string) ?? recommendation.reason,
+      caution: (styleData?.caution as string) ?? recommendation.caution,
       // B. 深掘り評価
       positives: recommendation.positives,
       concerns: recommendation.concerns,
       suitableFor: recommendation.suitableFor,
       // C. 買い時条件
-      buyCondition: recommendation.buyCondition,
-      buyTiming: recommendation.buyTiming,
-      dipTargetPrice: recommendation.dipTargetPrice ? Number(recommendation.dipTargetPrice) : null,
-      sellTiming: recommendation.sellTiming,
-      sellTargetPrice: recommendation.sellTargetPrice ? Number(recommendation.sellTargetPrice) : null,
+      buyCondition: (styleData?.buyCondition as string | null) ?? recommendation.buyCondition,
+      buyTiming: (styleData?.buyTiming as string | null) ?? recommendation.buyTiming,
+      dipTargetPrice: styleData?.dipTargetPrice != null
+        ? Number(styleData.dipTargetPrice)
+        : recommendation.dipTargetPrice ? Number(recommendation.dipTargetPrice) : null,
+      sellTiming: (styleData?.sellTiming as string | null) ?? recommendation.sellTiming,
+      sellTargetPrice: styleData?.sellTargetPrice != null
+        ? Number(styleData.sellTargetPrice)
+        : recommendation.sellTargetPrice ? Number(recommendation.sellTargetPrice) : null,
       // D. パーソナライズ
       userFitScore: recommendation.userFitScore,
       budgetFit: recommendation.budgetFit,
@@ -106,12 +131,12 @@ export async function GET(
       longTermPriceLow: analysis?.longTermPriceLow ? Number(analysis.longTermPriceLow) : null,
       longTermPriceHigh: analysis?.longTermPriceHigh ? Number(analysis.longTermPriceHigh) : null,
       longTermText: analysis?.longTermText ?? null,
-      advice: analysis?.advice ?? null,
+      advice: (styleData?.advice as string | null) ?? analysis?.advice ?? null,
       // AI推奨価格（StockAnalysisから）
       limitPrice: analysis?.limitPrice ? Number(analysis.limitPrice) : null,
       stopLossPrice: analysis?.stopLossPrice ? Number(analysis.stopLossPrice) : null,
       // 投資スタイル別分析
-      styleAnalyses: recommendation.styleAnalyses ?? analysis?.styleAnalyses ?? null,
+      styleAnalyses: styleAnalyses ?? (analysis?.styleAnalyses as Record<string, unknown> | null) ?? null,
     }
 
     return NextResponse.json(response, { status: 200 })
