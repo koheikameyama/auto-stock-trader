@@ -256,7 +256,7 @@ export async function executePurchaseRecommendation(
 
   // 週間変化率を計算
   const { text: weekChangeContext, rate: weekChangeRate } =
-    buildWeekChangeContext(prices, "watchlist");
+    buildWeekChangeContext(prices);
 
   // 市場全体の状況コンテキスト
   const marketContext = buildMarketContext(marketData);

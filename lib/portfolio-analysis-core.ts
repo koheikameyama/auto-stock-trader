@@ -32,7 +32,6 @@ import {
   MA_DEVIATION,
   SELL_TIMING,
   RELATIVE_STRENGTH,
-  PORTFOLIO_ANALYSIS,
 } from "@/lib/constants";
 import { getDaysAgoForDB } from "@/lib/date-utils";
 import { isDangerousStock } from "@/lib/stock-safety-rules";
@@ -188,7 +187,7 @@ export async function executePortfolioAnalysis(
 
   // 週間変化率
   const { text: weekChangeContext, rate: weekChangeRate } =
-    buildWeekChangeContext(prices, "portfolio");
+    buildWeekChangeContext(prices);
 
   // 乖離率コンテキスト
   const deviationRateContext = buildDeviationRateContext(prices);
@@ -547,23 +546,6 @@ export async function executePortfolioAnalysis(
       sa.advice = `${trendInfo}のトレンドは依然として良好です。短期的な変動に惑わされず、中長期での回復を待つ方針を優先しましょう。`;
     }
 
-    // 購入直後の保護（重大な変化がない場合のみ）
-    if (
-      isRecentlyPurchased &&
-      sa.recommendation === "sell" &&
-      !result.isCriticalChange &&
-      profitPercent !== null &&
-      profitPercent > PORTFOLIO_ANALYSIS.FORCE_SELL_LOSS_THRESHOLD
-    ) {
-      sa.recommendation = "hold";
-      sa.statusType = "ホールド";
-      sa.sellReason = null;
-      sa.suggestedSellPercent = null;
-      sa.sellCondition = `購入から日が浅く、重大な状況変化も確認できないため、目先の値動きによる売却は見送りました。${result.reconciliationMessage || ""}`;
-      sa.shortTerm = `【購入直後のため様子見】直近で買い推奨したばかりであり、現時点で前提を覆すほどの悪材料はありません。一時的な調整と判断しホールドを推奨します。AIの当初分析: ${sa.shortTerm}`;
-      sa.advice = `購入直後の小幅な変動です。当初の投資ストーリーに変更がない限り、目先の動きで売却せず、しばらく様子を見るのが健全です。`;
-    }
-
     // 相対強度による売り保護
     if (
       sa.recommendation === "sell" &&
@@ -812,7 +794,7 @@ export async function executeSimulatedPortfolioAnalysis(
     userSettings?.investmentStyle,
   );
   const { text: weekChangeContext, rate: weekChangeRate } =
-    buildWeekChangeContext(prices, "portfolio");
+    buildWeekChangeContext(prices);
   const deviationRateContext = buildDeviationRateContext(prices);
   const volumeAnalysisContext = buildVolumeAnalysisContext(prices);
 

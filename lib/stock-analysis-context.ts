@@ -347,15 +347,13 @@ export function buildChartPatternContext(
 /**
  * 週間変化率コンテキスト文字列と変化率数値を生成する
  *
- * - portfolio モード: 保有銘柄向け（警告閾値 ±10%、中立の場合も常に表示）
- * - watchlist モード: ウォッチリスト向け（警告閾値 ±20%、変化が少ない場合は非表示）
+ * 警告閾値は統一: +30%(急騰), +20%(注意), -20%(大幅下落)
+ * ウォッチリスト・ポートフォリオで同じ基準を使用する。
  *
  * @param prices - OHLCV データ（oldest-first）
- * @param mode - "portfolio" | "watchlist"
  */
 export function buildWeekChangeContext(
   prices: OHLCVData[],
-  mode: "portfolio" | "watchlist" = "portfolio",
 ): { text: string; rate: number | null } {
   if (prices.length < 5) return { text: "", rate: null };
 
@@ -365,48 +363,21 @@ export function buildWeekChangeContext(
 
   let text = "";
 
-  if (mode === "watchlist") {
-    if (rate >= 30) {
-      text = `
+  if (rate >= 30) {
+    text = `
 【警告: 急騰銘柄】
 - 週間変化率: +${rate.toFixed(1)}%（非常に高い）
-- 急騰後は反落リスクが高いため、今買うのは危険な可能性があります
-- 「上がりきった銘柄」を避けるため、stayまたはavoidを検討してください`;
-    } else if (rate >= 20) {
-      text = `
+- 急騰後は反落リスクが高いため、慎重に判断してください`;
+  } else if (rate >= 20) {
+    text = `
 【注意: 上昇率が高い】
 - 週間変化率: +${rate.toFixed(1)}%
 - すでに上昇している可能性があるため、追加上昇余地を慎重に判断してください`;
-    } else if (rate <= -20) {
-      text = `
+  } else if (rate <= -20) {
+    text = `
 【注意: 大幅下落】
 - 週間変化率: ${rate.toFixed(1)}%
 - 下落理由を確認し、反発の可能性を慎重に判断してください`;
-    }
-  } else {
-    // portfolio モード
-    if (rate >= 30) {
-      text = `
-【警告: 急騰銘柄】
-- 週間変化率: +${rate.toFixed(1)}%（非常に高い）
-- 急騰後は反落リスクが高い状態です
-`;
-    } else if (rate >= 10) {
-      text = `
-【注意: 上昇率が高い】
-- 週間変化率: +${rate.toFixed(1)}%
-`;
-    } else if (rate <= -10) {
-      text = `
-【注意: 大幅下落】
-- 週間変化率: ${rate.toFixed(1)}%
-`;
-    } else {
-      text = `
-【週間変化率】
-- 週間変化率: ${rate >= 0 ? "+" : ""}${rate.toFixed(1)}%
-`;
-    }
   }
 
   return { text, rate };
