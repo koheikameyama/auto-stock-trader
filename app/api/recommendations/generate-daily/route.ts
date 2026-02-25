@@ -138,7 +138,7 @@ export async function POST(request: NextRequest) {
         latestPriceDate: { not: null, gte: staleThreshold },
         latestPrice: { not: null },
         fetchFailCount: 0,
-        volatility: { not: null },
+        volatility: { gt: 0 },
       },
       select: {
         id: true,
