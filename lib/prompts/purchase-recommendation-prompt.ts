@@ -25,14 +25,6 @@ export function buildPurchaseRecommendationPrompt(params: {
   trendlineContext: string;
   newsContext: string;
   hasPrediction: boolean;
-  prediction: {
-    shortTermPriceLow: number;
-    shortTermPriceHigh: number;
-    midTermPriceLow: number;
-    midTermPriceHigh: number;
-    longTermPriceLow: number;
-    longTermPriceHigh: number;
-  } | null;
 }): string {
   const {
     stockName,
@@ -56,13 +48,12 @@ export function buildPurchaseRecommendationPrompt(params: {
     trendlineContext,
     newsContext,
     hasPrediction,
-    prediction,
   } = params;
 
   return `あなたは投資を学びたい人向けのAIコーチです。
 以下の銘柄について、詳細な購入判断をしてください。
 テクニカル分析の結果を活用し、専門用語は解説を添えて使ってください。
-${hasPrediction ? "\n【重要】AI予測データが提供されています。この予測を購入判断の主要な根拠として活用してください。" : ""}
+${hasPrediction ? "\n【参考】AI予測データが提供されています。ただし、最新のテクニカルデータとの乖離がある場合は最新データを優先してください。" : ""}
 
 【銘柄情報】
 - 名前: ${stockName}
@@ -103,23 +94,23 @@ ${delistingContext}${weekChangeContext}${marketContext}${sectorTrendContext}${pa
 
 【回答形式】
 以下のJSON形式で回答してください。JSON以外のテキストは含めないでください。
-${hasPrediction ? "※ 価格帯予測は【AI予測データ】の値をそのまま使用してください。" : ""}
+
 
 {
   "marketSignal": "bullish" | "neutral" | "bearish",
 
-  // A. 価格帯予測${hasPrediction ? "（【AI予測データ】の値をそのまま使用）" : "（予測を根拠として購入判断の前に示す）"}
+  // A. 価格帯予測（予測を根拠として購入判断の前に示す。前回予測がある場合も最新データで再評価すること）
   "shortTermTrend": "up" | "neutral" | "down",
-  "shortTermPriceLow": ${hasPrediction && prediction ? prediction.shortTermPriceLow : "短期（今週）の予測安値（数値のみ、円単位）"},
-  "shortTermPriceHigh": ${hasPrediction && prediction ? prediction.shortTermPriceHigh : "短期（今週）の予測高値（数値のみ、円単位）"},
+  "shortTermPriceLow": "短期（今週）の予測安値（数値のみ、円単位。前回予測と最新データの両方を考慮）",
+  "shortTermPriceHigh": "短期（今週）の予測高値（数値のみ、円単位。前回予測と最新データの両方を考慮）",
   "shortTermText": "短期予測の根拠・解説（初心者向け、60文字以内）",
   "midTermTrend": "up" | "neutral" | "down",
-  "midTermPriceLow": ${hasPrediction && prediction ? prediction.midTermPriceLow : "中期（今月）の予測安値（数値のみ、円単位）"},
-  "midTermPriceHigh": ${hasPrediction && prediction ? prediction.midTermPriceHigh : "中期（今月）の予測高値（数値のみ、円単位）"},
+  "midTermPriceLow": "中期（今月）の予測安値（数値のみ、円単位。前回予測と最新データの両方を考慮）",
+  "midTermPriceHigh": "中期（今月）の予測高値（数値のみ、円単位。前回予測と最新データの両方を考慮）",
   "midTermText": "中期予測の根拠・解説（初心者向け、60文字以内）",
   "longTermTrend": "up" | "neutral" | "down",
-  "longTermPriceLow": ${hasPrediction && prediction ? prediction.longTermPriceLow : "長期（今後3ヶ月）の予測安値（数値のみ、円単位）"},
-  "longTermPriceHigh": ${hasPrediction && prediction ? prediction.longTermPriceHigh : "長期（今後3ヶ月）の予測高値（数値のみ、円単位）"},
+  "longTermPriceLow": "長期（今後3ヶ月）の予測安値（数値のみ、円単位。前回予測と最新データの両方を考慮）",
+  "longTermPriceHigh": "長期（今後3ヶ月）の予測高値（数値のみ、円単位。前回予測と最新データの両方を考慮）",
   "longTermText": "長期予測の根拠・解説（初心者向け、60文字以内）",
 
   // B. 深掘り評価（文字列で返す。配列ではない）
@@ -175,11 +166,10 @@ ${PROMPT_MARKET_SIGNAL_DEFINITION}
 ${
   hasPrediction
     ? `
-- 【重要】AI予測データが提供されている場合は、その値をそのまま使用してください
-- 価格帯（priceLow/priceHigh）は提供された値を変更しないでください
-- トレンド（shortTermTrend等）も提供された値に従ってください
-- 購入判断（recommendation）は、この予測を根拠として導出してください
-- 予測が「上昇」なら買い検討、「下落」なら様子見、という整合性を保ってください`
+- AI予測データは「参考情報」として扱い、最新のテクニカルデータ・ニュース・市場環境を最優先で判断してください
+- 前回の予測と最新データが矛盾する場合は、最新データを優先してください
+- 価格帯は前回予測を参考にしつつ、最新のボラティリティや値動きで修正してください
+- 前回「上昇」でも直近で下落シグナルが出ている場合は、躊躇なく「下落」や「横ばい」に変更してください`
     : `
 - 予測は提供されたテクニカル指標・チャートパターン・ファンダメンタルを根拠として算出する
 - 現在価格を起点に、直近ボラティリティ・トレンドを反映した現実的な価格帯にすること

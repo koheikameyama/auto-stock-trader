@@ -386,10 +386,12 @@ export const MOMENTUM = {
   DEFAULT_DECLINE_THRESHOLD: -15, // 投資スタイル未設定時のデフォルト
   DECLINE_CONFIDENCE_PENALTY: -0.1, // 下落トレンド時のconfidenceペナルティ
   // 急騰銘柄ルールの投資スタイル別閾値（週間変化率 %）: これ以上で buy → stay
-  CONSERVATIVE_SURGE_THRESHOLD: 25, // 慎重派: +25% 以上でブロック（タイト）
-  BALANCED_SURGE_THRESHOLD: 35, // バランス: +35% 以上でブロック（標準）
-  AGGRESSIVE_SURGE_THRESHOLD: null, // 積極派: 制限なし（モメンタム重視）
-  DEFAULT_SURGE_THRESHOLD: 30, // 投資スタイル未設定時のデフォルト
+  CONSERVATIVE_SURGE_THRESHOLD: 20, // 慎重派: +20% 以上でブロック（タイト）
+  BALANCED_SURGE_THRESHOLD: 25, // バランス: +25% 以上でブロック（標準）
+  AGGRESSIVE_SURGE_THRESHOLD: 50, // 積極派: +50% 以上でブロック
+  DEFAULT_SURGE_THRESHOLD: 25, // 投資スタイル未設定時のデフォルト
+  // 赤字×急騰銘柄の閾値（週間変化率 %）: 赤字銘柄がこれ以上急騰で buy → stay
+  UNPROFITABLE_SURGE_THRESHOLD: 20, // 赤字企業の急騰は+20%からブロック
   // 過熱圏ルール: 積極派は無効化
   AGGRESSIVE_SKIP_OVERHEAT: true, // 積極派: 過熱圏ルールをスキップ
   // おすすめスコアリング用ペナルティ

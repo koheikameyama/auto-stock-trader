@@ -46,6 +46,18 @@ export function isDangerousStock(
   );
 }
 
+/** 赤字×急騰銘柄か（赤字企業が急騰している場合、仕手株やバブルの可能性が高い） */
+export function isUnprofitableSurge(
+  isProfitable: boolean | null,
+  weekChangeRate: number | null,
+): boolean {
+  return (
+    isProfitable === false &&
+    weekChangeRate !== null &&
+    weekChangeRate >= MOMENTUM.UNPROFITABLE_SURGE_THRESHOLD
+  );
+}
+
 /** 過熱圏か（移動平均乖離率+20%以上、積極派はスキップ） */
 export function isOverheated(
   deviationRate: number | null,

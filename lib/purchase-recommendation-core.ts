@@ -33,6 +33,7 @@ import { applyPurchaseStyleSafetyRules, type StyleAnalysesMap, type PurchaseStyl
 import { calculatePortfolioFromTransactions } from "@/lib/portfolio-calculator";
 import {
   isDangerousStock,
+  isUnprofitableSurge,
 } from "@/lib/stock-safety-rules";
 import { getSectorTrend, formatSectorTrendForPrompt } from "@/lib/sector-trend";
 import { AnalysisError } from "@/lib/portfolio-analysis-core";
@@ -221,8 +222,8 @@ export async function executePurchaseRecommendation(
 
   const predictionContext = analysis
     ? `
-【AI予測データ（購入判断の重要な根拠として活用）】
-※ 以下は事前に生成された価格予測です。この予測を踏まえて購入判断を出してください。
+【前回のAI予測データ（参考情報）】
+※ 以下は前回の分析時の価格予測です。参考にしつつ、最新データとの乖離に注意してください。
 
 ■ 短期予測（今週）: ${trendLabel(analysis.shortTermTrend)}
   - 予測価格帯: ${Number(analysis.shortTermPriceLow).toLocaleString()}円 〜 ${Number(analysis.shortTermPriceHigh).toLocaleString()}円
@@ -328,16 +329,6 @@ export async function executePurchaseRecommendation(
     trendlineContext,
     newsContext,
     hasPrediction,
-    prediction: analysis
-      ? {
-          shortTermPriceLow: Number(analysis.shortTermPriceLow),
-          shortTermPriceHigh: Number(analysis.shortTermPriceHigh),
-          midTermPriceLow: Number(analysis.midTermPriceLow),
-          midTermPriceHigh: Number(analysis.midTermPriceHigh),
-          longTermPriceLow: Number(analysis.longTermPriceLow),
-          longTermPriceHigh: Number(analysis.longTermPriceHigh),
-        }
-      : null,
   });
 
   // OpenAI API呼び出し（Structured Outputs使用）
@@ -583,6 +574,17 @@ export async function executePurchaseRecommendation(
       if (styleKey === "CONSERVATIVE") {
         sa.statusType = "ホールド";
         sa.advice = `業績が赤字かつボラティリティが高いため、業績改善を確認してから購入を検討しましょう。`;
+      }
+    }
+
+    // 赤字×急騰銘柄の強制補正（仕手株・バブルの可能性）
+    if (isUnprofitableSurge(stock.isProfitable, weekChangeRate) && sa.recommendation === "buy") {
+      sa.recommendation = "stay";
+      sa.statusType = "ホールド";
+      sa.caution = `業績が赤字の銘柄が週間${weekChangeRate?.toFixed(0)}%急騰しており、仕手株やバブルの可能性があります。${sa.caution}`;
+      sa.buyCondition = "業績改善や急騰の裏付けとなる材料を確認してから検討してください";
+      if (styleKey === "CONSERVATIVE") {
+        sa.advice = `赤字企業の急騰は投機的な値動きの可能性が高いため、業績改善を確認してから購入を検討しましょう。`;
       }
     }
 
