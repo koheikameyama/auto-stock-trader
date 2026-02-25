@@ -13,5 +13,18 @@
     "stopLoss": "損切り",
     "aiManaged": "AIお任せ",
     "edit": "投資スタイルを編集"
+  },
+  "nikkei": {
+    "title": "日経平均株価",
+    "period1m": "1ヶ月",
+    "period3m": "3ヶ月",
+    "period1y": "1年",
+    "portfolio": "あなた",
+    "nikkei225": "日経平均",
+    "noData": "データがありません",
+    "outperformance": "市場に対して{value}",
+    "tooltipDate": "{date}",
+    "changePercent": "{value}%",
+    "vsNikkei": "日経比: {value}"
   }
 }

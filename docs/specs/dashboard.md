@@ -18,6 +18,21 @@
 
 **API**: `GET /api/market/nikkei`
 
+#### 日経平均チャート（折りたたみ式）
+
+カードをタップするとチャートが展開される。
+
+| 項目 | 説明 |
+|------|------|
+| 期間切替 | 1ヶ月 / 3ヶ月 / 1年 |
+| 日経平均ライン | オレンジ色の折れ線（期間初日を0%として騰落率表示） |
+| ポートフォリオライン | 青色の折れ線（同じく騰落率表示、保有株がある場合のみ） |
+| アウトパフォーマンス | チャート下部に市場に対する差分を表示 |
+
+**API**:
+- `GET /api/market/nikkei/historical?period={1m|3m|1y}`
+- `GET /api/portfolio/history?period={1m|3m|1y}`
+
 ### 2. ポートフォリオサマリー（保有銘柄がある場合のみ表示）
 
 | 項目 | 説明 |
@@ -137,7 +152,7 @@ page.tsx（Server Component）
 └─ コンポーネント描画
     ↓
 各Client Component（並列レンダリング）
-├─ NikkeiSummary     → GET /api/market/nikkei
+├─ NikkeiSummary     → GET /api/market/nikkei + /api/market/nikkei/historical + /api/portfolio/history
 ├─ PortfolioSummary  → GET /api/portfolio/summary + 株価取得
 ├─ BudgetSummary     → GET /api/budget/summary
 ├─ PortfolioHistoryChart → GET /api/portfolio/history
