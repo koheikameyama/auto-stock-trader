@@ -63,6 +63,9 @@ interface AnalysisData {
   longTermText: string | null;
   // 投資スタイル別分析
   styleAnalyses: Record<string, StyleAnalysisData> | null;
+  // リスク管理率（スタイル別）
+  suggestedStopLossRate?: number | null;
+  suggestedTakeProfitRate?: number | null;
 }
 
 interface StyleAnalysisData {
@@ -84,6 +87,8 @@ interface StyleAnalysisData {
   suggestedSellPercent?: number | null;
   suggestedSellPrice?: number | null;
   suggestedStopLossPrice?: number | null;
+  suggestedStopLossRate?: number | null;
+  suggestedTakeProfitRate?: number | null;
 }
 
 
@@ -373,6 +378,23 @@ export default function StockAnalysisCard({
                 : {}),
               ...(styleData.suggestedStopLossPrice !== undefined
                 ? { stopLossPrice: styleData.suggestedStopLossPrice }
+                : {}),
+              ...(styleData.suggestedStopLossRate !== undefined
+                ? { suggestedStopLossRate: styleData.suggestedStopLossRate }
+                : {}),
+              ...(styleData.suggestedTakeProfitRate !== undefined
+                ? { suggestedTakeProfitRate: styleData.suggestedTakeProfitRate }
+                : {}),
+            }
+          : {}),
+        // ユーザースタイルの場合もstyleDataからrateを取得
+        ...(styleData && isUserStyle
+          ? {
+              ...(styleData.suggestedStopLossRate !== undefined
+                ? { suggestedStopLossRate: styleData.suggestedStopLossRate }
+                : {}),
+              ...(styleData.suggestedTakeProfitRate !== undefined
+                ? { suggestedTakeProfitRate: styleData.suggestedTakeProfitRate }
                 : {}),
             }
           : {}),
@@ -682,6 +704,46 @@ export default function StockAnalysisCard({
                     AI売却目標を利確・損切りラインに反映
                   </button>
                 )}
+              </div>
+            );
+          })()}
+          {/* リスク管理目安（撤退ライン率・利確率） */}
+          {(() => {
+            const stopLoss = effectiveAnalysis?.suggestedStopLossRate;
+            const takeProfit = effectiveAnalysis?.suggestedTakeProfitRate;
+            if (!stopLoss && !takeProfit) return null;
+
+            const stopLossPercent = stopLoss ? Math.round(stopLoss * 100) : null;
+            const takeProfitPercent = takeProfit ? Math.round(takeProfit * 100) : null;
+
+            return (
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-3">
+                <p className="text-sm font-semibold text-gray-800 mb-2">
+                  💡 リスク管理目安
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  {stopLossPercent && (
+                    <div>
+                      <p className="text-xs text-gray-500">撤退ライン</p>
+                      <p className="text-base font-bold text-red-600">-{stopLossPercent}%</p>
+                      <p className="text-xs text-gray-400">
+                        現在価格から{stopLossPercent}%下落が撤退目安
+                      </p>
+                    </div>
+                  )}
+                  {takeProfitPercent && (
+                    <div>
+                      <p className="text-xs text-gray-500">利確目標</p>
+                      <p className="text-base font-bold text-green-600">+{takeProfitPercent}%</p>
+                      <p className="text-xs text-gray-400">
+                        現在価格から{takeProfitPercent}%上昇が利確目安
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-gray-400 mt-2">
+                  あなたの投資スタイルとこの銘柄のボラティリティに基づくAI推奨値です
+                </p>
               </div>
             );
           })()}

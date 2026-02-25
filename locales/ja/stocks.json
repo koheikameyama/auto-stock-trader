@@ -107,10 +107,13 @@
     "buyAlertAlreadySet": "🔔 ¥{price} で通知設定済み",
     "riskManagement": {
       "title": "購入後のリスク管理（目安）",
+      "portfolioTitle": "リスク管理目安",
       "stopLoss": "撤退ライン",
       "stopLossDesc": "購入価格から{rate}%下落で損切り",
+      "stopLossPortfolioDesc": "現在価格から{rate}%下落が撤退目安",
       "takeProfit": "利確目標",
       "takeProfitDesc": "購入価格から{rate}%上昇で利確",
+      "takeProfitPortfolioDesc": "現在価格から{rate}%上昇が利確目安",
       "note": "あなたの投資スタイルとこの銘柄のボラティリティに基づくAI推奨値です"
     }
   },

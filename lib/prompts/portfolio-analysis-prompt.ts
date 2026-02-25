@@ -117,6 +117,11 @@ ${newsContext}${marketContext}${sectorTrendContext}
 - 含み益があれば早めの利確を提案
 - suggestedSellPercent は高め（75-100%）
 - 迷ったら sell で資産保護
+- 【戦略的ホールド例外】以下の3条件が全て成立する場合に限り hold を許容:
+  1. 長期トレンド（longTermTrend）が明確に「up」
+  2. 下落の主因が市場全体の軟調（銘柄の相対強度がアウトパフォーム or 中立）
+  3. 強いサポートライン（支持線）の上に株価が位置している
+  → この3条件を満たす場合、adviceに「長期上昇トレンドを尊重し、地合い起因の下落のため戦略的ホールド」と根拠を明記すること
 
 ■ バランス型（BALANCED）: 中期トレンドで判断
 - 短期悪化でも中期上昇なら hold 継続
@@ -158,7 +163,9 @@ ${newsContext}${marketContext}${sectorTrendContext}
       "sellCondition": "売却条件（sellの場合のみ、holdやbuyの場合はnull）",
       "suggestedSellPercent": 推奨売却割合（25, 50, 75, 100のいずれか。sellの場合のみ、holdやbuyの場合はnull）,
       "suggestedSellPrice": 売却目標価格（慎重派: 早めの売却水準。数値のみ、円単位）,
-      "suggestedStopLossPrice": 撤退ライン価格（慎重派: 狭めの撤退水準。数値のみ、円単位）
+      "suggestedStopLossPrice": 撤退ライン価格（慎重派: 狭めの撤退水準。数値のみ、円単位）,
+      "suggestedStopLossRate": 推奨撤退ライン率（0.03〜0.10。慎重派は狭め。数値のみ）,
+      "suggestedTakeProfitRate": 推奨売却目標率（0.05〜0.20。慎重派は控えめ。数値のみ）
     },
     "BALANCED": {
       "recommendation": "buy" | "hold" | "sell",
@@ -170,7 +177,9 @@ ${newsContext}${marketContext}${sectorTrendContext}
       "sellCondition": "売却条件（sellの場合のみ、holdやbuyの場合はnull）",
       "suggestedSellPercent": 推奨売却割合（25, 50, 75, 100のいずれか。sellの場合のみ、holdやbuyの場合はnull）,
       "suggestedSellPrice": 売却目標価格（バランス型: 中間的な売却水準。数値のみ、円単位）,
-      "suggestedStopLossPrice": 撤退ライン価格（バランス型: 中間的な撤退水準。数値のみ、円単位）
+      "suggestedStopLossPrice": 撤退ライン価格（バランス型: 中間的な撤退水準。数値のみ、円単位）,
+      "suggestedStopLossRate": 推奨撤退ライン率（0.05〜0.15。バランス型は中間。数値のみ）,
+      "suggestedTakeProfitRate": 推奨売却目標率（0.10〜0.40。バランス型は中間。数値のみ）
     },
     "AGGRESSIVE": {
       "recommendation": "buy" | "hold" | "sell",
@@ -182,7 +191,9 @@ ${newsContext}${marketContext}${sectorTrendContext}
       "sellCondition": "売却条件（sellの場合のみ、holdやbuyの場合はnull）",
       "suggestedSellPercent": 推奨売却割合（25, 50, 75, 100のいずれか。sellの場合のみ、holdやbuyの場合はnull）,
       "suggestedSellPrice": 売却目標価格（積極派: 高めの売却目標。数値のみ、円単位）,
-      "suggestedStopLossPrice": 撤退ライン価格（積極派: 広めの撤退水準。数値のみ、円単位）
+      "suggestedStopLossPrice": 撤退ライン価格（積極派: 広めの撤退水準。数値のみ、円単位）,
+      "suggestedStopLossRate": 推奨撤退ライン率（0.07〜0.20。積極派は広め。数値のみ）,
+      "suggestedTakeProfitRate": 推奨売却目標率（0.15〜0.50以上。積極派は高め。数値のみ）
     }
   }
 }
@@ -210,6 +221,15 @@ ${PROMPT_NEWS_CONSTRAINTS}
 - 短期投資の場合、モメンタムに乗る買い増しは有効な戦略
 - ただし急騰後（週間+30%以上）は利確のタイミングでもあるため、shortTermで利確検討にも言及する
 
+【ねじれ局面（短期down × 中長期up）のスイングシナリオ】
+- shortTermTrendが"down"かつ（midTermTrendまたはlongTermTrend）が"up"の場合:
+  hold判定の場合、adviceの末尾に以下のスイングシミュレーションを自然な文章として追記してください:
+  1. 現在の保有数量 × 現在価格 =「今売却した場合の売却金額」を計算
+  2. 短期予測安値（shortTermPriceLow）で再購入した場合に取得できる株数を推計
+  3. 差分を「もし今売って安値で買い戻せば約○株（+○株）に増やせる可能性」として具体的に示す
+  4. ただし「売買手数料やタイミングリスクがあるため確実ではない」という注意も添える
+  例: 「仮に現在の1000株を今売って¥2,800付近で買い戻せば約1070株（+70株）に増やせる可能性があります。ただし底を正確に当てるのは困難で、売買手数料やタイミングリスクも発生します。」
+
 【業績に基づく判断の指針】
 - 赤字企業の場合は、shortTermで必ず「業績が赤字であること」とその判断への影響を言及する
 - 赤字かつ減益傾向の場合は、買い増しには慎重な判断を示す
@@ -226,6 +246,15 @@ ${PROMPT_NEWS_CONSTRAINTS}
 - sellCondition: どの指標がどの水準になったら売るかを具体的に記述する。価格に言及する場合は同じスタイルのsuggestedStopLossPriceと必ず同じ値を使い、整合性を保つこと
 - 損切りも重要な選択肢: 損失が大きく、回復の見込みが薄い場合は損切りを提案する
 
+【平均取得単価の機会費用的考え方 - 重要】
+- 売却/保有の判断において「今の含み損/含み益」（averagePrice基準）に過度に引きずられないでください
+- 判断の基準は「今この瞬間、現在価格でこの銘柄を新規に買うか？」です
+  * 答えがYES → hold（保有継続）の根拠を強化
+  * 答えがNO → sell（売却）の根拠を強化
+- averagePriceは参考情報にとどめ、「買値に戻るまで待つ」というサンクコストバイアスを排除してください
+- 例（良い）: 「テクニカル・ファンダメンタルの現時点評価からは、この価格帯での保有継続は合理的」
+- 例（悪い）: 「含み損が-15%あるため、もう少し待って買値に戻ってから売却しましょう」
+
 【売却目標・撤退ラインの指針（スタイルごとに設定）】
 - 売却目標（suggestedSellPrice）:
   - 含み益がある場合: 現在の利益を確保しつつ、さらなる上昇余地を考慮した目標価格
@@ -239,6 +268,17 @@ ${PROMPT_NEWS_CONSTRAINTS}
   - 慎重派: 狭い撤退ライン（例: 現在価格から-3〜-5%）
   - バランス型: 中間的な撤退ライン（例: 現在価格から-5〜-8%）
   - 積極派: 広い撤退ライン（例: 現在価格から-8〜-12%）
+
+【撤退ライン率・売却目標率（suggestedStopLossRate / suggestedTakeProfitRate）の算出指針】
+- 現在価格を基準に撤退ライン率（損切り率）と売却目標率（利確率）を算出する
+- ボラティリティが高い銘柄 → 撤退ライン率を広めに（日々のノイズで刈られないように）
+- ボラティリティが低い銘柄 → 撤退ライン率を狭めに（効率的なリスク管理）
+- スタイル別の目安:
+  * 慎重派: 撤退0.03〜0.10、利確0.05〜0.20
+  * バランス型: 撤退0.05〜0.15、利確0.10〜0.40
+  * 積極派: 撤退0.07〜0.20、利確0.15〜0.50以上
+- suggestedSellPrice / suggestedStopLossPrice（絶対価格）との整合性を保つこと
+- hold や buy の場合でも参考値として必ず算出すること（null にしない）
 
 【売却割合の判断指針】
 - suggestedSellPercent: 市場状況と損益に応じて適切な売却割合を判断
