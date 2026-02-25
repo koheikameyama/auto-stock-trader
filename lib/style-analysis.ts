@@ -26,6 +26,8 @@ export interface PurchaseStyleAnalysis {
   dipTargetPrice: number | null;
   sellTiming: string | null;
   sellTargetPrice: number | null;
+  suggestedStopLossRate: number | null;
+  suggestedTakeProfitRate: number | null;
 }
 
 /** 投資スタイル別のポートフォリオ分析結果 */

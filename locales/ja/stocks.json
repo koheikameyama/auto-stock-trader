@@ -104,7 +104,15 @@
     "simulation": "購入シミュレーション",
     "simulationTitle": "購入後分析シミュレーション",
     "setDipBuyAlert": "🔔 ¥{price} で通知を設定",
-    "buyAlertAlreadySet": "🔔 ¥{price} で通知設定済み"
+    "buyAlertAlreadySet": "🔔 ¥{price} で通知設定済み",
+    "riskManagement": {
+      "title": "購入後のリスク管理（目安）",
+      "stopLoss": "撤退ライン",
+      "stopLossDesc": "購入価格から{rate}%下落で損切り",
+      "takeProfit": "利確目標",
+      "takeProfitDesc": "購入価格から{rate}%上昇で利確",
+      "note": "あなたの投資スタイルとこの銘柄のボラティリティに基づくAI推奨値です"
+    }
   },
   "featured": {
     "title": "今日の注目銘柄",

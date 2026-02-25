@@ -26,6 +26,8 @@ interface StyleAnalysisData {
   dipTargetPrice?: number | null;
   sellTiming?: string | null;
   sellTargetPrice?: number | null;
+  suggestedStopLossRate?: number | null;
+  suggestedTakeProfitRate?: number | null;
 }
 
 interface RecommendationData {
@@ -75,6 +77,9 @@ interface RecommendationData {
   // 売りタイミング（avoid時）
   sellTiming?: "market" | "rebound" | null;
   sellTargetPrice?: number | null;
+  // リスク管理メタパラメータ
+  suggestedStopLossRate?: number | null;
+  suggestedTakeProfitRate?: number | null;
   // 投資スタイル別分析
   styleAnalyses?: Record<string, StyleAnalysisData> | null;
 }
@@ -315,8 +320,14 @@ export default function PurchaseRecommendation({
         dipTargetPrice: styleData.dipTargetPrice ?? data.dipTargetPrice,
         sellTiming: (styleData.sellTiming as "market" | "rebound" | null) ?? data.sellTiming,
         sellTargetPrice: styleData.sellTargetPrice ?? data.sellTargetPrice,
+        suggestedStopLossRate: styleData.suggestedStopLossRate ?? null,
+        suggestedTakeProfitRate: styleData.suggestedTakeProfitRate ?? null,
       }
-    : data;
+    : {
+        ...data,
+        suggestedStopLossRate: styleData?.suggestedStopLossRate ?? null,
+        suggestedTakeProfitRate: styleData?.suggestedTakeProfitRate ?? null,
+      };
 
   // 信頼度パーセンテージ
   const confidencePercent = Math.round(effectiveData.confidence * 100);
@@ -734,6 +745,47 @@ export default function PurchaseRecommendation({
     return null;
   };
 
+  // リスク管理セクション（損切り率・利確率）
+  const RiskManagementSection = () => {
+    const stopLoss = effectiveData?.suggestedStopLossRate;
+    const takeProfit = effectiveData?.suggestedTakeProfitRate;
+    if (!stopLoss && !takeProfit) return null;
+
+    const stopLossPercent = stopLoss ? Math.round(stopLoss * 100) : null;
+    const takeProfitPercent = takeProfit ? Math.round(takeProfit * 100) : null;
+
+    return (
+      <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4">
+        <p className="text-sm font-semibold text-gray-800 mb-2">
+          {t("riskManagement.title")}
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          {stopLossPercent && (
+            <div>
+              <p className="text-xs text-gray-500">{t("riskManagement.stopLoss")}</p>
+              <p className="text-base font-bold text-red-600">-{stopLossPercent}%</p>
+              <p className="text-xs text-gray-400">
+                {t("riskManagement.stopLossDesc", { rate: String(stopLossPercent) })}
+              </p>
+            </div>
+          )}
+          {takeProfitPercent && (
+            <div>
+              <p className="text-xs text-gray-500">{t("riskManagement.takeProfit")}</p>
+              <p className="text-base font-bold text-green-600">+{takeProfitPercent}%</p>
+              <p className="text-xs text-gray-400">
+                {t("riskManagement.takeProfitDesc", { rate: String(takeProfitPercent) })}
+              </p>
+            </div>
+          )}
+        </div>
+        <p className="text-xs text-gray-400 mt-2">
+          {t("riskManagement.note")}
+        </p>
+      </div>
+    );
+  };
+
   // 投資スタイル切り替えタブ
   const StyleTabs = () => {
     if (!hasStyleAnalyses) return null;
@@ -802,6 +854,9 @@ export default function PurchaseRecommendation({
 
           {/* 購入タイミング */}
           <BuyTimingSection />
+
+          {/* リスク管理（損切り率・利確率） */}
+          <RiskManagementSection />
 
           {/* D. パーソナライズ */}
           <PersonalizedSection />
@@ -997,6 +1052,9 @@ export default function PurchaseRecommendation({
             <p className="text-sm text-emerald-800">{effectiveData.buyCondition}</p>
           </div>
         )}
+
+        {/* リスク管理（損切り率・利確率） */}
+        <RiskManagementSection />
 
         {/* B. 深掘り評価 */}
         <DeepEvaluationSection />

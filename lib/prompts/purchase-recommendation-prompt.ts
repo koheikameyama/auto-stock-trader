@@ -72,18 +72,21 @@ ${delistingContext}${weekChangeContext}${marketContext}${sectorTrendContext}${pa
 各スタイルは同じ銘柄データを見ていますが、「どのトレンドを重視するか」が異なります。
 
 ■ 慎重派（CONSERVATIVE）: 長期トレンドを最重視
+- ユーザー心理: 「夜も眠れなくなるような含み損を避けたい」人。adviceでは資産を守るための防衛策を中心に記載する
 - 長期予測が「下落」→ 原則 stay/avoid（たとえ短期が上昇でも）
 - 全トレンドが「上昇」でなければ confidence を 0.65 以下に
 - advice は下振れリスクと防衛策を中心に記載
 - 保守的な判断: 迷ったら stay
 
 ■ バランス型（BALANCED）: 中期トレンドを最重視
+- ユーザー心理: 「リスクとリターンのバランスを冷静に取りたい」人。adviceではリスクとリターンの両面を公平に言及する
 - 中期予測が「上昇」→ buy 検討可能
 - 短期と長期が矛盾する場合は中期で判断
 - advice はリスクとリターンの両面を言及
 - バランスの取れた判断
 
 ■ 積極派（AGGRESSIVE）: 短期トレンドを最重視
+- ユーザー心理: 「あの時買っておけばよかったという機会損失を最も嫌う」人。adviceではアップサイドと「多少の含み損を許容してでも取りに行く理由」を記載する
 - 短期予測が「上昇」→ 積極的に buy 検討
 - 長期が下落でも短期モメンタムがあれば buy OK
 - advice はアップサイドポテンシャルとエントリーポイントを中心に
@@ -128,7 +131,9 @@ ${delistingContext}${weekChangeContext}${marketContext}${sectorTrendContext}${pa
       "reason": "慎重派の視点での理由（1-2文）",
       "caution": "注意点を1-2文",
       "buyCondition": "recommendationがstayの場合のみ具体的な条件、それ以外はnull",
-      "suggestedDipPrice": "recommendationがbuyの場合のみ押し目買い推奨価格（数値）、それ以外はnull"
+      "suggestedDipPrice": "recommendationがbuyの場合のみ押し目買い推奨価格（数値）、それ以外はnull",
+      "suggestedStopLossRate": "この銘柄のボラティリティに基づく推奨損切り率（0.01〜0.30の数値。慎重派は狭め）",
+      "suggestedTakeProfitRate": "目指すべき推奨利確率（0.05〜1.00の数値。慎重派は控えめ）"
     },
     "BALANCED": {
       "recommendation": "buy" | "stay" | "avoid",
@@ -138,7 +143,9 @@ ${delistingContext}${weekChangeContext}${marketContext}${sectorTrendContext}${pa
       "reason": "バランス型の視点での理由（1-2文）",
       "caution": "注意点を1-2文",
       "buyCondition": "recommendationがstayの場合のみ具体的な条件、それ以外はnull",
-      "suggestedDipPrice": "recommendationがbuyの場合のみ押し目買い推奨価格（数値）、それ以外はnull"
+      "suggestedDipPrice": "recommendationがbuyの場合のみ押し目買い推奨価格（数値）、それ以外はnull",
+      "suggestedStopLossRate": "この銘柄のボラティリティに基づく推奨損切り率（0.01〜0.30の数値）",
+      "suggestedTakeProfitRate": "目指すべき推奨利確率（0.05〜1.00の数値）"
     },
     "AGGRESSIVE": {
       "recommendation": "buy" | "stay" | "avoid",
@@ -148,7 +155,9 @@ ${delistingContext}${weekChangeContext}${marketContext}${sectorTrendContext}${pa
       "reason": "積極派の視点での理由（1-2文）",
       "caution": "注意点を1-2文",
       "buyCondition": "recommendationがstayの場合のみ具体的な条件、それ以外はnull",
-      "suggestedDipPrice": "recommendationがbuyの場合のみ押し目買い推奨価格（数値）、それ以外はnull"
+      "suggestedDipPrice": "recommendationがbuyの場合のみ押し目買い推奨価格（数値）、それ以外はnull",
+      "suggestedStopLossRate": "この銘柄のボラティリティに基づく推奨損切り率（0.01〜0.30の数値。積極派は広め）",
+      "suggestedTakeProfitRate": "目指すべき推奨利確率（0.05〜1.00の数値。積極派は高め）"
     }
   },
 
@@ -212,6 +221,17 @@ ${PROMPT_NEWS_CONSTRAINTS}
 - 現在価格より高い値は絶対に設定しないこと
 - 現在価格から30%以上乖離する値は設定しないこと
 
+【損切り率・利確率（suggestedStopLossRate / suggestedTakeProfitRate）の算出指針】
+- この銘柄を購入した場合に設定すべき損切り率と利確率を、スタイルごとに提案してください
+- ボラティリティが高い銘柄 → 損切り率を広めに設定（日々のノイズで刈られないように）
+- ボラティリティが低い銘柄 → 損切り率を狭めに設定（効率的なリスク管理）
+- スタイル別の目安:
+  * 慎重派: 損切り0.03〜0.10、利確0.05〜0.20
+  * バランス型: 損切り0.05〜0.15、利確0.10〜0.40
+  * 積極派: 損切り0.07〜0.20、利確0.15〜0.50以上
+- 購入前の銘柄なので「購入した場合の推奨設定」として算出すること
+- recommendationが"avoid"の場合も、参考値として算出すること
+
 【財務指標の活用】
 - 財務指標は銘柄の質を評価する参考情報として活用してください
 - 財務に懸念点がある場合（割高、ROE低めなど）は、cautionやconcernsで言及してください
@@ -241,6 +261,13 @@ ${PROMPT_NEWS_CONSTRAINTS}
 - 直近で強い上昇の兆候がある銘柄はモメンタムが強く、買いの好機である
 - ただし週間+30%以上の急騰は天井掴みのリスクがあるため "stay" とし、反落を待つアドバイスをすること
 - 逆三尊やダブルボトムなどのチャートパターンが検出されても、出来高が伴っていない場合や市場全体の地合いが悪い場合は「騙し（一時的な反発）」のリスクを必ず指摘してください。
+
+【ねじれ局面（短期down × 長期up）のスイング戦略】
+- shortTermTrendが"down"かつlongTermTrendが"up"の場合、単なる"stay"ではなく「安値で拾う戦略」を具体的に提示してください。
+- buyConditionに具体的なエントリー価格帯（短期予測安値付近）を必ず記載してください。
+  例: 「短期的な調整が予想されます。短期予測安値の¥XXX付近まで引き付けてからエントリーすることで、取得単価を下げ、中長期的な利益率を最大化できます。」
+- この局面では全スタイル"stay"とし、buyConditionで具体的な押し目価格と戦略を提示してください。
+- 積極派のconfidenceは他スタイルより高めに設定可能です（中長期で上昇が期待できるため）。
 
 【"avoid"（見送り推奨）について】
 - "avoid"は購入を見送り、今後の保有候補からも外すことを検討するほど「かなり強いマイナス条件」が揃った場合の判断です。
