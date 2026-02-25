@@ -606,7 +606,7 @@ async function buildStockContexts(
     );
     const trendlineContext = buildTrendlineContext(ohlcvPrices);
     const { text: weekChangeContext, rate: weekChangeRate } =
-      buildWeekChangeContext(ohlcvPrices, "watchlist");
+      buildWeekChangeContext(ohlcvPrices);
     const deviationRateContext = buildDeviationRateContext(ohlcvPrices);
 
     // 乖離率の数値（後補正用）

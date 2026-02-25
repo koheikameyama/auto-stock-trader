@@ -256,7 +256,7 @@ export async function executePurchaseRecommendation(
 
   // 週間変化率を計算
   const { text: weekChangeContext, rate: weekChangeRate } =
-    buildWeekChangeContext(prices, "watchlist");
+    buildWeekChangeContext(prices);
 
   // 市場全体の状況コンテキスト
   const marketContext = buildMarketContext(marketData);
@@ -557,6 +557,7 @@ export async function executePurchaseRecommendation(
     if (combinedTechnical.signal === "sell" && combinedTechnical.strength >= 70) {
       if (sa.recommendation === "buy") {
         sa.recommendation = "stay";
+        sa.statusType = "ホールド";
         sa.confidence = Math.max(0.5, combinedTechnical.strength / 100);
         sa.reason = `テクニカル指標で強い下落シグナル（${combinedTechnical.reasons.join("、")}）が出ているため、購入は下げ止まりを確認してからを推奨します。 ${sa.reason}`;
         sa.caution = `最新のローソク足パターン等が強い下落（強さ${combinedTechnical.strength}%）を示しています。${sa.caution}`;
@@ -571,11 +572,13 @@ export async function executePurchaseRecommendation(
     // avoid は confidence >= 0.8 の場合のみ許可
     if (sa.recommendation === "avoid" && sa.confidence < 0.8) {
       sa.recommendation = "stay";
+      sa.statusType = "ホールド";
     }
 
     // 危険銘柄の強制補正
     if (!skipSafetyRules && isDangerousStock(stock.isProfitable, volatility) && sa.recommendation === "buy") {
       sa.recommendation = "stay";
+      sa.statusType = "ホールド";
       sa.caution = `業績が赤字かつボラティリティが${volatility?.toFixed(0)}%と高いため、様子見を推奨します。${sa.caution}`;
       if (styleKey === "CONSERVATIVE") {
         sa.statusType = "ホールド";
@@ -586,6 +589,7 @@ export async function executePurchaseRecommendation(
     // 市場急落時の強制補正
     if (marketData?.isMarketCrash && sa.recommendation === "buy") {
       sa.recommendation = "stay";
+      sa.statusType = "ホールド";
       sa.reason = `市場全体が急落しているため、様子見をおすすめします。${sa.reason}`;
       sa.buyCondition = sa.buyCondition || "市場が落ち着いてから検討してください";
       if (styleKey === "CONSERVATIVE") {
@@ -602,6 +606,7 @@ export async function executePurchaseRecommendation(
     // パニック売り防止
     if (deviationRate !== null && deviationRate <= SELL_TIMING.PANIC_SELL_THRESHOLD && sa.recommendation === "avoid") {
       sa.recommendation = "stay";
+      sa.statusType = "ホールド";
       sa.caution = `25日移動平均線から${deviationRate.toFixed(1)}%下方乖離しており売られすぎです。大底で見送るのはもったいないため、様子見を推奨します。${sa.caution}`;
     }
   }

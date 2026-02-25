@@ -109,6 +109,7 @@ export function applyPurchaseStyleSafetyRules(params: {
         styleResult.recommendation === "buy"
       ) {
         styleResult.recommendation = "stay";
+        styleResult.statusType = "ホールド";
         styleResult.confidence = Math.max(
           0,
           styleResult.confidence + MOMENTUM.DECLINE_CONFIDENCE_PENALTY,
@@ -128,6 +129,7 @@ export function applyPurchaseStyleSafetyRules(params: {
         styleResult.recommendation === "buy"
       ) {
         styleResult.recommendation = "stay";
+        styleResult.statusType = "ホールド";
         styleResult.caution = `週間+${weekChangeRate!.toFixed(0)}%の急騰銘柄のため、様子見を推奨します。${styleResult.caution}`;
         if (style === INVESTMENT_STYLES.CONSERVATIVE) {
           styleResult.statusType = "ホールド";
@@ -141,6 +143,7 @@ export function applyPurchaseStyleSafetyRules(params: {
         styleResult.recommendation === "buy"
       ) {
         styleResult.recommendation = "stay";
+        styleResult.statusType = "ホールド";
         styleResult.confidence = Math.max(
           0,
           styleResult.confidence + MA_DEVIATION.CONFIDENCE_PENALTY,
@@ -224,6 +227,7 @@ export function applyPortfolioStyleSafetyRules(params: {
       styleResult.recommendation === "buy"
     ) {
       styleResult.recommendation = "hold";
+      styleResult.statusType = "ホールド";
       styleResult.shortTerm = `週間+${weekChangeRate!.toFixed(0)}%の急騰後のため、買い増しは高値掴みのリスクがあります。${styleResult.shortTerm}`;
     }
 
