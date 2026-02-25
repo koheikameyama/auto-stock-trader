@@ -36,6 +36,11 @@
     "aiManaged": "AIお任せ",
     "edit": "投資スタイルを編集"
   },
+  "exitStrategy": {
+    "takeProfit": "推奨利確",
+    "stopLoss": "推奨損切",
+    "riskReward": "リスクリワード"
+  },
   "nikkei": {
     "title": "日経平均株価",
     "period1m": "1ヶ月",

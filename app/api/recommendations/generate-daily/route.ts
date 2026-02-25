@@ -466,10 +466,22 @@ async function filterByPurchaseRecommendation(
     tickerCode: string;
     reason: string;
     investmentTheme: string;
+    expectedExitStrategy: {
+      takeProfitRate: number;
+      stopLossRate: number;
+    };
   }>,
   candidates: ScoredStock[],
 ): Promise<
-  Array<{ tickerCode: string; reason: string; investmentTheme: string }>
+  Array<{
+    tickerCode: string;
+    reason: string;
+    investmentTheme: string;
+    expectedExitStrategy: {
+      takeProfitRate: number;
+      stopLossRate: number;
+    };
+  }>
 > {
   const stockMap = new Map(candidates.map((s) => [s.tickerCode, s]));
   const limit = pLimit(PURCHASE_FILTER_CONCURRENCY);
@@ -724,6 +736,10 @@ async function selectWithAI(
   tickerCode: string;
   reason: string;
   investmentTheme: string;
+  expectedExitStrategy: {
+    takeProfitRate: number;
+    stopLossRate: number;
+  };
 }> | null> {
   const styleLabel = getStyleLabel(investmentStyle);
   let budgetLabel = investmentBudget
@@ -773,7 +789,7 @@ ${ctx.technicalContext}${ctx.candlestickContext}${ctx.chartPatternContext}${ctx.
         { role: "user", content: prompt },
       ],
       temperature: 0.4,
-      max_tokens: 1200,
+      max_tokens: 1600,
       response_format: {
         type: "json_schema",
         json_schema: {
@@ -797,8 +813,22 @@ ${ctx.technicalContext}${ctx.candlestickContext}${ctx.chartPatternContext}${ctx.
                       type: "string",
                       enum: INVESTMENT_THEMES,
                     },
+                    expectedExitStrategy: {
+                      type: "object",
+                      properties: {
+                        takeProfitRate: { type: "number" },
+                        stopLossRate: { type: "number" },
+                      },
+                      required: ["takeProfitRate", "stopLossRate"],
+                      additionalProperties: false,
+                    },
                   },
-                  required: ["tickerCode", "reason", "investmentTheme"],
+                  required: [
+                    "tickerCode",
+                    "reason",
+                    "investmentTheme",
+                    "expectedExitStrategy",
+                  ],
                   additionalProperties: false,
                 },
               },
@@ -824,7 +854,16 @@ ${ctx.technicalContext}${ctx.candlestickContext}${ctx.chartPatternContext}${ctx.
           tickerCode?: string;
           reason?: string;
           investmentTheme?: string;
-        }) => s.tickerCode && s.reason && s.investmentTheme,
+          expectedExitStrategy?: {
+            takeProfitRate?: number;
+            stopLossRate?: number;
+          };
+        }) =>
+          s.tickerCode &&
+          s.reason &&
+          s.investmentTheme &&
+          s.expectedExitStrategy?.takeProfitRate != null &&
+          s.expectedExitStrategy?.stopLossRate != null,
       )
       .slice(0, 7);
 
@@ -876,6 +915,10 @@ async function saveRecommendations(
     tickerCode: string;
     reason: string;
     investmentTheme: string;
+    expectedExitStrategy: {
+      takeProfitRate: number;
+      stopLossRate: number;
+    };
   }>,
   candidates: ScoredStock[],
 ): Promise<number> {
@@ -908,6 +951,8 @@ async function saveRecommendations(
           stockId: stock.id,
           reason: rec.reason,
           investmentTheme: rec.investmentTheme,
+          takeProfitRate: rec.expectedExitStrategy.takeProfitRate,
+          stopLossRate: rec.expectedExitStrategy.stopLossRate,
         },
         create: {
           userId,
@@ -916,6 +961,8 @@ async function saveRecommendations(
           position: idx + 1,
           reason: rec.reason,
           investmentTheme: rec.investmentTheme,
+          takeProfitRate: rec.expectedExitStrategy.takeProfitRate,
+          stopLossRate: rec.expectedExitStrategy.stopLossRate,
         },
       });
 

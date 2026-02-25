@@ -7,6 +7,7 @@ import { CARD_FOOTER_STYLES } from "@/lib/ui-config"
 import StockActionButtons from "@/app/components/StockActionButtons"
 import CopyableTicker from "@/app/components/CopyableTicker"
 import StaleAnalysisBanner from "@/app/components/StaleAnalysisBanner"
+import { useTranslations } from "next-intl"
 
 interface FeaturedStock {
   id: string
@@ -14,6 +15,8 @@ interface FeaturedStock {
   category: string | null
   investmentTheme: string | null
   reason: string | null
+  takeProfitRate: number | null
+  stopLossRate: number | null
   isOwned: boolean // ポートフォリオにある場合
   isRegistered: boolean // ウォッチリストにある場合
   isTracked: boolean // 追跡中の場合
@@ -35,6 +38,7 @@ interface FeaturedStock {
 }
 
 export default function FeaturedStocksByCategory() {
+  const t = useTranslations("dashboard.exitStrategy")
   const [personalRecommendations, setPersonalRecommendations] = useState<FeaturedStock[]>([])
   const [pricesLoaded, setPricesLoaded] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -231,6 +235,23 @@ export default function FeaturedStocksByCategory() {
             <p className="text-xs text-gray-700 leading-relaxed line-clamp-3">
               {stock.reason}
             </p>
+          </div>
+        )}
+
+        {/* 出口戦略プレビュー */}
+        {!isDisabled && stock.takeProfitRate != null && stock.stopLossRate != null && (
+          <div className="mb-2 sm:mb-3 flex items-center gap-2 text-[11px] text-gray-500">
+            <span className="text-green-600 font-medium">
+              {t("takeProfit")} +{(stock.takeProfitRate * 100).toFixed(0)}%
+            </span>
+            <span className="text-gray-300">|</span>
+            <span className="text-red-500 font-medium">
+              {t("stopLoss")} -{(stock.stopLossRate * 100).toFixed(0)}%
+            </span>
+            <span className="text-gray-300">|</span>
+            <span className="text-gray-500">
+              {t("riskReward")} {(stock.takeProfitRate / stock.stopLossRate).toFixed(1)}
+            </span>
           </div>
         )}
 

@@ -124,6 +124,8 @@ export async function GET() {
         stockId: r.stockId,
         reason: r.reason,
         investmentTheme: r.investmentTheme,
+        takeProfitRate: r.takeProfitRate,
+        stopLossRate: r.stopLossRate,
         category: null,
         isOwned: portfolioStockIds.includes(r.stockId),
         isRegistered: watchlistStockIds.includes(r.stockId),
