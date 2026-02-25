@@ -12,6 +12,7 @@
 - 買い時到達（ウォッチリスト）
 """
 
+import json
 import os
 import sys
 import logging
@@ -38,6 +39,27 @@ def get_env_variable(name: str, required: bool = True) -> str | None:
         logger.error(f"Error: {name} environment variable not set")
         sys.exit(1)
     return value
+
+
+def fetch_latest_stock_analyses(conn, stock_ids: list[str]) -> dict[str, dict]:
+    """最新のStockAnalysisのstyleAnalysesを一括取得"""
+    if not stock_ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute('''
+            SELECT DISTINCT ON ("stockId")
+                "stockId", "styleAnalyses"
+            FROM "StockAnalysis"
+            WHERE "stockId" = ANY(%s)
+              AND "styleAnalyses" IS NOT NULL
+            ORDER BY "stockId", "analyzedAt" DESC
+        ''', (stock_ids,))
+        rows = cur.fetchall()
+    result = {}
+    for row in rows:
+        if row[1]:
+            result[row[0]] = row[1] if isinstance(row[1], dict) else json.loads(row[1])
+    return result
 
 
 def fetch_portfolio_surge_plunge_alerts(conn, surge_threshold: float, plunge_threshold: float) -> list[dict]:
@@ -138,7 +160,8 @@ def fetch_portfolio_sell_target_alerts(conn) -> list[dict]:
                     WHERE t."portfolioStockId" = p.id AND t.type = 'buy'
                     ), 0
                 ) as "averageCost",
-                p.id as "userStockId"
+                p.id as "userStockId",
+                us."investmentStyle"
             FROM "PortfolioStock" p
             JOIN "Stock" s ON p."stockId" = s.id
             LEFT JOIN "UserSettings" us ON us."userId" = p."userId"
@@ -155,6 +178,7 @@ def fetch_portfolio_sell_target_alerts(conn) -> list[dict]:
             user_target_rate = float(row[5]) if row[5] else None
             average_cost = float(row[7]) if row[7] else 0
             user_stock_id = row[8]
+            investment_style = row[9] or "BALANCED"
 
             # ユーザー設定がない場合はスキップ（AIフォールバックなし）
             if user_target_rate is None or average_cost <= 0:
@@ -178,6 +202,7 @@ def fetch_portfolio_sell_target_alerts(conn) -> list[dict]:
                     "gainPercent": gain_percent,
                     "type": "sell_target",
                     "userStockId": user_stock_id,
+                    "investmentStyle": investment_style,
                 })
 
     return alerts
@@ -222,7 +247,8 @@ def fetch_portfolio_stop_loss_alerts(conn) -> list[dict]:
                     WHERE t."portfolioStockId" = p.id AND t.type = 'buy'
                     ), 0
                 ) as "averageCost",
-                p.id as "userStockId"
+                p.id as "userStockId",
+                us."investmentStyle"
             FROM "PortfolioStock" p
             JOIN "Stock" s ON p."stockId" = s.id
             LEFT JOIN "UserSettings" us ON us."userId" = p."userId"
@@ -239,6 +265,7 @@ def fetch_portfolio_stop_loss_alerts(conn) -> list[dict]:
             user_stop_loss_rate = float(row[5]) if row[5] else None
             average_cost = float(row[7]) if row[7] else 0
             user_stock_id = row[8]
+            investment_style = row[9] or "BALANCED"
 
             # ユーザー設定がない場合はスキップ（AIフォールバックなし）
             if user_stop_loss_rate is None or average_cost <= 0:
@@ -262,6 +289,7 @@ def fetch_portfolio_stop_loss_alerts(conn) -> list[dict]:
                     "lossPercent": loss_percent,
                     "type": "stop_loss",
                     "userStockId": user_stock_id,
+                    "investmentStyle": investment_style,
                 })
 
     return alerts
@@ -415,8 +443,29 @@ def main():
         sell_target_alerts = fetch_portfolio_sell_target_alerts(conn)
         logger.info(f"  Found {len(sell_target_alerts)} sell target alerts")
 
+        # 3. ポートフォリオ: 逆指値（ストップロス）到達
+        logger.info("Checking portfolio stop loss alerts...")
+        stop_loss_alerts = fetch_portfolio_stop_loss_alerts(conn)
+        logger.info(f"  Found {len(stop_loss_alerts)} stop loss alerts")
+
+        # sell_target/stop_loss対象銘柄のStockAnalysis（スタイル別分析）を一括取得
+        portfolio_alert_stock_ids = list(set(
+            a["stockId"] for a in sell_target_alerts + stop_loss_alerts
+        ))
+        stock_analyses = fetch_latest_stock_analyses(conn, portfolio_alert_stock_ids)
+        logger.info(f"  Fetched style analyses for {len(stock_analyses)} stocks")
+
         for alert in sell_target_alerts:
             body = f"現在価格 {alert['latestPrice']:,.0f}円（+{alert['gainPercent']:.1f}%）が目標利確価格 {alert['targetPrice']:,.0f}円 を超えました"
+
+            # スタイル別AI分析をメッセージに付加
+            user_style = alert.get("investmentStyle", "BALANCED")
+            style_data = stock_analyses.get(alert["stockId"], {}).get(user_style, {})
+            style_rec = style_data.get("recommendation", "")
+            if style_rec == "sell":
+                body += "。AIも売却を推奨しています"
+            elif style_rec == "buy":
+                body += "。※AIはまだ保有継続を推奨しています"
 
             notifications.append({
                 "userId": alert["userId"],
@@ -430,13 +479,17 @@ def main():
                 "changeRate": alert.get("gainPercent"),
             })
 
-        # 3. ポートフォリオ: 逆指値（ストップロス）到達
-        logger.info("Checking portfolio stop loss alerts...")
-        stop_loss_alerts = fetch_portfolio_stop_loss_alerts(conn)
-        logger.info(f"  Found {len(stop_loss_alerts)} stop loss alerts")
-
         for alert in stop_loss_alerts:
             body = f"現在価格 {alert['latestPrice']:,.0f}円（{alert['lossPercent']:.1f}%）が損切りライン {alert['stopLossPrice']:,.0f}円 を下回りました"
+
+            # スタイル別AI分析をメッセージに付加
+            user_style = alert.get("investmentStyle", "BALANCED")
+            style_data = stock_analyses.get(alert["stockId"], {}).get(user_style, {})
+            style_rec = style_data.get("recommendation", "")
+            if style_rec == "sell":
+                body += "。AIも売却を推奨しています"
+            elif style_rec == "buy":
+                body += "。※AIは回復を予測しています"
 
             notifications.append({
                 "userId": alert["userId"],
