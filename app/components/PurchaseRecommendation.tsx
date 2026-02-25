@@ -108,7 +108,7 @@ function AvoidSellTimingSection({
       <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
         <div className="flex items-center gap-2 mb-1">
           <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs font-semibold">
-            反発後に判断
+            戻り待ち
           </span>
         </div>
         <p className="text-sm text-yellow-800">
@@ -819,6 +819,63 @@ export default function PurchaseRecommendation({
             <div className="flex-1 bg-gray-200 rounded-full h-2">
               <div
                 className="bg-green-500 h-2 rounded-full transition-all duration-500"
+                style={{ width: `${confidencePercent}%` }}
+              />
+            </div>
+            <span className="text-xs text-gray-600 whitespace-nowrap">
+              信頼度 {confidencePercent}%
+            </span>
+          </div>
+
+          <div className="text-center space-y-1">
+            <AnalysisTimestamp dateString={data.analyzedAt} />
+            <p className="text-xs text-gray-400">
+              更新 {UPDATE_SCHEDULES.STOCK_ANALYSIS}（平日）
+            </p>
+          </div>
+        </div>
+        {/* AI推奨価格 */}
+        <AIPriceSection />
+        {/* A. 価格帯予測 */}
+        <PredictionSection />
+      </div>
+    );
+  }
+
+  // 見送り推奨（avoid） - 戻り待ち（sellTiming === "rebound"）
+  if (effectiveData.recommendation === "avoid" && effectiveData.sellTiming === "rebound") {
+    return (
+      <div>
+        <ReanalyzeHeader />
+        <StyleTabs />
+        <div className="bg-gradient-to-br from-yellow-50 to-amber-50 rounded-lg shadow-md p-4 sm:p-6 mb-4">
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-2xl">⏳</span>
+            <h3 className="text-base sm:text-lg font-bold text-yellow-800">
+              戻り待ち
+            </h3>
+          </div>
+
+          <p className="text-sm text-gray-700 mb-4">{effectiveData.reason}</p>
+
+          <AvoidSellTimingSection
+            sellTiming={effectiveData.sellTiming}
+            sellTargetPrice={effectiveData.sellTargetPrice}
+          />
+
+          {/* B. 深掘り評価 */}
+          <DeepEvaluationSection />
+
+          <div className="bg-amber-50 border-l-4 border-amber-400 p-3 mb-4">
+            <p className="text-xs text-amber-800">⚠️ {effectiveData.caution}</p>
+          </div>
+
+          <MarketSignalRow />
+
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex-1 bg-gray-200 rounded-full h-2">
+              <div
+                className="bg-yellow-500 h-2 rounded-full transition-all duration-500"
                 style={{ width: `${confidencePercent}%` }}
               />
             </div>
