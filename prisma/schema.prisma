@@ -527,7 +527,7 @@ model UserDailyRecommendation {
   @@index([stockId])
 }
 
-// ポートフォリオ総評分析（ユーザーごと）
+// Daily Market Navigator（ユーザーごと）
 model PortfolioOverallAnalysis {
   id     String @id @default(cuid())
   userId String @unique
@@ -544,14 +544,22 @@ model PortfolioOverallAnalysis {
   unrealizedGainPercent Decimal? @db.Decimal(8, 2) // 含み損益率(%)
   portfolioVolatility   Decimal? @db.Decimal(8, 2) // ポートフォリオ全体のボラティリティ(%)
 
-  // AI生成テキスト
-  overallSummary      String @db.Text // 全体の総評（2-3文）
-  overallStatus       String // 好調/順調/やや低調/注意/要確認
-  overallStatusType   String // excellent/good/neutral/caution/warning
-  metricsAnalysis     Json // 各指標の解説・評価・アクション提案
-  actionSuggestions   Json // 推奨アクションリスト
-  watchlistSimulation Json? // ウォッチリスト銘柄追加時の予測
-  dailyCommentary     Json? // 日次コメンタリー（市場概況・銘柄値動き・売却評価・セクター動向・注目ポイント）
+  // マーケット情報
+  marketHeadline  String @db.Text // 市場ヘッドライン
+  marketTone      String // bullish/bearish/neutral/sector_rotation
+  marketKeyFactor String @db.Text // 市場の主要因
+
+  // ポートフォリオ情報
+  portfolioStatus  String // healthy/caution/warning/critical
+  portfolioSummary String @db.Text // ポートフォリオ総評
+  actionPlan       String @db.Text // アクションプラン
+
+  // バディメッセージ
+  buddyMessage String @db.Text // バディからのメッセージ
+
+  // ハイライト
+  stockHighlights  Json // 銘柄ハイライト
+  sectorHighlights Json // セクターハイライト
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
