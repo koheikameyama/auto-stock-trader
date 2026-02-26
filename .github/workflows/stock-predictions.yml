@@ -1,0 +1,82 @@
+name: Stock Predictions & Analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      notify:
+        description: 'Push通知を送信する'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  calculate-sector-trends:
+    uses: ./.github/workflows/calculate-sector-trends.yml
+    secrets: inherit
+
+  purchase-recommendations:
+    needs: calculate-sector-trends
+    uses: ./.github/workflows/purchase-recommendations.yml
+    secrets: inherit
+
+  portfolio-analysis:
+    needs: calculate-sector-trends
+    uses: ./.github/workflows/portfolio-analysis.yml
+    secrets: inherit
+
+  gainers-losers:
+    needs: calculate-sector-trends
+    uses: ./.github/workflows/gainers-losers.yml
+    secrets: inherit
+
+  portfolio-snapshots:
+    needs: calculate-sector-trends
+    uses: ./.github/workflows/portfolio-snapshots.yml
+    secrets: inherit
+
+  notify:
+    needs: [purchase-recommendations, portfolio-analysis, gainers-losers, portfolio-snapshots]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install requests
+
+      - name: Send push notification
+        if: (needs.purchase-recommendations.result == 'success' || needs.portfolio-analysis.result == 'success') && (github.event_name != 'workflow_dispatch' || inputs.notify)
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          python scripts/github-actions/send_push_notification.py \
+            --title "今日の株価予測が完了しました" \
+            --body "ポートフォリオ分析と購入レコメンドを更新しました" \
+            --url "/my-stocks"
+
+      - name: Notify Slack on success
+        if: needs.purchase-recommendations.result == 'success' && needs.portfolio-analysis.result == 'success'
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "✅ 株価予測の生成に成功しました"
+          SLACK_MESSAGE: "株価予測・ポートフォリオ分析・購入レコメンドを更新しました"
+          SLACK_COLOR: good
+          SLACK_FOOTER: "Stock Buddy"
+
+      - name: Notify Slack on failure
+        if: contains(needs.*.result, 'failure')
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "❌ 株価予測の生成に失敗しました"
+          SLACK_MESSAGE: "詳細はGitHub Actionsログを確認してください"
+          SLACK_COLOR: danger
+          SLACK_FOOTER: "Stock Buddy"

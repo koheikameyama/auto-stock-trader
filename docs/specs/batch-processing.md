@@ -65,23 +65,19 @@ MONTHLY
 
 **呼び出しAPI**: `POST /api/recommendations/generate-daily`
 
-### 2. 株価分析（stock-predictions.yml）
+### 2. 株価予測・分析（stock-predictions.yml）
 
-| スケジュール | JST |
-|-------------|-----|
-| `0 0 * * 1-5` | 09:00 |
-| `30 3 * * 1-5` | 12:30 |
-| `30 6 * * 1-5` | 15:30 |
+cron-job.org から `workflow_dispatch` でトリガー。各ジョブは独立ワークフローとして `workflow_call` で再利用可能。
 
-**ジョブ構成**:
-1. `determine-time` - JST時刻判定
-2. `calculate-sector-trends` - セクタートレンド計算
-3. `purchase-recommendations` - ウォッチリスト購入判断
-4. `portfolio-analysis` - ポートフォリオ銘柄分析
-5. `portfolio-overall`（引けのみ）- ポートフォリオ総評
-6. `gainers-losers`（引けのみ）- 市場ランキング
-7. `portfolio-snapshots`（引けのみ）- 資産スナップショット
-8. `notify` - プッシュ通知 + Slack通知
+**オーケストレーター構成**:
+1. `calculate-sector-trends` → `calculate-sector-trends.yml`
+2. `purchase-recommendations` → `purchase-recommendations.yml`（1の後）
+3. `portfolio-analysis` → `portfolio-analysis.yml`（1の後、2と並列）
+4. `gainers-losers` → `gainers-losers.yml`（1の後、2,3と並列）
+5. `portfolio-snapshots` → `portfolio-snapshots.yml`（1の後、2,3,4と並列）
+6. `notify` - プッシュ通知 + Slack通知
+
+各ワークフローは `workflow_dispatch` で単独実行も可能。
 
 ### 3. 業績データ取得（fetch-earnings.yml）
 

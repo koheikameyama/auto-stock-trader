@@ -1,4 +1,4 @@
-name: Portfolio Snapshots
+name: Purchase Recommendations
 
 on:
   workflow_dispatch:
@@ -17,9 +17,11 @@ jobs:
           python-version: '3.12'
 
       - name: Install Python dependencies
-        run: pip install psycopg2-binary
+        run: pip install "yfinance>=1.2.0" psycopg2-binary openai requests
 
-      - name: Generate portfolio snapshots
+      - name: Generate purchase recommendations
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: python scripts/github-actions/generate_portfolio_snapshots.py
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: python scripts/github-actions/generate_purchase_recommendations.py
