@@ -34,7 +34,7 @@ STALE_DATA_DAYS = 14
 # =============================================================================
 
 # yf.download() 1回あたりの最大銘柄数
-DOWNLOAD_BATCH_SIZE = 500
+DOWNLOAD_BATCH_SIZE = 50
 
 # DB更新のバッチサイズ
 DB_BATCH_SIZE = 100

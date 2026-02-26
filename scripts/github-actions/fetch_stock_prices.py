@@ -28,6 +28,9 @@ from lib.constants import (
     DB_BATCH_SIZE,
     FETCH_FAIL_WARNING_THRESHOLD,
     STALE_DATA_DAYS,
+    YFINANCE_RATE_LIMIT_MAX_RETRIES,
+    YFINANCE_RATE_LIMIT_WAIT_SECONDS,
+    YFINANCE_BATCH_SLEEP_SECONDS,
 )
 
 
@@ -80,8 +83,19 @@ def ensure_ticker_suffix(ticker_code: str) -> str:
     return ticker_code if ticker_code.endswith(".T") else f"{ticker_code}.T"
 
 
-def download_batch(symbols: list[str]) -> dict:
-    """yf.download() で一括取得し、銘柄別の価格データを返す"""
+def _is_rate_limit_error(e: Exception) -> bool:
+    """Yahoo Finance のレート制限エラーかどうか判定"""
+    return (
+        "YFRateLimitError" in type(e).__name__
+        or "Too Many Requests" in str(e)
+        or "Rate limited" in str(e)
+    )
+
+
+def download_batch(symbols: list[str], retry_count: int = 0) -> dict:
+    """yf.download() で一括取得し、銘柄別の価格データを返す。
+    レートリミット時は指数バックオフでリトライ。
+    """
     if not symbols:
         return {}
 
@@ -94,10 +108,21 @@ def download_batch(symbols: list[str]) -> dict:
             progress=False,
         )
     except Exception as e:
+        if _is_rate_limit_error(e) and retry_count < YFINANCE_RATE_LIMIT_MAX_RETRIES:
+            wait = YFINANCE_RATE_LIMIT_WAIT_SECONDS[retry_count]
+            print(f"  Rate limited (exception). Waiting {wait}s before retry {retry_count + 1}...")
+            time.sleep(wait)
+            return download_batch(symbols, retry_count + 1)
         print(f"  Error in yf.download: {e}")
         return {}
 
     if df.empty:
+        # 空の結果もレートリミットの可能性がある
+        if retry_count < YFINANCE_RATE_LIMIT_MAX_RETRIES and len(symbols) > 1:
+            wait = YFINANCE_RATE_LIMIT_WAIT_SECONDS[retry_count]
+            print(f"  Empty result for {len(symbols)} tickers. Waiting {wait}s before retry {retry_count + 1}...")
+            time.sleep(wait)
+            return download_batch(symbols, retry_count + 1)
         return {}
 
     results = {}
@@ -125,6 +150,15 @@ def download_batch(symbols: list[str]) -> dict:
         price_data = _compute_price_data(hist)
         if price_data:
             results[symbol] = price_data
+
+    # 成功率が50%未満の場合、失敗銘柄をリトライ
+    if len(results) < len(symbols) * 0.5 and retry_count < YFINANCE_RATE_LIMIT_MAX_RETRIES:
+        failed_symbols = [s for s in symbols if s not in results]
+        wait = YFINANCE_RATE_LIMIT_WAIT_SECONDS[retry_count]
+        print(f"  Low success rate ({len(results)}/{len(symbols)}). Retrying {len(failed_symbols)} failed tickers after {wait}s...")
+        time.sleep(wait)
+        retry_results = download_batch(failed_symbols, retry_count + 1)
+        results.update(retry_results)
 
     return results
 
@@ -507,9 +541,9 @@ def main():
             total_updated += updated
             print(f"  Updated {updated} stocks (errors: {errors_in_batch})")
 
-            # バッチ間の短い待機（レート制限対策）
+            # バッチ間の待機（レート制限対策）
             if batch_start + batch_size < len(all_symbols):
-                time.sleep(1)
+                time.sleep(YFINANCE_BATCH_SLEEP_SECONDS)
 
         print()
         print(f"Completed: {len(all_symbols)} stocks processed")
