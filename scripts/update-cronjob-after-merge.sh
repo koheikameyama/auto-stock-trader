@@ -73,7 +73,7 @@ fi
 echo ""
 echo "➕ session-batch ジョブを作成中..."
 
-SESSIONS=("morning:0:10:session-batch morning 09:10 JST" "noon:1:10:session-batch noon 10:10 JST" "noon:3:40:session-batch noon 12:40 JST" "noon:4:40:session-batch noon 13:40 JST" "close:6:40:session-batch close 15:40 JST")
+SESSIONS=("morning:0:10:session-batch morning 09:10 JST" "mid-morning:1:10:session-batch mid-morning 10:10 JST" "afternoon:3:40:session-batch afternoon 12:40 JST" "mid-afternoon:4:40:session-batch mid-afternoon 13:40 JST" "close:6:40:session-batch close 15:40 JST")
 
 for ENTRY in "${SESSIONS[@]}"; do
   IFS=':' read -r SESSION HOUR MINUTE TITLE <<< "$ENTRY"
