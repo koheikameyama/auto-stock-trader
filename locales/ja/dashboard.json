@@ -21,7 +21,12 @@
       "warning": "警戒",
       "critical": "要対応"
     },
+    "session": {
+      "morning": "朝の戦略",
+      "evening": "結果診断"
+    },
     "noAnalysis": "分析はまだ生成されていません",
+    "noEveningAnalysis": "イブニング分析は大引け後（15:30頃）に生成されます",
     "minStocksRequired": "3銘柄以上登録するとDaily Market Navigatorが利用できます",
     "dailyChange": "前日比",
     "weekChange": "週間",

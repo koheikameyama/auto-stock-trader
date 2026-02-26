@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useTranslations } from "next-intl"
-import type { MarketNavigatorResult, MarketTone, PortfolioStatus } from "@/lib/portfolio-overall-analysis"
+import type { MarketNavigatorResult, MarketTone, PortfolioStatus, NavigatorSession } from "@/lib/portfolio-overall-analysis"
 import { DAILY_MARKET_NAVIGATOR } from "@/lib/constants"
 import CopyableTicker from "@/app/components/CopyableTicker"
 
@@ -33,6 +33,48 @@ function formatChangeRate(rate: number): { text: string; color: string } {
   }
 }
 
+function getCurrentSessionFromTime(): NavigatorSession {
+  const jstHour = parseInt(
+    new Date().toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "Asia/Tokyo" })
+  )
+  return jstHour >= DAILY_MARKET_NAVIGATOR.EVENING_SESSION_START_HOUR ? "evening" : "morning"
+}
+
+function SessionTabs({
+  activeSession,
+  onSessionChange,
+  t,
+}: {
+  activeSession: NavigatorSession
+  onSessionChange: (session: NavigatorSession) => void
+  t: (key: string) => string
+}) {
+  return (
+    <div className="flex gap-1 p-1 bg-gray-100 rounded-lg mb-3">
+      <button
+        onClick={() => onSessionChange("morning")}
+        className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+          activeSession === "morning"
+            ? "bg-white text-blue-700 shadow-sm"
+            : "text-gray-500 hover:text-gray-700"
+        }`}
+      >
+        🧭 {t("session.morning")}
+      </button>
+      <button
+        onClick={() => onSessionChange("evening")}
+        className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+          activeSession === "evening"
+            ? "bg-white text-indigo-700 shadow-sm"
+            : "text-gray-500 hover:text-gray-700"
+        }`}
+      >
+        🌙 {t("session.evening")}
+      </button>
+    </div>
+  )
+}
+
 function Skeleton() {
   return (
     <div className="mb-6 bg-white rounded-xl p-4 shadow-sm border border-gray-200">
@@ -54,6 +96,7 @@ export default function DailyMarketNavigator({
   watchlistCount,
 }: Props) {
   const t = useTranslations("dashboard.marketNavigator")
+  const [activeSession, setActiveSession] = useState<NavigatorSession>(getCurrentSessionFromTime)
   const [data, setData] = useState<MarketNavigatorResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [showDetails, setShowDetails] = useState(false)
@@ -67,8 +110,9 @@ export default function DailyMarketNavigator({
     }
 
     const fetchData = async () => {
+      setLoading(true)
       try {
-        const res = await fetch("/api/portfolio/overall-analysis")
+        const res = await fetch(`/api/portfolio/overall-analysis?session=${activeSession}`)
         const result = await res.json()
         setData(result)
       } catch (error) {
@@ -79,7 +123,7 @@ export default function DailyMarketNavigator({
     }
 
     fetchData()
-  }, [totalCount])
+  }, [totalCount, activeSession])
 
   // Not enough stocks
   if (totalCount < DAILY_MARKET_NAVIGATOR.MIN_STOCKS) {
@@ -107,20 +151,23 @@ export default function DailyMarketNavigator({
     return <Skeleton />
   }
 
+  const sessionIcon = activeSession === "evening" ? "🌙" : "🧭"
+
   // No analysis yet
   if (!data?.hasAnalysis) {
     return (
       <div className="mb-6 bg-gradient-to-r from-gray-50 to-slate-50 rounded-xl p-4 border border-gray-200">
+        <SessionTabs activeSession={activeSession} onSessionChange={setActiveSession} t={t} />
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
-            <span className="text-xl">🧭</span>
+            <span className="text-xl">{sessionIcon}</span>
           </div>
           <div className="flex-1">
             <div className="text-sm font-semibold text-gray-900 mb-1">
               {t("title")}
             </div>
             <p className="text-xs text-gray-600">
-              {t("noAnalysis")}
+              {activeSession === "evening" ? t("noEveningAnalysis") : t("noAnalysis")}
             </p>
           </div>
         </div>
@@ -135,12 +182,17 @@ export default function DailyMarketNavigator({
 
   return (
     <div className="mb-6 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      {/* Session tabs */}
+      <div className="p-4 pb-3">
+        <SessionTabs activeSession={activeSession} onSessionChange={setActiveSession} t={t} />
+      </div>
+
       {/* Section 1: Market */}
-      <div className={`p-4 ${toneStyle.bg} border-b ${toneStyle.border}`}>
+      <div className={`p-4 pt-0 ${toneStyle.bg} border-b ${toneStyle.border}`}>
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-lg">🧭</span>
+          <span className="text-lg">{sessionIcon}</span>
           <span className="text-xs font-semibold text-gray-500">
-            {t("title")}
+            {t(`session.${activeSession}`)}
           </span>
           <span
             className={`ml-auto px-2 py-0.5 rounded-full text-xs font-semibold ${toneStyle.bg} ${toneStyle.text} border ${toneStyle.border}`}

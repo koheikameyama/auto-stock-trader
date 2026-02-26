@@ -5,12 +5,13 @@ import {
   getPortfolioOverallAnalysis,
   generatePortfolioOverallAnalysis,
 } from "@/lib/portfolio-overall-analysis"
+import type { NavigatorSession } from "@/lib/portfolio-overall-analysis"
 
 /**
  * GET /api/portfolio/overall-analysis
  * ポートフォリオ総評分析を取得
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const session = await auth()
 
@@ -18,7 +19,8 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const result = await getPortfolioOverallAnalysis(session.user.id)
+    const requestedSession = request.nextUrl.searchParams.get("session") as NavigatorSession | null
+    const result = await getPortfolioOverallAnalysis(session.user.id, requestedSession ?? undefined)
     return NextResponse.json(result)
   } catch (error) {
     console.error("Error fetching portfolio overall analysis:", error)
@@ -45,17 +47,21 @@ export async function POST(request: NextRequest) {
 
     // CRON経由の場合はリクエストボディからuserIdを取得
     let userId: string
+    let navigatorSession: NavigatorSession = "morning"
     if (authResult.isCron) {
       const body = await request.json()
       if (!body.userId) {
         return NextResponse.json({ error: "userId is required for CRON requests" }, { status: 400 })
       }
       userId = body.userId
+      if (body.session === "morning" || body.session === "evening") {
+        navigatorSession = body.session
+      }
     } else {
       userId = authResult.userId!
     }
 
-    const result = await generatePortfolioOverallAnalysis(userId)
+    const result = await generatePortfolioOverallAnalysis(userId, navigatorSession)
     return NextResponse.json(result)
   } catch (error) {
     console.error("Error generating portfolio overall analysis:", error)
