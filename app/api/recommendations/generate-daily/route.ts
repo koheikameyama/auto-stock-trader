@@ -391,7 +391,7 @@ async function processUser(
       .join(", ")}`,
   );
 
-  let diversified = applySectorDiversification(scored);
+  const diversified = applySectorDiversification(scored);
   console.log(`  After sector diversification: ${diversified.length} stocks`);
 
   // 予算内の銘柄を優先し、5件未満なら予算超も追加
