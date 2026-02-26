@@ -71,15 +71,15 @@ fetch-news + fetch-stock-prices（並列）
 
 | ワークフロー | 処理 | セッション条件 |
 |-------------|------|--------------|
-| `fetch-news.yml` | ニュース取得 | 常に（朝: JP+US / 昼・引け: JP） |
-| `fetch-stock-prices.yml` | 株価更新 | 常に |
-| `calculate-sector-trends.yml` | セクタートレンド計算 | 常に |
-| `purchase-recommendations.yml` | 購入判断生成 | 常に |
-| `portfolio-analysis.yml` | ポートフォリオ分析 | 常に |
-| `personal-recommendations.yml` | おすすめ銘柄生成 | 常に |
-| `gainers-losers.yml` | 市場ランキング生成 | close のみ |
-| `portfolio-snapshots.yml` | 資産スナップショット | close のみ |
-| `daily-market-navigator.yml` | ポートフォリオ総評 | morning + close |
+| `session-fetch-news.yml` | ニュース取得 | 常に（朝: JP+US / 昼・引け: JP） |
+| `session-fetch-stock-prices.yml` | 株価更新 | 常に |
+| `session-calculate-sector-trends.yml` | セクタートレンド計算 | 常に |
+| `session-purchase-recommendations.yml` | 購入判断生成 | 常に |
+| `session-portfolio-analysis.yml` | ポートフォリオ分析 | 常に |
+| `session-personal-recommendations.yml` | おすすめ銘柄生成 | 常に |
+| `session-gainers-losers.yml` | 市場ランキング生成 | close のみ |
+| `session-portfolio-snapshots.yml` | 資産スナップショット | close のみ |
+| `session-daily-market-navigator.yml` | ポートフォリオ総評 | morning + close |
 
 各ワークフローは `workflow_dispatch` で単独実行も可能。
 
@@ -125,7 +125,7 @@ fetch-news + fetch-stock-prices（並列）
 
 **評価内容**: 過去の推奨に対して1日/3日/7日/14日後のリターンを計算
 
-### 6. AI精度レポート（recommendation-report.yml）
+### 6. AI精度レポート（ai-accuracy-report.yml）
 
 | スケジュール | JST |
 |-------------|-----|
@@ -150,7 +150,7 @@ fetch-news + fetch-stock-prices（並列）
 
 **目的**: Railway DB容量上限（500MB）の管理
 
-### 8. JPX銘柄マスタ更新（jpx-stock-update.yml）
+### 8. JPX銘柄マスタ週次更新（jpx-weekly-scrape.yml）
 
 | スケジュール | JST |
 |-------------|-----|
@@ -158,7 +158,7 @@ fetch-news + fetch-stock-prices（並列）
 
 **内容**: JPXサイトから最新銘柄リストをスクレイピング → 銘柄マスタ更新
 
-### 9. JPX銘柄マスタ月次同期（sync-jpx-master.yml）
+### 9. JPX銘柄マスタ月次同期（jpx-monthly-sync.yml）
 
 | スケジュール | JST |
 |-------------|-----|

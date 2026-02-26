@@ -75,4 +75,4 @@ Phase 4: notify
 | 09:00 / 15:30 | trading-hours-notification |
 | 10:00 | check-openai-usage |
 | 16:00 | evaluate-outcomes |
-| 18:00 | recommendation-report |
+| 18:00 | ai-accuracy-report |

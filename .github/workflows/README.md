@@ -52,7 +52,7 @@
 
 ---
 
-### 3. JPX Stock Update (`jpx-stock-update.yml`)
+### 3. JPX Stock Update (`jpx-weekly-scrape.yml`)
 
 **目的**: 日本取引所グループ（JPX）から新規上場・上場廃止銘柄をスクレイピングし、銘柄マスタを更新する
 

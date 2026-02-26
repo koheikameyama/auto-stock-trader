@@ -204,7 +204,7 @@ export const CHAT_CONFIG = {
 
 // AI分析の更新スケジュール（平日のみ）
 export const UPDATE_SCHEDULES = {
-  // あなたへのおすすめ（featured-stocks.yml）
+  // あなたへのおすすめ（session-personal-recommendations.yml）
   PERSONAL_RECOMMENDATIONS: "9:00 / 10:00 / 12:30 / 14:00 / 15:35",
   // ポートフォリオ分析・購入レコメンド（session-batch.yml）
   STOCK_ANALYSIS: "9:00 / 10:00 / 12:30 / 14:00 / 15:30",

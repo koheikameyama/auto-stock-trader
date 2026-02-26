@@ -30,37 +30,37 @@ jobs:
   # ── Phase 1: データ取得（並列） ──
 
   fetch-news:
-    uses: ./.github/workflows/fetch-news.yml
+    uses: ./.github/workflows/session-fetch-news.yml
     with:
       market: ${{ inputs.session == 'morning' && 'both' || 'jp' }}
     secrets: inherit
 
   fetch-stock-prices:
-    uses: ./.github/workflows/fetch-stock-prices.yml
+    uses: ./.github/workflows/session-fetch-stock-prices.yml
     secrets: inherit
 
   # ── Phase 2: セクタートレンド計算 ──
 
   calculate-sector-trends:
     needs: [fetch-news, fetch-stock-prices]
-    uses: ./.github/workflows/calculate-sector-trends.yml
+    uses: ./.github/workflows/session-calculate-sector-trends.yml
     secrets: inherit
 
   # ── Phase 3: 分析ジョブ群（並列） ──
 
   purchase-recommendations:
     needs: calculate-sector-trends
-    uses: ./.github/workflows/purchase-recommendations.yml
+    uses: ./.github/workflows/session-purchase-recommendations.yml
     secrets: inherit
 
   portfolio-analysis:
     needs: calculate-sector-trends
-    uses: ./.github/workflows/portfolio-analysis.yml
+    uses: ./.github/workflows/session-portfolio-analysis.yml
     secrets: inherit
 
   personal-recommendations:
     needs: calculate-sector-trends
-    uses: ./.github/workflows/personal-recommendations.yml
+    uses: ./.github/workflows/session-personal-recommendations.yml
     with:
       session: ${{ inputs.session == 'morning' && 'morning' || inputs.session == 'noon' && 'afternoon' || 'evening' }}
     secrets: inherit
@@ -68,19 +68,19 @@ jobs:
   gainers-losers:
     if: inputs.session == 'close'
     needs: calculate-sector-trends
-    uses: ./.github/workflows/gainers-losers.yml
+    uses: ./.github/workflows/session-gainers-losers.yml
     secrets: inherit
 
   portfolio-snapshots:
     if: inputs.session == 'close'
     needs: calculate-sector-trends
-    uses: ./.github/workflows/portfolio-snapshots.yml
+    uses: ./.github/workflows/session-portfolio-snapshots.yml
     secrets: inherit
 
   daily-market-navigator:
     if: inputs.session == 'morning' || inputs.session == 'close'
     needs: calculate-sector-trends
-    uses: ./.github/workflows/daily-market-navigator.yml
+    uses: ./.github/workflows/session-daily-market-navigator.yml
     with:
       session: ${{ inputs.session == 'morning' && 'morning' || 'evening' }}
     secrets: inherit
