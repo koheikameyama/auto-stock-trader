@@ -1,27 +1,36 @@
 {
   "greeting": "おはようございます、{name}さん！",
   "subtitle": "今日も一緒に投資を見守りましょう",
-  "dailyCommentary": {
-    "title": "今日の総評",
-    "marketSummary": "市場概況",
-    "stockMovements": {
-      "title": "保有銘柄の値動き",
-      "dailyChange": "前日比",
-      "weekChange": "週間"
+  "marketNavigator": {
+    "title": "Daily Market Navigator",
+    "portfolioSection": "あなたのポートフォリオ",
+    "actionPlanLabel": "アクションプラン",
+    "showDetails": "詳細を見る",
+    "hideDetails": "閉じる",
+    "stockHighlights": "注目銘柄",
+    "sectorHighlights": "セクター動向",
+    "tone": {
+      "bullish": "リスクオン",
+      "bearish": "リスクオフ",
+      "neutral": "様子見",
+      "sector_rotation": "セクターローテーション"
     },
-    "soldStocks": {
-      "title": "本日の売却評価",
-      "sellPrice": "売却価格",
-      "avgPurchasePrice": "平均取得価格",
-      "profitLoss": "損益",
-      "holdingDays": "{days}日保有"
+    "status": {
+      "healthy": "好調",
+      "caution": "注意",
+      "warning": "警戒",
+      "critical": "要対応"
     },
-    "sectorDynamics": {
-      "title": "セクター動向"
+    "session": {
+      "morning": "朝の戦略",
+      "evening": "結果診断"
     },
-    "tomorrowWatchpoints": {
-      "title": "今後の注目ポイント"
-    }
+    "noAnalysis": "分析はまだ生成されていません",
+    "noEveningAnalysis": "イブニング分析は大引け後（15:30頃）に生成されます",
+    "minStocksRequired": "3銘柄以上登録するとDaily Market Navigatorが利用できます",
+    "dailyChange": "前日比",
+    "weekChange": "週間",
+    "subtitle": "市場の流れとあなたの銘柄の健康診断"
   },
   "investmentStyle": {
     "setupPrompt": {
@@ -48,8 +57,9 @@
     "regenerating": "再生成中...",
     "regeneratingMessage": "AIがあなたに合った銘柄を選んでいます...",
     "schedule": "更新 {schedule}（平日）",
-    "additionalPurchase": "買い増しチャンス",
-    "watchlistBuyTime": "買い時かも"
+    "owned": "保有中",
+    "interested": "気になる",
+    "tracked": "追跡中"
   },
   "nikkei": {
     "title": "日経平均株価",

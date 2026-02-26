@@ -1,9 +1,7 @@
 name: Fetch Business Descriptions
 
 on:
-  schedule:
-    # 毎日 07:00 JST（22:00 UTC前日）- 銘柄数に応じて分散取得
-    - cron: '0 22 * * *'
+  # cron-job.org から workflow_dispatch でトリガー（07:00 JST）
   workflow_dispatch:
 
 concurrency:

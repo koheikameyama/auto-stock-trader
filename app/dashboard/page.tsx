@@ -9,6 +9,7 @@ import FeaturedStocksByCategory from "./FeaturedStocksByCategory";
 import PortfolioSummary from "./PortfolioSummary";
 import PortfolioHistoryChart from "./PortfolioHistoryChart";
 import PortfolioCompositionChart from "./PortfolioCompositionChart";
+import DailyMarketNavigator from "./DailyMarketNavigator";
 import NikkeiSummary from "./NikkeiSummary";
 import BudgetSummary from "./BudgetSummary";
 import { SectorTrendHeatmap } from "./SectorTrendHeatmap";
@@ -55,10 +56,13 @@ export default async function DashboardPage() {
     redirect("/terms-acceptance");
   }
 
-  const hasHoldings = user.portfolioStocks.some((ps) => {
+  const activePortfolioStocks = user.portfolioStocks.filter((ps) => {
     const { quantity } = calculatePortfolioFromTransactions(ps.transactions);
     return quantity > 0;
   });
+  const hasHoldings = activePortfolioStocks.length > 0;
+  const portfolioCount = activePortfolioStocks.length;
+  const watchlistCount = user.watchlistStocks.length;
 
   return (
     <>
@@ -75,6 +79,12 @@ export default async function DashboardPage() {
               {t('subtitle')}
             </p>
           </div>
+
+          {/* Daily Market Navigator */}
+          <DailyMarketNavigator
+            portfolioCount={portfolioCount}
+            watchlistCount={watchlistCount}
+          />
 
           {/* 投資スタイル未設定の場合のプロンプト */}
           {!user.settings && (

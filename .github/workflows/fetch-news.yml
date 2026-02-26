@@ -1,11 +1,7 @@
 name: Fetch Market News
 
 on:
-  schedule:
-    # 朝7:30 JST = 22:30 UTC（前日）- 日本+米国ニュース
-    - cron: '30 22 * * *'
-    # 昼12:00 JST = 3:00 UTC - 日本ニュースのみ（取引日）
-    - cron: '0 3 * * 1-5'
+  # cron-job.org から workflow_dispatch でトリガー（07:30 JST: JP+US / 12:00 JST: JP only）
   workflow_dispatch:
     inputs:
       market:

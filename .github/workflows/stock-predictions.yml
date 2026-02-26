@@ -98,29 +98,6 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: python scripts/github-actions/generate_portfolio_analysis.py
 
-  portfolio-overall:
-    needs: [determine-time, portfolio-analysis]
-    if: needs.determine-time.outputs.context == 'close'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Python dependencies
-        run: pip install psycopg2-binary requests
-
-      - name: Generate portfolio overall analysis
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          APP_URL: ${{ secrets.APP_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-        run: python scripts/github-actions/generate_portfolio_overall_analysis.py
-
   gainers-losers:
     needs: [determine-time, calculate-sector-trends]
     if: needs.determine-time.outputs.context == 'close'
@@ -166,7 +143,7 @@ jobs:
         run: python scripts/github-actions/generate_portfolio_snapshots.py
 
   notify:
-    needs: [calculate-sector-trends, purchase-recommendations, portfolio-analysis, portfolio-overall, gainers-losers, portfolio-snapshots]
+    needs: [calculate-sector-trends, purchase-recommendations, portfolio-analysis, gainers-losers, portfolio-snapshots]
     if: always()
     runs-on: ubuntu-latest
     steps:

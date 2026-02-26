@@ -8,7 +8,31 @@
 
 ## 画面構成
 
-### 1. 日経225指数
+### 1. Daily Market Navigator（最上部）
+
+ページタイトルの直下に表示される統合カード型コンポーネント。朝と夜の2セッションで異なる視点の分析を提供する。
+
+**前提条件**: ポートフォリオ + ウォッチリスト合計3銘柄以上（未満の場合は案内メッセージを表示）
+
+**セッション切り替え**: カード上部にタブ（朝の戦略 / 結果診断）を表示。JST 15時以降は夜セッションがデフォルト。
+
+| 項目 | 説明 |
+|------|------|
+| セッションタブ | 🧭 朝の戦略 / 🌙 結果診断 の切り替え |
+| 市場トーンバッジ | bullish / bearish / neutral / sector_rotation（色分けあり） |
+| マーケットヘッドライン | 朝: 今日の市況展望 / 夜: 今日の市場結果総括 |
+| 市場主要因 | 市場を動かしている主要因（1〜2文） |
+| ポートフォリオ状態バッジ | healthy / caution / warning / critical（色分けあり） |
+| ポートフォリオ総評 | 朝: 持ち株への影響予測 / 夜: 持ち株の健康診断 |
+| アクションプラン | 朝: 今日の行動指針 / 夜: 明日の予習ポイント |
+| バディメッセージ | 朝: 前向きな激励 / 夜: 労いと明日への期待 |
+| 詳細（折りたたみ） | 銘柄ハイライト・セクターハイライト |
+
+**API**: `GET /api/portfolio/overall-analysis?session=morning|evening`
+
+詳細仕様は [portfolio-analysis.md](portfolio-analysis.md) を参照。
+
+### 3. 日経225指数
 
 | 項目 | 説明 |
 |------|------|
@@ -33,7 +57,7 @@
 - `GET /api/market/nikkei/historical?period={1m|3m|1y}`
 - `GET /api/portfolio/history?period={1m|3m|1y}`
 
-### 2. ポートフォリオサマリー（保有銘柄がある場合のみ表示）
+### 4. ポートフォリオサマリー（保有銘柄がある場合のみ表示）
 
 | 項目 | 説明 |
 |------|------|
@@ -46,7 +70,7 @@
 
 **API**: `GET /api/portfolio/summary`
 
-### 3. 予算サマリー
+### 5. 予算サマリー
 
 | 項目 | 説明 |
 |------|------|
@@ -56,7 +80,7 @@
 
 **API**: `GET /api/budget/summary`
 
-### 4. 資産推移チャート（保有銘柄がある場合のみ表示）
+### 6. 資産推移チャート（保有銘柄がある場合のみ表示）
 
 - 期間選択: 1ヶ月 / 3ヶ月 / 6ヶ月 / 1年
 - 表示モード切替: 資産推移 / 損益推移
@@ -78,14 +102,14 @@
 ]
 ```
 
-### 5. ポートフォリオ構成チャート（保有銘柄がある場合のみ表示）
+### 7. ポートフォリオ構成チャート（保有銘柄がある場合のみ表示）
 
 - 銘柄別構成（円グラフ）
 - セクター別構成（円グラフ）
 
 **API**: `GET /api/portfolio/composition`
 
-### 6. セクタートレンドヒートマップ
+### 8. セクタートレンドヒートマップ
 
 - 全セクターのトレンドスコアを色分けグリッド表示
 - 時間窓切替: 3日 / 7日
@@ -93,7 +117,7 @@
 
 **API**: `GET /api/sector-trends`
 
-### 7. あなたへのおすすめ（パーソナライズ推奨）
+### 9. あなたへのおすすめ（パーソナライズ推奨）
 
 - ユーザーごとにAIが選定した5銘柄を横スクロールカードで表示
 - 各カード表示項目:
@@ -133,7 +157,7 @@
 }
 ```
 
-### 8. 市場ランキング（上昇/下落）
+### 10. 市場ランキング（上昇/下落）
 
 - 上昇TOP5、下落TOP5を表示
 - 各銘柄の変化率とAI原因分析
@@ -152,6 +176,7 @@ page.tsx（Server Component）
 └─ コンポーネント描画
     ↓
 各Client Component（並列レンダリング）
+├─ DailyMarketNavigator → GET /api/portfolio/overall-analysis
 ├─ NikkeiSummary     → GET /api/market/nikkei + /api/market/nikkei/historical + /api/portfolio/history
 ├─ PortfolioSummary  → GET /api/portfolio/summary + 株価取得
 ├─ BudgetSummary     → GET /api/budget/summary
@@ -167,6 +192,7 @@ page.tsx（Server Component）
 | コンポーネント | ファイル | 役割 |
 |---------------|----------|------|
 | DashboardClient | `DashboardClient.tsx` | クライアントラッパー、PWAインストール促進 |
+| DailyMarketNavigator | `DailyMarketNavigator.tsx` | 市場ナビゲーター（最上部統合カード） |
 | NikkeiSummary | `NikkeiSummary.tsx` | 日経225指数表示 |
 | PortfolioSummary | `PortfolioSummary.tsx` | ポートフォリオKPI表示 |
 | BudgetSummary | `BudgetSummary.tsx` | 予算配分表示 |
@@ -179,6 +205,8 @@ page.tsx（Server Component）
 
 - `app/dashboard/page.tsx` - ページエントリ（Server Component）
 - `app/dashboard/DashboardClient.tsx` - クライアントラッパー
+- `app/dashboard/DailyMarketNavigator.tsx` - Daily Market Navigator コンポーネント
+- `app/api/portfolio/overall-analysis/route.ts` - Daily Market Navigator API
 - `app/api/market/nikkei/route.ts` - 日経225 API
 - `app/api/portfolio/summary/route.ts` - ポートフォリオサマリー API
 - `app/api/portfolio/history/route.ts` - 資産推移 API

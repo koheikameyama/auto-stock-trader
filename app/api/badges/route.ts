@@ -153,8 +153,9 @@ async function getPortfolioAnalysisBadge(
 
   const lastSeenDate = new Date(lastSeen)
 
-  const analysis = await prisma.portfolioOverallAnalysis.findUnique({
+  const analysis = await prisma.portfolioOverallAnalysis.findFirst({
     where: { userId },
+    orderBy: { analyzedAt: "desc" },
     select: { analyzedAt: true },
   })
 

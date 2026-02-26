@@ -184,6 +184,16 @@ export const OPENAI_CONFIG = {
   MAX_TOKENS_RECOMMENDATION: 500,
 } as const;
 
+// Daily Market Navigator 設定
+export const DAILY_MARKET_NAVIGATOR = {
+  // 分析に必要な最小銘柄数（ポートフォリオ＋ウォッチリスト合計）
+  MIN_STOCKS: 3,
+  OPENAI_MODEL: "gpt-4o-mini",
+  OPENAI_TEMPERATURE: 0.3,
+  // 夜セッション開始時間（JST）: この時間以降は evening セッション
+  EVENING_SESSION_START_HOUR: 15,
+} as const;
+
 // チャットAI設定
 export const CHAT_CONFIG = {
   MAX_STEPS: 3, // ツール呼び出しの最大ステップ数
@@ -248,20 +258,6 @@ export const PURCHASE_JUDGMENT_CONFIG: Record<
   avoid: { text: "見送り推奨", color: "text-red-700", bg: "bg-red-50" },
 };
 
-// ポートフォリオ総評ステータス
-export const OVERALL_STATUS_CONFIG: Record<
-  string,
-  {
-    color: string;
-    bg: string;
-  }
-> = {
-  excellent: { color: "text-green-800", bg: "bg-green-100" },
-  good: { color: "text-blue-800", bg: "bg-blue-100" },
-  neutral: { color: "text-gray-800", bg: "bg-gray-100" },
-  caution: { color: "text-yellow-800", bg: "bg-yellow-100" },
-  warning: { color: "text-red-800", bg: "bg-red-100" },
-};
 
 // 指標評価バッジ
 export const EVALUATION_BADGE_CONFIG: Record<

@@ -1,13 +1,8 @@
-export interface WatchlistStockForSimulation {
-  stockId: string;
-  name: string;
-  tickerCode: string;
-  sector: string | null;
-}
+import type { NavigatorSession } from "@/lib/portfolio-overall-analysis";
 
 export function buildPortfolioOverallAnalysisPrompt(params: {
+  session: NavigatorSession;
   portfolioCount: number;
-  watchlistCount: number;
   totalValue: number;
   totalCost: number;
   unrealizedGain: number;
@@ -15,22 +10,20 @@ export function buildPortfolioOverallAnalysisPrompt(params: {
   portfolioVolatility: number | null;
   sectorBreakdownText: string;
   portfolioStocksText: string;
-  watchlistStocksText: string;
   hasEarningsData: boolean;
   profitableCount: number;
   increasingCount: number;
   decreasingCount: number;
   unprofitablePortfolioNames: string[];
-  unprofitableWatchlistNames: string[];
-  watchlistForSimulation: WatchlistStockForSimulation[];
+  investmentStyle: string;
   stockDailyMovementsText: string;
   soldStocksText: string;
   sectorTrendsText: string;
   upcomingEarningsText: string;
 }): string {
   const {
+    session,
     portfolioCount,
-    watchlistCount,
     totalValue,
     totalCost,
     unrealizedGain,
@@ -38,26 +31,34 @@ export function buildPortfolioOverallAnalysisPrompt(params: {
     portfolioVolatility,
     sectorBreakdownText,
     portfolioStocksText,
-    watchlistStocksText,
     hasEarningsData,
     profitableCount,
     increasingCount,
     decreasingCount,
     unprofitablePortfolioNames,
-    unprofitableWatchlistNames,
-    watchlistForSimulation,
+    investmentStyle,
     stockDailyMovementsText,
     soldStocksText,
     sectorTrendsText,
     upcomingEarningsText,
   } = params;
 
-  return `あなたは投資初心者向けのAIコーチです。
-以下のポートフォリオ情報を分析し、総評と指標別の解説、そして今日の日次コメンタリーを提供してください。
+  const roleAndSteps =
+    session === "evening"
+      ? buildEveningRoleAndSteps(investmentStyle)
+      : buildMorningRoleAndSteps(investmentStyle);
+
+  const outputRules =
+    session === "evening"
+      ? buildEveningOutputRules(investmentStyle)
+      : buildMorningOutputRules(investmentStyle);
+
+  return `${roleAndSteps}
+
+## データ
 
 【ポートフォリオ情報】
 - 保有銘柄数: ${portfolioCount}銘柄
-- ウォッチリスト銘柄数: ${watchlistCount}銘柄
 - 総資産額: ¥${Math.round(totalValue).toLocaleString()}
 - 総投資額: ¥${Math.round(totalCost).toLocaleString()}
 - 含み損益: ¥${Math.round(unrealizedGain).toLocaleString()}（${unrealizedGainPercent >= 0 ? "+" : ""}${unrealizedGainPercent.toFixed(1)}%）
@@ -80,12 +81,6 @@ ${hasEarningsData ? `- 黒字銘柄: ${profitableCount}/${portfolioCount}銘柄
 ${unprofitablePortfolioNames.length > 0
   ? `ポートフォリオ: ${unprofitablePortfolioNames.join("、")}（${unprofitablePortfolioNames.length}銘柄が赤字）`
   : "ポートフォリオ: 赤字銘柄なし"}
-${unprofitableWatchlistNames.length > 0
-  ? `ウォッチリスト: ${unprofitableWatchlistNames.join("、")}（${unprofitableWatchlistNames.length}銘柄が赤字）`
-  : "ウォッチリスト: 赤字銘柄なし"}
-
-【ウォッチリスト銘柄】
-${watchlistStocksText}
 
 【今日の値動きデータ】
 ${stockDailyMovementsText}
@@ -99,111 +94,108 @@ ${sectorTrendsText}
 【今後7日間の決算予定】
 ${upcomingEarningsText}
 
-【回答形式】
-以下のJSON形式で回答してください。
-
-{
-  "overallSummary": "全体の総評を初心者向けに2-3文で。専門用語を使う場合は括弧で解説を添える",
-  "overallStatus": "好調/順調/やや低調/注意/要確認のいずれか",
-  "overallStatusType": "excellent/good/neutral/caution/warningのいずれか",
-  "metricsAnalysis": {
-    "sectorDiversification": {
-      "value": "最も比率の高いセクターと比率（例: 67%（テクノロジー））",
-      "explanation": "セクター分散の意味と重要性を中学生でも分かる言葉で1-2文",
-      "evaluation": "評価（優秀/適正/注意など）",
-      "evaluationType": "good/neutral/warning",
-      "action": "具体的な改善アクション（なければ「現状維持で問題ありません」）"
-    },
-    "profitLoss": {
-      "value": "含み損益額と率（例: +12,500円（+8.5%））",
-      "explanation": "損益状況の解説を1-2文",
-      "evaluation": "評価（好調/順調/やや低調/注意など）",
-      "evaluationType": "good/neutral/warning",
-      "action": "アドバイス"
-    },
-    "volatility": {
-      "value": "ボラティリティ値（例: 18.5%）",
-      "explanation": "ボラティリティの意味と現在の評価を1-2文",
-      "evaluation": "評価（安定/普通/やや高め/高めなど）",
-      "evaluationType": "good/neutral/warning",
-      "action": "アドバイス"
-    }
-  },
-  "actionSuggestions": [
-    {
-      "priority": 1,
-      "title": "最も重要なアクションのタイトル",
-      "description": "具体的な説明",
-      "type": "diversify/rebalance/hold/take_profit/cut_loss"
-    }
-  ],
-  "watchlistSimulation": ${watchlistForSimulation.length > 0 ? `{
-    "stocks": [
-      ${watchlistForSimulation.map(ws => `{
-        "stockId": "${ws.stockId}",
-        "stockName": "${ws.name}",
-        "tickerCode": "${ws.tickerCode}",
-        "sector": "${ws.sector || "その他"}",
-        "predictedImpact": {
-          "sectorConcentrationChange": -5.0,
-          "diversificationScore": "改善/悪化/変化なし",
-          "recommendation": "この銘柄を追加した場合の具体的なアドバイス"
-        }
-      }`).join(",")}
-    ]
-  }` : "null"},
-  "dailyCommentary": {
-    "marketSummary": "今日の市場全体の動向と、あなたのポートフォリオへの影響を2-3文で。初心者向けに分かりやすく",
-    "portfolioDailyReturn": "ポートフォリオ全体の日次リターン（例: +1.2%）。値動きデータから加重平均で算出",
-    "stockHighlights": [
-      {
-        "stockName": "銘柄名",
-        "tickerCode": "コード",
-        "sector": "セクター名",
-        "dailyChangeRate": 2.5,
-        "weekChangeRate": 5.0,
-        "analysis": "なぜこの銘柄が今日上昇/下落したか、セクター動向やテクニカル指標を踏まえて1-2文で説明",
-        "technicalContext": "MA乖離率や出来高比など、テクニカル指標から読み取れるポイントを1文で"
-      }
-    ],
-    "soldStocksAnalysis": [
-      {
-        "stockName": "銘柄名",
-        "tickerCode": "コード",
-        "sellPrice": 2500,
-        "averagePurchasePrice": 2000,
-        "profitLossPercent": 25.0,
-        "holdingDays": 45,
-        "timingEvaluation": "売却タイミングの評価（良いタイミング/やや早い/もう少し待てた等）と理由を1-2文で"
-      }
-    ],
-    "sectorHighlights": [
-      {
-        "sector": "セクター名",
-        "avgDailyChange": 1.2,
-        "trendDirection": "up/down/neutral",
-        "compositeScore": 35,
-        "commentary": "セクターの動向とポートフォリオへの影響を1文で"
-      }
-    ],
-    "tomorrowWatchpoints": [
-      "明日以降に注意すべきポイントを箇条書きで（決算発表、テクニカル水準、セクター動向など）"
-    ]
-  }
+${outputRules}`;
 }
 
-【日次コメンタリーの指針】
-- stockHighlightsは保有銘柄すべてと本日全売却した銘柄（【本日全売却】マーク付き）について記載する（値動きが大きい順に並べる）
-- soldStocksAnalysisは本日の売却取引がある場合のみ記載（なければ空配列）
-- sectorHighlightsはポートフォリオに関連するセクターのみ記載
-- tomorrowWatchpointsは決算予定、テクニカル指標のシグナル、セクター動向から注目ポイントを2-4個程度
-- 「なぜ下がったか」「なぜ上がったか」の理由をセクター動向やテクニカル指標と関連付けて説明する
+// ── Morning セッション ──
+
+function buildMorningRoleAndSteps(investmentStyle: string): string {
+  return `## あなたの役割
+- 市場の大きな流れ（マクロ）を把握する
+- ユーザーの保有銘柄（ミクロ）と突き合わせる
+- 投資スタイルに合わせた結論を断定する
+
+## ユーザーの投資スタイル: ${investmentStyle}
+
+## 分析の3ステップ
+
+【STEP 1: 市場の流れを定義】
+以下のデータから、今日の地合いを1つのキーワードで定義してください：
+- bullish: リスクオン（買いが買いを呼ぶ展開）
+- bearish: リスクオフ（利益確定・パニック売りが先行）
+- neutral: 方向感なし（様子見ムード）
+- sector_rotation: セクターローテーション（資金移動中）
+
+【STEP 2: ポートフォリオとの照合】
+ユーザーの保有銘柄と市場の流れを突き合わせてください：
+- 市場と逆行している銘柄がないか
+- 投資スタイル設定に対して適切なリスク水準か
+- 特に注意すべき銘柄はないか
+
+【STEP 3: 結論（アクション）】
+投資スタイルに合わせて「攻める日」か「守る日」か断定してください。
+- 曖昧な表現は避ける（「〜かもしれません」ではなく「〜してください」）
+- 具体的なアクションを提案する`;
+}
+
+function buildMorningOutputRules(investmentStyle: string): string {
+  return `## 出力ルール
+- marketHeadline: 市況を1文で要約。ニュースを創作しない。実データに基づく
+- marketKeyFactor: 主要因を1-2文で説明
+- portfolioSummary: ポートフォリオの状態を1-2文で説明
+- actionPlan: 投資スタイル（${investmentStyle}）に基づく具体的なアクション。1-2文
+- buddyMessage: 親しみやすい口調で寄り添う1文。初心者を勇気づける前向きな激励
+- stockHighlights: 保有銘柄のうち、注目すべきもののみ（全部ではない）。値動きが大きい順に並べる
+- sectorHighlights: 保有銘柄に関連するセクターのみ
 
 【表現の指針】
 - 専門用語には必ず解説を添える（例：「ボラティリティ（値動きの激しさ）」）
 - 数値の基準を具体的に説明する（例：「20%以下は比較的安定」）
-- 行動につながる具体的なアドバイスを含める
 - ネガティブな内容も前向きな表現で伝える
+
+【重要: ハルシネーション防止】
+- 提供されたデータのみを使用してください
+- 決算発表、業績予想、ニュースなど、提供されていない情報を創作しないでください
+- 銘柄の将来性について断定的な予測をしないでください
+- 不明なデータは「データがないため判断できません」と明示してください`;
+}
+
+// ── Evening セッション ──
+
+function buildEveningRoleAndSteps(investmentStyle: string): string {
+  return `## あなたの役割
+あなたはStock Buddyの「アナリスト兼コーチ」です。
+今日の市場が閉まった後に、ユーザーのポートフォリオを振り返り、明日の準備を手伝います。
+
+## ユーザーの投資スタイル: ${investmentStyle}
+
+## 分析の3ステップ
+
+【STEP 1: 市場の総評】
+今日何が起きたかを振り返ってください：
+- bullish: リスクオン（買いが優勢だった）
+- bearish: リスクオフ（売りが優勢だった）
+- neutral: 方向感なし（様子見ムードだった）
+- sector_rotation: セクターローテーション（資金移動が見られた）
+
+【STEP 2: 持ち株の健康診断】
+ユーザーの保有銘柄を点検してください：
+- 損切りライン（投資スタイルに応じた許容損失）に接近している銘柄はないか
+- 今日の値動きで堅調だった銘柄、軟調だった銘柄を判定
+- 含み損益の変化に注目
+
+【STEP 3: 明日の予習】
+明日に向けた準備を提案してください：
+- 今後7日間の決算発表予定を確認し、対策を提案
+- 注目すべき経済指標やイベントがあればデータから読み取る
+- ポジション調整（増減・損切り・利確）の必要性を評価`;
+}
+
+function buildEveningOutputRules(investmentStyle: string): string {
+  return `## 出力ルール
+- marketHeadline: 今日の市場を1文で総括。ニュースを創作しない。実データに基づく
+- marketKeyFactor: 今日の主要因を1-2文で振り返り
+- portfolioSummary: 今日のポートフォリオの動きを1-2文で説明
+- actionPlan: 投資スタイル（${investmentStyle}）に基づく明日に向けた具体的な準備。1-2文
+- buddyMessage: 親しみやすい口調で今日の労いと明日への期待を込めた1文
+- stockHighlights: 保有銘柄のうち、今日の動きが注目すべきもののみ（全部ではない）。値動きが大きい順に並べる
+- sectorHighlights: 保有銘柄に関連するセクターのみ
+
+【表現の指針】
+- 専門用語には必ず解説を添える（例：「ボラティリティ（値動きの激しさ）」）
+- 数値の基準を具体的に説明する（例：「20%以下は比較的安定」）
+- ネガティブな内容も前向きな表現で伝える
+- 1日の終わりなので落ち着いたトーンで
 
 【重要: ハルシネーション防止】
 - 提供されたデータのみを使用してください

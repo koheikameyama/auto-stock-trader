@@ -92,7 +92,7 @@ def fetch_eligible_users(conn) -> list[dict]:
         ]
 
 
-def generate_analysis_for_user(app_url: str, cron_secret: str, user_id: str) -> dict | None:
+def generate_analysis_for_user(app_url: str, cron_secret: str, user_id: str, session: str) -> dict | None:
     """APIを呼び出してポートフォリオ総評を生成"""
     try:
         response = requests.post(
@@ -101,7 +101,7 @@ def generate_analysis_for_user(app_url: str, cron_secret: str, user_id: str) -> 
                 "Authorization": f"Bearer {cron_secret}",
                 "Content-Type": "application/json",
             },
-            json={"userId": user_id},
+            json={"userId": user_id, "session": session},
             timeout=120
         )
 
@@ -119,8 +119,10 @@ def generate_analysis_for_user(app_url: str, cron_secret: str, user_id: str) -> 
 
 
 def main():
+    session = os.environ.get("SESSION", "morning")
+
     print("=" * 60)
-    print("ポートフォリオ総評の生成を開始")
+    print(f"ポートフォリオ総評の生成を開始（セッション: {session}）")
     print("=" * 60)
 
     app_url = get_app_url()
@@ -143,14 +145,15 @@ def main():
             user_id = user["userId"]
             print(f"\n処理中: {user_id[:8]}... (P:{user['portfolioCount']}, W:{user['watchlistCount']})")
 
-            result = generate_analysis_for_user(app_url, cron_secret, user_id)
+            result = generate_analysis_for_user(app_url, cron_secret, user_id, session)
 
             if not result:
                 print("  -> 分析生成に失敗")
                 error_count += 1
                 continue
 
-            print(f"  -> 完了: {result.get('overallStatus', 'N/A')}")
+            portfolio = result.get('portfolio', {})
+            print(f"  -> 完了: {portfolio.get('status', 'N/A')}")
             success_count += 1
 
         print("\n" + "=" * 60)

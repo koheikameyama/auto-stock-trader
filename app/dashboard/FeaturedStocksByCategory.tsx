@@ -187,15 +187,15 @@ export default function FeaturedStocksByCategory() {
         <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
           {stock.isOwned ? (
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-              {tRec("additionalPurchase")}
+              {tRec("owned")}
             </span>
           ) : stock.isRegistered ? (
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-              {tRec("watchlistBuyTime")}
+              {tRec("interested")}
             </span>
           ) : stock.isTracked ? (
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-800">
-              追跡中
+              {tRec("tracked")}
             </span>
           ) : null}
         </div>
@@ -356,40 +356,36 @@ export default function FeaturedStocksByCategory() {
   }
 
   return (
-    <div className="bg-white rounded-xl p-4 sm:p-6 shadow-md">
+    <div className="relative bg-white rounded-xl p-4 sm:p-6 shadow-md">
+      <button
+        onClick={handleRegenerate}
+        disabled={regenerating}
+        className="absolute top-3 right-3 sm:top-4 sm:right-4 inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+      >
+        <svg
+          className={`w-3.5 h-3.5 ${regenerating ? "animate-spin" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+          />
+        </svg>
+        {regenerating ? tRec("regenerating") : tRec("regenerate")}
+      </button>
       <div className="mb-4 sm:mb-5">
         <div className="flex items-center gap-2 mb-1">
           <span className="text-xl sm:text-2xl">⭐</span>
           <h3 className="text-lg sm:text-xl font-bold text-gray-900">あなたへのおすすめ</h3>
         </div>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
-          <p className="text-xs sm:text-sm text-gray-600">
-            {tRec("subtitle")}
-          </p>
-          <div className="flex items-center gap-2 text-xs text-gray-400">
-            <button
-              onClick={handleRegenerate}
-              disabled={regenerating}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <svg
-                className={`w-3.5 h-3.5 ${regenerating ? "animate-spin" : ""}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                />
-              </svg>
-              {regenerating ? tRec("regenerating") : tRec("regenerate")}
-            </button>
-            <span>{tRec("schedule", { schedule: UPDATE_SCHEDULES.PERSONAL_RECOMMENDATIONS })}</span>
-          </div>
-        </div>
+        <p className="text-xs sm:text-sm text-gray-600">
+          {tRec("subtitle")}
+        </p>
+        <span className="text-xs text-gray-400">{tRec("schedule", { schedule: UPDATE_SCHEDULES.PERSONAL_RECOMMENDATIONS })}</span>
       </div>
       <StaleAnalysisBanner analysisDate={recommendationDate} schedule={UPDATE_SCHEDULES.PERSONAL_RECOMMENDATIONS} />
       {regenerating ? (
