@@ -130,6 +130,7 @@ model Stock {
   gapUpRate       Decimal?  @db.Decimal(8, 2) // ギャップアップ率（%）
   volumeSpikeRate Decimal?  @db.Decimal(8, 2) // 出来高急増率（当日/20日平均）
   turnoverValue   Decimal?  @db.Decimal(16, 0) // 売買代金（出来高×終値、円）
+  atr14           Decimal?  @db.Decimal(12, 2) // ATR(14) 平均真の値幅
   latestPriceDate DateTime? @db.Date // yfinance株価データの実際の日付
   priceUpdatedAt  DateTime? // 株価更新日時
 

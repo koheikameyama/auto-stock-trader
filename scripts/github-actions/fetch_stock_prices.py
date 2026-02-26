@@ -172,6 +172,23 @@ def _compute_price_data(hist) -> dict | None:
             std_dev = float(close_prices.std())
             volatility = round((std_dev / avg_price) * 100, 2)
 
+    # ATR(14) 計算（Average True Range: 14日間の平均真の値幅）
+    atr14 = None
+    if len(hist) >= 15:
+        highs = hist["High"].values.astype(float)
+        lows = hist["Low"].values.astype(float)
+        closes = hist["Close"].values.astype(float)
+        true_ranges = []
+        for i in range(1, len(hist)):
+            tr = max(
+                highs[i] - lows[i],
+                abs(highs[i] - closes[i - 1]),
+                abs(lows[i] - closes[i - 1]),
+            )
+            true_ranges.append(tr)
+        if len(true_ranges) >= 14:
+            atr14 = round(sum(true_ranges[-14:]) / 14, 2)
+
     # 移動平均乖離率（25日SMA）
     ma_deviation_rate = None
     if len(hist) >= 25:
@@ -250,6 +267,7 @@ def _compute_price_data(hist) -> dict | None:
         "gapUpRate": clamp_rate(gap_up_rate),
         "volumeSpikeRate": clamp_rate(volume_spike_rate),
         "turnoverValue": turnover_value,
+        "atr14": atr14,
     }
 
 
@@ -274,6 +292,7 @@ def update_stock_prices(conn, updates: list[dict]) -> int:
                 u.get("gapUpRate"),
                 u.get("volumeSpikeRate"),
                 u.get("turnoverValue"),
+                u.get("atr14"),
                 now,
                 u["id"]
             )
@@ -295,6 +314,7 @@ def update_stock_prices(conn, updates: list[dict]) -> int:
                 "gapUpRate" = %s,
                 "volumeSpikeRate" = %s,
                 "turnoverValue" = %s,
+                "atr14" = %s,
                 "priceUpdatedAt" = %s
             WHERE id = %s
             ''',

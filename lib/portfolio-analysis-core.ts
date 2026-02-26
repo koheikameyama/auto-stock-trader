@@ -32,6 +32,8 @@ import {
   MA_DEVIATION,
   SELL_TIMING,
   RELATIVE_STRENGTH,
+  INVESTMENT_STYLE_COEFFICIENTS,
+  ATR_EXIT_STRATEGY,
 } from "@/lib/constants";
 import { getDaysAgoForDB } from "@/lib/date-utils";
 import { isDangerousStock } from "@/lib/stock-safety-rules";
@@ -59,6 +61,7 @@ export class AnalysisError extends Error {
 
 /**
  * AIが出力した率（rate）から売却目標価格・撤退ライン価格を決定論的に算出する。
+ * ATRベース損切り: ATRが利用可能な場合、ボラティリティに応じた損切り幅をフロアとして適用。
  * トレーリングストップ: 含み益がある場合、撤退ラインの下限は平均取得単価とする。
  */
 function calculatePricesFromRates(params: {
@@ -66,11 +69,13 @@ function calculatePricesFromRates(params: {
   averagePrice: number;
   sellTargetRate: number | null;
   exitRate: number | null;
+  atr14?: number | null;
+  investmentStyle?: string;
 }): {
   suggestedSellPrice: number | null;
   suggestedStopLossPrice: number | null;
 } {
-  const { currentPrice, averagePrice, sellTargetRate, exitRate } = params;
+  const { currentPrice, averagePrice, sellTargetRate, exitRate, atr14, investmentStyle } = params;
 
   const suggestedSellPrice =
     sellTargetRate != null
@@ -79,7 +84,23 @@ function calculatePricesFromRates(params: {
 
   let suggestedStopLossPrice: number | null = null;
   if (exitRate != null) {
-    const rawStopLoss = Math.round(currentPrice * (1 - exitRate));
+    let effectiveExitRate = exitRate;
+
+    // ATRベース損切りフロア: ボラティリティに応じた最低限の損切り幅を保証
+    const style = (investmentStyle || "BALANCED") as keyof typeof INVESTMENT_STYLE_COEFFICIENTS.STOP_LOSS;
+    const multiplier = INVESTMENT_STYLE_COEFFICIENTS.STOP_LOSS[style] ?? 2.5;
+
+    if (atr14 != null && atr14 > 0 && currentPrice > 0) {
+      const atrBasedRate = (atr14 * multiplier) / currentPrice;
+      effectiveExitRate = Math.max(exitRate, atrBasedRate);
+    } else {
+      // ATRが利用できない場合のフォールバック
+      const fallback = ATR_EXIT_STRATEGY.FALLBACK_STOP_LOSS[style] ?? 8;
+      const fallbackRate = fallback / 100;
+      effectiveExitRate = Math.max(exitRate, fallbackRate);
+    }
+
+    const rawStopLoss = Math.round(currentPrice * (1 - effectiveExitRate));
     const hasUnrealizedGain = currentPrice > averagePrice;
     suggestedStopLossPrice = hasUnrealizedGain
       ? Math.max(rawStopLoss, Math.round(averagePrice))
@@ -373,6 +394,7 @@ export async function executePortfolioAnalysis(
       : null,
     defaultTakeProfitRate: userSettings?.targetReturnRate,
     defaultStopLossRate: userSettings?.stopLossRate,
+    atr14: stock.atr14 ? Number(stock.atr14) : null,
     isSimulation: false,
   });
 
@@ -602,7 +624,7 @@ export async function executePortfolioAnalysis(
     }
   }
 
-  // --- 率から絶対価格を決定論的に算出（トレーリングストップ付き） ---
+  // --- 率から絶対価格を決定論的に算出（ATRベース損切り＋トレーリングストップ） ---
   if (currentPrice && averagePrice > 0) {
     for (const styleKey of ALL_STYLE_KEYS) {
       const sa = result.styleAnalyses[styleKey];
@@ -612,6 +634,8 @@ export async function executePortfolioAnalysis(
           averagePrice,
           sellTargetRate: sa.suggestedSellTargetRate,
           exitRate: sa.suggestedExitRate,
+          atr14: stock.atr14 ? Number(stock.atr14) : null,
+          investmentStyle: styleKey,
         });
       sa.suggestedSellPrice = suggestedSellPrice;
       sa.suggestedStopLossPrice = suggestedStopLossPrice;
@@ -928,6 +952,7 @@ export async function executeSimulatedPortfolioAnalysis(
     gapFillContext,
     supportResistanceContext,
     trendlineContext,
+    atr14: stock.atr14 ? Number(stock.atr14) : null,
     isSimulation: true,
   });
 
@@ -1147,7 +1172,7 @@ export async function executeSimulatedPortfolioAnalysis(
     }
   }
 
-  // --- 率から絶対価格を決定論的に算出（トレーリングストップ付き） ---
+  // --- 率から絶対価格を決定論的に算出（ATRベース損切り＋トレーリングストップ） ---
   if (currentPrice && averagePrice > 0) {
     for (const styleKey of ALL_STYLE_KEYS_SIM) {
       const sa = result.styleAnalyses[styleKey];
@@ -1157,6 +1182,8 @@ export async function executeSimulatedPortfolioAnalysis(
           averagePrice,
           sellTargetRate: sa.suggestedSellTargetRate,
           exitRate: sa.suggestedExitRate,
+          atr14: stock.atr14 ? Number(stock.atr14) : null,
+          investmentStyle: styleKey,
         });
       sa.suggestedSellPrice = suggestedSellPrice;
       sa.suggestedStopLossPrice = suggestedStopLossPrice;

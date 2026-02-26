@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Stock" ADD COLUMN IF NOT EXISTS "atr14" DECIMAL(12, 2);

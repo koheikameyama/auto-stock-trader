@@ -22,7 +22,7 @@ import requests
 
 # scriptsディレクトリをPythonパスに追加
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from lib.constants import SURGE_THRESHOLD, PLUNGE_THRESHOLD
+from lib.constants import SURGE_THRESHOLD, PLUNGE_THRESHOLD, PROFIT_MILESTONES
 
 # ロギング設定
 logging.basicConfig(
@@ -362,6 +362,88 @@ def fetch_watchlist_buy_target_alerts(conn) -> list[dict]:
     return alerts
 
 
+def fetch_portfolio_profit_milestone_alerts(conn, milestones: list[int]) -> list[dict]:
+    """
+    ポートフォリオ銘柄の利確マイルストーン通知をチェック
+
+    条件:
+    - 保有株数 > 0
+    - 含み益率が milestones のいずれかを達成（最大のマイルストーンを通知）
+    """
+    alerts = []
+
+    with conn.cursor() as cur:
+        cur.execute('''
+            SELECT
+                p."userId",
+                s.id as "stockId",
+                s.name as "stockName",
+                s."tickerCode",
+                s."latestPrice",
+                COALESCE(
+                    (SELECT SUM(
+                        CASE WHEN t.type = 'buy' THEN t.quantity
+                             WHEN t.type = 'sell' THEN -t.quantity
+                             ELSE 0
+                         END
+                    )
+                    FROM "Transaction" t
+                    WHERE t."portfolioStockId" = p.id
+                    ), 0
+                ) as "totalQuantity",
+                COALESCE(
+                    (SELECT SUM(t.quantity * t.price) / NULLIF(SUM(t.quantity), 0)
+                    FROM "Transaction" t
+                    WHERE t."portfolioStockId" = p.id AND t.type = 'buy'
+                    ), 0
+                ) as "averageCost",
+                p.id as "userStockId",
+                us."investmentStyle"
+            FROM "PortfolioStock" p
+            JOIN "Stock" s ON p."stockId" = s.id
+            LEFT JOIN "UserSettings" us ON us."userId" = p."userId"
+            WHERE s."latestPrice" IS NOT NULL
+        ''')
+
+        for row in cur.fetchall():
+            total_quantity = row[5] or 0
+            if total_quantity <= 0:
+                continue
+
+            latest_price = float(row[4]) if row[4] else 0
+            average_cost = float(row[6]) if row[6] else 0
+            user_stock_id = row[7]
+            investment_style = row[8] or "BALANCED"
+
+            if average_cost <= 0:
+                continue
+
+            profit_percent = ((latest_price - average_cost) / average_cost) * 100
+
+            # 到達している最大のマイルストーンを判定
+            hit_milestone = None
+            for m in sorted(milestones, reverse=True):
+                if profit_percent >= m:
+                    hit_milestone = m
+                    break
+
+            if hit_milestone is not None:
+                alerts.append({
+                    "userId": row[0],
+                    "stockId": row[1],
+                    "stockName": row[2],
+                    "tickerCode": row[3],
+                    "latestPrice": latest_price,
+                    "averageCost": average_cost,
+                    "profitPercent": profit_percent,
+                    "milestone": hit_milestone,
+                    "userStockId": user_stock_id,
+                    "investmentStyle": investment_style,
+                })
+
+    return alerts
+
+
 def send_notifications(app_url: str, cron_secret: str, notifications: list[dict]) -> dict:
     """通知APIを呼び出し"""
     if not notifications:
@@ -529,7 +611,62 @@ def main():
                 "targetPrice": alert["targetPrice"],
             })
 
-        # 5. 通知送信
+        # 5. ポートフォリオ: 利確マイルストーン
+        logger.info("Checking portfolio profit milestone alerts...")
+        profit_milestone_alerts = fetch_portfolio_profit_milestone_alerts(conn, PROFIT_MILESTONES)
+        logger.info(f"  Found {len(profit_milestone_alerts)} profit milestone alerts")
+
+        # 利確マイルストーン対象のStockAnalysis（スタイル別分析）を一括取得
+        milestone_stock_ids = list(set(
+            a["stockId"] for a in profit_milestone_alerts
+        ))
+        milestone_analyses = fetch_latest_stock_analyses(conn, milestone_stock_ids)
+
+        for alert in profit_milestone_alerts:
+            milestone = alert["milestone"]
+            user_style = alert.get("investmentStyle", "BALANCED")
+
+            title = f"💹 {alert['stockName']}が+{milestone}%に到達"
+
+            body = f"含み益が+{alert['profitPercent']:.1f}%（{alert['latestPrice']:,.0f}円 / 取得単価{alert['averageCost']:,.0f}円）になりました。"
+
+            # 投資スタイル別のアドバイス
+            if user_style == "CONSERVATIVE":
+                if milestone >= 20:
+                    body += "利益確定をおすすめします"
+                else:
+                    body += "一部利確を検討してみましょう"
+            elif user_style == "BALANCED":
+                if milestone >= 30:
+                    body += "利益確定のタイミングです"
+                elif milestone >= 20:
+                    body += "半分利確して残りはトレーリングストップで守る方法もあります"
+                else:
+                    body += "利確の検討時期です。一部売却でリスクを減らせます"
+            else:  # AGGRESSIVE
+                if milestone >= 30:
+                    body += "大幅な利益が出ています。一部利確も選択肢です"
+                else:
+                    body += "まだ上昇余地があるかもしれません。撤退ラインの引き上げを検討しましょう"
+
+            # AI分析がある場合は付加
+            style_data = milestone_analyses.get(alert["stockId"], {}).get(user_style, {})
+            style_rec = style_data.get("recommendation", "")
+            if style_rec == "sell":
+                body += "。AIも利益確定を推奨しています"
+
+            notifications.append({
+                "userId": alert["userId"],
+                "type": "profit_milestone",
+                "stockId": alert["stockId"],
+                "title": title,
+                "body": body,
+                "url": f"/my-stocks/{alert['userStockId']}",
+                "triggerPrice": alert["latestPrice"],
+                "changeRate": alert["profitPercent"],
+            })
+
+        # 6. 通知送信
         logger.info(f"Total notifications to send: {len(notifications)}")
 
         if notifications:

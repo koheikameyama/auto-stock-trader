@@ -48,6 +48,14 @@
       "label": "撤退ライン到達",
       "icon": "⚠️"
     },
+    "buy_target": {
+      "label": "買い時到達",
+      "icon": "📍"
+    },
+    "profit_milestone": {
+      "label": "利確タイミング",
+      "icon": "💹"
+    },
     "default": {
       "label": "通知",
       "icon": "🔔"

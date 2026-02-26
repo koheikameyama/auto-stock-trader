@@ -222,6 +222,7 @@ MONTHLY
 | ギャップアップ率 | `gapUpRate` | (当日始値 - 前日終値) / 前日終値 × 100 |
 | 出来高急増率 | `volumeSpikeRate` | 当日出来高 / 過去平均出来高 |
 | 売買代金 | `turnoverValue` | 出来高 × 終値 |
+| ATR(14) | `atr` | 14日間の平均真の値幅（Average True Range） |
 
 ## Slack通知
 

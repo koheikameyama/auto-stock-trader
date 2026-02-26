@@ -37,6 +37,7 @@ export function buildPortfolioAnalysisPrompt(params: {
   stopLossRate?: number | null;
   defaultTakeProfitRate?: number | null;
   defaultStopLossRate?: number | null;
+  atr14?: number | null;
   isSimulation?: boolean;
 }) {
   const {
@@ -70,6 +71,7 @@ export function buildPortfolioAnalysisPrompt(params: {
     stopLossRate,
     defaultTakeProfitRate,
     defaultStopLossRate,
+    atr14,
     isSimulation = false,
   } = params;
 
@@ -103,7 +105,7 @@ ${userContext}${purchaseRecContext}
 【財務指標（初心者向け解説）】
 ${financialMetrics}
 
-【テクニカル分析】${weekChangeContext}${patternContext}${technicalContext}${chartPatternContext}${deviationRateContext}${volumeAnalysisContext}${relativeStrengthContext}${gapFillContext}${supportResistanceContext}${trendlineContext}
+【テクニカル分析】${weekChangeContext}${patternContext}${technicalContext}${chartPatternContext}${deviationRateContext}${volumeAnalysisContext}${relativeStrengthContext}${gapFillContext}${supportResistanceContext}${trendlineContext}${atr14 != null ? `\n- ATR(14): ${atr14.toFixed(0)}円（株価の14日間の平均変動幅。損切り幅の参考指標）` : ""}
 【株価データ】
 直近30日の終値: データあり
 ${newsContext}${marketContext}${sectorTrendContext}

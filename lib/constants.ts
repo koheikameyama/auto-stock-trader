@@ -51,6 +51,18 @@ export const INVESTMENT_STYLE_COEFFICIENTS = {
   },
 } as const;
 
+// ATRベース出口戦略
+export const ATR_EXIT_STRATEGY = {
+  // ATRが利用できない場合のフォールバック損切り率（%）
+  FALLBACK_STOP_LOSS: {
+    CONSERVATIVE: 5,
+    BALANCED: 8,
+    AGGRESSIVE: 12,
+  },
+  // 利確マイルストーン（%）: この利益率に達したら通知
+  PROFIT_MILESTONES: [10, 20, 30],
+} as const;
+
 // 投資スタイル別の表示設定（他の設定と形式を統一）
 export const INVESTMENT_STYLE_CONFIG: Record<
   string,
