@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useTranslations } from "next-intl";
 import AnalysisTimestamp from "./AnalysisTimestamp";
 import {
   UPDATE_SCHEDULES,
@@ -104,11 +105,13 @@ export default function StockAnalysisCard({
   onApplyAIPrices,
 }: StockAnalysisCardProps) {
 
+  const tAnalysis = useTranslations("stocks.analysis");
   const [analysis, setAnalysis] = useState<AnalysisData | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [noData, setNoData] = useState(false);
   const [error, setError] = useState("");
+  const [dataUnavailable, setDataUnavailable] = useState(false);
   const [userInvestmentStyle, setUserInvestmentStyle] = useState<string>("BALANCED");
   const [selectedStyle, setSelectedStyle] = useState<string>("BALANCED");
 
@@ -183,6 +186,11 @@ export default function StockAnalysisCard({
 
       if (!response.ok) {
         const errData = await response.json();
+        if (errData.code === "NO_PRICE_DATA" || errData.code === "STALE_DATA") {
+          setDataUnavailable(true);
+          setError(errData.code === "STALE_DATA" ? tAnalysis("staleData") : tAnalysis("noChartData"));
+          return;
+        }
         throw new Error(errData.error || "分析の生成に失敗しました");
       }
 
@@ -190,6 +198,7 @@ export default function StockAnalysisCard({
       const data = await response.json();
       setAnalysis(data);
       setNoData(false);
+      setDataUnavailable(false);
       onAnalysisDateLoaded?.(data.analyzedAt || data.lastAnalysis);
 
       // シミュレーションでない場合のみ再取得（通常はPOSTで保存されているためGETで同期可能）
@@ -312,6 +321,21 @@ export default function StockAnalysisCard({
           <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
           {isSimulation ? "生成中..." : "分析中..."}
         </div>
+      </div>
+    );
+  }
+
+  // チャートデータ不足で分析不可
+  if (dataUnavailable) {
+    return (
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-6 text-center">
+        <div className="text-4xl mb-3">📉</div>
+        <p className="text-sm text-amber-700 font-medium">
+          {error}
+        </p>
+        <p className="text-xs text-amber-600 mt-2">
+          {tAnalysis("dataUnavailableHint")}
+        </p>
       </div>
     );
   }

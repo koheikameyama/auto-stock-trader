@@ -35,7 +35,10 @@
     "strength": "強み",
     "weakness": "弱み",
     "opportunity": "機会",
-    "threat": "脅威"
+    "threat": "脅威",
+    "noChartData": "チャートデータが不足しているため、AI分析を行えません",
+    "staleData": "最新の株価データが取得できないため、AI分析を行えません",
+    "dataUnavailableHint": "IPO直後の銘柄や取引の少ない銘柄では、十分なチャートデータが取得できない場合があります。"
   },
   "tabs": {
     "overview": "概要",

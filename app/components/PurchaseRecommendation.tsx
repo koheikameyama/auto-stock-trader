@@ -135,11 +135,13 @@ export default function PurchaseRecommendation({
   currentTargetBuyPrice,
 }: PurchaseRecommendationProps) {
   const t = useTranslations("stocks.styleAnalysis");
+  const tAnalysis = useTranslations("stocks.analysis");
   const [data, setData] = useState<RecommendationData | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [noData, setNoData] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dataUnavailable, setDataUnavailable] = useState(false);
   const [userInvestmentStyle, setUserInvestmentStyle] = useState<string>("BALANCED");
   const [selectedStyle, setSelectedStyle] = useState<string>("BALANCED");
 
@@ -187,12 +189,18 @@ export default function PurchaseRecommendation({
 
       if (!response.ok) {
         const errData = await response.json();
+        if (errData.code === "NO_PRICE_DATA" || errData.code === "STALE_DATA") {
+          setDataUnavailable(true);
+          setError(errData.code === "STALE_DATA" ? tAnalysis("staleData") : tAnalysis("noChartData"));
+          return;
+        }
         throw new Error(errData.error || "分析の生成に失敗しました");
       }
 
       const result = await response.json();
       setData(result);
       setNoData(false);
+      setDataUnavailable(false);
     } catch (err) {
       console.error("Error generating purchase recommendation:", err);
       setError(err instanceof Error ? err.message : "分析に失敗しました");
@@ -283,6 +291,22 @@ export default function PurchaseRecommendation({
               </>
             )}
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (dataUnavailable) {
+    return (
+      <div>
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-6 text-center">
+          <div className="text-4xl mb-3">📉</div>
+          <p className="text-sm text-amber-700 font-medium">
+            {error}
+          </p>
+          <p className="text-xs text-amber-600 mt-2">
+            {tAnalysis("dataUnavailableHint")}
+          </p>
         </div>
       </div>
     );

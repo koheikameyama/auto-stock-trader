@@ -55,7 +55,7 @@ export async function POST(
         INTERNAL: 500,
       };
       return NextResponse.json(
-        { error: error.message },
+        { error: error.message, code: error.code },
         { status: statusMap[error.code] || 500 },
       );
     }
