@@ -1,5 +1,66 @@
 # GitHub Actions
 
+## スケジューラの使い分け
+
+**時間の正確性が重要なバッチ処理は cron-job.org を使用してください。**
+
+### 理由
+
+GitHub Actionsのcronスケジュールは実行タイミングが数分〜数十分ずれることがある。取引時間に連動する処理など、時間の正確性が求められるバッチはcron-job.orgを使用する。
+
+### 使い分け基準
+
+| スケジューラ | 用途 |
+|-------------|------|
+| **cron-job.org** | 時間の正確性が重要な処理（株価取得、分析生成、アラートなど） |
+| **GitHub Actions cron** | 時間の正確性が不要な処理（週次クリーンアップ、CI/CDなど） |
+
+### cron-job.orgの設定方法
+
+**設定変更はcron-job.org APIを使用してください。**
+
+```bash
+# ジョブ一覧取得
+curl -s -H "Authorization: Bearer $CRONJOB_API_KEY" \
+  "https://api.cron-job.org/jobs" | jq
+
+# ジョブ作成
+curl -s -X PUT -H "Authorization: Bearer $CRONJOB_API_KEY" \
+  -H "Content-Type: application/json" \
+  "https://api.cron-job.org/jobs" \
+  -d '{
+    "job": {
+      "url": "https://example.com/api/cron/endpoint",
+      "title": "ジョブ名",
+      "enabled": true,
+      "schedule": {
+        "timezone": "Asia/Tokyo",
+        "hours": [9],
+        "minutes": [0],
+        "mdays": [-1],
+        "months": [-1],
+        "wdays": [1,2,3,4,5]
+      },
+      "requestMethod": 1
+    }
+  }'
+
+# ジョブ更新
+curl -s -X PATCH -H "Authorization: Bearer $CRONJOB_API_KEY" \
+  -H "Content-Type: application/json" \
+  "https://api.cron-job.org/jobs/{jobId}" \
+  -d '{
+    "job": { "enabled": false }
+  }'
+```
+
+### チェックリスト
+
+新しいバッチ処理追加時：
+- [ ] 時間の正確性が必要か判断
+- [ ] 必要 → cron-job.orgにAPIで設定
+- [ ] 不要 → GitHub Actions cronで設定
+
 ## ワークフローのジョブ設計
 
 **複数のタスクを実行するワークフローは、ジョブ（jobs）を分割してください。**
