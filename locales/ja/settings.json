@@ -147,7 +147,7 @@
       "description": "通知しない"
     },
     "customInput": {
-      "placeholder": "例: 8",
+      "placeholder": "例: -8",
       "unit": "%",
       "button": "設定"
     }

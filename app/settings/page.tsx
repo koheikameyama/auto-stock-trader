@@ -146,7 +146,7 @@ export default function SettingsPage() {
             !STOP_LOSS_OPTIONS.some((o) => o.value === stopLoss)
           ) {
             setShowCustomStopLoss(true);
-            setCustomStopLossText(String(Math.abs(stopLoss)));
+            setCustomStopLossText(String(stopLoss));
           }
         }
       }
@@ -166,16 +166,15 @@ export default function SettingsPage() {
 
   const handleCustomTargetReturnSave = () => {
     const val = parseFloat(customTargetReturnText);
-    if (!isNaN(val) && val > 0) {
+    if (!isNaN(val) && val !== 0) {
       saveSettings({ targetReturnRate: val });
     }
   };
 
   const handleCustomStopLossSave = () => {
     const val = parseFloat(customStopLossText);
-    if (!isNaN(val) && val > 0) {
-      // 損切りは必ず負の値で保存
-      saveSettings({ stopLossRate: -Math.abs(val) });
+    if (!isNaN(val) && val !== 0) {
+      saveSettings({ stopLossRate: val });
     }
   };
 
@@ -681,12 +680,8 @@ export default function SettingsPage() {
                     {showCustomTargetReturn && (
                       <div className="mt-3 flex items-center gap-2">
                         <div className="flex items-center gap-1 flex-1 bg-white border-2 border-green-300 rounded-lg px-3 py-2 focus-within:border-green-500 transition-colors">
-                          <span className="text-sm text-gray-500 shrink-0">
-                            +
-                          </span>
                           <input
                             type="number"
-                            min="0.1"
                             step="0.1"
                             value={customTargetReturnText}
                             onChange={(e) =>
@@ -708,7 +703,8 @@ export default function SettingsPage() {
                           disabled={
                             savingSettings ||
                             !customTargetReturnText ||
-                            parseFloat(customTargetReturnText) <= 0
+                            parseFloat(customTargetReturnText) === 0 ||
+                            isNaN(parseFloat(customTargetReturnText))
                           }
                           className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
                         >
@@ -767,7 +763,7 @@ export default function SettingsPage() {
                               !STOP_LOSS_OPTIONS.some(
                                 (o) => o.value === settings.stopLossRate,
                               )
-                              ? String(Math.abs(settings.stopLossRate!))
+                              ? String(settings.stopLossRate!)
                               : "",
                           );
                         }}
@@ -809,12 +805,8 @@ export default function SettingsPage() {
                     {showCustomStopLoss && (
                       <div className="mt-3 flex items-center gap-2">
                         <div className="flex items-center gap-1 flex-1 bg-white border-2 border-red-300 rounded-lg px-3 py-2 focus-within:border-red-500 transition-colors">
-                          <span className="text-sm text-gray-500 shrink-0">
-                            -
-                          </span>
                           <input
                             type="number"
-                            min="0.1"
                             step="0.1"
                             value={customStopLossText}
                             onChange={(e) =>
@@ -835,7 +827,8 @@ export default function SettingsPage() {
                           disabled={
                             savingSettings ||
                             !customStopLossText ||
-                            parseFloat(customStopLossText) <= 0
+                            parseFloat(customStopLossText) === 0 ||
+                            isNaN(parseFloat(customStopLossText))
                           }
                           className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
                         >

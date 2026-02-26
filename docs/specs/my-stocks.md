@@ -146,6 +146,9 @@ AI分析なしで株価だけ追いたい銘柄。上限10銘柄。
 
 銘柄設定を更新（買い時通知価格、売却目標率/撤退ライン率）。
 
+売却目標率・撤退ライン率は正負どちらも入力可能（売却目標のデフォルトは正、撤退ラインのデフォルトは負）。
+%入力と金額入力が連動し、どちらからでも設定可能。
+
 **リクエストボディ**:
 ```json
 {
@@ -299,8 +302,8 @@ AI分析なしで株価だけ追いたい銘柄。上限10銘柄。
 | sellReason | Text? | 売却理由テキスト |
 | sellTiming | String? | market / rebound |
 | sellTargetPrice | Decimal? | 戻り売り目安価格 |
-| takeProfitRate | Decimal? | 個別売却目標率（%、取得単価基準） |
-| stopLossRate | Decimal? | 個別撤退ライン率（%、取得単価基準） |
+| takeProfitRate | Decimal? | 個別売却目標率（%、取得単価基準、正負可） |
+| stopLossRate | Decimal? | 個別撤退ライン率（%、取得単価基準、正負可） |
 
 ### WatchlistStock
 

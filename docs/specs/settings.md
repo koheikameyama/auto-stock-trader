@@ -22,13 +22,17 @@
 
 「未定」も選択可能（nullable）。
 
-### 目標利益率
+### 目標利益率（売却目標）
 
 プリセット: 5% / 10% / 15% / 20% / 30% + カスタム入力
 
-### 損切りライン
+カスタム入力は正負どちらも入力可能（デフォルトは正）。
+
+### 損切りライン（撤退ライン）
 
 プリセット: -5% / -10% / -15% / -20% + カスタム入力
+
+カスタム入力は正負どちらも入力可能（デフォルトは負）。
 
 ### プッシュ通知
 
@@ -69,8 +73,8 @@
 **バリデーション**:
 - investmentStyle: CONSERVATIVE / BALANCED / AGGRESSIVE のいずれか
 - investmentBudget: 正の整数 or null
-- targetReturnRate: 正の整数 or null
-- stopLossRate: 負の整数 or null
+- targetReturnRate: 数値（正負可） or null
+- stopLossRate: 数値（正負可） or null
 
 ## 認証
 

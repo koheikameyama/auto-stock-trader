@@ -35,43 +35,79 @@ export default function IndividualSettingsModal({
   const [tpRate, setTpRate] = useState<string>("");
   const [slRate, setSlRate] = useState<string>("");
 
-  // 表示用（価格）
-  const [tpPriceHint, setTpPriceHint] = useState<number | null>(null);
-  const [slPriceHint, setSlPriceHint] = useState<number | null>(null);
+  // ユーザー入力（金額）
+  const [tpPrice, setTpPrice] = useState<string>("");
+  const [slPrice, setSlPrice] = useState<string>("");
 
   const [saving, setSaving] = useState(false);
   const [loadingDefaults, setLoadingDefaults] = useState(false);
+
+  // 率→価格の変換
+  const calcPrice = (rate: number): number => {
+    return Math.round(avgPurchasePrice * (1 + rate / 100));
+  };
+
+  // 価格→率の変換
+  const calcRate = (price: number): number => {
+    return Math.round(((price - avgPurchasePrice) / avgPurchasePrice) * 1000) / 10;
+  };
 
   // 初期値のセット
   useEffect(() => {
     if (isOpen) {
       setTpRate(initialTpRate != null ? String(initialTpRate) : "");
-      // DBからは負の値で来るので、表示時には正の値に変換（絶対値）
-      setSlRate(initialSlRate != null ? String(Math.abs(initialSlRate)) : "");
+      setSlRate(initialSlRate != null ? String(initialSlRate) : "");
+
+      if (initialTpRate != null && avgPurchasePrice > 0) {
+        setTpPrice(String(calcPrice(initialTpRate)));
+      } else {
+        setTpPrice("");
+      }
+      if (initialSlRate != null && avgPurchasePrice > 0) {
+        setSlPrice(String(calcPrice(initialSlRate)));
+      } else {
+        setSlPrice("");
+      }
     }
   }, [isOpen, initialTpRate, initialSlRate]);
 
-  // 目安価格の計算
-  useEffect(() => {
-    if (avgPurchasePrice > 0) {
-      if (tpRate && !isNaN(Number(tpRate))) {
-        setTpPriceHint(
-          Math.round(avgPurchasePrice * (1 + Number(tpRate) / 100)),
-        );
-      } else {
-        setTpPriceHint(null);
-      }
-
-      if (slRate && !isNaN(Number(slRate))) {
-        // ユーザー入力は正の値なので、計算時は負に変換
-        setSlPriceHint(
-          Math.round(avgPurchasePrice * (1 - Number(slRate) / 100)),
-        );
-      } else {
-        setSlPriceHint(null);
-      }
+  // 率入力のハンドラ（%→¥連動）
+  const handleTpRateChange = (value: string) => {
+    setTpRate(value);
+    if (value && !isNaN(Number(value)) && avgPurchasePrice > 0) {
+      setTpPrice(String(calcPrice(Number(value))));
+    } else {
+      setTpPrice("");
     }
-  }, [tpRate, slRate, avgPurchasePrice]);
+  };
+
+  const handleSlRateChange = (value: string) => {
+    setSlRate(value);
+    if (value && !isNaN(Number(value)) && avgPurchasePrice > 0) {
+      setSlPrice(String(calcPrice(Number(value))));
+    } else {
+      setSlPrice("");
+    }
+  };
+
+  // 金額入力のハンドラ（¥→%連動）
+  const handleTpPriceChange = (value: string) => {
+    setTpPrice(value);
+    if (value && !isNaN(Number(value)) && avgPurchasePrice > 0) {
+      setTpRate(String(calcRate(Number(value))));
+    } else {
+      setTpRate("");
+    }
+  };
+
+  const handleSlPriceChange = (value: string) => {
+    setSlPrice(value);
+    if (value && !isNaN(Number(value)) && avgPurchasePrice > 0) {
+      setSlRate(String(calcRate(Number(value))));
+    } else {
+      setSlRate("");
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -79,8 +115,7 @@ export default function IndividualSettingsModal({
     setSaving(true);
     try {
       const tpRateValue = tpRate ? Number(tpRate) : null;
-      // 損切りは必ず負の値で保存（ユーザー入力は正の値）
-      const slRateValue = slRate ? -Math.abs(Number(slRate)) : null;
+      const slRateValue = slRate ? Number(slRate) : null;
 
       const response = await fetch(`/api/user-stocks/${stockId}`, {
         method: "PATCH",
@@ -115,8 +150,22 @@ export default function IndividualSettingsModal({
       const data = await response.json();
       const settings = data.settings;
 
-      setTpRate(settings.targetReturnRate != null ? String(settings.targetReturnRate) : "");
-      setSlRate(settings.stopLossRate != null ? String(Math.abs(settings.stopLossRate)) : "");
+      const defaultTp = settings.targetReturnRate;
+      const defaultSl = settings.stopLossRate;
+
+      setTpRate(defaultTp != null ? String(defaultTp) : "");
+      setSlRate(defaultSl != null ? String(defaultSl) : "");
+
+      if (defaultTp != null && avgPurchasePrice > 0) {
+        setTpPrice(String(calcPrice(defaultTp)));
+      } else {
+        setTpPrice("");
+      }
+      if (defaultSl != null && avgPurchasePrice > 0) {
+        setSlPrice(String(calcPrice(defaultSl)));
+      } else {
+        setSlPrice("");
+      }
 
       toast.success(t('defaultsLoaded'));
     } catch {
@@ -125,6 +174,10 @@ export default function IndividualSettingsModal({
       setLoadingDefaults(false);
     }
   };
+
+  // 差額の計算
+  const tpDiff = tpPrice && !isNaN(Number(tpPrice)) ? Number(tpPrice) - avgPurchasePrice : null;
+  const slDiff = slPrice && !isNaN(Number(slPrice)) ? Number(slPrice) - avgPurchasePrice : null;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
@@ -160,12 +213,12 @@ export default function IndividualSettingsModal({
             {stockName}
           </p>
           <p className="text-xs text-gray-500 mb-2">
-            平均取得単価: ¥{avgPurchasePrice.toLocaleString()}
+            {t('averagePrice')}: ¥{avgPurchasePrice.toLocaleString()}
           </p>
           <p className="text-sm text-gray-600">
             {isNewAddition
-              ? "目標ラインを％で指定してください。目安となる株価がリアルタイムに表示されます。"
-              : "この銘柄固有の売却ラインを％で設定します。"}
+              ? t('settingsDescriptionNew')
+              : t('settingsDescriptionEdit')}
           </p>
         </div>
 
@@ -182,83 +235,108 @@ export default function IndividualSettingsModal({
         )}
 
         <div className="space-y-5 mb-6">
-          {/* 利確設定 */}
+          {/* 売却目標 */}
           <div className="p-3 bg-green-50/50 rounded-lg border border-green-100">
             <label className="block text-sm font-bold text-green-800 mb-2">
-              利確設定
+              {t('sellTargetLine')}
             </label>
-            <div>
-              <label className="block text-[10px] text-gray-500 uppercase font-bold mb-1">
-                目標利益率
-              </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0.1"
-                  value={tpRate}
-                  onChange={(e) => setTpRate(e.target.value)}
-                  placeholder="10"
-                  className="w-full pr-7 pl-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
-                />
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">
-                  %
-                </span>
+            <div className="space-y-2">
+              {/* %入力 */}
+              <div>
+                <label className="block text-[10px] text-gray-500 uppercase font-bold mb-1">
+                  {t('rateInput')}
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={tpRate}
+                    onChange={(e) => handleTpRateChange(e.target.value)}
+                    placeholder="10"
+                    className="w-full pr-7 pl-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">
+                    %
+                  </span>
+                </div>
               </div>
+              {/* 金額入力 */}
+              <div>
+                <label className="block text-[10px] text-gray-500 uppercase font-bold mb-1">
+                  {t('priceInput')}
+                </label>
+                <div className="relative">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">
+                    ¥
+                  </span>
+                  <input
+                    type="number"
+                    step="1"
+                    value={tpPrice}
+                    onChange={(e) => handleTpPriceChange(e.target.value)}
+                    placeholder={avgPurchasePrice > 0 ? String(Math.round(avgPurchasePrice * 1.1)) : ""}
+                    className="w-full pr-3 pl-7 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                  />
+                </div>
+              </div>
+              {tpDiff !== null && (
+                <p className={`text-[11px] font-medium ${tpDiff >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                  ({tpDiff >= 0 ? t('profitLabel') : t('lossLabel')}: {tpDiff >= 0 ? '+' : ''}{tpDiff.toLocaleString()}{t('yen')})
+                </p>
+              )}
             </div>
-            {tpPriceHint && (
-              <p className="mt-2 text-[11px] text-green-700 font-medium">
-                → 目安株価:{" "}
-                <span className="font-bold underline decoration-green-300">
-                  ¥{tpPriceHint.toLocaleString()}
-                </span>
-                <br />
-                <span className="text-[10px] text-gray-400 font-normal">
-                  (利益: +{(tpPriceHint - avgPurchasePrice).toLocaleString()}円)
-                </span>
-              </p>
-            )}
           </div>
 
-          {/* 損切り設定 */}
+          {/* 撤退ライン */}
           <div className="p-3 bg-red-50/50 rounded-lg border border-red-100">
             <label className="block text-sm font-bold text-red-800 mb-2">
-              損切り設定
+              {t('exitLine')}
             </label>
-            <div>
-              <label className="block text-[10px] text-gray-500 uppercase font-bold mb-1">
-                許容損失率
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-700 text-sm font-bold">
-                  -
-                </span>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0.1"
-                  value={slRate}
-                  onChange={(e) => setSlRate(e.target.value)}
-                  placeholder="5"
-                  className="w-full pr-7 pl-8 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm"
-                />
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">
-                  %
-                </span>
+            <div className="space-y-2">
+              {/* %入力 */}
+              <div>
+                <label className="block text-[10px] text-gray-500 uppercase font-bold mb-1">
+                  {t('rateInput')}
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={slRate}
+                    onChange={(e) => handleSlRateChange(e.target.value)}
+                    placeholder="-5"
+                    className="w-full pr-7 pl-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">
+                    %
+                  </span>
+                </div>
               </div>
+              {/* 金額入力 */}
+              <div>
+                <label className="block text-[10px] text-gray-500 uppercase font-bold mb-1">
+                  {t('priceInput')}
+                </label>
+                <div className="relative">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">
+                    ¥
+                  </span>
+                  <input
+                    type="number"
+                    step="1"
+                    value={slPrice}
+                    onChange={(e) => handleSlPriceChange(e.target.value)}
+                    placeholder={avgPurchasePrice > 0 ? String(Math.round(avgPurchasePrice * 0.95)) : ""}
+                    className="w-full pr-3 pl-7 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm"
+                  />
+                </div>
+              </div>
+              {slDiff !== null && (
+                <p className={`text-[11px] font-medium ${slDiff >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                  ({slDiff >= 0 ? t('profitLabel') : t('lossLabel')}: {slDiff >= 0 ? '+' : ''}{slDiff.toLocaleString()}{t('yen')})
+                </p>
+              )}
             </div>
-            {slPriceHint && (
-              <p className="mt-2 text-[11px] text-red-700 font-medium">
-                → 目安株価:{" "}
-                <span className="font-bold underline decoration-red-300">
-                  ¥{slPriceHint.toLocaleString()}
-                </span>
-                <br />
-                <span className="text-[10px] text-gray-400 font-normal">
-                  (損失: {(avgPurchasePrice - slPriceHint).toLocaleString()}円)
-                </span>
-              </p>
-            )}
           </div>
         </div>
 
@@ -268,7 +346,7 @@ export default function IndividualSettingsModal({
               onClick={onClose}
               className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm"
             >
-              キャンセル
+              {t('cancel')}
             </button>
           )}
           <button
@@ -277,10 +355,10 @@ export default function IndividualSettingsModal({
             className={`flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-bold text-sm ${isNewAddition ? "w-full" : ""}`}
           >
             {saving
-              ? "保存中..."
+              ? t('saving')
               : isNewAddition
-                ? "この内容で設定を完了する"
-                : "保存する"}
+                ? t('saveNewAddition')
+                : t('save')}
           </button>
         </div>
 
@@ -289,7 +367,7 @@ export default function IndividualSettingsModal({
             onClick={onClose}
             className="w-full mt-3 text-sm text-gray-500 hover:text-gray-700 text-center"
           >
-            今は設定しない
+            {t('skipForNow')}
           </button>
         )}
       </div>
