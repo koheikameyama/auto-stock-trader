@@ -1,9 +1,7 @@
 name: Daily Recommendation Report
 
 on:
-  schedule:
-    # 平日 18:00 JST (09:00 UTC)
-    - cron: '0 9 * * 1-5'
+  # cron-job.org から workflow_dispatch でトリガー（18:00 JST 平日）
   workflow_dispatch:
 
 jobs:

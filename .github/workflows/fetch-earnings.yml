@@ -1,9 +1,7 @@
 name: Fetch Earnings Data
 
 on:
-  schedule:
-    # 毎日 06:00 JST（21:00 UTC前日）- 銘柄数に応じて分散取得
-    - cron: '0 21 * * *'
+  # cron-job.org から workflow_dispatch でトリガー（06:00 JST）
   workflow_dispatch:
 
 concurrency:
