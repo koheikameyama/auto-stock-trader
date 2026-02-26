@@ -35,6 +35,8 @@ import { calculatePortfolioFromTransactions } from "@/lib/portfolio-calculator";
 import {
   isDangerousStock,
   isUnprofitableSurge,
+  getGapUpSurgeThreshold,
+  getTechnicalBrakeThreshold,
 } from "@/lib/stock-safety-rules";
 import { getSectorTrend, formatSectorTrendForPrompt } from "@/lib/sector-trend";
 import { AnalysisError } from "@/lib/portfolio-analysis-core";
@@ -562,8 +564,9 @@ export async function executePurchaseRecommendation(
   for (const styleKey of ALL_STYLE_KEYS) {
     const sa = result.styleAnalyses[styleKey];
 
-    // テクニカル総合判定ブレーキ
-    if (combinedTechnical.signal === "sell" && combinedTechnical.strength >= 70) {
+    // テクニカル総合判定ブレーキ（投資スタイル別の閾値）
+    const technicalBrakeThreshold = getTechnicalBrakeThreshold(styleKey);
+    if (combinedTechnical.signal === "sell" && combinedTechnical.strength >= technicalBrakeThreshold) {
       if (sa.recommendation === "buy") {
         sa.recommendation = "stay";
         sa.statusType = "ホールド";
@@ -607,9 +610,10 @@ export async function executePurchaseRecommendation(
     }
 
 
-    // ギャップアップ急騰の強制補正（飛びつき買い防止）
+    // ギャップアップ急騰の強制補正（飛びつき買い防止、投資スタイル別の閾値）
     const gapUpRate = stock.gapUpRate ? Number(stock.gapUpRate) : null;
-    if (!skipSafetyRules && gapUpRate !== null && gapUpRate >= TIMING_INDICATORS.GAP_UP_SURGE_THRESHOLD && sa.recommendation === "buy") {
+    const gapUpThreshold = getGapUpSurgeThreshold(styleKey);
+    if (!skipSafetyRules && gapUpRate !== null && gapUpRate >= gapUpThreshold && sa.recommendation === "buy") {
       sa.recommendation = "stay";
       sa.statusType = "ホールド";
       sa.caution = `当日のギャップアップ率が${gapUpRate.toFixed(1)}%と大きく、飛びつき買いのリスクがあります。${sa.caution}`;

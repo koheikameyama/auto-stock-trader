@@ -4,7 +4,7 @@
  * おすすめ分析・購入判断の両方で共通して使う。
  * 条件判定のみを提供し、アクション（除外 or stay変更）は呼び出し側に委ねる。
  */
-import { MA_DEVIATION, MOMENTUM } from "@/lib/constants";
+import { MA_DEVIATION, MOMENTUM, TIMING_INDICATORS, TECHNICAL_BRAKE } from "@/lib/constants";
 
 /** 高ボラティリティの閾値（%） */
 const HIGH_VOLATILITY_THRESHOLD = 50;
@@ -91,5 +91,33 @@ function getDeclineThreshold(investmentStyle?: string | null): number {
       return MOMENTUM.AGGRESSIVE_DECLINE_THRESHOLD;
     default:
       return MOMENTUM.DEFAULT_DECLINE_THRESHOLD;
+  }
+}
+
+/** 投資スタイルに応じたギャップアップ急騰閾値を取得 */
+export function getGapUpSurgeThreshold(investmentStyle?: string | null): number {
+  switch (investmentStyle) {
+    case "CONSERVATIVE":
+      return TIMING_INDICATORS.GAP_UP_SURGE_CONSERVATIVE;
+    case "BALANCED":
+      return TIMING_INDICATORS.GAP_UP_SURGE_BALANCED;
+    case "AGGRESSIVE":
+      return TIMING_INDICATORS.GAP_UP_SURGE_AGGRESSIVE;
+    default:
+      return TIMING_INDICATORS.GAP_UP_SURGE_THRESHOLD;
+  }
+}
+
+/** 投資スタイルに応じたテクニカルブレーキ閾値を取得 */
+export function getTechnicalBrakeThreshold(investmentStyle?: string | null): number {
+  switch (investmentStyle) {
+    case "CONSERVATIVE":
+      return TECHNICAL_BRAKE.CONSERVATIVE;
+    case "BALANCED":
+      return TECHNICAL_BRAKE.BALANCED;
+    case "AGGRESSIVE":
+      return TECHNICAL_BRAKE.AGGRESSIVE;
+    default:
+      return TECHNICAL_BRAKE.BALANCED;
   }
 }

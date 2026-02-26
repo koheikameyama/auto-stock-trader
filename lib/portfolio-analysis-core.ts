@@ -21,7 +21,7 @@ import {
   buildTrendlineContext,
 } from "@/lib/stock-analysis-context";
 import { buildPortfolioAnalysisPrompt } from "@/lib/prompts/portfolio-analysis-prompt";
-import { getNikkei225Data } from "@/lib/market-index";
+import { getNikkei225Data, type MarketIndexData } from "@/lib/market-index";
 import { getSectorTrend, formatSectorTrendForPrompt } from "@/lib/sector-trend";
 import {
   calculateDeviationRate,
@@ -57,6 +57,239 @@ export class AnalysisError extends Error {
   ) {
     super(message);
   }
+}
+
+/**
+ * ポートフォリオ分析のAI結果に対する共通ポストプロセス
+ * executePortfolioAnalysis / executeSimulatedPortfolioAnalysis 両方から呼ばれる。
+ *
+ * 1. 安全補正ループ（パニック売り防止、上場廃止、危険銘柄、トレンド保護、相対強度保護）
+ * 2. 率→絶対価格の算出（ATRベース損切り＋トレーリングストップ）
+ * 3. 売りタイミング判定
+ * 4. 投資スタイル別のセーフティルール適用
+ */
+const ALL_STYLE_KEYS_SHARED = ["CONSERVATIVE", "BALANCED", "AGGRESSIVE"] as const;
+
+function postProcessPortfolioAnalysis(params: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  result: any;
+  prices: Array<{ date: string; open: number; high: number; low: number; close: number }>;
+  stock: {
+    isDelisted: boolean | null;
+    isProfitable: boolean | null;
+    volatility: unknown;
+    atr14: unknown;
+  };
+  weekChangeRate: number | null;
+  marketData: MarketIndexData | null;
+  profitPercent: number | null;
+  currentPrice: number;
+  averagePrice: number;
+  userSettings: { investmentStyle: string | null } | null;
+}): {
+  styleAnalyses: StyleAnalysesMap<PortfolioStyleAnalysis>;
+  userStyleResult: PortfolioStyleAnalysis;
+  statusType: string;
+  sellTiming: string | null;
+  sellTargetPrice: number | null;
+  deviationRate: number | null;
+} {
+  const { result, prices, stock, weekChangeRate, marketData, profitPercent, currentPrice, averagePrice, userSettings } = params;
+
+  // テクニカル指標の計算
+  const pricesNewestFirst = [...prices].reverse().map((p) => ({ close: p.close }));
+  const deviationRate = calculateDeviationRate(pricesNewestFirst, MA_DEVIATION.PERIOD);
+  const rsiValue = calculateRSI(pricesNewestFirst);
+  const sma25 = calculateSMA(pricesNewestFirst, MA_DEVIATION.PERIOD);
+  const volatility = stock.volatility ? Number(stock.volatility) : null;
+
+  // --- 安全補正を全3スタイルにループ適用 ---
+  for (const styleKey of ALL_STYLE_KEYS_SHARED) {
+    const sa = result.styleAnalyses[styleKey];
+
+    // パニック売り防止: 乖離率-20%以下 → sell→hold
+    if (
+      deviationRate !== null &&
+      deviationRate <= SELL_TIMING.PANIC_SELL_THRESHOLD &&
+      sa.recommendation === "sell"
+    ) {
+      sa.recommendation = "hold";
+      sa.statusType = "ホールド";
+      sa.sellReason = null;
+      sa.suggestedSellPercent = null;
+      sa.sellCondition = `25日移動平均線から${deviationRate.toFixed(1)}%の下方乖離で「売られすぎ」の状態です。AIは売却を検討しましたが、大底で売るリスクを避けるため、自律反発を待つ様子見（リバウンド待ち）を推奨します。`;
+      sa.shortTerm = `【一旦様子見を推奨】移動平均線から${Math.abs(deviationRate).toFixed(1)}%の異常な売られすぎ水準のため、今すぐの売却は避け、数日中の反発を待つことを推奨します。AIの当初分析: ${sa.shortTerm}`;
+      sa.advice = `異常な「売られすぎ」によるパニック状態です。大底での売却を避けるため、自律反発を待つ様子見を優先しましょう。`;
+    }
+
+    // 上場廃止銘柄の強制補正
+    if (stock.isDelisted) {
+      sa.recommendation = "sell";
+      sa.shortTerm = `この銘柄は上場廃止されています。保有している場合は証券会社に確認してください。${sa.shortTerm}`;
+    }
+
+    // 危険銘柄の買い増し抑制
+    if (
+      isDangerousStock(stock.isProfitable, volatility) &&
+      sa.recommendation === "buy"
+    ) {
+      sa.recommendation = "hold";
+      sa.statusType = "ホールド";
+      sa.shortTerm = `業績が赤字かつボラティリティが${volatility?.toFixed(0)}%と高いため、買い増しは慎重に検討してください。${sa.shortTerm}`;
+    }
+
+    // 中長期トレンドによる売り保護（投資スタイル別、重大な変化がない場合のみ）
+    // CONSERVATIVE: 長期upの場合のみ保護（中期upだけでは保護しない）
+    // BALANCED: 中期 or 長期がupなら保護
+    // AGGRESSIVE: 保護なし（AIの売り判断を尊重）
+    const shouldProtectFromSell = (() => {
+      if (result.isCriticalChange) return false;
+      if (profitPercent !== null && profitPercent <= SELL_TIMING.TREND_OVERRIDE_LOSS_THRESHOLD) return false;
+      if (styleKey === "AGGRESSIVE") return false;
+      if (styleKey === "CONSERVATIVE") return result.longTermTrend === "up";
+      // BALANCED: 現行通り
+      return result.midTermTrend === "up" || result.longTermTrend === "up";
+    })();
+
+    if (sa.recommendation === "sell" && shouldProtectFromSell) {
+      const trendInfoArr = [
+        result.midTermTrend === "up" ? "中期" : null,
+        result.longTermTrend === "up" ? "長期" : null,
+      ].filter(Boolean);
+      const trendInfo = trendInfoArr.join("・");
+      sa.recommendation = "hold";
+      sa.statusType = "ホールド";
+      sa.sellReason = null;
+      sa.suggestedSellPercent = null;
+      sa.sellCondition = `${trendInfo}の見通しが上昇のため、短期的な売りシグナルでの即売却は見送りを推奨します。${result.reconciliationMessage ? `（補足: ${result.reconciliationMessage}）` : ""}`;
+      sa.shortTerm = `【一旦様子見を推奨】${trendInfo}のトレンドは引き続き上昇見通しです。短期の売りシグナルが出ていますが、中長期の回復を優先して一旦ホールドを推奨します。${result.reconciliationMessage ? `分析の変化: ${result.reconciliationMessage}` : ""}`;
+      sa.advice = `${trendInfo}のトレンドは依然として良好です。短期的な変動に惑わされず、中長期での回復を待つ方針を優先しましょう。`;
+    }
+
+    // 相対強度による売り保護
+    if (
+      sa.recommendation === "sell" &&
+      weekChangeRate !== null &&
+      weekChangeRate < 0 &&
+      marketData?.weekChangeRate != null &&
+      (profitPercent === null ||
+        profitPercent > SELL_TIMING.TREND_OVERRIDE_LOSS_THRESHOLD)
+    ) {
+      const relVsMarket = weekChangeRate - marketData.weekChangeRate;
+      if (relVsMarket >= RELATIVE_STRENGTH.OUTPERFORM_SELL_PROTECTION) {
+        sa.recommendation = "hold";
+        sa.statusType = "ホールド";
+        sa.sellReason = null;
+        sa.suggestedSellPercent = null;
+        sa.sellCondition = `市場（日経平均${marketData.weekChangeRate >= 0 ? "+" : ""}${marketData.weekChangeRate.toFixed(1)}%）に対して+${relVsMarket.toFixed(1)}%のアウトパフォームで、下落は地合い要因とみられます。${sa.sellCondition || ""}`;
+        sa.shortTerm = `【様子見を推奨】市場全体が${marketData.weekChangeRate.toFixed(1)}%下落する中、この銘柄は相対的に+${relVsMarket.toFixed(1)}%強く、地合い要因による下落と判断しました。AIの短期分析: ${sa.shortTerm}`;
+        sa.advice = `市場全体の下落（日経平均${marketData.weekChangeRate.toFixed(1)}%）に対してアウトパフォームしており、地合い要因の下落とみられます。様子見を推奨します。`;
+      }
+    }
+  }
+
+  // --- 率から絶対価格を決定論的に算出 ---
+  if (currentPrice && averagePrice > 0) {
+    for (const styleKey of ALL_STYLE_KEYS_SHARED) {
+      const sa = result.styleAnalyses[styleKey];
+      const { suggestedSellPrice, suggestedStopLossPrice } =
+        calculatePricesFromRates({
+          currentPrice,
+          averagePrice,
+          sellTargetRate: sa.suggestedSellTargetRate,
+          exitRate: sa.suggestedExitRate,
+          atr14: stock.atr14 ? Number(stock.atr14) : null,
+          investmentStyle: styleKey,
+        });
+      sa.suggestedSellPrice = suggestedSellPrice;
+      sa.suggestedStopLossPrice = suggestedStopLossPrice;
+    }
+  }
+
+  // ユーザーの選択スタイルの結果を取得
+  const investmentStyle = userSettings?.investmentStyle ?? null;
+  const userStyle = (investmentStyle || "BALANCED") as "CONSERVATIVE" | "BALANCED" | "AGGRESSIVE";
+  const userStyleResult = result.styleAnalyses[userStyle];
+
+  // 売りタイミング判定
+  let sellTiming: string | null = null;
+  let sellTargetPrice: number | null = null;
+  if (userStyleResult.recommendation === "sell") {
+    if (
+      profitPercent !== null &&
+      profitPercent <= SELL_TIMING.STOP_LOSS_THRESHOLD
+    ) {
+      sellTiming = "market";
+    } else if (
+      profitPercent !== null &&
+      profitPercent >= SELL_TIMING.PROFIT_TAKING_THRESHOLD
+    ) {
+      sellTiming = "market";
+    } else {
+      const isDeviationOk =
+        deviationRate === null ||
+        deviationRate >= SELL_TIMING.DEVIATION_LOWER_THRESHOLD;
+      const isRsiOk =
+        rsiValue === null || rsiValue >= SELL_TIMING.RSI_OVERSOLD_THRESHOLD;
+      if (deviationRate === null && rsiValue === null) {
+        sellTiming = null;
+      } else if (isDeviationOk && isRsiOk) {
+        sellTiming = "market";
+      } else {
+        sellTiming = "rebound";
+        sellTargetPrice = sma25;
+      }
+    }
+  }
+
+  // statusType
+  const statusType =
+    userStyleResult.statusType ||
+    (userStyleResult.recommendation === "sell"
+      ? "即時売却"
+      : userStyleResult.recommendation === "buy"
+        ? "押し目買い"
+        : "ホールド");
+
+  // 戻り売りステータスの場合、sellTimingとsellTargetPriceを強制設定
+  if (statusType === "戻り売り") {
+    if (sellTiming !== "rebound") {
+      sellTiming = "rebound";
+    }
+    if (!sellTargetPrice && sma25 !== null) {
+      sellTargetPrice = sma25;
+    }
+  }
+
+  // SMA25がない場合のフォールバック
+  if (!sellTargetPrice && sellTiming === "rebound" && userStyleResult.suggestedSellPrice) {
+    sellTargetPrice = userStyleResult.suggestedSellPrice;
+  }
+
+  // --- 投資スタイル別のセーフティルールを適用 ---
+  const styleAnalyses = applyPortfolioStyleSafetyRules({
+    styleAnalyses: Object.fromEntries(
+      ALL_STYLE_KEYS_SHARED.map((key) => [key, {
+        ...result.styleAnalyses[key],
+        marketSignal: result.marketSignal || "neutral",
+        sellTiming: null,
+        sellTargetPrice: null,
+      }])
+    ) as StyleAnalysesMap<PortfolioStyleAnalysis>,
+    weekChangeRate,
+    sma25,
+    sellTimingBase: sellTiming,
+    sellTargetPriceBase: sellTargetPrice,
+  });
+
+  return {
+    styleAnalyses,
+    userStyleResult,
+    statusType,
+    sellTiming,
+    sellTargetPrice,
+    deviationRate,
+  };
 }
 
 /**
@@ -531,194 +764,19 @@ export async function executePortfolioAnalysis(
   const content = response.choices[0].message.content?.trim() || "{}";
   const result = JSON.parse(content);
 
-  // 補正ロジック
-  const pricesNewestFirst = [...prices]
-    .reverse()
-    .map((p) => ({ close: p.close }));
-  const deviationRate = calculateDeviationRate(
-    pricesNewestFirst,
-    MA_DEVIATION.PERIOD,
-  );
-  const rsiValue = calculateRSI(pricesNewestFirst);
-  const sma25 = calculateSMA(pricesNewestFirst, MA_DEVIATION.PERIOD);
-
-  // --- スタイル非依存の補正を全3スタイルにループ適用 ---
-  const ALL_STYLE_KEYS = ["CONSERVATIVE", "BALANCED", "AGGRESSIVE"] as const;
-  const volatility = stock.volatility ? Number(stock.volatility) : null;
-
-  for (const styleKey of ALL_STYLE_KEYS) {
-    const sa = result.styleAnalyses[styleKey];
-
-    // パニック売り防止: 乖離率-20%以下 → sell→hold
-    if (
-      deviationRate !== null &&
-      deviationRate <= SELL_TIMING.PANIC_SELL_THRESHOLD &&
-      sa.recommendation === "sell"
-    ) {
-      sa.recommendation = "hold";
-      sa.statusType = "ホールド";
-      sa.sellReason = null;
-      sa.suggestedSellPercent = null;
-      sa.sellCondition = `25日移動平均線から${deviationRate.toFixed(1)}%の下方乖離で「売られすぎ」の状態です。AIは売却を検討しましたが、大底で売るリスクを避けるため、自律反発を待つ様子見（リバウンド待ち）を推奨します。`;
-      sa.shortTerm = `【一旦様子見を推奨】移動平均線から${Math.abs(deviationRate).toFixed(1)}%の異常な売られすぎ水準のため、今すぐの売却は避け、数日中の反発を待つことを推奨します。AIの当初分析: ${sa.shortTerm}`;
-      sa.advice = `異常な「売られすぎ」によるパニック状態です。大底での売却を避けるため、自律反発を待つ様子見を優先しましょう。`;
-    }
-
-    // 上場廃止銘柄の強制補正
-    if (stock.isDelisted) {
-      sa.recommendation = "sell";
-      sa.shortTerm = `この銘柄は上場廃止されています。保有している場合は証券会社に確認してください。${sa.shortTerm}`;
-    }
-
-    // 危険銘柄の買い増し抑制
-    if (
-      isDangerousStock(stock.isProfitable, volatility) &&
-      sa.recommendation === "buy"
-    ) {
-      sa.recommendation = "hold";
-      sa.statusType = "ホールド";
-      sa.shortTerm = `業績が赤字かつボラティリティが${volatility?.toFixed(0)}%と高いため、買い増しは慎重に検討してください。${sa.shortTerm}`;
-    }
-
-    // 中長期トレンドによる売り保護（重大な変化がない場合のみ）
-    if (
-      sa.recommendation === "sell" &&
-      !result.isCriticalChange &&
-      (result.midTermTrend === "up" || result.longTermTrend === "up") &&
-      (profitPercent === null ||
-        profitPercent > SELL_TIMING.TREND_OVERRIDE_LOSS_THRESHOLD)
-    ) {
-      const trendInfoArr = [
-        result.midTermTrend === "up" ? "中期" : null,
-        result.longTermTrend === "up" ? "長期" : null,
-      ].filter(Boolean);
-      const trendInfo = trendInfoArr.join("・");
-      sa.recommendation = "hold";
-      sa.statusType = "ホールド";
-      sa.sellReason = null;
-      sa.suggestedSellPercent = null;
-      sa.sellCondition = `${trendInfo}の見通しが上昇のため、短期的な売りシグナルでの即売却は見送りを推奨します。${result.reconciliationMessage ? `（補足: ${result.reconciliationMessage}）` : ""}`;
-      sa.shortTerm = `【一旦様子見を推奨】${trendInfo}のトレンドは引き続き上昇見通しです。短期の売りシグナルが出ていますが、中長期の回復を優先して一旦ホールドを推奨します。${result.reconciliationMessage ? `分析の変化: ${result.reconciliationMessage}` : ""}`;
-      sa.advice = `${trendInfo}のトレンドは依然として良好です。短期的な変動に惑わされず、中長期での回復を待つ方針を優先しましょう。`;
-    }
-
-    // 相対強度による売り保護
-    if (
-      sa.recommendation === "sell" &&
-      weekChangeRate !== null &&
-      weekChangeRate < 0 &&
-      marketData?.weekChangeRate != null &&
-      (profitPercent === null ||
-        profitPercent > SELL_TIMING.TREND_OVERRIDE_LOSS_THRESHOLD)
-    ) {
-      const relVsMarket = weekChangeRate - marketData.weekChangeRate;
-      if (relVsMarket >= RELATIVE_STRENGTH.OUTPERFORM_SELL_PROTECTION) {
-        sa.recommendation = "hold";
-        sa.statusType = "ホールド";
-        sa.sellReason = null;
-        sa.suggestedSellPercent = null;
-        sa.sellCondition = `市場（日経平均${marketData.weekChangeRate >= 0 ? "+" : ""}${marketData.weekChangeRate.toFixed(1)}%）に対して+${relVsMarket.toFixed(1)}%のアウトパフォームで、下落は地合い要因とみられます。${sa.sellCondition || ""}`;
-        sa.shortTerm = `【様子見を推奨】市場全体が${marketData.weekChangeRate.toFixed(1)}%下落する中、この銘柄は相対的に+${relVsMarket.toFixed(1)}%強く、地合い要因による下落と判断しました。AIの短期分析: ${sa.shortTerm}`;
-        sa.advice = `市場全体の下落（日経平均${marketData.weekChangeRate.toFixed(1)}%）に対してアウトパフォームしており、地合い要因の下落とみられます。様子見を推奨します。`;
-      }
-    }
-  }
-
-  // --- 率から絶対価格を決定論的に算出（ATRベース損切り＋トレーリングストップ） ---
-  if (currentPrice && averagePrice > 0) {
-    for (const styleKey of ALL_STYLE_KEYS) {
-      const sa = result.styleAnalyses[styleKey];
-      const { suggestedSellPrice, suggestedStopLossPrice } =
-        calculatePricesFromRates({
-          currentPrice,
-          averagePrice,
-          sellTargetRate: sa.suggestedSellTargetRate,
-          exitRate: sa.suggestedExitRate,
-          atr14: stock.atr14 ? Number(stock.atr14) : null,
-          investmentStyle: styleKey,
-        });
-      sa.suggestedSellPrice = suggestedSellPrice;
-      sa.suggestedStopLossPrice = suggestedStopLossPrice;
-    }
-  }
-
-  // ユーザーの選択スタイルの結果を取得
-  const investmentStyle = userSettings?.investmentStyle ?? null;
-  const userStyle = (investmentStyle || "BALANCED") as "CONSERVATIVE" | "BALANCED" | "AGGRESSIVE";
-  const userStyleResult = result.styleAnalyses[userStyle];
-
-  // 売りタイミング判定（ユーザースタイルの recommendation を基準に判定）
-  let sellTiming: string | null = null;
-  let sellTargetPrice: number | null = null;
-
-  if (userStyleResult.recommendation === "sell") {
-    if (
-      profitPercent !== null &&
-      profitPercent <= SELL_TIMING.STOP_LOSS_THRESHOLD
-    ) {
-      sellTiming = "market";
-    } else if (
-      profitPercent !== null &&
-      profitPercent >= SELL_TIMING.PROFIT_TAKING_THRESHOLD
-    ) {
-      sellTiming = "market";
-    } else {
-      const isDeviationOk =
-        deviationRate === null ||
-        deviationRate >= SELL_TIMING.DEVIATION_LOWER_THRESHOLD;
-      const isRsiOk =
-        rsiValue === null || rsiValue >= SELL_TIMING.RSI_OVERSOLD_THRESHOLD;
-
-      if (deviationRate === null && rsiValue === null) {
-        sellTiming = null;
-      } else if (isDeviationOk && isRsiOk) {
-        sellTiming = "market";
-      } else {
-        sellTiming = "rebound";
-        sellTargetPrice = sma25;
-      }
-    }
-  }
-
-  // statusType（ユーザースタイルの値を使用）
-  const statusType =
-    userStyleResult.statusType ||
-    (userStyleResult.recommendation === "sell"
-      ? "即時売却"
-      : userStyleResult.recommendation === "buy"
-        ? "押し目買い"
-        : "ホールド");
-
-  // 戻り売りステータスの場合、sellTimingとsellTargetPriceを強制設定
-  if (statusType === "戻り売り") {
-    if (sellTiming !== "rebound") {
-      sellTiming = "rebound";
-    }
-    if (!sellTargetPrice && sma25 !== null) {
-      sellTargetPrice = sma25;
-    }
-  }
-
-  // SMA25がない場合のフォールバック: suggestedSellPriceを使用
-  if (!sellTargetPrice && sellTiming === "rebound" && userStyleResult.suggestedSellPrice) {
-    sellTargetPrice = userStyleResult.suggestedSellPrice;
-  }
-
-  // --- 投資スタイル別のセーフティルールを適用 ---
-  const styleAnalyses = applyPortfolioStyleSafetyRules({
-    styleAnalyses: Object.fromEntries(
-      ALL_STYLE_KEYS.map((key) => [key, {
-        ...result.styleAnalyses[key],
-        marketSignal: result.marketSignal || "neutral",
-        sellTiming: null,
-        sellTargetPrice: null,
-      }])
-    ) as StyleAnalysesMap<PortfolioStyleAnalysis>,
-    weekChangeRate,
-    sma25,
-    sellTimingBase: sellTiming,
-    sellTargetPriceBase: sellTargetPrice,
-  });
+  // 共通ポストプロセス（安全補正・価格算出・売りタイミング判定・スタイルルール適用）
+  const { styleAnalyses, userStyleResult, statusType, sellTiming, sellTargetPrice } =
+    postProcessPortfolioAnalysis({
+      result,
+      prices,
+      stock,
+      weekChangeRate,
+      marketData,
+      profitPercent,
+      currentPrice,
+      averagePrice,
+      userSettings,
+    });
 
   // 保存
   const now = dayjs.utc().toDate();
@@ -1080,188 +1138,19 @@ export async function executeSimulatedPortfolioAnalysis(
   const content = response.choices[0].message.content?.trim() || "{}";
   const result = JSON.parse(content);
 
-  const pricesNewestFirst = [...prices]
-    .reverse()
-    .map((p) => ({ close: p.close }));
-  const deviationRate = calculateDeviationRate(
-    pricesNewestFirst,
-    MA_DEVIATION.PERIOD,
-  );
-  const rsiValue = calculateRSI(pricesNewestFirst);
-  const sma25 = calculateSMA(pricesNewestFirst, MA_DEVIATION.PERIOD);
-
-  // --- スタイル非依存の補正を全3スタイルにループ適用 ---
-  const ALL_STYLE_KEYS_SIM = ["CONSERVATIVE", "BALANCED", "AGGRESSIVE"] as const;
-  const volatility = stock.volatility ? Number(stock.volatility) : null;
-
-  for (const styleKey of ALL_STYLE_KEYS_SIM) {
-    const sa = result.styleAnalyses[styleKey];
-
-    // パニック売り防止: 乖離率-20%以下 → sell→hold
-    if (
-      deviationRate !== null &&
-      deviationRate <= SELL_TIMING.PANIC_SELL_THRESHOLD &&
-      sa.recommendation === "sell"
-    ) {
-      sa.recommendation = "hold";
-      sa.statusType = "ホールド";
-      sa.sellReason = null;
-      sa.suggestedSellPercent = null;
-      sa.sellCondition = `25日移動平均線から${deviationRate.toFixed(1)}%の下方乖離で「売られすぎ」の状態です。AIは売却を検討しましたが、大底で売るリスクを避けるため、自律反発を待つ様子見（リバウンド待ち）を推奨します。`;
-      sa.shortTerm = `【一旦様子見を推奨】移動平均線から${Math.abs(deviationRate).toFixed(1)}%の異常な売られすぎ水準のため、今すぐの売却は避け、数日中の反発を待つことを推奨します。AIの当初分析: ${sa.shortTerm}`;
-      sa.advice = `異常な「売られすぎ」によるパニック状態です。大底での売却を避けるため、自律反発を待つ様子見を優先しましょう。`;
-    }
-
-    // 上場廃止銘柄の強制補正
-    if (stock.isDelisted) {
-      sa.recommendation = "sell";
-      sa.shortTerm = `この銘柄は上場廃止されています。保有している場合は証券会社に確認してください。${sa.shortTerm}`;
-    }
-
-    // 危険銘柄の買い増し抑制
-    if (
-      isDangerousStock(stock.isProfitable, volatility) &&
-      sa.recommendation === "buy"
-    ) {
-      sa.recommendation = "hold";
-      sa.statusType = "ホールド";
-      sa.shortTerm = `業績が赤字かつボラティリティが${volatility?.toFixed(0)}%と高いため、買い増しは慎重に検討してください。${sa.shortTerm}`;
-    }
-
-    // 中長期トレンドによる売り保護（重大な変化がない場合のみ）
-    if (
-      sa.recommendation === "sell" &&
-      !result.isCriticalChange &&
-      (result.midTermTrend === "up" || result.longTermTrend === "up") &&
-      (profitPercent === null ||
-        profitPercent > SELL_TIMING.TREND_OVERRIDE_LOSS_THRESHOLD)
-    ) {
-      const trendInfoArr = [
-        result.midTermTrend === "up" ? "中期" : null,
-        result.longTermTrend === "up" ? "長期" : null,
-      ].filter(Boolean);
-      const trendInfo = trendInfoArr.join("・");
-      sa.recommendation = "hold";
-      sa.statusType = "ホールド";
-      sa.sellReason = null;
-      sa.suggestedSellPercent = null;
-      sa.sellCondition = `${trendInfo}の見通しが上昇のため、短期的な売りシグナルでの即売却は見送りを推奨します。${result.reconciliationMessage ? `（補足: ${result.reconciliationMessage}）` : ""}`;
-      sa.shortTerm = `【一旦様子見を推奨】${trendInfo}のトレンドは引き続き上昇見通しです。短期の売りシグナルが出ていますが、中長期の回復を優先して一旦ホールドを推奨します。${result.reconciliationMessage ? `分析の変化: ${result.reconciliationMessage}` : ""}`;
-      sa.advice = `${trendInfo}のトレンドは依然として良好です。短期的な変動に惑わされず、中長期での回復を待つ方針を優先しましょう。`;
-    }
-
-    // 相対強度による売り保護
-    if (
-      sa.recommendation === "sell" &&
-      weekChangeRate !== null &&
-      weekChangeRate < 0 &&
-      marketData?.weekChangeRate != null &&
-      (profitPercent === null ||
-        profitPercent > SELL_TIMING.TREND_OVERRIDE_LOSS_THRESHOLD)
-    ) {
-      const relVsMarket = weekChangeRate - marketData.weekChangeRate;
-      if (relVsMarket >= RELATIVE_STRENGTH.OUTPERFORM_SELL_PROTECTION) {
-        sa.recommendation = "hold";
-        sa.statusType = "ホールド";
-        sa.sellReason = null;
-        sa.suggestedSellPercent = null;
-        sa.sellCondition = `市場（日経平均${marketData.weekChangeRate >= 0 ? "+" : ""}${marketData.weekChangeRate.toFixed(1)}%）に対して+${relVsMarket.toFixed(1)}%のアウトパフォームで、下落は地合い要因とみられます。${sa.sellCondition || ""}`;
-        sa.shortTerm = `【様子見を推奨】市場全体が${marketData.weekChangeRate.toFixed(1)}%下落する中、この銘柄は相対的に+${relVsMarket.toFixed(1)}%強く、地合い要因による下落と判断しました。AIの短期分析: ${sa.shortTerm}`;
-        sa.advice = `市場全体の下落（日経平均${marketData.weekChangeRate.toFixed(1)}%）に対してアウトパフォームしており、地合い要因の下落とみられます。様子見を推奨します。`;
-      }
-    }
-  }
-
-  // --- 率から絶対価格を決定論的に算出（ATRベース損切り＋トレーリングストップ） ---
-  if (currentPrice && averagePrice > 0) {
-    for (const styleKey of ALL_STYLE_KEYS_SIM) {
-      const sa = result.styleAnalyses[styleKey];
-      const { suggestedSellPrice, suggestedStopLossPrice } =
-        calculatePricesFromRates({
-          currentPrice,
-          averagePrice,
-          sellTargetRate: sa.suggestedSellTargetRate,
-          exitRate: sa.suggestedExitRate,
-          atr14: stock.atr14 ? Number(stock.atr14) : null,
-          investmentStyle: styleKey,
-        });
-      sa.suggestedSellPrice = suggestedSellPrice;
-      sa.suggestedStopLossPrice = suggestedStopLossPrice;
-    }
-  }
-
-  // ユーザーの選択スタイルの結果を取得
-  const investmentStyle = userSettings?.investmentStyle ?? null;
-  const userStyle = (investmentStyle || "BALANCED") as "CONSERVATIVE" | "BALANCED" | "AGGRESSIVE";
-  const userStyleResult = result.styleAnalyses[userStyle];
-
-  // 売りタイミング判定（ユーザースタイルの recommendation を基準に判定）
-  let sellTiming: string | null = null;
-  let sellTargetPrice: number | null = null;
-  if (userStyleResult.recommendation === "sell") {
-    if (
-      profitPercent !== null &&
-      profitPercent <= SELL_TIMING.STOP_LOSS_THRESHOLD
-    ) {
-      sellTiming = "market";
-    } else if (
-      profitPercent !== null &&
-      profitPercent >= SELL_TIMING.PROFIT_TAKING_THRESHOLD
-    ) {
-      sellTiming = "market";
-    } else {
-      const isDeviationOk =
-        deviationRate === null ||
-        deviationRate >= SELL_TIMING.DEVIATION_LOWER_THRESHOLD;
-      const isRsiOk =
-        rsiValue === null || rsiValue >= SELL_TIMING.RSI_OVERSOLD_THRESHOLD;
-      if (isDeviationOk && isRsiOk) sellTiming = "market";
-      else {
-        sellTiming = "rebound";
-        sellTargetPrice = sma25;
-      }
-    }
-  }
-
-  // statusType（ユーザースタイルの値を使用）
-  const statusType =
-    userStyleResult.statusType ||
-    (userStyleResult.recommendation === "sell"
-      ? "即時売却"
-      : userStyleResult.recommendation === "buy"
-        ? "押し目買い"
-        : "ホールド");
-
-  // 戻り売りステータスの場合、sellTimingとsellTargetPriceを強制設定
-  if (statusType === "戻り売り") {
-    if (sellTiming !== "rebound") {
-      sellTiming = "rebound";
-    }
-    if (!sellTargetPrice && sma25 !== null) {
-      sellTargetPrice = sma25;
-    }
-  }
-
-  // SMA25がない場合のフォールバック: suggestedSellPriceを使用
-  if (!sellTargetPrice && sellTiming === "rebound" && userStyleResult.suggestedSellPrice) {
-    sellTargetPrice = userStyleResult.suggestedSellPrice;
-  }
-
-  // --- 投資スタイル別のセーフティルールを適用 ---
-  const styleAnalyses = applyPortfolioStyleSafetyRules({
-    styleAnalyses: Object.fromEntries(
-      ALL_STYLE_KEYS_SIM.map((key) => [key, {
-        ...result.styleAnalyses[key],
-        marketSignal: result.marketSignal || "neutral",
-        sellTiming: null,
-        sellTargetPrice: null,
-      }])
-    ) as StyleAnalysesMap<PortfolioStyleAnalysis>,
-    weekChangeRate,
-    sma25,
-    sellTimingBase: sellTiming,
-    sellTargetPriceBase: sellTargetPrice,
-  });
+  // 共通ポストプロセス（安全補正・価格算出・売りタイミング判定・スタイルルール適用）
+  const { styleAnalyses, userStyleResult, statusType, sellTiming, sellTargetPrice } =
+    postProcessPortfolioAnalysis({
+      result,
+      prices,
+      stock,
+      weekChangeRate,
+      marketData,
+      profitPercent,
+      currentPrice,
+      averagePrice,
+      userSettings,
+    });
 
   const now = dayjs.utc().toDate();
 

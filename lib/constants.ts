@@ -433,8 +433,11 @@ export const VOLUME_ANALYSIS = {
 
 // タイミング補助指標の閾値
 export const TIMING_INDICATORS = {
-  // ギャップアップ率の閾値
-  GAP_UP_SURGE_THRESHOLD: 10, // ギャップアップ率(%)がこれ以上で buy → stay（飛びつき買い防止）
+  // ギャップアップ率の閾値（投資スタイル別）
+  GAP_UP_SURGE_THRESHOLD: 10, // デフォルト（後方互換性のため残す）
+  GAP_UP_SURGE_CONSERVATIVE: 10, // 慎重派: 10%以上でブロック
+  GAP_UP_SURGE_BALANCED: 15, // バランス型: 15%以上でブロック
+  GAP_UP_SURGE_AGGRESSIVE: 20, // 積極派: 20%以上でブロック
   GAP_UP_WARNING_THRESHOLD: 5, // これ以上でAIに警告指示
   // 出来高急増率の閾値
   VOLUME_SPIKE_EXTREME_THRESHOLD: 5.0, // 異常な出来高（仕手株リスク判定用）
@@ -444,6 +447,14 @@ export const TIMING_INDICATORS = {
   TURNOVER_OKU_THRESHOLD: 100_000_000, // 1億円（億円単位表示の閾値）
 } as const;
 
+// テクニカルブレーキの閾値（投資スタイル別）
+// combinedTechnical.strength がこの値以上で buy → stay
+export const TECHNICAL_BRAKE = {
+  CONSERVATIVE: 70, // 慎重派: 70%以上の売りシグナルでブロック
+  BALANCED: 75, // バランス型: 75%以上でブロック
+  AGGRESSIVE: 85, // 積極派: 85%以上でブロック（逆張り許容）
+} as const;
+
 // 相対強度分析の閾値（銘柄 vs 市場/セクター）
 export const RELATIVE_STRENGTH = {
   // 銘柄変化率 - 市場変化率（%）: これ以上でアウトパフォーム
@@ -451,7 +462,7 @@ export const RELATIVE_STRENGTH = {
   // 銘柄変化率 - 市場変化率（%）: これ以下でアンダーパフォーム
   UNDERPERFORM_THRESHOLD: -3,
   // 下落局面でアウトパフォームしている場合、sellをholdに戻す閾値
-  OUTPERFORM_SELL_PROTECTION: 3,
+  OUTPERFORM_SELL_PROTECTION: 5,
 } as const;
 
 // セクタートレンド分析の閾値・重み
