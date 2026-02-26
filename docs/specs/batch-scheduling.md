@@ -24,6 +24,7 @@
 ```
 
 **全て session-batch.yml 内で `needs` により順序保証。**
+**セッションごとに実行するジョブが異なる（`if:` で制御）。**
 
 ## テーブル別の依存関係
 
@@ -40,35 +41,44 @@
 | **PortfolioOverallAnalysis** | daily-market-navigator | フロント表示 |
 | **PortfolioSnapshot** | portfolio-snapshots | ポートフォリオ履歴 |
 
-## 実行順序（session-batch.yml 内）
+## セッション別の実行内容
 
-```
-Phase 1（並列）: fetch-stock-prices + fetch-news
-  ↓ needs
-Phase 2: calculate-sector-trends
-  ↓ needs
-Phase 3（並列）: 全分析ジョブ
-  ↓ needs
-Phase 4: notify
-```
+| セッション | JST | 実行ジョブ |
+|-----------|-----|-----------|
+| pre-morning | 08:00 | news(JP+US), trends, navigator(morning) |
+| morning | 09:10 | purchase, portfolio, personal |
+| mid-morning | 10:10 | purchase, portfolio, personal |
+| pre-afternoon | 11:40 | news(JP), prices, trends |
+| afternoon | 12:40 | purchase, portfolio, personal |
+| mid-afternoon | 13:40 | purchase, portfolio, personal |
+| close | 15:40 | prices, trends, purchase, portfolio, personal, gainers, snapshots |
+| post-close | 17:00 | navigator(evening) |
 
-- fetch-stock-prices と fetch-news は互いに依存なし → **並列実行**
-- Phase 3 の分析ジョブは全て Phase 2 完了後 → **並列実行**
-- セッション条件（close のみ等）は `if:` で制御
+### ジョブ実行条件
 
-## cron-job.org スケジュール
+| ジョブ | pre-morning | morning | mid-morning | pre-afternoon | afternoon | mid-afternoon | close | post-close |
+|--------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| fetch-news | JP+US | - | - | JP | - | - | - | - |
+| fetch-stock-prices | - | - | - | o | - | - | o | - |
+| calculate-sector-trends | o | - | - | o | - | - | o | - |
+| purchase-recommendations | - | o | o | - | o | o | o | - |
+| portfolio-analysis | - | o | o | - | o | o | o | - |
+| personal-recommendations | - | o | o | - | o | o | o | - |
+| gainers-losers | - | - | - | - | - | - | o | - |
+| portfolio-snapshots | - | - | - | - | - | - | o | - |
+| navigator | morning | - | - | - | - | - | - | evening |
+| notify | o | o | o | o | o | o | o | o |
 
-### セッション（session-batch.yml）
+### 設計意図
 
-| JST | 入力 | 実行ジョブ |
-|-----|------|-----------|
-| 09:10 | session=morning | news(JP+US), prices, trends, purchase, portfolio, personal, navigator(morning) |
-| 10:10 | session=mid-morning | prices, trends, purchase, portfolio, personal |
-| 12:40 | session=afternoon | news(JP), prices, trends, purchase, portfolio, personal |
-| 13:40 | session=mid-afternoon | prices, trends, purchase, portfolio, personal |
-| 15:40 | session=close | prices, trends, purchase, portfolio, personal, gainers, snapshots, navigator(evening) |
+- **pre-morning**: 最新ニュース取得 → セクタートレンド再計算 → 開場前ナビゲーター生成
+- **morning / afternoon**: 分析ジョブ群（ニュースは pre セッションで取得済み）
+- **mid-morning / mid-afternoon**: 分析ジョブのみ（データ更新なし）
+- **pre-afternoon**: 昼の株価・セクタートレンドを更新（afternoon の分析で使用）
+- **close**: 終値取得 → 全分析 + ランキング + スナップショット
+- **post-close**: 夕方ナビゲーター生成（close完了後のデータを使用）
 
-### 独立バッチ
+## 独立バッチ（cron-job.org）
 
 | JST | ワークフロー |
 |-----|------------|

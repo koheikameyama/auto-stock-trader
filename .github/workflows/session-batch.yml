@@ -4,16 +4,19 @@ on:
   workflow_dispatch:
     inputs:
       session:
-        description: 'セッション (morning/mid-morning/afternoon/mid-afternoon/close)'
+        description: 'セッション'
         required: true
         default: 'close'
         type: choice
         options:
+          - pre-morning
           - morning
           - mid-morning
+          - pre-afternoon
           - afternoon
           - mid-afternoon
           - close
+          - post-close
       notify:
         description: 'Push通知を送信する'
         required: false
@@ -21,71 +24,89 @@ on:
         default: true
 
 # ──────────────────────────────────────────────
-# 実行フロー:
-#   fetch-news + fetch-stock-prices（並列）
-#     → calculate-sector-trends
-#       → 分析ジョブ群（並列）
-#         → notify
+# セッション別の実行内容:
+#
+#   pre-morning (08:00):   news(JP+US) → trends → navigator(morning)
+#   morning (09:10):       分析ジョブ群
+#   mid-morning (10:10):   分析ジョブ群
+#   pre-afternoon (11:40): news(JP) + prices → trends
+#   afternoon (12:40):     分析ジョブ群
+#   mid-afternoon (13:40): 分析ジョブ群
+#   close (15:40):         prices → trends → 分析 + gainers + snapshots
+#   post-close (17:00):    navigator(evening)
 # ──────────────────────────────────────────────
 
 jobs:
-  # ── Phase 1: データ取得（並列） ──
+  # ── データ取得 ──
 
   fetch-news:
-    if: inputs.session == 'morning' || inputs.session == 'afternoon'
+    if: inputs.session == 'pre-morning' || inputs.session == 'pre-afternoon'
     uses: ./.github/workflows/session-fetch-news.yml
     with:
-      market: ${{ inputs.session == 'morning' && 'both' || 'jp' }}
+      market: ${{ inputs.session == 'pre-morning' && 'both' || 'jp' }}
     secrets: inherit
 
   fetch-stock-prices:
-    if: inputs.session == 'morning' || inputs.session == 'afternoon' || inputs.session == 'close'
+    if: inputs.session == 'pre-afternoon' || inputs.session == 'close'
     uses: ./.github/workflows/session-fetch-stock-prices.yml
     secrets: inherit
 
-  # ── Phase 2: セクタートレンド計算 ──
+  # ── セクタートレンド計算 ──
 
   calculate-sector-trends:
     needs: [fetch-news, fetch-stock-prices]
-    if: "!failure() && !cancelled() && (inputs.session == 'morning' || inputs.session == 'afternoon' || inputs.session == 'close')"
+    if: "!failure() && !cancelled() && (inputs.session == 'pre-morning' || inputs.session == 'pre-afternoon' || inputs.session == 'close')"
     uses: ./.github/workflows/session-calculate-sector-trends.yml
     secrets: inherit
 
-  # ── Phase 3: 分析ジョブ群（並列） ──
+  # ── 分析ジョブ群（並列） ──
 
   purchase-recommendations:
-    needs: calculate-sector-trends
+    needs: [fetch-news, calculate-sector-trends]
+    if: "!failure() && !cancelled() && inputs.session != 'pre-morning' && inputs.session != 'pre-afternoon' && inputs.session != 'post-close'"
     uses: ./.github/workflows/session-purchase-recommendations.yml
     secrets: inherit
 
   portfolio-analysis:
-    needs: calculate-sector-trends
+    needs: [fetch-news, calculate-sector-trends]
+    if: "!failure() && !cancelled() && inputs.session != 'pre-morning' && inputs.session != 'pre-afternoon' && inputs.session != 'post-close'"
     uses: ./.github/workflows/session-portfolio-analysis.yml
     secrets: inherit
 
   personal-recommendations:
-    needs: calculate-sector-trends
+    needs: [fetch-news, calculate-sector-trends]
+    if: "!failure() && !cancelled() && inputs.session != 'pre-morning' && inputs.session != 'pre-afternoon' && inputs.session != 'post-close'"
     uses: ./.github/workflows/session-personal-recommendations.yml
     with:
       session: ${{ inputs.session == 'morning' && 'morning' || inputs.session == 'close' && 'evening' || 'afternoon' }}
     secrets: inherit
 
   gainers-losers:
-    if: inputs.session == 'close'
     needs: calculate-sector-trends
+    if: "!failure() && !cancelled() && inputs.session == 'close'"
     uses: ./.github/workflows/session-gainers-losers.yml
     secrets: inherit
 
   portfolio-snapshots:
-    if: inputs.session == 'close'
     needs: calculate-sector-trends
+    if: "!failure() && !cancelled() && inputs.session == 'close'"
     uses: ./.github/workflows/session-portfolio-snapshots.yml
     secrets: inherit
 
-  # ── Phase 4: 通知 ──
+  # ── マーケットナビゲーター ──
+
+  daily-market-navigator:
+    needs: [fetch-news, calculate-sector-trends]
+    if: "!failure() && !cancelled() && (inputs.session == 'pre-morning' || inputs.session == 'post-close')"
+    uses: ./.github/workflows/session-daily-market-navigator.yml
+    with:
+      session: ${{ inputs.session == 'pre-morning' && 'morning' || 'evening' }}
+    secrets: inherit
+
+  # ── 通知 ──
 
   notify:
-    needs: [purchase-recommendations, portfolio-analysis, personal-recommendations, gainers-losers, portfolio-snapshots]
+    needs: [purchase-recommendations, portfolio-analysis, personal-recommendations, gainers-losers, portfolio-snapshots, daily-market-navigator]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -112,12 +133,12 @@ jobs:
             --url "/my-stocks"
 
       - name: Notify Slack on success
-        if: needs.purchase-recommendations.result == 'success' && needs.portfolio-analysis.result == 'success'
+        if: "!contains(needs.*.result, 'failure')"
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "✅ 株価分析の生成に成功しました (${{ inputs.session }})"
-          SLACK_MESSAGE: "株価分析・ポートフォリオ分析・購入レコメンドを更新しました"
+          SLACK_TITLE: "✅ セッション処理に成功しました (${{ inputs.session }})"
+          SLACK_MESSAGE: "セッション処理が完了しました"
           SLACK_COLOR: good
           SLACK_FOOTER: "Stock Buddy"
 
@@ -126,7 +147,7 @@ jobs:
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "❌ 株価分析の生成に失敗しました (${{ inputs.session }})"
+          SLACK_TITLE: "❌ セッション処理に失敗しました (${{ inputs.session }})"
           SLACK_MESSAGE: "詳細はGitHub Actionsログを確認してください"
           SLACK_COLOR: danger
           SLACK_FOOTER: "Stock Buddy"
