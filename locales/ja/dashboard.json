@@ -24,7 +24,8 @@
     "noAnalysis": "分析はまだ生成されていません",
     "minStocksRequired": "3銘柄以上登録するとDaily Market Navigatorが利用できます",
     "dailyChange": "前日比",
-    "weekChange": "週間"
+    "weekChange": "週間",
+    "subtitle": "市場の流れとあなたの銘柄の健康診断"
   },
   "investmentStyle": {
     "setupPrompt": {

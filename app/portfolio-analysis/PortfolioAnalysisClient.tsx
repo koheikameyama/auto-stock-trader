@@ -3,6 +3,7 @@
 import Link from "next/link"
 import DailyMarketNavigator from "@/app/dashboard/DailyMarketNavigator"
 import { useMarkPageSeen } from "@/app/hooks/useMarkPageSeen"
+import { useTranslations } from "next-intl"
 
 interface Props {
   portfolioCount: number
@@ -13,6 +14,7 @@ export default function PortfolioAnalysisClient({
   portfolioCount,
   watchlistCount,
 }: Props) {
+  const t = useTranslations("dashboard.marketNavigator")
   // ページ訪問時に閲覧済みをマーク
   useMarkPageSeen("portfolio-analysis")
 
@@ -40,10 +42,10 @@ export default function PortfolioAnalysisClient({
         </Link>
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
-            Daily Market Navigator
+            {t("title")}
           </h1>
           <p className="text-sm text-gray-500">
-            保有銘柄と気になる銘柄の総合分析
+            {t("subtitle")}
           </p>
         </div>
       </div>
