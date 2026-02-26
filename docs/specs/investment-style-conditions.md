@@ -11,7 +11,11 @@
 - [5. ポートフォリオ分析（Portfolio Analysis）](#5-ポートフォリオ分析portfolio-analysis)
 - [6. 出口戦略（利確・損切り）](#6-出口戦略利確損切り)
 - [7. 補助指標・共通閾値](#7-補助指標共通閾値)
-- [8. ソースファイル一覧](#8-ソースファイル一覧)
+- [8. 地合い動的閾値（防御モード）](#8-地合い動的閾値防御モード)
+- [9. 決算・配当権利落ち対応](#9-決算配当権利落ち対応)
+- [10. ギャップアップモメンタムシグナル](#10-ギャップアップモメンタムシグナル)
+- [11. UX解説テキスト（補正理由の表示）](#11-ux解説テキスト補正理由の表示)
+- [12. ソースファイル一覧](#12-ソースファイル一覧)
 
 ---
 
@@ -465,7 +469,174 @@ ATRが利用できない場合のフォールバック。
 
 ---
 
-## 8. ソースファイル一覧
+## 8. 地合い動的閾値（防御モード）
+
+日経平均の週間変化率が大幅マイナスの場合、全スタイルの閾値を引き締める「防御モード」。
+
+> ソース: `lib/constants.ts`（`MARKET_DEFENSIVE_MODE`）, `lib/market-index.ts`, `lib/stock-safety-rules.ts`
+
+### 8-1. 発動条件
+
+| 項目 | 値 | 定数名 |
+|---|---|---|
+| パニック閾値 | 週間変化率 -7%以下 | `MARKET_DEFENSIVE_MODE.PANIC_THRESHOLD` |
+
+`MarketIndexData.isMarketPanic` が `true` の場合に防御モードが発動。
+
+### 8-2. 引き締め係数
+
+防御モード発動時、既存閾値に以下の係数を乗算して引き締める。
+
+| 対象 | 係数 | 定数名 | 効果 |
+|---|---|---|---|
+| 急騰閾値 | ×0.7 | `SURGE_TIGHTENING_FACTOR` | 例: +20% → +14% |
+| 下落閾値 | ×0.7（絶対値） | `DECLINE_LOOSENING_FACTOR` | 例: -10% → -7% |
+| 過熱閾値 | ×0.75 | `OVERHEAT_TIGHTENING_FACTOR` | 例: +20% → +15% |
+| ギャップアップ閾値 | ×0.7 | `GAP_UP_TIGHTENING_FACTOR` | 例: 10% → 7% |
+| confidence | -0.1 | `CONFIDENCE_REDUCTION` | 全体的に信頼度低下 |
+
+### 8-3. 適用範囲
+
+| 分析タイプ | 適用内容 |
+|---|---|
+| 日次おすすめ | 候補フィルタ引き締め、スコアペナルティ |
+| 購入分析 | セーフティルール閾値引き締め、プロンプトに防御モード警告 |
+| ポートフォリオ分析 | 買い増し閾値引き締め、プロンプトに防御モード警告 |
+
+---
+
+## 9. 決算・配当権利落ち対応
+
+決算直前の買い推奨ブロックと、配当権利落ち後の誤認売り防止。
+
+> ソース: `lib/constants.ts`（`EARNINGS_SAFETY`）, `lib/stock-safety-rules.ts`, `lib/stock-analysis-context.ts`
+
+### 9-1. 決算直前ブロック
+
+| 項目 | 値 | 定数名 |
+|---|---|---|
+| 買いブロック期間 | 決算3日前〜 | `EARNINGS_SAFETY.PRE_EARNINGS_BLOCK_DAYS` |
+| 警告表示期間 | 決算7日前〜 | `EARNINGS_SAFETY.EARNINGS_NEAR_WARNING_DAYS` |
+| confidence ペナルティ | -0.1 | `EARNINGS_SAFETY.EARNINGS_NEAR_CONFIDENCE_PENALTY` |
+
+**ルールベース補正:**
+- 決算3日前以内: buy → stay に強制変更（全スタイル共通、`correctionExplanation` 付き）
+- 決算7日前以内: buy の confidence に -0.1 ペナルティ
+
+### 9-2. 配当権利落ち保護
+
+| 項目 | 値 | 定数名 |
+|---|---|---|
+| 保護期間 | 権利落ち後3日間 | `EARNINGS_SAFETY.POST_EX_DIVIDEND_DAYS` |
+
+**ルールベース補正（ポートフォリオ分析のみ）:**
+- 権利落ち後3日以内 かつ 含み損が -5% 以内: sell → hold に保護（`correctionExplanation` 付き）
+- AIプロンプトに「権利落ちによる下落はトレンド転換ではない」旨のコンテキストを挿入
+
+### 9-3. 適用範囲
+
+| 分析タイプ | 決算前 | 配当落ち |
+|---|---|---|
+| 日次おすすめ | 3日前以内の銘柄を候補から除外 | - |
+| 購入分析 | buy→stay強制 + プロンプト警告 | プロンプトで誤認防止 |
+| ポートフォリオ分析 | プロンプト警告のみ | sell→hold保護 + プロンプトコンテキスト |
+
+### 9-4. データソース
+
+- `nextEarningsDate`: Stockテーブル（`fetch_earnings_data.py` が yfinance `stock.calendar` の "Earnings Date" から取得）
+- `exDividendDate`: Stockテーブル（`fetch_earnings_data.py` が yfinance `stock.calendar` の "Ex-Dividend Date" から取得）
+- ※日本株ではyfinanceの配当落ち日データの信頼性が低い場合あり。nullの場合は保護ルール不適用
+
+---
+
+## 10. ギャップアップモメンタムシグナル
+
+小さいギャップアップを安全ブロックだけでなく、正のモメンタムシグナルとしても活用する。
+
+> ソース: `lib/constants.ts`（`GAP_UP_MOMENTUM`）, `lib/candlestick-patterns.ts`, `lib/stock-safety-rules.ts`
+
+### 10-1. 正シグナル判定条件
+
+3条件のうち**2つ以上**を満たす場合に正のモメンタムシグナルと判定。
+
+| 条件 | 閾値 | 定数名 |
+|---|---|---|
+| ギャップアップ率 | 2%〜5% | `GAP_UP_MOMENTUM.MIN_GAP_UP` / `MAX_GAP_UP` |
+| 引けの強さ | ≥ 70% | `GAP_UP_MOMENTUM.CLOSING_STRENGTH_THRESHOLD` |
+| 出来高確認 | ≥ 1.3倍 | `GAP_UP_MOMENTUM.VOLUME_CONFIRMATION_THRESHOLD` |
+
+**引けの強さ**: `(close - low) / (high - low) * 100`（`calculateClosingStrength()`）
+
+### 10-2. 効果
+
+| 状況 | 効果 | 定数名 |
+|---|---|---|
+| 積極派が stay の場合 | buy に昇格候補 | - |
+| 既に buy の場合 | confidence +0.08 | `GAP_UP_MOMENTUM.CONFIDENCE_BOOST` |
+
+### 10-3. 適用範囲
+
+| 分析タイプ | 適用内容 |
+|---|---|
+| 日次おすすめ | 適用なし（候補段階ではギャップデータの粒度が不足） |
+| 購入分析 | 積極派リバウンドロジックに統合 + プロンプト指示 |
+| ポートフォリオ分析 | 買い増しシグナルとしてプロンプトコンテキストに追加 |
+
+---
+
+## 11. UX解説テキスト（補正理由の表示）
+
+セーフティルールがAI判断を補正した際、ユーザーに分かりやすい解説テキストを生成・表示する。
+
+> ソース: `lib/correction-explanation.ts`, `lib/style-analysis.ts`, `lib/purchase-recommendation-core.ts`, `lib/portfolio-analysis-core.ts`
+
+### 11-1. 仕組み
+
+- `PurchaseStyleAnalysis` / `PortfolioStyleAnalysis` に `correctionExplanation: string | null` フィールドを追加
+- 各セーフティルール補正箇所で `generateCorrectionExplanation()` を呼び出し、テキストを設定
+- `styleAnalyses` JSON内のサブフィールドなのでDBスキーマ変更不要
+
+### 11-2. 対応ルールID一覧
+
+| ルールID | 補正内容 | 対象分析 |
+|---|---|---|
+| `surge_block` | 急騰ブロック（buy→stay） | 購入 |
+| `decline_block` | 下落ブロック（buy→stay） | 購入 |
+| `overheat_block` | 過熱圏ブロック（buy→stay） | 購入 |
+| `gap_up_surge_block` | ギャップアップ急騰ブロック | 購入 |
+| `technical_brake` | テクニカルブレーキ | 購入 |
+| `unprofitable_surge` | 赤字×急騰（仕手株リスク） | 購入 |
+| `market_crash_block` | 市場急落ブロック | 購入 |
+| `pre_earnings_block` | 決算直前ブロック | 購入 |
+| `panic_sell_protection` | パニック売り防止（sell→hold） | ポートフォリオ |
+| `trend_protection` | 中長期トレンド保護（sell→hold） | ポートフォリオ |
+| `relative_strength_protection` | 相対強度保護（sell→hold） | ポートフォリオ |
+| `profit_taking_promotion` | 利確促進（hold→sell） | ポートフォリオ |
+| `surge_buy_block` | 急騰時買い増し抑制（buy→hold） | ポートフォリオ |
+| `post_ex_dividend` | 配当権利落ち保護（sell→hold） | ポートフォリオ |
+| `defensive_mode_surge` | 防御モード急騰引き締め | 購入 |
+| `defensive_mode_decline` | 防御モード下落引き締め | 購入 |
+| `defensive_mode_overheat` | 防御モード過熱引き締め | 購入 |
+| `defensive_mode_gap_up` | 防御モードギャップアップ引き締め | 購入 |
+
+### 11-3. 表示例
+
+```
+週間変化率が+20%を超えており、慎重派の「急騰ブロックルール」に抵触したため、
+押し目を待つ判断になりました。
+```
+
+### 11-4. 適用範囲
+
+| 分析タイプ | 適用内容 |
+|---|---|
+| 日次おすすめ | 適用なし（個別セーフティルール補正がないため） |
+| 購入分析 | 全補正箇所に `correctionExplanation` 設定 |
+| ポートフォリオ分析 | 全補正箇所に `correctionExplanation` 設定 |
+
+---
+
+## 12. ソースファイル一覧
 
 | ファイル | 内容 |
 |---|---|
@@ -476,4 +647,8 @@ ATRが利用できない場合のフォールバック。
 | `lib/prompts/daily-recommendation-prompt.ts` | 日次おすすめのAIプロンプト |
 | `lib/prompts/purchase-recommendation-prompt.ts` | 購入分析のAIプロンプト |
 | `lib/prompts/portfolio-analysis-prompt.ts` | ポートフォリオ分析のAIプロンプト |
+| `lib/correction-explanation.ts` | UX解説テキスト生成（補正理由テンプレート） |
+| `lib/stock-analysis-context.ts` | AIプロンプト用コンテキスト生成（防御モード・決算・配当落ち） |
+| `lib/candlestick-patterns.ts` | ローソク足パターン分析（引けの強さ計算） |
+| `lib/market-index.ts` | 市場指標データ取得（パニック判定含む） |
 | `lib/sector-trend.ts` | セクタートレンドスコアボーナス計算 |
