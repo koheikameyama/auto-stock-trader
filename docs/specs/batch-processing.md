@@ -10,7 +10,7 @@ GitHub Actionsで定期実行されるバッチ処理群です。株価データ
 SESSION (09:10 / 10:10 / 12:40 / 13:40 / 15:40 JST) ── session-batch.yml
 
   Phase 1: データ取得（並列）
-  ├─ fetch-news（朝: JP+US / 昼・引け: JP）
+  ├─ fetch-news（morning: JP+US / afternoon: JP / 他セッション: スキップ）
   └─ fetch-stock-prices（全銘柄の株価更新）
 
   Phase 2: セクタートレンド計算
@@ -49,16 +49,16 @@ MONTHLY
 | JST | ワークフロー | 入力 |
 |-----|------------|------|
 | 09:10 | session-batch | session=morning |
-| 10:10 | session-batch | session=noon |
-| 12:40 | session-batch | session=noon |
-| 13:40 | session-batch | session=noon |
+| 10:10 | session-batch | session=mid-morning |
+| 12:40 | session-batch | session=afternoon |
+| 13:40 | session-batch | session=mid-afternoon |
 | 15:40 | session-batch | session=close |
 
 ## ワークフロー一覧
 
 ### 1. 株価分析オーケストレーター（session-batch.yml）
 
-cron-job.org から `workflow_dispatch` でセッション（morning/noon/close）を指定してトリガー。
+cron-job.org から `workflow_dispatch` でセッション（morning/mid-morning/afternoon/mid-afternoon/close）を指定してトリガー。
 
 **実行フロー（`needs` で順序保証）**:
 
@@ -73,7 +73,7 @@ fetch-news + fetch-stock-prices（並列）
 
 | ワークフロー | 処理 | セッション条件 |
 |-------------|------|--------------|
-| `session-fetch-news.yml` | ニュース取得 | 常に（朝: JP+US / 昼・引け: JP） |
+| `session-fetch-news.yml` | ニュース取得 | morning(JP+US) + afternoon(JP) のみ |
 | `session-fetch-stock-prices.yml` | 株価更新 | 常に |
 | `session-calculate-sector-trends.yml` | セクタートレンド計算 | 常に |
 | `session-purchase-recommendations.yml` | 購入判断生成 | 常に |

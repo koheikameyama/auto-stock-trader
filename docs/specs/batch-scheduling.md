@@ -63,10 +63,10 @@ Phase 4: notify
 | JST | 入力 | 実行ジョブ |
 |-----|------|-----------|
 | 09:10 | session=morning | news(JP+US), prices, trends, purchase, portfolio, personal, navigator(morning) |
-| 10:10 | session=noon | news(JP), prices, trends, purchase, portfolio, personal |
-| 12:40 | session=noon | news(JP), prices, trends, purchase, portfolio, personal |
-| 13:40 | session=noon | news(JP), prices, trends, purchase, portfolio, personal |
-| 15:40 | session=close | news(JP), prices, trends, purchase, portfolio, personal, gainers, snapshots, navigator(evening) |
+| 10:10 | session=mid-morning | prices, trends, purchase, portfolio, personal |
+| 12:40 | session=afternoon | news(JP), prices, trends, purchase, portfolio, personal |
+| 13:40 | session=mid-afternoon | prices, trends, purchase, portfolio, personal |
+| 15:40 | session=close | prices, trends, purchase, portfolio, personal, gainers, snapshots, navigator(evening) |
 
 ### 独立バッチ
 

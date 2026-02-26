@@ -4,13 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       session:
-        description: 'セッション (morning/noon/close)'
+        description: 'セッション (morning/mid-morning/afternoon/mid-afternoon/close)'
         required: true
         default: 'close'
         type: choice
         options:
           - morning
-          - noon
+          - mid-morning
+          - afternoon
+          - mid-afternoon
           - close
       notify:
         description: 'Push通知を送信する'
@@ -30,6 +32,7 @@ jobs:
   # ── Phase 1: データ取得（並列） ──
 
   fetch-news:
+    if: inputs.session == 'morning' || inputs.session == 'afternoon'
     uses: ./.github/workflows/session-fetch-news.yml
     with:
       market: ${{ inputs.session == 'morning' && 'both' || 'jp' }}
@@ -43,6 +46,7 @@ jobs:
 
   calculate-sector-trends:
     needs: [fetch-news, fetch-stock-prices]
+    if: "!failure() && !cancelled()"
     uses: ./.github/workflows/session-calculate-sector-trends.yml
     secrets: inherit
 
@@ -62,7 +66,7 @@ jobs:
     needs: calculate-sector-trends
     uses: ./.github/workflows/session-personal-recommendations.yml
     with:
-      session: ${{ inputs.session == 'morning' && 'morning' || inputs.session == 'noon' && 'afternoon' || 'evening' }}
+      session: ${{ inputs.session == 'morning' && 'morning' || inputs.session == 'close' && 'evening' || 'afternoon' }}
     secrets: inherit
 
   gainers-losers:
