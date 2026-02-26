@@ -184,6 +184,14 @@ export const OPENAI_CONFIG = {
   MAX_TOKENS_RECOMMENDATION: 500,
 } as const;
 
+// Daily Market Navigator 設定
+export const DAILY_MARKET_NAVIGATOR = {
+  // 分析に必要な最小銘柄数（ポートフォリオ＋ウォッチリスト合計）
+  MIN_STOCKS: 3,
+  OPENAI_MODEL: "gpt-4o-mini",
+  OPENAI_TEMPERATURE: 0.3,
+} as const;
+
 // チャットAI設定
 export const CHAT_CONFIG = {
   MAX_STEPS: 3, // ツール呼び出しの最大ステップ数

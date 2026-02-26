@@ -6,7 +6,7 @@ import { getOpenAIClient } from "@/lib/openai"
 import { buildPortfolioOverallAnalysisPrompt } from "@/lib/prompts/portfolio-overall-analysis-prompt"
 import { getAllSectorTrends } from "@/lib/sector-trend"
 import { getTodayForDB } from "@/lib/date-utils"
-import { getStyleLabel } from "@/lib/constants"
+import { getStyleLabel, DAILY_MARKET_NAVIGATOR } from "@/lib/constants"
 import dayjs from "dayjs"
 import utc from "dayjs/plugin/utc"
 import timezone from "dayjs/plugin/timezone"
@@ -332,7 +332,7 @@ async function generateAnalysisWithAI(
   }
 
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: DAILY_MARKET_NAVIGATOR.OPENAI_MODEL,
     messages: [
       {
         role: "system",
@@ -346,7 +346,7 @@ async function generateAnalysisWithAI(
         content: prompt,
       },
     ],
-    temperature: 0.3,
+    temperature: DAILY_MARKET_NAVIGATOR.OPENAI_TEMPERATURE,
     response_format: {
       type: "json_schema",
       json_schema: {
@@ -434,8 +434,8 @@ export async function getPortfolioOverallAnalysis(userId: string): Promise<Marke
   const watchlistCount = user.watchlistStocks.length
   const totalCount = portfolioCount + watchlistCount
 
-  // 3銘柄未満の場合
-  if (totalCount < 3) {
+  // 最小銘柄数未満の場合
+  if (totalCount < DAILY_MARKET_NAVIGATOR.MIN_STOCKS) {
     return {
       hasAnalysis: false,
       portfolioCount,
@@ -531,8 +531,8 @@ export async function generatePortfolioOverallAnalysis(userId: string): Promise<
   const watchlistCount = user.watchlistStocks.length
   const totalCount = portfolioCount + watchlistCount
 
-  // 3銘柄未満の場合
-  if (totalCount < 3) {
+  // 最小銘柄数未満の場合
+  if (totalCount < DAILY_MARKET_NAVIGATOR.MIN_STOCKS) {
     return {
       hasAnalysis: false,
       portfolioCount,
@@ -720,47 +720,29 @@ export async function generatePortfolioOverallAnalysis(userId: string): Promise<
 
   // DBに保存
   const now = dayjs().toDate()
+  const upsertData = {
+    analyzedAt: now,
+    sectorConcentration: maxSectorConcentration,
+    sectorCount: sectorBreakdown.length,
+    totalValue,
+    totalCost,
+    unrealizedGain,
+    unrealizedGainPercent,
+    portfolioVolatility,
+    marketHeadline: aiResult.marketHeadline,
+    marketTone: aiResult.marketTone,
+    marketKeyFactor: aiResult.marketKeyFactor,
+    portfolioStatus: aiResult.portfolioStatus,
+    portfolioSummary: aiResult.portfolioSummary,
+    actionPlan: aiResult.actionPlan,
+    buddyMessage: aiResult.buddyMessage,
+    stockHighlights: aiResult.stockHighlights as unknown as Prisma.InputJsonValue,
+    sectorHighlights: aiResult.sectorHighlights as unknown as Prisma.InputJsonValue,
+  }
   await prisma.portfolioOverallAnalysis.upsert({
     where: { userId },
-    create: {
-      userId,
-      analyzedAt: now,
-      sectorConcentration: maxSectorConcentration,
-      sectorCount: sectorBreakdown.length,
-      totalValue,
-      totalCost,
-      unrealizedGain,
-      unrealizedGainPercent,
-      portfolioVolatility,
-      marketHeadline: aiResult.marketHeadline,
-      marketTone: aiResult.marketTone,
-      marketKeyFactor: aiResult.marketKeyFactor,
-      portfolioStatus: aiResult.portfolioStatus,
-      portfolioSummary: aiResult.portfolioSummary,
-      actionPlan: aiResult.actionPlan,
-      buddyMessage: aiResult.buddyMessage,
-      stockHighlights: aiResult.stockHighlights as unknown as Prisma.InputJsonValue,
-      sectorHighlights: aiResult.sectorHighlights as unknown as Prisma.InputJsonValue,
-    },
-    update: {
-      analyzedAt: now,
-      sectorConcentration: maxSectorConcentration,
-      sectorCount: sectorBreakdown.length,
-      totalValue,
-      totalCost,
-      unrealizedGain,
-      unrealizedGainPercent,
-      portfolioVolatility,
-      marketHeadline: aiResult.marketHeadline,
-      marketTone: aiResult.marketTone,
-      marketKeyFactor: aiResult.marketKeyFactor,
-      portfolioStatus: aiResult.portfolioStatus,
-      portfolioSummary: aiResult.portfolioSummary,
-      actionPlan: aiResult.actionPlan,
-      buddyMessage: aiResult.buddyMessage,
-      stockHighlights: aiResult.stockHighlights as unknown as Prisma.InputJsonValue,
-      sectorHighlights: aiResult.sectorHighlights as unknown as Prisma.InputJsonValue,
-    },
+    create: { userId, ...upsertData },
+    update: upsertData,
   })
 
   return {
