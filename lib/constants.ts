@@ -411,6 +411,18 @@ export const MOMENTUM = {
   STRONG_DECLINE_SCORE_PENALTY: -25, // 強い下落銘柄のスコアペナルティ
 } as const;
 
+// 利益確定促進ルール（含み益 + 短期下落予兆 → 利確を促す）
+export const PROFIT_TAKING_PROMOTION = {
+  // 利確促進の最低含み益率（%）: これ以上で短期下落予兆がある場合に利確を促す
+  CONSERVATIVE_MIN_PROFIT: 3, // 慎重派: +3%以上で利確検討
+  BALANCED_MIN_PROFIT: 8, // バランス型: +8%以上で利確検討
+  // 積極派は適用しない（AIの判断を尊重し、利益最大化を優先）
+  // 慎重派の推奨売却割合
+  CONSERVATIVE_SELL_PERCENT: 75 as 25 | 50 | 75 | 100,
+  // バランス型の推奨売却割合
+  BALANCED_SELL_PERCENT: 50 as 25 | 50 | 75 | 100,
+} as const;
+
 // 売りタイミング判断の閾値
 export const SELL_TIMING = {
   DEVIATION_LOWER_THRESHOLD: -5, // 乖離率がこれ未満で戻り売り推奨

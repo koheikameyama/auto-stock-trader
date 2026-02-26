@@ -34,6 +34,7 @@ import {
   RELATIVE_STRENGTH,
   INVESTMENT_STYLE_COEFFICIENTS,
   ATR_EXIT_STRATEGY,
+  PROFIT_TAKING_PROMOTION,
 } from "@/lib/constants";
 import { getDaysAgoForDB } from "@/lib/date-utils";
 import { isDangerousStock } from "@/lib/stock-safety-rules";
@@ -140,13 +141,24 @@ function postProcessPortfolioAnalysis(params: {
 
     // 中長期トレンドによる売り保護（投資スタイル別、重大な変化がない場合のみ）
     // CONSERVATIVE: 長期upの場合のみ保護（中期upだけでは保護しない）
+    //   ※ 含み益あり + 短期下落予兆の場合は保護を無効化（利確を優先）
     // BALANCED: 中期 or 長期がupなら保護
     // AGGRESSIVE: 保護なし（AIの売り判断を尊重）
     const shouldProtectFromSell = (() => {
       if (result.isCriticalChange) return false;
       if (profitPercent !== null && profitPercent <= SELL_TIMING.TREND_OVERRIDE_LOSS_THRESHOLD) return false;
       if (styleKey === "AGGRESSIVE") return false;
-      if (styleKey === "CONSERVATIVE") return result.longTermTrend === "up";
+      if (styleKey === "CONSERVATIVE") {
+        // 含み益あり + 短期下落予兆 → トレンド保護を無効化し、AIの売り判断（利確）を通す
+        if (
+          profitPercent !== null &&
+          profitPercent >= PROFIT_TAKING_PROMOTION.CONSERVATIVE_MIN_PROFIT &&
+          result.shortTermTrend === "down"
+        ) {
+          return false;
+        }
+        return result.longTermTrend === "up";
+      }
       // BALANCED: 現行通り
       return result.midTermTrend === "up" || result.longTermTrend === "up";
     })();
@@ -184,6 +196,35 @@ function postProcessPortfolioAnalysis(params: {
         sa.sellCondition = `市場（日経平均${marketData.weekChangeRate >= 0 ? "+" : ""}${marketData.weekChangeRate.toFixed(1)}%）に対して+${relVsMarket.toFixed(1)}%のアウトパフォームで、下落は地合い要因とみられます。${sa.sellCondition || ""}`;
         sa.shortTerm = `【様子見を推奨】市場全体が${marketData.weekChangeRate.toFixed(1)}%下落する中、この銘柄は相対的に+${relVsMarket.toFixed(1)}%強く、地合い要因による下落と判断しました。AIの短期分析: ${sa.shortTerm}`;
         sa.advice = `市場全体の下落（日経平均${marketData.weekChangeRate.toFixed(1)}%）に対してアウトパフォームしており、地合い要因の下落とみられます。様子見を推奨します。`;
+      }
+    }
+
+    // 利益確定促進ルール（慎重派・バランス型）
+    // 含み益あり + 短期下落予兆 → hold を sell（戻り売り）に変更して利確を促す
+    // 積極派は利益最大化を優先するため適用しない
+    if (
+      styleKey !== "AGGRESSIVE" &&
+      sa.recommendation === "hold" &&
+      profitPercent !== null &&
+      result.shortTermTrend === "down"
+    ) {
+      const minProfit =
+        styleKey === "CONSERVATIVE"
+          ? PROFIT_TAKING_PROMOTION.CONSERVATIVE_MIN_PROFIT
+          : PROFIT_TAKING_PROMOTION.BALANCED_MIN_PROFIT;
+      const sellPercent =
+        styleKey === "CONSERVATIVE"
+          ? PROFIT_TAKING_PROMOTION.CONSERVATIVE_SELL_PERCENT
+          : PROFIT_TAKING_PROMOTION.BALANCED_SELL_PERCENT;
+
+      if (profitPercent >= minProfit) {
+        sa.recommendation = "sell";
+        sa.statusType = "戻り売り";
+        sa.suggestedSellPercent = sellPercent;
+        sa.sellReason = `含み益+${profitPercent.toFixed(1)}%の状態で短期テクニカル指標に下落予兆が出ているため、利益確定を推奨します。`;
+        sa.sellCondition = `短期下落トレンド中のため、利益を確保しつつ押し目（一時的な下落）での再エントリーを検討してください。`;
+        sa.shortTerm = `【利確検討】含み益+${profitPercent.toFixed(1)}%で短期的に下落の予兆があります。${styleKey === "CONSERVATIVE" ? "利益を守ることを最優先に、利益確定を検討しましょう。" : "一部利確でリスクを抑えつつ、残りで上昇余地を狙う戦略も有効です。"}AIの当初分析: ${sa.shortTerm}`;
+        sa.advice = `含み益+${profitPercent.toFixed(1)}%を確保中ですが短期下落の予兆があります。${styleKey === "CONSERVATIVE" ? "利益確定を優先し、押し目で再エントリーを検討しましょう。" : "一部利確でリスク低減を検討しましょう。"}`;
       }
     }
   }
