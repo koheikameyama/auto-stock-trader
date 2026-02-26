@@ -7,14 +7,26 @@ TypeScript API を呼び出すだけのシンプルなスクリプト。
 """
 
 import os
+import re
 import sys
 import time
 import requests
 from datetime import datetime
 
 # リトライ設定
-MAX_RETRIES = 3
-RETRY_WAIT_SECONDS = [5, 15, 30]
+MAX_RETRIES = 4
+RETRY_WAIT_SECONDS = [10, 30, 60, 120]
+
+
+def _extract_error_summary(status_code: int, body: str) -> str:
+    """エラーレスポンスから要約を抽出する。HTMLの場合はタイトルだけ取る。"""
+    if "<html" in body.lower():
+        match = re.search(r"<title>(.*?)</title>", body, re.IGNORECASE | re.DOTALL)
+        if match:
+            return f"HTTP {status_code}: {match.group(1).strip()}"
+        return f"HTTP {status_code}: (HTML error page)"
+    # JSON等の短いレスポンス
+    return f"HTTP {status_code}: {body[:200]}"
 
 
 def call_api(app_url: str, cron_secret: str, session: str) -> dict:
@@ -39,8 +51,8 @@ def call_api(app_url: str, cron_secret: str, session: str) -> dict:
             )
 
             if response.status_code not in [200, 201]:
-                last_error = f"API returned status {response.status_code}: {response.text}"
-                print(f"Error (attempt {attempt + 1}): {last_error}")
+                last_error = _extract_error_summary(response.status_code, response.text)
+                print(f"Error (attempt {attempt + 1}/{MAX_RETRIES}): {last_error}")
                 # 4xx エラーはリトライしない（認証エラーなど）
                 if 400 <= response.status_code < 500:
                     print("Client error - not retrying")
@@ -50,11 +62,11 @@ def call_api(app_url: str, cron_secret: str, session: str) -> dict:
             return response.json()
 
         except requests.exceptions.Timeout:
-            last_error = "Request timed out"
-            print(f"Error (attempt {attempt + 1}): {last_error}")
+            last_error = "Request timed out (300s)"
+            print(f"Error (attempt {attempt + 1}/{MAX_RETRIES}): {last_error}")
         except requests.exceptions.RequestException as e:
             last_error = str(e)
-            print(f"Error (attempt {attempt + 1}): {last_error}")
+            print(f"Error (attempt {attempt + 1}/{MAX_RETRIES}): {last_error}")
 
     print(f"\nAll {MAX_RETRIES} attempts failed. Last error: {last_error}")
     sys.exit(1)
