@@ -199,11 +199,9 @@ function postProcessPortfolioAnalysis(params: {
       }
     }
 
-    // 利益確定促進ルール（慎重派・バランス型）
+    // 利益確定促進ルール（全スタイル対象、閾値はスタイル別）
     // 含み益あり + 短期下落予兆 → hold を sell（戻り売り）に変更して利確を促す
-    // 積極派は利益最大化を優先するため適用しない
     if (
-      styleKey !== "AGGRESSIVE" &&
       sa.recommendation === "hold" &&
       profitPercent !== null &&
       result.shortTermTrend === "down"
@@ -211,20 +209,37 @@ function postProcessPortfolioAnalysis(params: {
       const minProfit =
         styleKey === "CONSERVATIVE"
           ? PROFIT_TAKING_PROMOTION.CONSERVATIVE_MIN_PROFIT
-          : PROFIT_TAKING_PROMOTION.BALANCED_MIN_PROFIT;
+          : styleKey === "BALANCED"
+            ? PROFIT_TAKING_PROMOTION.BALANCED_MIN_PROFIT
+            : PROFIT_TAKING_PROMOTION.AGGRESSIVE_MIN_PROFIT;
       const sellPercent =
         styleKey === "CONSERVATIVE"
           ? PROFIT_TAKING_PROMOTION.CONSERVATIVE_SELL_PERCENT
-          : PROFIT_TAKING_PROMOTION.BALANCED_SELL_PERCENT;
+          : styleKey === "BALANCED"
+            ? PROFIT_TAKING_PROMOTION.BALANCED_SELL_PERCENT
+            : PROFIT_TAKING_PROMOTION.AGGRESSIVE_SELL_PERCENT;
 
       if (profitPercent >= minProfit) {
+        const styleAdvice =
+          styleKey === "CONSERVATIVE"
+            ? "利益を守ることを最優先に、利益確定を検討しましょう。"
+            : styleKey === "BALANCED"
+              ? "一部利確でリスクを抑えつつ、残りで上昇余地を狙う戦略も有効です。"
+              : "大きな利益を一部確保しつつ、残りのポジションで上値追いを継続しましょう。";
+        const styleAction =
+          styleKey === "CONSERVATIVE"
+            ? "利益確定を優先し、押し目で再エントリーを検討しましょう。"
+            : styleKey === "BALANCED"
+              ? "一部利確でリスク低減を検討しましょう。"
+              : "一部利確で利益を確保し、残りで上昇トレンドの継続を狙いましょう。";
+
         sa.recommendation = "sell";
         sa.statusType = "戻り売り";
         sa.suggestedSellPercent = sellPercent;
         sa.sellReason = `含み益+${profitPercent.toFixed(1)}%の状態で短期テクニカル指標に下落予兆が出ているため、利益確定を推奨します。`;
         sa.sellCondition = `短期下落トレンド中のため、利益を確保しつつ押し目（一時的な下落）での再エントリーを検討してください。`;
-        sa.shortTerm = `【利確検討】含み益+${profitPercent.toFixed(1)}%で短期的に下落の予兆があります。${styleKey === "CONSERVATIVE" ? "利益を守ることを最優先に、利益確定を検討しましょう。" : "一部利確でリスクを抑えつつ、残りで上昇余地を狙う戦略も有効です。"}AIの当初分析: ${sa.shortTerm}`;
-        sa.advice = `含み益+${profitPercent.toFixed(1)}%を確保中ですが短期下落の予兆があります。${styleKey === "CONSERVATIVE" ? "利益確定を優先し、押し目で再エントリーを検討しましょう。" : "一部利確でリスク低減を検討しましょう。"}`;
+        sa.shortTerm = `【利確検討】含み益+${profitPercent.toFixed(1)}%で短期的に下落の予兆があります。${styleAdvice}AIの当初分析: ${sa.shortTerm}`;
+        sa.advice = `含み益+${profitPercent.toFixed(1)}%を確保中ですが短期下落の予兆があります。${styleAction}`;
       }
     }
   }

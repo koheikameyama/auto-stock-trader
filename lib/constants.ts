@@ -416,11 +416,11 @@ export const PROFIT_TAKING_PROMOTION = {
   // 利確促進の最低含み益率（%）: これ以上で短期下落予兆がある場合に利確を促す
   CONSERVATIVE_MIN_PROFIT: 3, // 慎重派: +3%以上で利確検討
   BALANCED_MIN_PROFIT: 8, // バランス型: +8%以上で利確検討
-  // 積極派は適用しない（AIの判断を尊重し、利益最大化を優先）
-  // 慎重派の推奨売却割合
+  AGGRESSIVE_MIN_PROFIT: 15, // 積極派: +15%以上で一部利確検討（大きな利益を守る）
+  // 推奨売却割合
   CONSERVATIVE_SELL_PERCENT: 75 as 25 | 50 | 75 | 100,
-  // バランス型の推奨売却割合
   BALANCED_SELL_PERCENT: 50 as 25 | 50 | 75 | 100,
+  AGGRESSIVE_SELL_PERCENT: 25 as 25 | 50 | 75 | 100, // 残りで上値追い継続
 } as const;
 
 // 売りタイミング判断の閾値
