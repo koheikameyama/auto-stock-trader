@@ -1,0 +1,44 @@
+name: Daily Market Navigator
+
+on:
+  workflow_dispatch:
+    inputs:
+      session:
+        description: 'セッション (morning / evening)'
+        required: true
+        type: choice
+        options:
+          - morning
+          - evening
+
+jobs:
+  generate:
+    uses: ./.github/workflows/session-daily-market-navigator.yml
+    with:
+      session: ${{ inputs.session }}
+    secrets: inherit
+
+  notify:
+    needs: generate
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on success
+        if: needs.generate.result == 'success'
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "✅ マーケットナビゲーター生成に成功しました (${{ inputs.session }})"
+          SLACK_MESSAGE: "マーケットナビゲーターを更新しました"
+          SLACK_COLOR: good
+          SLACK_FOOTER: "Stock Buddy"
+
+      - name: Notify Slack on failure
+        if: needs.generate.result == 'failure'
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "❌ マーケットナビゲーター生成に失敗しました (${{ inputs.session }})"
+          SLACK_MESSAGE: "詳細はGitHub Actionsログを確認してください"
+          SLACK_COLOR: danger
+          SLACK_FOOTER: "Stock Buddy"

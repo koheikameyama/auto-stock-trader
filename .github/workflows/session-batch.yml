@@ -39,6 +39,7 @@ jobs:
     secrets: inherit
 
   fetch-stock-prices:
+    if: inputs.session == 'morning' || inputs.session == 'afternoon' || inputs.session == 'close'
     uses: ./.github/workflows/session-fetch-stock-prices.yml
     secrets: inherit
 
@@ -46,7 +47,7 @@ jobs:
 
   calculate-sector-trends:
     needs: [fetch-news, fetch-stock-prices]
-    if: "!failure() && !cancelled()"
+    if: "!failure() && !cancelled() && (inputs.session == 'morning' || inputs.session == 'afternoon' || inputs.session == 'close')"
     uses: ./.github/workflows/session-calculate-sector-trends.yml
     secrets: inherit
 
@@ -81,18 +82,10 @@ jobs:
     uses: ./.github/workflows/session-portfolio-snapshots.yml
     secrets: inherit
 
-  daily-market-navigator:
-    if: inputs.session == 'morning' || inputs.session == 'close'
-    needs: calculate-sector-trends
-    uses: ./.github/workflows/session-daily-market-navigator.yml
-    with:
-      session: ${{ inputs.session == 'morning' && 'morning' || 'evening' }}
-    secrets: inherit
-
   # ── Phase 4: 通知 ──
 
   notify:
-    needs: [purchase-recommendations, portfolio-analysis, personal-recommendations, gainers-losers, portfolio-snapshots, daily-market-navigator]
+    needs: [purchase-recommendations, portfolio-analysis, personal-recommendations, gainers-losers, portfolio-snapshots]
     if: always()
     runs-on: ubuntu-latest
     steps:
