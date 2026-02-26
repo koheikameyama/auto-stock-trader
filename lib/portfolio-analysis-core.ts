@@ -319,7 +319,7 @@ function postProcessPortfolioAnalysis(params: {
   }
 
   // statusType
-  const statusType =
+  let statusType =
     userStyleResult.statusType ||
     (userStyleResult.recommendation === "sell"
       ? "即時売却"
@@ -327,11 +327,20 @@ function postProcessPortfolioAnalysis(params: {
         ? "押し目買い"
         : "ホールド");
 
+  // statusTypeとsellTimingの双方向整合性チェック
   // 戻り売りステータスの場合、sellTimingとsellTargetPriceを強制設定
   if (statusType === "戻り売り") {
     if (sellTiming !== "rebound") {
       sellTiming = "rebound";
     }
+    if (!sellTargetPrice && sma25 !== null) {
+      sellTargetPrice = sma25;
+    }
+  }
+  // sellTimingが"rebound"（戻り売り推奨）なのにstatusTypeが"即時売却"の場合、
+  // バッジと分析の矛盾を防ぐためstatusTypeを"戻り売り"に統一
+  if (sellTiming === "rebound" && statusType === "即時売却") {
+    statusType = "戻り売り";
     if (!sellTargetPrice && sma25 !== null) {
       sellTargetPrice = sma25;
     }
