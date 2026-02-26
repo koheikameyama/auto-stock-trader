@@ -48,8 +48,9 @@
     "regenerating": "再生成中...",
     "regeneratingMessage": "AIがあなたに合った銘柄を選んでいます...",
     "schedule": "更新 {schedule}（平日）",
-    "additionalPurchase": "買い増しチャンス",
-    "watchlistBuyTime": "買い時かも"
+    "owned": "保有中",
+    "interested": "気になる",
+    "tracked": "追跡中"
   },
   "nikkei": {
     "title": "日経平均株価",
