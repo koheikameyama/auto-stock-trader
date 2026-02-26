@@ -86,13 +86,22 @@ AI生成後、非スタイル依存の安全補正（上記テーブルの大半
 
 ### 2. Daily Market Navigator（ポートフォリオ総評）
 
-ポートフォリオ全体を市場の流れと照合して、今日何をすべきかを断定するカード型UIです。「ポートフォリオ総評」を完全に置き換えたコア機能です。
+ポートフォリオ全体を市場の流れと照合するカード型UIです。朝と夜の2セッションで異なる視点の分析を提供します。
 
 **前提条件**: ポートフォリオ + ウォッチリスト合計3銘柄以上
 
 **表示場所**:
 - `/dashboard` の最上部
 - `/portfolio-analysis`（専用ページ）
+
+**セッション**:
+
+| セッション | 生成タイミング | AIの役割 | 内容 |
+|-----------|---------------|---------|------|
+| 朝（morning） | 9:00 JST | ナビゲーター | 今日の戦略。市場展望・持ち株への影響・今日のアクションプラン |
+| 夜（evening） | 15:30 JST | アナリスト兼コーチ | 結果診断。市場振り返り・持ち株の健康診断・明日の予習 |
+
+UIはJST 15時を境にデフォルトセッションを自動切替。タブで手動切替も可能。
 
 **分析に使用するデータ**:
 - セクター構成・集中率
@@ -189,6 +198,9 @@ AI生成後、非スタイル依存の安全補正（上記テーブルの大半
 
 キャッシュされた Daily Market Navigator の分析を取得。
 
+**クエリパラメータ**:
+- `session` (optional): `morning` | `evening`。未指定時はJST時刻で自動判定（15時以降は `evening`）
+
 **レスポンス**:
 
 ```json
@@ -196,6 +208,7 @@ AI生成後、非スタイル依存の安全補正（上記テーブルの大半
   "hasAnalysis": true,
   "analyzedAt": "2026-02-26T10:00:00.000Z",
   "isToday": true,
+  "session": "morning",
   "portfolioCount": 3,
   "watchlistCount": 2,
   "market": {
@@ -247,6 +260,10 @@ AI生成後、非スタイル依存の安全補正（上記テーブルの大半
 Daily Market Navigator の分析を再生成。
 
 **認証**: セッション認証 or CRON_SECRET
+
+**リクエストボディ**:
+- `userId` (CRON時必須): ユーザーID
+- `session` (optional): `morning` | `evening`（デフォルト `morning`）
 
 ### ポートフォリオサマリー
 
@@ -332,11 +349,12 @@ PortfolioSnapshot テーブルからの時系列データ。
 
 ### PortfolioOverallAnalysis（Daily Market Navigator）
 
-ユーザーごとに1レコードを upsert で保存（`userId` ユニーク）。
+ユーザー × セッションごとに1レコードを upsert で保存（`userId` + `session` の複合ユニーク）。
 
 | カラム | 型 | 説明 |
 |--------|-----|------|
-| userId | String | ユーザーID（ユニーク） |
+| userId | String | ユーザーID |
+| session | String | セッション（`morning` / `evening`、デフォルト `morning`） |
 | analyzedAt | DateTime | 分析日時 |
 | sectorConcentration | Decimal? | 最大セクター比率(%) |
 | sectorCount | Int? | セクター数 |
