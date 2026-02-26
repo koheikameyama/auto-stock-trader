@@ -411,6 +411,22 @@ export const MOMENTUM = {
   STRONG_DECLINE_SCORE_PENALTY: -25, // 強い下落銘柄のスコアペナルティ
 } as const;
 
+// 利確アラートの閾値（利益が出ている＋短期下落予兆で利確を促す）
+export const PROFIT_TAKING_ALERT = {
+  // 投資スタイル別: 含み益の最低ライン（%）
+  MIN_PROFIT: {
+    CONSERVATIVE: 5, // 慎重派: 5%以上の含み益
+    BALANCED: 10, // バランス型: 10%以上の含み益
+    AGGRESSIVE: 15, // 積極派: 15%以上の含み益
+  },
+  // 投資スタイル別: 週間変化率の下落閾値（%）
+  WEEK_DECLINE: {
+    CONSERVATIVE: -3, // 慎重派: -3%で警戒
+    BALANCED: -5, // バランス型: -5%で警戒
+    AGGRESSIVE: -7, // 積極派: -7%で警戒
+  },
+} as const;
+
 // 売りタイミング判断の閾値
 export const SELL_TIMING = {
   DEVIATION_LOWER_THRESHOLD: -5, // 乖離率がこれ未満で戻り売り推奨

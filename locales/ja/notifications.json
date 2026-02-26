@@ -56,6 +56,10 @@
       "label": "利確タイミング",
       "icon": "💹"
     },
+    "profit_taking": {
+      "label": "利確推奨",
+      "icon": "💡"
+    },
     "default": {
       "label": "通知",
       "icon": "🔔"

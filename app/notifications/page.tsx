@@ -45,11 +45,12 @@ export default function NotificationsPage() {
     stop_loss: { icon: tTypes('stop_loss.icon'), color: "bg-orange-100 text-orange-800", label: tTypes('stop_loss.label') },
     buy_target: { icon: tTypes('buy_target.icon'), color: "bg-green-100 text-green-800", label: tTypes('buy_target.label') },
     profit_milestone: { icon: tTypes('profit_milestone.icon'), color: "bg-emerald-100 text-emerald-800", label: tTypes('profit_milestone.label') },
+    profit_taking: { icon: tTypes('profit_taking.icon'), color: "bg-amber-100 text-amber-800", label: tTypes('profit_taking.label') },
   }
 
   // タイトルから銘柄の所属（保有/気になる）を判断
   const getSourceBadge = (title: string, type: string) => {
-    if (type === "sell_target" || type === "stop_loss" || type === "profit_milestone") {
+    if (type === "sell_target" || type === "stop_loss" || type === "profit_milestone" || type === "profit_taking") {
       return { label: tBadges('portfolio'), color: "bg-gray-100 text-gray-600" }
     }
     if (title.includes("保有銘柄")) {

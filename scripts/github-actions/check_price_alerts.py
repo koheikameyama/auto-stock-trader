@@ -22,7 +22,13 @@ import requests
 
 # scriptsディレクトリをPythonパスに追加
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from lib.constants import SURGE_THRESHOLD, PLUNGE_THRESHOLD, PROFIT_MILESTONES
+from lib.constants import (
+    SURGE_THRESHOLD,
+    PLUNGE_THRESHOLD,
+    PROFIT_MILESTONES,
+    PROFIT_TAKING_MIN_PROFIT,
+    PROFIT_TAKING_WEEK_DECLINE,
+)
 
 # ロギング設定
 logging.basicConfig(
@@ -444,6 +450,97 @@ def fetch_portfolio_profit_milestone_alerts(conn, milestones: list[int]) -> list
     return alerts
 
 
+def fetch_portfolio_profit_taking_alerts(
+    conn,
+    min_profit_by_style: dict[str, int],
+    week_decline_by_style: dict[str, float],
+) -> list[dict]:
+    """
+    利確推奨アラートをチェック
+
+    条件:
+    - 保有株数 > 0
+    - 含み益がスタイル別の最低ライン以上
+    - 週間変化率がスタイル別の下落閾値以下（短期下落の予兆）
+
+    特に慎重派には早めに利確を促す。
+    """
+    alerts = []
+
+    with conn.cursor() as cur:
+        cur.execute('''
+            SELECT
+                p."userId",
+                s.id as "stockId",
+                s.name as "stockName",
+                s."tickerCode",
+                s."latestPrice",
+                s."weekChangeRate",
+                COALESCE(
+                    (SELECT SUM(
+                        CASE WHEN t.type = 'buy' THEN t.quantity
+                             WHEN t.type = 'sell' THEN -t.quantity
+                             ELSE 0
+                         END
+                    )
+                    FROM "Transaction" t
+                    WHERE t."portfolioStockId" = p.id
+                    ), 0
+                ) as "totalQuantity",
+                COALESCE(
+                    (SELECT SUM(t.quantity * t.price) / NULLIF(SUM(t.quantity), 0)
+                    FROM "Transaction" t
+                    WHERE t."portfolioStockId" = p.id AND t.type = 'buy'
+                    ), 0
+                ) as "averageCost",
+                p.id as "userStockId",
+                us."investmentStyle"
+            FROM "PortfolioStock" p
+            JOIN "Stock" s ON p."stockId" = s.id
+            LEFT JOIN "UserSettings" us ON us."userId" = p."userId"
+            WHERE s."latestPrice" IS NOT NULL
+              AND s."weekChangeRate" IS NOT NULL
+              AND s."weekChangeRate" < 0
+        ''')
+
+        for row in cur.fetchall():
+            total_quantity = row[6] or 0
+            if total_quantity <= 0:
+                continue
+
+            latest_price = float(row[4]) if row[4] else 0
+            week_change_rate = float(row[5]) if row[5] else 0
+            average_cost = float(row[7]) if row[7] else 0
+            user_stock_id = row[8]
+            investment_style = row[9] or "BALANCED"
+
+            if average_cost <= 0:
+                continue
+
+            profit_percent = ((latest_price - average_cost) / average_cost) * 100
+
+            # スタイル別の閾値を取得
+            min_profit = min_profit_by_style.get(investment_style, min_profit_by_style["BALANCED"])
+            week_decline = week_decline_by_style.get(investment_style, week_decline_by_style["BALANCED"])
+
+            # 含み益が最低ライン以上 かつ 週間変化率が下落閾値以下
+            if profit_percent >= min_profit and week_change_rate <= week_decline:
+                alerts.append({
+                    "userId": row[0],
+                    "stockId": row[1],
+                    "stockName": row[2],
+                    "tickerCode": row[3],
+                    "latestPrice": latest_price,
+                    "averageCost": average_cost,
+                    "profitPercent": profit_percent,
+                    "weekChangeRate": week_change_rate,
+                    "userStockId": user_stock_id,
+                    "investmentStyle": investment_style,
+                })
+
+    return alerts
+
+
 def send_notifications(app_url: str, cron_secret: str, notifications: list[dict]) -> dict:
     """通知APIを呼び出し"""
     if not notifications:
@@ -666,7 +763,60 @@ def main():
                 "changeRate": alert["profitPercent"],
             })
 
-        # 6. 通知送信
+        # 6. ポートフォリオ: 利確推奨（含み益あり＋短期下落予兆）
+        logger.info("Checking portfolio profit-taking alerts...")
+        profit_taking_alerts = fetch_portfolio_profit_taking_alerts(
+            conn,
+            PROFIT_TAKING_MIN_PROFIT,
+            PROFIT_TAKING_WEEK_DECLINE,
+        )
+        logger.info(f"  Found {len(profit_taking_alerts)} profit-taking alerts")
+
+        # 利確推奨対象のStockAnalysis（スタイル別分析）を一括取得
+        profit_taking_stock_ids = list(set(
+            a["stockId"] for a in profit_taking_alerts
+        ))
+        profit_taking_analyses = fetch_latest_stock_analyses(conn, profit_taking_stock_ids)
+
+        for alert in profit_taking_alerts:
+            user_style = alert.get("investmentStyle", "BALANCED")
+
+            title = f"💡 {alert['stockName']}の利益確定を検討しましょう"
+
+            body = (
+                f"含み益+{alert['profitPercent']:.1f}%（{alert['latestPrice']:,.0f}円 / "
+                f"取得単価{alert['averageCost']:,.0f}円）ですが、"
+                f"直近1週間で{alert['weekChangeRate']:.1f}%下落しています。"
+            )
+
+            # 投資スタイル別のアドバイス
+            if user_style == "CONSERVATIVE":
+                body += "利益が残っているうちに、一部または全部の利益確定をおすすめします"
+            elif user_style == "BALANCED":
+                body += "一部利確でリスクを減らしつつ、残りは撤退ラインを引き上げて守りましょう"
+            else:  # AGGRESSIVE
+                body += "撤退ラインの引き上げを検討しましょう。下落が続く場合は一部利確も選択肢です"
+
+            # AI分析がある場合は付加
+            style_data = profit_taking_analyses.get(alert["stockId"], {}).get(user_style, {})
+            style_rec = style_data.get("recommendation", "")
+            if style_rec == "sell":
+                body += "。AIも売却を推奨しています"
+            elif style_rec == "hold":
+                body += "。AIは様子見を推奨していますが、利益保護も大切です"
+
+            notifications.append({
+                "userId": alert["userId"],
+                "type": "profit_taking",
+                "stockId": alert["stockId"],
+                "title": title,
+                "body": body,
+                "url": f"/my-stocks/{alert['userStockId']}",
+                "triggerPrice": alert["latestPrice"],
+                "changeRate": alert["profitPercent"],
+            })
+
+        # 7. 通知送信
         logger.info(f"Total notifications to send: {len(notifications)}")
 
         if notifications:
