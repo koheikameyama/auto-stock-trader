@@ -12,6 +12,7 @@ import {
   buildChartPatternContext,
   buildWeekChangeContext,
   buildMarketContext,
+  buildDefensiveModeContext,
   buildDeviationRateContext,
   buildDelistingContext,
   buildVolumeAnalysisContext,
@@ -277,6 +278,7 @@ export async function executePurchaseRecommendation(
 
   // 市場全体の状況コンテキスト
   const marketContext = buildMarketContext(marketData);
+  const defensiveModeContext = buildDefensiveModeContext(marketData);
 
   // セクタートレンド
   let sectorTrendContext = "";
@@ -334,7 +336,7 @@ export async function executePurchaseRecommendation(
     pricesCount: prices.length,
     delistingContext,
     weekChangeContext,
-    marketContext,
+    marketContext: marketContext + defensiveModeContext,
     sectorTrendContext,
     patternContext,
     technicalContext,
@@ -717,6 +719,7 @@ export async function executePurchaseRecommendation(
       sma25: sma25ForTiming,
     },
     skipSafetyRules,
+    isMarketPanic: marketData?.isMarketPanic === true,
   });
 
   // --- 積極派リバウンド狙い逆転ロジック ---

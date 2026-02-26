@@ -12,6 +12,7 @@ import {
   buildChartPatternContext,
   buildWeekChangeContext,
   buildMarketContext,
+  buildDefensiveModeContext,
   buildDeviationRateContext,
   buildDelistingContext,
   buildVolumeAnalysisContext,
@@ -377,6 +378,7 @@ function postProcessPortfolioAnalysis(params: {
     sma25,
     sellTimingBase: sellTiming,
     sellTargetPriceBase: sellTargetPrice,
+    isMarketPanic: marketData?.isMarketPanic === true,
   });
 
   return {
@@ -609,7 +611,7 @@ export async function executePortfolioAnalysis(
   } catch (error) {
     console.error("市場データ取得失敗（フォールバック）:", error);
   }
-  const marketContext = buildMarketContext(marketData);
+  const marketContext = buildMarketContext(marketData) + buildDefensiveModeContext(marketData);
 
   // セクタートレンド
   let sectorTrendContext = "";
@@ -1043,7 +1045,7 @@ export async function executeSimulatedPortfolioAnalysis(
   try {
     marketData = await getNikkei225Data();
   } catch (e) {}
-  const marketContext = buildMarketContext(marketData);
+  const marketContext = buildMarketContext(marketData) + buildDefensiveModeContext(marketData);
 
   let sectorTrendContext = "";
   let sectorAvgWeekChangeRate: number | null = null;

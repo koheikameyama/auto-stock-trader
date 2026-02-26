@@ -6,6 +6,7 @@ export interface MarketIndexData {
   weekChangeRate: number
   trend: "up" | "down" | "neutral"
   isMarketCrash: boolean
+  isMarketPanic: boolean
 }
 
 /**
@@ -43,11 +44,15 @@ export async function getNikkei225Data(): Promise<MarketIndexData | null> {
     // 急落判定
     const isMarketCrash = weekChangeRate <= MARKET_INDEX.CRASH_THRESHOLD
 
+    // パニック判定（防御モード発動）
+    const isMarketPanic = weekChangeRate <= MARKET_INDEX.PANIC_THRESHOLD
+
     return {
       currentPrice: latestPrice,
       weekChangeRate,
       trend,
       isMarketCrash,
+      isMarketPanic,
     }
   } catch (error) {
     console.error("日経平均データの取得に失敗:", error)

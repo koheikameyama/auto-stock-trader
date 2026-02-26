@@ -433,6 +433,23 @@ export function buildMarketContext(marketData: MarketIndexData | null): string {
 }
 
 /**
+ * 防御モードコンテキスト文字列を生成する
+ * 市場パニック時にAIプロンプトに警告を挿入する
+ */
+export function buildDefensiveModeContext(marketData: MarketIndexData | null): string {
+  if (!marketData?.isMarketPanic) return "";
+
+  return `
+【⚠️ 市場パニック - 防御モード発動中】
+日経平均が週間${marketData.weekChangeRate.toFixed(1)}%と大幅に下落しています。
+全投資スタイルの閾値が引き締められ、より慎重な判断基準が適用されています。
+- 新規購入は特に慎重に判断してください
+- 「落ちるナイフを掴む」リスクを重視してください
+- 市場の安定を確認するまで様子見が安全です
+`;
+}
+
+/**
  * 出来高分析コンテキスト文字列を生成する
  *
  * 下落日と上昇日の平均出来高を比較して「本物の売り圧力」か「出来高を伴わない調整」かを判定する。

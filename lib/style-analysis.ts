@@ -10,7 +10,7 @@ import {
   isOverheated,
   isInDecline,
 } from "@/lib/stock-safety-rules";
-import { MA_DEVIATION, MOMENTUM } from "@/lib/constants";
+import { MA_DEVIATION, MOMENTUM, MARKET_DEFENSIVE_MODE } from "@/lib/constants";
 import { generateCorrectionExplanation, getStyleNameJa } from "@/lib/correction-explanation";
 
 /** 投資スタイル別の購入判断結果 */
@@ -101,8 +101,9 @@ export function applyPurchaseStyleSafetyRules(params: {
     sma25: number | null;
   };
   skipSafetyRules: boolean;
+  isMarketPanic?: boolean;
 }): StyleAnalysesMap<PurchaseStyleAnalysis> {
-  const { styleAnalyses, weekChangeRate, deviationRate, buyTimingParams, sellTimingParams, skipSafetyRules } = params;
+  const { styleAnalyses, weekChangeRate, deviationRate, buyTimingParams, sellTimingParams, skipSafetyRules, isMarketPanic = false } = params;
 
   const result = {} as StyleAnalysesMap<PurchaseStyleAnalysis>;
 
@@ -190,6 +191,23 @@ export function applyPurchaseStyleSafetyRules(params: {
       }
     }
 
+    // 市場パニック時のconfidence低下（全スタイル共通）
+    if (isMarketPanic && styleResult.recommendation === "buy") {
+      styleResult.confidence = Math.max(
+        0,
+        styleResult.confidence - MARKET_DEFENSIVE_MODE.CONFIDENCE_REDUCTION,
+      );
+      if (!styleResult.correctionExplanation) {
+        styleResult.correctionExplanation = generateCorrectionExplanation({
+          ruleId: "market_panic",
+          styleName,
+          originalRecommendation: "buy",
+          correctedRecommendation: "buy",
+          actualValue: `${weekChangeRate?.toFixed(0) ?? "N/A"}%`,
+        });
+      }
+    }
+
     // 購入タイミング判断
     if (styleResult.recommendation === "buy") {
       const { deviationRate: devRate, rsi, sma25, currentPrice } = buyTimingParams;
@@ -238,8 +256,9 @@ export function applyPortfolioStyleSafetyRules(params: {
   sma25: number | null;
   sellTimingBase: string | null;
   sellTargetPriceBase: number | null;
+  isMarketPanic?: boolean;
 }): StyleAnalysesMap<PortfolioStyleAnalysis> {
-  const { styleAnalyses, weekChangeRate, sma25, sellTimingBase, sellTargetPriceBase } = params;
+  const { styleAnalyses, weekChangeRate, sma25, sellTimingBase, sellTargetPriceBase, isMarketPanic = false } = params;
 
   const result = {} as StyleAnalysesMap<PortfolioStyleAnalysis>;
 
@@ -274,6 +293,23 @@ export function applyPortfolioStyleSafetyRules(params: {
         thresholdValue: `+${surgeThreshold}%`,
         actualValue: `+${weekChangeRate!.toFixed(0)}%`,
       });
+    }
+
+    // 市場パニック時のconfidence低下（買い増し推奨時）
+    if (isMarketPanic && styleResult.recommendation === "buy") {
+      styleResult.confidence = Math.max(
+        0,
+        styleResult.confidence - MARKET_DEFENSIVE_MODE.CONFIDENCE_REDUCTION,
+      );
+      if (!styleResult.correctionExplanation) {
+        styleResult.correctionExplanation = generateCorrectionExplanation({
+          ruleId: "market_panic",
+          styleName,
+          originalRecommendation: "buy",
+          correctedRecommendation: "buy",
+          actualValue: `${weekChangeRate?.toFixed(0) ?? "N/A"}%`,
+        });
+      }
     }
 
     result[style] = styleResult;

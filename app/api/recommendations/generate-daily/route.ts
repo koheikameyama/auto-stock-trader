@@ -19,6 +19,7 @@ import {
   buildChartPatternContext,
   buildWeekChangeContext,
   buildMarketContext,
+  buildDefensiveModeContext,
   buildDeviationRateContext,
   buildTrendlineContext,
 } from "@/lib/stock-analysis-context";
@@ -234,7 +235,7 @@ export async function POST(request: NextRequest) {
     } catch (error) {
       console.error("市場データ取得失敗:", error);
     }
-    const marketContext = buildMarketContext(marketData);
+    const marketContext = buildMarketContext(marketData) + buildDefensiveModeContext(marketData);
 
     // セクタートレンドを一括取得（全ユーザー共通）
     const { trends: sectorTrends } = await getAllSectorTrends();
@@ -269,6 +270,7 @@ export async function POST(request: NextRequest) {
             remainingBudget,
             sectorTrendMap,
             sectorTrendContext,
+            marketData?.isMarketPanic === true,
           );
           return result;
         } catch (error) {
@@ -345,6 +347,7 @@ async function processUser(
   remainingBudget: number | null,
   sectorTrendMap: Record<string, SectorTrendData>,
   sectorTrendContext: string,
+  isMarketPanic: boolean = false,
 ): Promise<UserResult> {
   const { userId, investmentStyle, investmentBudget } = user;
 
@@ -384,6 +387,7 @@ async function processUser(
     looseFiltered,
     investmentStyle,
     sectorTrendMap,
+    isMarketPanic,
   );
   console.log(
     `  Top 3 scores: ${scored

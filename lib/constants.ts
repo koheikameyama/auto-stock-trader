@@ -224,6 +224,19 @@ export const MARKET_INDEX = {
   CRASH_THRESHOLD: -5, // 急落判定（週間変化率%）
   UP_TREND_THRESHOLD: 3, // 上昇トレンド判定（週間変化率%）
   DOWN_TREND_THRESHOLD: -3, // 下落トレンド判定（週間変化率%）
+  PANIC_THRESHOLD: -7, // パニック閾値（週間-7%以下で防御モード発動）
+} as const;
+
+// 市場パニック時の防御モード
+// 日経平均の週間変化率がPANIC_THRESHOLDを下回った場合、
+// 全スタイルの閾値を引き締めて慎重な判断に切り替える
+export const MARKET_DEFENSIVE_MODE = {
+  SURGE_TIGHTENING_FACTOR: 0.7, // 急騰閾値を70%に引き締め
+  DECLINE_LOOSENING_FACTOR: 0.7, // 下落閾値を70%に引き締め（絶対値）
+  CONFIDENCE_REDUCTION: 0.1, // 全体confidence低下
+  OVERHEAT_TIGHTENING_FACTOR: 0.75, // 過熱閾値を75%に引き締め
+  GAP_UP_TIGHTENING_FACTOR: 0.7, // ギャップアップ閾値を70%に引き締め
+  SCORE_PENALTY: -10, // おすすめスコアリングの一律ペナルティ
 } as const;
 
 // バッジ表示設定

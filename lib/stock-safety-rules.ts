@@ -4,7 +4,7 @@
  * おすすめ分析・購入判断の両方で共通して使う。
  * 条件判定のみを提供し、アクション（除外 or stay変更）は呼び出し側に委ねる。
  */
-import { MA_DEVIATION, MOMENTUM, TIMING_INDICATORS, TECHNICAL_BRAKE, GAP_UP_MOMENTUM } from "@/lib/constants";
+import { MA_DEVIATION, MOMENTUM, TIMING_INDICATORS, TECHNICAL_BRAKE, GAP_UP_MOMENTUM, MARKET_DEFENSIVE_MODE } from "@/lib/constants";
 
 /** 高ボラティリティの閾値（%） */
 const HIGH_VOLATILITY_THRESHOLD = 50;
@@ -168,4 +168,37 @@ export function getTechnicalBrakeThreshold(investmentStyle?: string | null): num
     default:
       return TECHNICAL_BRAKE.BALANCED;
   }
+}
+
+/**
+ * 防御モード時の引き締め済み閾値を取得
+ * isDefensive=true の場合、各閾値に引き締め係数を適用する
+ */
+export function getDefensiveThresholds(investmentStyle: string | null, isDefensive: boolean) {
+  const style = investmentStyle || "BALANCED";
+
+  // ベース閾値
+  const baseSurge = getSurgeThreshold(style);
+  const baseDecline = getDeclineThreshold(style);
+  const baseOverheat = MA_DEVIATION.UPPER_THRESHOLD;
+  const baseGapUp = getGapUpSurgeThreshold(style);
+
+  if (!isDefensive) {
+    return {
+      surgeThreshold: baseSurge,
+      declineThreshold: baseDecline,
+      overheatThreshold: baseOverheat,
+      gapUpThreshold: baseGapUp,
+    };
+  }
+
+  // 防御モード: 引き締め係数を適用
+  return {
+    surgeThreshold: baseSurge !== null
+      ? Math.round(baseSurge * MARKET_DEFENSIVE_MODE.SURGE_TIGHTENING_FACTOR)
+      : null,
+    declineThreshold: Math.round(baseDecline * MARKET_DEFENSIVE_MODE.DECLINE_LOOSENING_FACTOR),
+    overheatThreshold: Math.round(baseOverheat * MARKET_DEFENSIVE_MODE.OVERHEAT_TIGHTENING_FACTOR),
+    gapUpThreshold: Math.round(baseGapUp * MARKET_DEFENSIVE_MODE.GAP_UP_TIGHTENING_FACTOR),
+  };
 }
