@@ -192,6 +192,39 @@ def _compute_price_data(hist) -> dict | None:
             if older_avg > 0:
                 volume_ratio = round(recent_avg / older_avg, 2)
 
+    # ギャップアップ率（当日始値 - 前日終値）/ 前日終値 × 100
+    gap_up_rate = None
+    if len(hist) >= 2 and "Open" in hist.columns:
+        today_open = float(hist.iloc[-1]["Open"])
+        yesterday_close = float(hist.iloc[-2]["Close"])
+        if yesterday_close > 0 and not np.isnan(today_open):
+            gap_up_rate = round(((today_open - yesterday_close) / yesterday_close) * 100, 2)
+
+    # 出来高急増率（当日出来高 / 過去平均出来高）
+    volume_spike_rate = None
+    if len(hist) >= 5:
+        volumes = hist["Volume"].values.astype(float)
+        avg_volume_period = volumes[:-1]  # 当日を除く過去データ
+        if len(avg_volume_period) > 0:
+            avg_volume = float(avg_volume_period.mean())
+            today_volume = float(volumes[-1])
+            if avg_volume > 0 and today_volume > 0:
+                volume_spike_rate = round(today_volume / avg_volume, 2)
+
+    # 売買代金（出来高 × 終値）
+    turnover_value = None
+    if volume > 0:
+        turnover_value = int(volume * latest_price)
+
+    # 始値
+    latest_open = None
+    if "Open" in hist.columns:
+        open_val = hist.iloc[-1]["Open"]
+        if not np.isnan(open_val):
+            latest_open = float(open_val)
+            if latest_open > MAX_PRICE or latest_open < 0:
+                latest_open = None
+
     # DECIMAL(8, 2)の上限チェック（10^6未満 = 99万9999.99まで）
     MAX_RATE = 999_999.99
 
@@ -213,6 +246,10 @@ def _compute_price_data(hist) -> dict | None:
         "volatility": clamp_rate(volatility),
         "volumeRatio": clamp_rate(volume_ratio),
         "maDeviationRate": clamp_rate(ma_deviation_rate),
+        "latestOpen": latest_open,
+        "gapUpRate": clamp_rate(gap_up_rate),
+        "volumeSpikeRate": clamp_rate(volume_spike_rate),
+        "turnoverValue": turnover_value,
     }
 
 
@@ -233,6 +270,10 @@ def update_stock_prices(conn, updates: list[dict]) -> int:
                 u.get("volatility"),
                 u.get("volumeRatio"),
                 u.get("maDeviationRate"),
+                u.get("latestOpen"),
+                u.get("gapUpRate"),
+                u.get("volumeSpikeRate"),
+                u.get("turnoverValue"),
                 now,
                 u["id"]
             )
@@ -250,6 +291,10 @@ def update_stock_prices(conn, updates: list[dict]) -> int:
                 "volatility" = %s,
                 "volumeRatio" = %s,
                 "maDeviationRate" = %s,
+                "latestOpen" = %s,
+                "gapUpRate" = %s,
+                "volumeSpikeRate" = %s,
+                "turnoverValue" = %s,
                 "priceUpdatedAt" = %s
             WHERE id = %s
             ''',
