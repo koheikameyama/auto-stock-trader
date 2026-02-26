@@ -164,6 +164,14 @@ def download_batch(symbols: list[str], retry_count: int = 0) -> dict:
     return results
 
 
+def _is_zombie_data(hist) -> bool:
+    """出来高がすべて0のゾンビデータを検出（上場廃止同等扱い）"""
+    if len(hist) < 2:
+        return False
+    volumes = hist["Volume"].values.astype(float)
+    return all(v == 0 for v in volumes)
+
+
 def _compute_price_data(hist) -> dict | None:
     """DataFrameから価格指標を計算"""
     hist = hist.dropna(subset=["Close"])
@@ -292,6 +300,9 @@ def _compute_price_data(hist) -> dict | None:
     # チャート表示・テクニカル分析に十分なデータがあるか判定
     has_chart_data = len(hist) >= MIN_CHART_DATA_POINTS
 
+    # ゾンビデータ検出（出来高0 = 実質取引なし）
+    is_zombie = _is_zombie_data(hist)
+
     return {
         "latestPrice": latest_price,
         "latestPriceDate": latest_date.date(),  # yfinance株価データの実際の日付
@@ -307,6 +318,7 @@ def _compute_price_data(hist) -> dict | None:
         "turnoverValue": turnover_value,
         "atr14": atr14,
         "hasChartData": has_chart_data,
+        "isZombie": is_zombie,
     }
 
 
@@ -424,6 +436,34 @@ def mark_delisted_stocks(conn) -> list[dict]:
     ]
 
 
+def mark_zombie_stocks(conn, stock_ids: list[str]) -> list[dict]:
+    """ゾンビデータ（出来高0）の銘柄を isDelisted = true に設定"""
+    if not stock_ids:
+        return []
+
+    with conn.cursor() as cur:
+        psycopg2.extras.execute_batch(
+            cur,
+            '''
+            UPDATE "Stock"
+            SET "isDelisted" = true,
+                "hasChartData" = false
+            WHERE id = %s
+              AND "isDelisted" = false
+            RETURNING id, "tickerCode", name
+            ''',
+            [(stock_id,) for stock_id in stock_ids],
+            page_size=DB_BATCH_SIZE
+        )
+        rows = cur.fetchall()
+
+    conn.commit()
+    return [
+        {"id": r[0], "tickerCode": r[1], "name": r[2]}
+        for r in rows
+    ]
+
+
 def delete_unused_failed_stocks(conn, min_fail_count: int = FETCH_FAIL_WARNING_THRESHOLD) -> list[dict]:
     """連続N回以上失敗 + ユーザー未使用の銘柄を削除"""
     with conn.cursor() as cur:
@@ -504,6 +544,7 @@ def main():
         # 成功/失敗した銘柄を追跡
         all_success_ids = []
         all_failed_ids = []
+        all_zombie_ids = []
 
         for batch_start in range(0, len(all_symbols), batch_size):
             batch_symbols = all_symbols[batch_start:batch_start + batch_size]
@@ -525,6 +566,10 @@ def main():
                 stock = symbol_to_stock.get(symbol)
                 if not stock:
                     continue
+
+                is_zombie = price_data.pop("isZombie", False)
+                if is_zombie:
+                    all_zombie_ids.append(stock["id"])
 
                 updates.append({
                     "id": stock["id"],
@@ -573,6 +618,14 @@ def main():
             print(f"Marked {len(marked)} stocks as delisted ({FETCH_FAIL_WARNING_THRESHOLD}+ consecutive failures):")
             for stock in marked:
                 print(f"  - {stock['tickerCode']} ({stock['name']}) - {stock['failCount']} failures")
+
+        # ゾンビデータの銘柄を上場廃止扱いに
+        zombie_marked = mark_zombie_stocks(conn, all_zombie_ids)
+        if zombie_marked:
+            print()
+            print(f"Marked {len(zombie_marked)} stocks as delisted (zombie data - zero volume):")
+            for stock in zombie_marked:
+                print(f"  - {stock['tickerCode']} ({stock['name']})")
 
         # 連続失敗 + ユーザー未使用の銘柄を削除
         deleted = delete_unused_failed_stocks(conn)
