@@ -84,57 +84,90 @@ AI生成後、非スタイル依存の安全補正（上記テーブルの大半
 
 シミュレーション分析（`executeSimulatedPortfolioAnalysis`）でも同様に投資スタイル別分析を生成し、`styleAnalyses` としてレスポンスに含めます（DBには保存しません）。
 
-### 2. ポートフォリオ総評分析
+### 2. Daily Market Navigator（ポートフォリオ総評）
 
-ポートフォリオ全体を俯瞰的に評価します。
+ポートフォリオ全体を市場の流れと照合して、今日何をすべきかを断定するカード型UIです。「ポートフォリオ総評」を完全に置き換えたコア機能です。
 
 **前提条件**: ポートフォリオ + ウォッチリスト合計3銘柄以上
 
-**分析指標**:
-- セクター分散度（集中率、セクター数）
-- 損益状況（含み損益、実現損益、勝率）
-- ボラティリティ（加重平均）
-- 業績状況（黒字銘柄数、利益トレンド）
+**表示場所**:
+- `/dashboard` の最上部
+- `/portfolio-analysis`（専用ページ）
+
+**分析に使用するデータ**:
+- セクター構成・集中率
+- 含み損益・総資産額・投資額
+- ポートフォリオ全体のボラティリティ（加重平均）
+- 業績状況（黒字銘柄数、増益/減益傾向）
+- 銘柄別の日次値動き（前日比・週間変化率・MA乖離・出来高比）
+- 本日の売却取引
+- ポートフォリオ内セクターのセクタートレンド
+- 今後7日間の決算予定銘柄
+- ユーザーの投資スタイル
+
+**3ステップ思考ロジック**:
+
+| ステップ | 内容 |
+|---------|------|
+| STEP 1: 市場の流れを定義 | セクタートレンド・値動きデータから今日の地合いを `bullish / bearish / neutral / sector_rotation` の1つに定義 |
+| STEP 2: ポートフォリオとの照合 | 保有銘柄と市場の流れを突き合わせ、逆行銘柄・リスク水準・要注意銘柄を特定 |
+| STEP 3: 結論（アクション） | 投資スタイルに合わせて「攻める日」か「守る日」かを断定。曖昧な表現を避け具体的なアクションを提示 |
 
 **AI出力スキーマ**:
 
 ```json
 {
-  "overallSummary": "ポートフォリオの総評テキスト",
-  "overallStatus": "好調 | 順調 | やや低調 | 注意 | 要確認",
-  "overallStatusType": "excellent | good | neutral | caution | warning",
-  "metricsAnalysis": {
-    "sectorDiversification": {
-      "value": "3セクター / 最大40%集中",
-      "explanation": "解説テキスト",
-      "evaluation": "評価テキスト",
-      "evaluationType": "good | neutral | caution",
-      "action": "アクション提案"
-    },
-    "profitLoss": { ... },
-    "volatility": { ... }
-  },
-  "actionSuggestions": [
+  "marketHeadline": "市況を1文で要約したテキスト",
+  "marketTone": "bullish | bearish | neutral | sector_rotation",
+  "marketKeyFactor": "市場の主要因（1〜2文）",
+  "portfolioStatus": "healthy | caution | warning | critical",
+  "portfolioSummary": "ポートフォリオの状態（1〜2文）",
+  "actionPlan": "投資スタイルに基づく具体的なアクション（1〜2文）",
+  "buddyMessage": "親しみやすい口調で初心者を勇気づける1文",
+  "stockHighlights": [
     {
-      "priority": 1,
-      "title": "提案タイトル",
-      "description": "詳細",
-      "type": "diversify | rebalance | hold | take_profit | cut_loss"
+      "stockName": "銘柄名",
+      "tickerCode": "7203.T",
+      "sector": "輸送用機器",
+      "dailyChangeRate": -2.3,
+      "weekChangeRate": 1.5,
+      "analysis": "値動きの分析テキスト"
     }
   ],
-  "watchlistSimulation": {
-    "stocks": [
-      {
-        "stockId": "xxx",
-        "stockName": "銘柄名",
-        "tickerCode": "7203.T",
-        "sector": "輸送用機器",
-        "predictedImpact": { ... }
-      }
-    ]
-  }
+  "sectorHighlights": [
+    {
+      "sector": "半導体",
+      "avgDailyChange": -3.1,
+      "trendDirection": "up | down | neutral",
+      "compositeScore": -25,
+      "commentary": "セクター動向のコメント"
+    }
+  ]
 }
 ```
+
+**バッジの色分け**:
+
+| 種類 | 値 | 色 |
+|------|----|----|
+| tone（市場トーン） | `bullish` | 緑（green） |
+| tone（市場トーン） | `bearish` | 赤（red） |
+| tone（市場トーン） | `neutral` | グレー（gray） |
+| tone（市場トーン） | `sector_rotation` | 琥珀（amber） |
+| status（ポートフォリオ状態） | `healthy` | 緑（green） |
+| status（ポートフォリオ状態） | `caution` | 琥珀（amber） |
+| status（ポートフォリオ状態） | `warning` | オレンジ（orange） |
+| status（ポートフォリオ状態） | `critical` | 赤（red） |
+
+**UIの構成（統合カード型）**:
+
+| セクション | 内容 |
+|-----------|------|
+| Section 1: 市場 | `marketHeadline` + `marketTone` バッジ + `marketKeyFactor` |
+| Section 2: ポートフォリオ | `portfolioStatus` バッジ + `portfolioSummary` + `actionPlan`（青背景） |
+| Section 3: バディメッセージ | `buddyMessage`（紫背景の吹き出し） |
+| Section 4: 詳細（折りたたみ） | `stockHighlights`（銘柄ハイライト）+ `sectorHighlights`（セクターハイライト） |
+| フッター | 分析日時 |
 
 ## API仕様
 
@@ -150,17 +183,68 @@ AI生成後、非スタイル依存の安全補正（上記テーブルの大半
 
 **認証**: セッション認証 or CRON_SECRET
 
-### ポートフォリオ総評
+### Daily Market Navigator
 
 #### `GET /api/portfolio/overall-analysis`
 
-キャッシュされた総評を取得。
+キャッシュされた Daily Market Navigator の分析を取得。
 
-**レスポンス**: `PortfolioOverallAnalysis` レコード
+**レスポンス**:
+
+```json
+{
+  "hasAnalysis": true,
+  "analyzedAt": "2026-02-26T10:00:00.000Z",
+  "isToday": true,
+  "portfolioCount": 3,
+  "watchlistCount": 2,
+  "market": {
+    "headline": "半導体セクターが相場を牽引、全体的にリスクオンの展開",
+    "tone": "bullish",
+    "keyFactor": "外国人投資家の買い越しが続き、輸出関連銘柄に追い風"
+  },
+  "portfolio": {
+    "status": "healthy",
+    "summary": "保有銘柄の多くが市場と同じ方向に動いており、ポートフォリオは好調です",
+    "actionPlan": "現在のポジションを維持しつつ、次の押し目買いのタイミングを狙ってください",
+    "metrics": {
+      "totalValue": 1500000,
+      "totalCost": 1200000,
+      "unrealizedGain": 300000,
+      "unrealizedGainPercent": 25.0,
+      "portfolioVolatility": 28.5,
+      "sectorConcentration": 40.0,
+      "sectorCount": 3
+    }
+  },
+  "buddyMessage": "今日の市場は追い風です。焦らず、計画通りに進めましょう！",
+  "details": {
+    "stockHighlights": [
+      {
+        "stockName": "トヨタ自動車",
+        "tickerCode": "7203.T",
+        "sector": "輸送用機器",
+        "dailyChangeRate": -2.3,
+        "weekChangeRate": 1.5,
+        "analysis": "円安一服を受けて利益確定売りが先行"
+      }
+    ],
+    "sectorHighlights": [
+      {
+        "sector": "半導体",
+        "avgDailyChange": 3.1,
+        "trendDirection": "up",
+        "compositeScore": 25,
+        "commentary": "AI関連需要の拡大期待で買いが続く"
+      }
+    ]
+  }
+}
+```
 
 #### `POST /api/portfolio/overall-analysis`
 
-総評を再生成。
+Daily Market Navigator の分析を再生成。
 
 **認証**: セッション認証 or CRON_SECRET
 
@@ -226,6 +310,8 @@ PortfolioSnapshot テーブルからの時系列データ。
 
 ## AI設定
 
+### 個別銘柄分析
+
 | 項目 | 値 |
 |------|-----|
 | モデル | OpenAI GPT-4o-mini |
@@ -233,9 +319,20 @@ PortfolioSnapshot テーブルからの時系列データ。
 | レスポンス形式 | JSON Schema（strict mode） |
 | 最大トークン | 800 |
 
+### Daily Market Navigator
+
+| 項目 | 値 |
+|------|-----|
+| モデル | OpenAI GPT-4o-mini（`DAILY_MARKET_NAVIGATOR.OPENAI_MODEL`） |
+| Temperature | 0.3（`DAILY_MARKET_NAVIGATOR.OPENAI_TEMPERATURE`） |
+| レスポンス形式 | JSON Schema（strict mode） |
+| 最小銘柄数 | 3銘柄（ポートフォリオ＋ウォッチリスト合計、`DAILY_MARKET_NAVIGATOR.MIN_STOCKS`） |
+
 ## データモデル
 
-### PortfolioOverallAnalysis
+### PortfolioOverallAnalysis（Daily Market Navigator）
+
+ユーザーごとに1レコードを upsert で保存（`userId` ユニーク）。
 
 | カラム | 型 | 説明 |
 |--------|-----|------|
@@ -247,53 +344,39 @@ PortfolioSnapshot テーブルからの時系列データ。
 | totalCost | Decimal? | 総投資額 |
 | unrealizedGain | Decimal? | 含み損益 |
 | unrealizedGainPercent | Decimal? | 含み損益率(%) |
-| portfolioVolatility | Decimal? | ボラティリティ(%) |
-| overallSummary | Text | 全体の総評 |
-| overallStatus | String | 好調/順調/やや低調/注意/要確認 |
-| overallStatusType | String | excellent/good/neutral/caution/warning |
-| metricsAnalysis | Json | 各指標の評価 |
-| actionSuggestions | Json | 推奨アクションリスト |
-| watchlistSimulation | Json? | ウォッチリスト追加シミュレーション |
-| dailyCommentary | Json? | 日次コメンタリー |
+| portfolioVolatility | Decimal? | ポートフォリオ全体のボラティリティ(%) |
+| marketHeadline | Text | 市場ヘッドライン（AI生成） |
+| marketTone | String | bullish / bearish / neutral / sector_rotation |
+| marketKeyFactor | Text | 市場の主要因（AI生成） |
+| portfolioStatus | String | healthy / caution / warning / critical |
+| portfolioSummary | Text | ポートフォリオ総評（AI生成） |
+| actionPlan | Text | アクションプラン（AI生成） |
+| buddyMessage | Text | バディメッセージ（AI生成） |
+| stockHighlights | Json | 銘柄ハイライト（`StockHighlight[]`） |
+| sectorHighlights | Json | セクターハイライト（`SectorHighlight[]`） |
 
-**dailyCommentary JSON構造**:
+**StockHighlight JSON構造**:
 
 ```json
 {
-  "marketSummary": "今日の市場概況とポートフォリオへの影響",
-  "portfolioDailyReturn": "+1.2%",
-  "stockHighlights": [
-    {
-      "stockName": "銘柄名",
-      "tickerCode": "7203.T",
-      "sector": "輸送用機器",
-      "dailyChangeRate": -2.3,
-      "weekChangeRate": 1.5,
-      "analysis": "下落理由の分析",
-      "technicalContext": "テクニカル指標のコンテキスト"
-    }
-  ],
-  "soldStocksAnalysis": [
-    {
-      "stockName": "銘柄名",
-      "tickerCode": "6758.T",
-      "sellPrice": 15000,
-      "averagePurchasePrice": 12000,
-      "profitLossPercent": 25.0,
-      "holdingDays": 45,
-      "timingEvaluation": "売却タイミングの評価"
-    }
-  ],
-  "sectorHighlights": [
-    {
-      "sector": "半導体",
-      "avgDailyChange": -3.1,
-      "trendDirection": "down",
-      "compositeScore": -25,
-      "commentary": "セクター動向のコメント"
-    }
-  ],
-  "tomorrowWatchpoints": ["注目ポイント1", "注目ポイント2"]
+  "stockName": "銘柄名",
+  "tickerCode": "7203.T",
+  "sector": "輸送用機器",
+  "dailyChangeRate": -2.3,
+  "weekChangeRate": 1.5,
+  "analysis": "値動きの分析テキスト"
+}
+```
+
+**SectorHighlight JSON構造**:
+
+```json
+{
+  "sector": "半導体",
+  "avgDailyChange": -3.1,
+  "trendDirection": "up | down | neutral",
+  "compositeScore": -25,
+  "commentary": "セクター動向のコメント"
 }
 ```
 
@@ -313,13 +396,16 @@ PortfolioSnapshot テーブルからの時系列データ。
 
 ## 関連ファイル
 
-- `app/portfolio-analysis/` - 分析ページ
-- `app/api/portfolio/overall-analysis/route.ts` - 総評 API
+- `app/portfolio-analysis/` - ポートフォリオ分析ページ（Daily Market Navigator を表示）
+- `app/dashboard/DailyMarketNavigator.tsx` - Daily Market Navigator コンポーネント
+- `app/portfolio-analysis/PortfolioAnalysisClient.tsx` - ポートフォリオ分析ページクライアント
+- `app/api/portfolio/overall-analysis/route.ts` - Daily Market Navigator API
 - `app/api/portfolio/summary/route.ts` - サマリー API
 - `app/api/portfolio/composition/route.ts` - 構成比率 API
 - `app/api/portfolio/history/route.ts` - 資産推移 API
-- `lib/portfolio-analysis-core.ts` - 個別分析ロジック
+- `lib/portfolio-overall-analysis.ts` - Daily Market Navigator ロジック（型定義・生成・取得）
+- `lib/portfolio-analysis-core.ts` - 個別銘柄分析ロジック
 - `lib/portfolio-calculator.ts` - 計算ロジック
 - `lib/style-analysis.ts` - 投資スタイル別セーフティルール
 - `lib/prompts/portfolio-analysis-prompt.ts` - 個別分析プロンプト
-- `lib/prompts/portfolio-overall-analysis-prompt.ts` - 総評プロンプト
+- `lib/prompts/portfolio-overall-analysis-prompt.ts` - Daily Market Navigator プロンプト
