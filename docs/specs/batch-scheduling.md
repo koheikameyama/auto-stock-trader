@@ -46,11 +46,11 @@
 | セッション | JST | 実行ジョブ |
 |-----------|-----|-----------|
 | pre-morning | 08:00 | news(JP+US), trends, navigator(morning) |
-| morning | 09:10 | purchase, portfolio, personal |
-| mid-morning | 10:10 | purchase, portfolio, personal |
+| morning | 09:30 | purchase, portfolio, personal |
+| mid-morning | 10:30 | purchase, portfolio, personal |
 | pre-afternoon | 11:40 | news(JP), prices, trends |
-| afternoon | 12:40 | purchase, portfolio, personal |
-| mid-afternoon | 13:40 | purchase, portfolio, personal |
+| afternoon | 13:00 | purchase, portfolio, personal |
+| mid-afternoon | 14:00 | purchase, portfolio, personal |
 | close | 15:40 | prices, trends, purchase, portfolio, personal, gainers, snapshots |
 | post-close | 17:00 | navigator(evening) |
 
