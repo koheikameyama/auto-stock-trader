@@ -26,6 +26,9 @@ interface TechnicalAnalysisData {
 interface Props {
   stockId: string
   embedded?: boolean
+  gapUpRate?: number | null
+  volumeSpikeRate?: number | null
+  turnoverValue?: number | null
 }
 
 function SignalBadge({ signal, size = "sm", t }: { signal: SignalType; size?: "sm" | "md"; t: (key: string) => string }) {
@@ -68,7 +71,7 @@ function StrengthBar({ value, max = 100 }: { value: number; max?: number }) {
   )
 }
 
-export default function TechnicalAnalysis({ stockId, embedded = false }: Props) {
+export default function TechnicalAnalysis({ stockId, embedded = false, gapUpRate, volumeSpikeRate, turnoverValue }: Props) {
   const tTooltip = useTranslations('stocks.tooltips')
   const t = useTranslations('stocks.technicalAnalysis')
   const [data, setData] = useState<TechnicalAnalysisData | null>(null)
@@ -379,6 +382,74 @@ export default function TechnicalAnalysis({ stockId, embedded = false }: Props) 
           </div>
         )}
 
+        {/* タイミング指標 */}
+        {(gapUpRate !== null && gapUpRate !== undefined) ||
+         (volumeSpikeRate !== null && volumeSpikeRate !== undefined) ||
+         (turnoverValue !== null && turnoverValue !== undefined) ? (
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 flex items-center">
+              {t('timingIndicators.label')}
+              <TermTooltip id="ta-timing-indicators" text={tTooltip('timingIndicators')} />
+            </h3>
+            <div className="mt-2 space-y-2">
+              {/* ギャップアップ率 */}
+              {gapUpRate !== null && gapUpRate !== undefined && (
+                <div className="bg-muted/50 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      {t('timingIndicators.gapUpRate.label')}
+                      <TermTooltip id="ta-gap-up-rate" text={tTooltip('gapUpRate')} />
+                    </span>
+                    <span className={`text-sm font-bold ${gapUpRate >= 0 ? "text-red-500" : "text-blue-500"}`}>
+                      {gapUpRate >= 0 ? "+" : ""}{gapUpRate.toFixed(1)}%
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {t('timingIndicators.gapUpRate.desc')}
+                  </p>
+                </div>
+              )}
+
+              {/* 出来高急増率 */}
+              {volumeSpikeRate !== null && volumeSpikeRate !== undefined && (
+                <div className="bg-muted/50 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      {t('timingIndicators.volumeSpikeRate.label')}
+                      <TermTooltip id="ta-volume-spike-rate" text={tTooltip('volumeSpikeRate')} />
+                    </span>
+                    <span className={`text-sm font-bold ${volumeSpikeRate >= 2.0 ? "text-amber-500" : "text-foreground"}`}>
+                      {volumeSpikeRate.toFixed(1)}倍
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {t('timingIndicators.volumeSpikeRate.desc')}
+                  </p>
+                </div>
+              )}
+
+              {/* 売買代金 */}
+              {turnoverValue !== null && turnoverValue !== undefined && (
+                <div className="bg-muted/50 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      {t('timingIndicators.turnoverValue.label')}
+                      <TermTooltip id="ta-turnover-value" text={tTooltip('turnoverValue')} />
+                    </span>
+                    <span className="text-sm font-bold text-foreground">
+                      {turnoverValue >= 100_000_000
+                        ? `${(turnoverValue / 100_000_000).toFixed(1)}億円`
+                        : `${Math.round(turnoverValue / 10_000).toLocaleString()}万円`}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {t('timingIndicators.turnoverValue.desc')}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
         {/* データがない場合 */}
         {!technicalIndicators.rsi && !technicalIndicators.macd && !candlestickPattern && chartPatterns.length === 0 && (
           <p className="text-sm text-gray-500">{t('insufficientData')}</p>
