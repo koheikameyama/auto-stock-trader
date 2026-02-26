@@ -35,6 +35,7 @@ import {
   INVESTMENT_STYLE_COEFFICIENTS,
   ATR_EXIT_STRATEGY,
   PROFIT_TAKING_PROMOTION,
+  UNIT_SHARES,
 } from "@/lib/constants";
 import { getDaysAgoForDB } from "@/lib/date-utils";
 import { isDangerousStock } from "@/lib/stock-safety-rules";
@@ -86,6 +87,7 @@ function postProcessPortfolioAnalysis(params: {
   profitPercent: number | null;
   currentPrice: number;
   averagePrice: number;
+  quantity: number;
   userSettings: { investmentStyle: string | null } | null;
 }): {
   styleAnalyses: StyleAnalysesMap<PortfolioStyleAnalysis>;
@@ -95,7 +97,7 @@ function postProcessPortfolioAnalysis(params: {
   sellTargetPrice: number | null;
   deviationRate: number | null;
 } {
-  const { result, prices, stock, weekChangeRate, marketData, profitPercent, currentPrice, averagePrice, userSettings } = params;
+  const { result, prices, stock, weekChangeRate, marketData, profitPercent, currentPrice, averagePrice, quantity, userSettings } = params;
 
   // テクニカル指標の計算
   const pricesNewestFirst = [...prices].reverse().map((p) => ({ close: p.close }));
@@ -201,6 +203,7 @@ function postProcessPortfolioAnalysis(params: {
 
     // 利益確定促進ルール（全スタイル対象、閾値はスタイル別）
     // 含み益あり + 短期下落予兆 → hold を sell（戻り売り）に変更して利確を促す
+    // 売却数量は100株（単元株）単位で算出
     if (
       sa.recommendation === "hold" &&
       profitPercent !== null &&
@@ -212,14 +215,31 @@ function postProcessPortfolioAnalysis(params: {
           : styleKey === "BALANCED"
             ? PROFIT_TAKING_PROMOTION.BALANCED_MIN_PROFIT
             : PROFIT_TAKING_PROMOTION.AGGRESSIVE_MIN_PROFIT;
-      const sellPercent =
+      const idealPercent =
         styleKey === "CONSERVATIVE"
           ? PROFIT_TAKING_PROMOTION.CONSERVATIVE_SELL_PERCENT
           : styleKey === "BALANCED"
             ? PROFIT_TAKING_PROMOTION.BALANCED_SELL_PERCENT
             : PROFIT_TAKING_PROMOTION.AGGRESSIVE_SELL_PERCENT;
 
-      if (profitPercent >= minProfit) {
+      if (profitPercent >= minProfit && quantity >= UNIT_SHARES) {
+        // 単元株単位で売却可能な最低限の割合を算出
+        const idealShares = Math.floor((quantity * idealPercent) / 100 / UNIT_SHARES) * UNIT_SHARES;
+        const validPercents = [25, 50, 75, 100] as const;
+        let sellPercent: 25 | 50 | 75 | 100;
+        if (idealShares >= UNIT_SHARES) {
+          // 理想の割合で1単元以上売れる → そのまま使用
+          sellPercent = idealPercent;
+        } else {
+          // 1単元未満 → 1単元（100株）以上売れる最小の割合に引き上げ
+          sellPercent = validPercents.find((pct) => {
+            const shares = Math.floor((quantity * pct) / 100 / UNIT_SHARES) * UNIT_SHARES;
+            return shares >= UNIT_SHARES;
+          }) ?? 100;
+        }
+
+        const sellShares = Math.floor((quantity * sellPercent) / 100 / UNIT_SHARES) * UNIT_SHARES;
+
         const styleAdvice =
           styleKey === "CONSERVATIVE"
             ? "利益を守ることを最優先に、利益確定を検討しましょう。"
@@ -236,8 +256,8 @@ function postProcessPortfolioAnalysis(params: {
         sa.recommendation = "sell";
         sa.statusType = "戻り売り";
         sa.suggestedSellPercent = sellPercent;
-        sa.sellReason = `含み益+${profitPercent.toFixed(1)}%の状態で短期テクニカル指標に下落予兆が出ているため、利益確定を推奨します。`;
-        sa.sellCondition = `短期下落トレンド中のため、利益を確保しつつ押し目（一時的な下落）での再エントリーを検討してください。`;
+        sa.sellReason = `含み益+${profitPercent.toFixed(1)}%の状態で短期テクニカル指標に下落予兆が出ているため、${sellShares}株（${sellPercent}%）の利益確定を推奨します。`;
+        sa.sellCondition = `短期下落トレンド中のため、${sellShares}株の利益確定を検討してください。押し目（一時的な下落）での再エントリーも有効です。`;
         sa.shortTerm = `【利確検討】含み益+${profitPercent.toFixed(1)}%で短期的に下落の予兆があります。${styleAdvice}AIの当初分析: ${sa.shortTerm}`;
         sa.advice = `含み益+${profitPercent.toFixed(1)}%を確保中ですが短期下落の予兆があります。${styleAction}`;
       }
@@ -831,6 +851,7 @@ export async function executePortfolioAnalysis(
       profitPercent,
       currentPrice,
       averagePrice,
+      quantity,
       userSettings,
     });
 
@@ -1205,6 +1226,7 @@ export async function executeSimulatedPortfolioAnalysis(
       profitPercent,
       currentPrice,
       averagePrice,
+      quantity,
       userSettings,
     });
 
