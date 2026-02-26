@@ -11,6 +11,7 @@ import {
   isInDecline,
 } from "@/lib/stock-safety-rules";
 import { MA_DEVIATION, MOMENTUM } from "@/lib/constants";
+import { generateCorrectionExplanation, getStyleNameJa } from "@/lib/correction-explanation";
 
 /** 投資スタイル別の購入判断結果 */
 export interface PurchaseStyleAnalysis {
@@ -27,6 +28,8 @@ export interface PurchaseStyleAnalysis {
   sellTargetPrice: number | null;
   suggestedExitRate: number | null;
   suggestedSellTargetRate: number | null;
+  /** セーフティルール補正時の解説テキスト */
+  correctionExplanation: string | null;
 }
 
 /** 投資スタイル別のポートフォリオ分析結果 */
@@ -45,6 +48,8 @@ export interface PortfolioStyleAnalysis {
   suggestedStopLossPrice: number | null;
   suggestedExitRate: number | null;
   suggestedSellTargetRate: number | null;
+  /** セーフティルール補正時の解説テキスト */
+  correctionExplanation: string | null;
 }
 
 /** 全3スタイルの分析結果マップ */
@@ -103,7 +108,8 @@ export function applyPurchaseStyleSafetyRules(params: {
 
   for (const style of ALL_STYLES) {
     // AI生成済みの結果をコピー（元のオブジェクトを変更しないため）
-    const styleResult = { ...styleAnalyses[style] };
+    const styleResult = { ...styleAnalyses[style], correctionExplanation: null as string | null };
+    const styleName = getStyleNameJa(style);
 
     // セーフティルールを適用
     if (!skipSafetyRules) {
@@ -112,6 +118,9 @@ export function applyPurchaseStyleSafetyRules(params: {
         isInDecline(weekChangeRate, style) &&
         styleResult.recommendation === "buy"
       ) {
+        const declineThreshold = style === "CONSERVATIVE" ? MOMENTUM.CONSERVATIVE_DECLINE_THRESHOLD
+          : style === "AGGRESSIVE" ? MOMENTUM.AGGRESSIVE_DECLINE_THRESHOLD
+          : MOMENTUM.BALANCED_DECLINE_THRESHOLD;
         styleResult.recommendation = "stay";
         styleResult.confidence = Math.max(
           0,
@@ -123,6 +132,14 @@ export function applyPurchaseStyleSafetyRules(params: {
         if (style === INVESTMENT_STYLES.CONSERVATIVE) {
             styleResult.advice = `週間${weekChangeRate!.toFixed(0)}%の下落トレンド中です。下げ止まりを確認してから購入を検討しましょう。`;
         }
+        styleResult.correctionExplanation = generateCorrectionExplanation({
+          ruleId: "decline_block",
+          styleName,
+          originalRecommendation: "buy",
+          correctedRecommendation: "stay",
+          thresholdValue: `${declineThreshold}%`,
+          actualValue: `${weekChangeRate!.toFixed(0)}%`,
+        });
       }
 
       // 急騰銘柄の強制補正
@@ -130,11 +147,22 @@ export function applyPurchaseStyleSafetyRules(params: {
         isSurgeStock(weekChangeRate, style) &&
         styleResult.recommendation === "buy"
       ) {
+        const surgeThreshold = style === "CONSERVATIVE" ? MOMENTUM.CONSERVATIVE_SURGE_THRESHOLD
+          : style === "AGGRESSIVE" ? MOMENTUM.AGGRESSIVE_SURGE_THRESHOLD
+          : MOMENTUM.BALANCED_SURGE_THRESHOLD;
         styleResult.recommendation = "stay";
         styleResult.caution = `週間+${weekChangeRate!.toFixed(0)}%の急騰銘柄のため、様子見を推奨します。${styleResult.caution}`;
         if (style === INVESTMENT_STYLES.CONSERVATIVE) {
             styleResult.advice = `週間+${weekChangeRate!.toFixed(0)}%の急騰後です。高値掴みを避けるため、調整を待ってから購入を検討しましょう。`;
         }
+        styleResult.correctionExplanation = generateCorrectionExplanation({
+          ruleId: "surge_block",
+          styleName,
+          originalRecommendation: "buy",
+          correctedRecommendation: "stay",
+          thresholdValue: `+${surgeThreshold}%`,
+          actualValue: `+${weekChangeRate!.toFixed(0)}%`,
+        });
       }
 
       // 過熱圏の強制補正
@@ -151,6 +179,14 @@ export function applyPurchaseStyleSafetyRules(params: {
         if (style === INVESTMENT_STYLES.CONSERVATIVE) {
             styleResult.advice = `移動平均線から+${deviationRate!.toFixed(1)}%乖離しており過熱圏です。平均線への回帰を待ってから購入を検討しましょう。`;
         }
+        styleResult.correctionExplanation = generateCorrectionExplanation({
+          ruleId: "overheat_block",
+          styleName,
+          originalRecommendation: "buy",
+          correctedRecommendation: "stay",
+          thresholdValue: `+${MA_DEVIATION.UPPER_THRESHOLD}%`,
+          actualValue: `+${deviationRate!.toFixed(1)}%`,
+        });
       }
     }
 
@@ -209,7 +245,8 @@ export function applyPortfolioStyleSafetyRules(params: {
 
   for (const style of ALL_STYLES) {
     // AI生成済みの結果をコピー（元のオブジェクトを変更しないため）
-    const styleResult = { ...styleAnalyses[style] };
+    const styleResult = { ...styleAnalyses[style], correctionExplanation: styleAnalyses[style].correctionExplanation ?? null };
+    const styleName = getStyleNameJa(style);
 
     // sellTiming/sellTargetPriceのベース値がAI結果に含まれていない場合はベース値を設定
     if (styleResult.sellTiming === null && sellTimingBase !== null) {
@@ -224,8 +261,19 @@ export function applyPortfolioStyleSafetyRules(params: {
       isSurgeStock(weekChangeRate, style) &&
       styleResult.recommendation === "buy"
     ) {
+      const surgeThreshold = style === "CONSERVATIVE" ? MOMENTUM.CONSERVATIVE_SURGE_THRESHOLD
+        : style === "AGGRESSIVE" ? MOMENTUM.AGGRESSIVE_SURGE_THRESHOLD
+        : MOMENTUM.BALANCED_SURGE_THRESHOLD;
       styleResult.recommendation = "hold";
       styleResult.shortTerm = `週間+${weekChangeRate!.toFixed(0)}%の急騰後のため、買い増しは高値掴みのリスクがあります。${styleResult.shortTerm}`;
+      styleResult.correctionExplanation = generateCorrectionExplanation({
+        ruleId: "surge_block",
+        styleName,
+        originalRecommendation: "buy",
+        correctedRecommendation: "hold",
+        thresholdValue: `+${surgeThreshold}%`,
+        actualValue: `+${weekChangeRate!.toFixed(0)}%`,
+      });
     }
 
     result[style] = styleResult;

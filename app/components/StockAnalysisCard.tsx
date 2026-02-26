@@ -87,6 +87,7 @@ interface StyleAnalysisData {
   suggestedStopLossPrice?: number | null;
   suggestedExitRate?: number | null;
   suggestedSellTargetRate?: number | null;
+  correctionExplanation?: string | null;
 }
 
 
@@ -398,6 +399,9 @@ export default function StockAnalysisCard({
       }
     : null;
 
+  // セーフティルール補正の解説テキスト
+  const correctionExplanation = styleData?.correctionExplanation ?? null;
+
   return (
     <div className="space-y-4">
       {/* シミュレーションバッジ */}
@@ -529,6 +533,17 @@ export default function StockAnalysisCard({
           <p className="text-sm text-gray-700 leading-relaxed mb-3">
             {effectiveAnalysis.advice}
           </p>
+          {/* セーフティルール補正の解説 */}
+          {correctionExplanation && (
+            <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 mb-3">
+              <p className="text-xs font-semibold text-indigo-700 mb-1">
+                セーフティルールによる補正
+              </p>
+              <p className="text-xs text-indigo-600 leading-relaxed">
+                {correctionExplanation}
+              </p>
+            </div>
+          )}
           {/* 指値・逆指値（推奨に応じて表示を切り替え） */}
           {(() => {
             // sell推奨時は「AI推奨価格」セクションを非表示（「売却検討」セクションに統合）

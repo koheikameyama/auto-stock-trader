@@ -27,6 +27,7 @@ interface StyleAnalysisData {
   sellTargetPrice?: number | null;
   suggestedExitRate?: number | null;
   suggestedSellTargetRate?: number | null;
+  correctionExplanation?: string | null;
 }
 
 interface RecommendationData {
@@ -328,6 +329,9 @@ export default function PurchaseRecommendation({
         suggestedSellTargetRate: styleData?.suggestedSellTargetRate ?? (styleData as any)?.suggestedTakeProfitRate ?? null,
       };
 
+  // セーフティルール補正の解説テキスト
+  const correctionExplanation = styleData?.correctionExplanation ?? null;
+
   // 信頼度パーセンテージ
   const confidencePercent = Math.round(effectiveData.confidence * 100);
 
@@ -394,6 +398,21 @@ export default function PurchaseRecommendation({
         <span>{badge.icon}</span>
         <span>{badge.text}</span>
       </span>
+    );
+  };
+
+  // セーフティルール補正の解説ボックス
+  const CorrectionExplanationBox = () => {
+    if (!correctionExplanation) return null;
+    return (
+      <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 mb-4">
+        <p className="text-xs font-semibold text-indigo-700 mb-1">
+          {t("correctionExplanation.title")}
+        </p>
+        <p className="text-xs text-indigo-600 leading-relaxed">
+          {correctionExplanation}
+        </p>
+      </div>
     );
   };
 
@@ -807,6 +826,9 @@ export default function PurchaseRecommendation({
           {/* B. 深掘り評価 */}
           <DeepEvaluationSection />
 
+          {/* セーフティルール補正の解説 */}
+          <CorrectionExplanationBox />
+
           <div className="bg-amber-50 border-l-4 border-amber-400 p-3 mb-4">
             <p className="text-xs text-amber-800">⚠️ {effectiveData.caution}</p>
           </div>
@@ -863,6 +885,9 @@ export default function PurchaseRecommendation({
 
           {/* B. 深掘り評価 */}
           <DeepEvaluationSection />
+
+          {/* セーフティルール補正の解説 */}
+          <CorrectionExplanationBox />
 
           <div className="bg-amber-50 border-l-4 border-amber-400 p-3 mb-4">
             <p className="text-xs text-amber-800">⚠️ {effectiveData.caution}</p>
@@ -928,6 +953,9 @@ export default function PurchaseRecommendation({
             sellTiming={effectiveData.sellTiming}
             sellTargetPrice={effectiveData.sellTargetPrice}
           />
+
+          {/* セーフティルール補正の解説 */}
+          <CorrectionExplanationBox />
 
           <div className="bg-amber-50 border-l-4 border-amber-400 p-3 mb-4">
             <p className="text-xs text-amber-800">⚠️ {effectiveData.caution}</p>
@@ -998,6 +1026,9 @@ export default function PurchaseRecommendation({
 
         {/* B. 深掘り評価 */}
         <DeepEvaluationSection />
+
+        {/* セーフティルール補正の解説 */}
+        <CorrectionExplanationBox />
 
         <div className="bg-amber-50 border-l-4 border-amber-400 p-3 mb-4">
           <p className="text-xs text-amber-800">⚠️ {effectiveData.caution}</p>

@@ -101,6 +101,10 @@
       "sell": "売却",
       "rebound": "戻り待ち"
     },
+    "correctionExplanation": {
+      "title": "セーフティルールによる補正",
+      "description": "AIの判断がセーフティルールにより補正されました"
+    },
     "simulation": "購入シミュレーション",
     "simulationTitle": "購入後分析シミュレーション",
     "setDipBuyAlert": "🔔 ¥{price} で通知を設定",

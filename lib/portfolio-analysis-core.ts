@@ -41,6 +41,7 @@ import { getDaysAgoForDB } from "@/lib/date-utils";
 import { isDangerousStock } from "@/lib/stock-safety-rules";
 import { insertRecommendationOutcome, Prediction } from "@/lib/outcome-utils";
 import { applyPortfolioStyleSafetyRules, type StyleAnalysesMap, type PortfolioStyleAnalysis } from "@/lib/style-analysis";
+import { generateCorrectionExplanation, getStyleNameJa } from "@/lib/correction-explanation";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
@@ -108,6 +109,9 @@ function postProcessPortfolioAnalysis(params: {
   // --- 安全補正を全3スタイルにループ適用 ---
   for (const styleKey of ALL_STYLE_KEYS_SHARED) {
     const sa = result.styleAnalyses[styleKey];
+    const styleName = getStyleNameJa(styleKey);
+    // correctionExplanation を初期化（AI結果にはこのフィールドがないため）
+    sa.correctionExplanation = null;
 
     // パニック売り防止: 乖離率-20%以下 → sell→hold
     if (
@@ -121,12 +125,25 @@ function postProcessPortfolioAnalysis(params: {
       sa.sellCondition = `25日移動平均線から${deviationRate.toFixed(1)}%の下方乖離で「売られすぎ」の状態です。AIは売却を検討しましたが、大底で売るリスクを避けるため、自律反発を待つ様子見（リバウンド待ち）を推奨します。`;
       sa.shortTerm = `【一旦様子見を推奨】移動平均線から${Math.abs(deviationRate).toFixed(1)}%の異常な売られすぎ水準のため、今すぐの売却は避け、数日中の反発を待つことを推奨します。AIの当初分析: ${sa.shortTerm}`;
       sa.advice = `異常な「売られすぎ」によるパニック状態です。大底での売却を避けるため、自律反発を待つ様子見を優先しましょう。`;
+      sa.correctionExplanation = generateCorrectionExplanation({
+        ruleId: "panic_sell_prevention",
+        styleName,
+        originalRecommendation: "sell",
+        correctedRecommendation: "hold",
+        actualValue: `${deviationRate.toFixed(1)}%`,
+      });
     }
 
     // 上場廃止銘柄の強制補正
     if (stock.isDelisted) {
       sa.recommendation = "sell";
       sa.shortTerm = `この銘柄は上場廃止されています。保有している場合は証券会社に確認してください。${sa.shortTerm}`;
+      sa.correctionExplanation = generateCorrectionExplanation({
+        ruleId: "delisted_stock",
+        styleName,
+        originalRecommendation: sa.recommendation,
+        correctedRecommendation: "sell",
+      });
     }
 
     // 危険銘柄の買い増し抑制
@@ -136,6 +153,13 @@ function postProcessPortfolioAnalysis(params: {
     ) {
       sa.recommendation = "hold";
       sa.shortTerm = `業績が赤字かつボラティリティが${volatility?.toFixed(0)}%と高いため、買い増しは慎重に検討してください。${sa.shortTerm}`;
+      sa.correctionExplanation = generateCorrectionExplanation({
+        ruleId: "dangerous_stock_buy_suppression",
+        styleName,
+        originalRecommendation: "buy",
+        correctedRecommendation: "hold",
+        actualValue: `${volatility?.toFixed(0)}%`,
+      });
     }
 
     // 中長期トレンドによる売り保護（投資スタイル別、重大な変化がない場合のみ）
@@ -174,6 +198,13 @@ function postProcessPortfolioAnalysis(params: {
       sa.sellCondition = `${trendInfo}の見通しが上昇のため、短期的な売りシグナルでの即売却は見送りを推奨します。${result.reconciliationMessage ? `（補足: ${result.reconciliationMessage}）` : ""}`;
       sa.shortTerm = `【一旦様子見を推奨】${trendInfo}のトレンドは引き続き上昇見通しです。短期の売りシグナルが出ていますが、中長期の回復を優先して一旦ホールドを推奨します。${result.reconciliationMessage ? `分析の変化: ${result.reconciliationMessage}` : ""}`;
       sa.advice = `${trendInfo}のトレンドは依然として良好です。短期的な変動に惑わされず、中長期での回復を待つ方針を優先しましょう。`;
+      sa.correctionExplanation = generateCorrectionExplanation({
+        ruleId: "trend_protection",
+        styleName,
+        originalRecommendation: "sell",
+        correctedRecommendation: "hold",
+        additionalInfo: trendInfo,
+      });
     }
 
     // 相対強度による売り保護
@@ -193,6 +224,13 @@ function postProcessPortfolioAnalysis(params: {
         sa.sellCondition = `市場（日経平均${marketData.weekChangeRate >= 0 ? "+" : ""}${marketData.weekChangeRate.toFixed(1)}%）に対して+${relVsMarket.toFixed(1)}%のアウトパフォームで、下落は地合い要因とみられます。${sa.sellCondition || ""}`;
         sa.shortTerm = `【様子見を推奨】市場全体が${marketData.weekChangeRate.toFixed(1)}%下落する中、この銘柄は相対的に+${relVsMarket.toFixed(1)}%強く、地合い要因による下落と判断しました。AIの短期分析: ${sa.shortTerm}`;
         sa.advice = `市場全体の下落（日経平均${marketData.weekChangeRate.toFixed(1)}%）に対してアウトパフォームしており、地合い要因の下落とみられます。様子見を推奨します。`;
+        sa.correctionExplanation = generateCorrectionExplanation({
+          ruleId: "relative_strength_protection",
+          styleName,
+          originalRecommendation: "sell",
+          correctedRecommendation: "hold",
+          actualValue: `+${relVsMarket.toFixed(1)}%`,
+        });
       }
     }
 
@@ -254,6 +292,14 @@ function postProcessPortfolioAnalysis(params: {
         sa.sellCondition = `短期下落トレンド中のため、${sellShares}株の利益確定を検討してください。押し目（一時的な下落）での再エントリーも有効です。`;
         sa.shortTerm = `【利確検討】含み益+${profitPercent.toFixed(1)}%で短期的に下落の予兆があります。${styleAdvice}AIの当初分析: ${sa.shortTerm}`;
         sa.advice = `含み益+${profitPercent.toFixed(1)}%を確保中ですが短期下落の予兆があります。${styleAction}`;
+        sa.correctionExplanation = generateCorrectionExplanation({
+          ruleId: "profit_taking_promotion",
+          styleName,
+          originalRecommendation: "hold",
+          correctedRecommendation: "sell",
+          actualValue: `+${profitPercent.toFixed(1)}%`,
+          additionalInfo: `${styleName}の基準（含み益+${minProfit}%以上）を満たしており、${sellShares}株（${sellPercent}%）の利益確定を推奨します。`,
+        });
       }
     }
   }

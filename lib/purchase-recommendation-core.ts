@@ -38,6 +38,7 @@ import {
   getGapUpSurgeThreshold,
   getTechnicalBrakeThreshold,
 } from "@/lib/stock-safety-rules";
+import { generateCorrectionExplanation, getStyleNameJa } from "@/lib/correction-explanation";
 import { getSectorTrend, formatSectorTrendForPrompt } from "@/lib/sector-trend";
 import { AnalysisError } from "@/lib/portfolio-analysis-core";
 import {
@@ -551,6 +552,9 @@ export async function executePurchaseRecommendation(
   const ALL_STYLE_KEYS = ["CONSERVATIVE", "BALANCED", "AGGRESSIVE"] as const;
   for (const styleKey of ALL_STYLE_KEYS) {
     const sa = result.styleAnalyses[styleKey];
+    const styleName = getStyleNameJa(styleKey);
+    // correctionExplanation を初期化（AI結果にはこのフィールドがないため）
+    sa.correctionExplanation = null;
 
     // テクニカル総合判定ブレーキ（投資スタイル別の閾値）
     const technicalBrakeThreshold = getTechnicalBrakeThreshold(styleKey);
@@ -564,6 +568,14 @@ export async function executePurchaseRecommendation(
         if (styleKey === "CONSERVATIVE") {
             sa.advice = `テクニカル指標が下落シグナルを示しています。シグナルの好転を確認してから購入を検討しましょう。`;
         }
+        sa.correctionExplanation = generateCorrectionExplanation({
+          ruleId: "technical_brake",
+          styleName,
+          originalRecommendation: "buy",
+          correctedRecommendation: "stay",
+          thresholdValue: `${technicalBrakeThreshold}%`,
+          actualValue: `${combinedTechnical.strength}%`,
+        });
       }
     }
 
@@ -579,6 +591,13 @@ export async function executePurchaseRecommendation(
       if (styleKey === "CONSERVATIVE") {
         sa.advice = `業績が赤字かつボラティリティが高いため、業績改善を確認してから購入を検討しましょう。`;
       }
+      sa.correctionExplanation = generateCorrectionExplanation({
+        ruleId: "dangerous_stock",
+        styleName,
+        originalRecommendation: "buy",
+        correctedRecommendation: "stay",
+        actualValue: `${volatility?.toFixed(0)}%`,
+      });
     }
 
     // 赤字×急騰銘柄の強制補正（仕手株・バブルの可能性）
@@ -589,6 +608,13 @@ export async function executePurchaseRecommendation(
       if (styleKey === "CONSERVATIVE") {
         sa.advice = `赤字企業の急騰は投機的な値動きの可能性が高いため、業績改善を確認してから購入を検討しましょう。`;
       }
+      sa.correctionExplanation = generateCorrectionExplanation({
+        ruleId: "unprofitable_surge",
+        styleName,
+        originalRecommendation: "buy",
+        correctedRecommendation: "stay",
+        actualValue: `+${weekChangeRate?.toFixed(0)}%`,
+      });
     }
 
 
@@ -602,6 +628,14 @@ export async function executePurchaseRecommendation(
       if (styleKey === "CONSERVATIVE") {
         sa.advice = `寄付きで${gapUpRate.toFixed(1)}%急騰しています。高値掴みを避けるため、値動きが落ち着いてから購入を検討しましょう。`;
       }
+      sa.correctionExplanation = generateCorrectionExplanation({
+        ruleId: "gap_up_block",
+        styleName,
+        originalRecommendation: "buy",
+        correctedRecommendation: "stay",
+        thresholdValue: `${gapUpThreshold}%`,
+        actualValue: `${gapUpRate.toFixed(1)}%`,
+      });
     }
 
     // 異常出来高+急騰の強制補正（仕手株リスク）
@@ -616,6 +650,14 @@ export async function executePurchaseRecommendation(
       if (styleKey === "CONSERVATIVE") {
         sa.advice = `出来高急増と急騰が同時に発生しており、投機的な値動きの可能性があります。様子見を推奨します。`;
       }
+      sa.correctionExplanation = generateCorrectionExplanation({
+        ruleId: "volume_manipulation",
+        styleName,
+        originalRecommendation: "buy",
+        correctedRecommendation: "stay",
+        actualValue: `通常の${volumeSpikeRate.toFixed(1)}倍`,
+        additionalInfo: `${gapUpRate.toFixed(1)}%`,
+      });
     }
 
     // 市場急落時の強制補正
@@ -626,6 +668,12 @@ export async function executePurchaseRecommendation(
       if (styleKey === "CONSERVATIVE") {
         sa.advice = `市場全体が急落中です。市場の安定を確認してから購入を検討しましょう。`;
       }
+      sa.correctionExplanation = generateCorrectionExplanation({
+        ruleId: "market_crash",
+        styleName,
+        originalRecommendation: "buy",
+        correctedRecommendation: "stay",
+      });
     }
 
     // 下方乖離ボーナス
@@ -637,6 +685,13 @@ export async function executePurchaseRecommendation(
     if (deviationRate !== null && deviationRate <= SELL_TIMING.PANIC_SELL_THRESHOLD && sa.recommendation === "avoid") {
       sa.recommendation = "stay";
       sa.caution = `25日移動平均線から${deviationRate.toFixed(1)}%下方乖離しており売られすぎです。大底で見送るのはもったいないため、様子見を推奨します。${sa.caution}`;
+      sa.correctionExplanation = generateCorrectionExplanation({
+        ruleId: "panic_sell_prevention",
+        styleName,
+        originalRecommendation: "avoid",
+        correctedRecommendation: "stay",
+        actualValue: `${deviationRate.toFixed(1)}%`,
+      });
     }
   }
 
