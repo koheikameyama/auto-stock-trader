@@ -450,6 +450,67 @@ export function buildDefensiveModeContext(marketData: MarketIndexData | null): s
 }
 
 /**
+ * 決算間近コンテキスト文字列を生成する
+ * @param nextEarningsDate - 次回決算発表予定日
+ */
+export function buildEarningsContext(nextEarningsDate: Date | null): string {
+  if (!nextEarningsDate) return "";
+
+  const now = new Date();
+  const diffMs = nextEarningsDate.getTime() - now.getTime();
+  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0 || diffDays > 7) return "";
+
+  if (diffDays <= 3) {
+    return `
+【⚠️ 決算発表まであと${diffDays}日】
+- 決算発表日: ${nextEarningsDate.toISOString().split("T")[0]}
+- 決算直前のため、新規購入は「決算ギャンブル」になります
+- 決算内容次第で大幅な値動きの可能性があります
+- 決算後の値動きを確認してから判断することを推奨します
+`;
+  }
+
+  return `
+【決算発表まであと${diffDays}日】
+- 決算発表日: ${nextEarningsDate.toISOString().split("T")[0]}
+- 決算結果次第で株価が大きく動く可能性があります
+- 新規購入する場合は決算リスクを考慮してください
+`;
+}
+
+/**
+ * 配当権利落ちコンテキスト文字列を生成する
+ * @param exDividendDate - 配当権利落ち日
+ * @param dividendYield - 配当利回り（%）
+ */
+export function buildExDividendContext(
+  exDividendDate: Date | null,
+  dividendYield: number | null,
+): string {
+  if (!exDividendDate) return "";
+
+  const now = new Date();
+  const diffMs = now.getTime() - exDividendDate.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0 || diffDays > 3) return "";
+
+  const yieldInfo = dividendYield
+    ? `配当利回り${dividendYield.toFixed(2)}%分の下落は配当落ちによるものです。`
+    : "配当落ち分の株価下落は正常な調整です。";
+
+  return `
+【配当権利落ち直後（${diffDays}日経過）】
+- 権利落ち日: ${exDividendDate.toISOString().split("T")[0]}
+- ${yieldInfo}
+- この下落は「トレンド転換」ではなく「配当落ちによる自然な調整」です
+- 配当落ち分の下落だけを理由に売却を推奨しないでください
+`;
+}
+
+/**
  * 出来高分析コンテキスト文字列を生成する
  *
  * 下落日と上昇日の平均出来高を比較して「本物の売り圧力」か「出来高を伴わない調整」かを判定する。

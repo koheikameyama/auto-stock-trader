@@ -4,7 +4,7 @@
  * おすすめ分析・購入判断の両方で共通して使う。
  * 条件判定のみを提供し、アクション（除外 or stay変更）は呼び出し側に委ねる。
  */
-import { MA_DEVIATION, MOMENTUM, TIMING_INDICATORS, TECHNICAL_BRAKE, GAP_UP_MOMENTUM, MARKET_DEFENSIVE_MODE } from "@/lib/constants";
+import { MA_DEVIATION, MOMENTUM, TIMING_INDICATORS, TECHNICAL_BRAKE, GAP_UP_MOMENTUM, MARKET_DEFENSIVE_MODE, EARNINGS_SAFETY } from "@/lib/constants";
 
 /** 高ボラティリティの閾値（%） */
 const HIGH_VOLATILITY_THRESHOLD = 50;
@@ -168,6 +168,53 @@ export function getTechnicalBrakeThreshold(investmentStyle?: string | null): num
     default:
       return TECHNICAL_BRAKE.BALANCED;
   }
+}
+
+/**
+ * 決算直前ブロック判定
+ * 次回決算発表日の3日前以内ならブロック（buy→stay強制）
+ */
+export function isPreEarningsBlock(nextEarningsDate: Date | null): boolean {
+  if (!nextEarningsDate) return false;
+  const now = new Date();
+  const diffMs = nextEarningsDate.getTime() - now.getTime();
+  const diffDays = diffMs / (1000 * 60 * 60 * 24);
+  return diffDays >= 0 && diffDays <= EARNINGS_SAFETY.PRE_EARNINGS_BLOCK_DAYS;
+}
+
+/**
+ * 決算間近判定（警告用）
+ * 次回決算発表日の7日前以内なら警告
+ */
+export function isEarningsNear(nextEarningsDate: Date | null): boolean {
+  if (!nextEarningsDate) return false;
+  const now = new Date();
+  const diffMs = nextEarningsDate.getTime() - now.getTime();
+  const diffDays = diffMs / (1000 * 60 * 60 * 24);
+  return diffDays >= 0 && diffDays <= EARNINGS_SAFETY.EARNINGS_NEAR_WARNING_DAYS;
+}
+
+/**
+ * 決算までの残り日数を取得
+ */
+export function getDaysUntilEarnings(nextEarningsDate: Date | null): number | null {
+  if (!nextEarningsDate) return null;
+  const now = new Date();
+  const diffMs = nextEarningsDate.getTime() - now.getTime();
+  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  return diffDays >= 0 ? diffDays : null;
+}
+
+/**
+ * 配当権利落ち直後判定
+ * 権利落ち日から3日以内なら保護対象
+ */
+export function isPostExDividend(exDividendDate: Date | null): boolean {
+  if (!exDividendDate) return false;
+  const now = new Date();
+  const diffMs = now.getTime() - exDividendDate.getTime();
+  const diffDays = diffMs / (1000 * 60 * 60 * 24);
+  return diffDays >= 0 && diffDays <= EARNINGS_SAFETY.POST_EX_DIVIDEND_DAYS;
 }
 
 /**

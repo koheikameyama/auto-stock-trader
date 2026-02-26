@@ -146,6 +146,7 @@ model Stock {
   isProfitable      Boolean? // 黒字かどうか
   profitTrend       String? // 'increasing' | 'decreasing' | 'stable'
   nextEarningsDate  DateTime? @db.Date // 次回決算発表予定日
+  exDividendDate    DateTime? @db.Date // 配当権利落ち日
   earningsUpdatedAt DateTime? // 業績データ更新日時
 
   // 事業内容（yfinance + OpenAI翻訳で取得）

@@ -20,6 +20,8 @@ import {
   buildGapFillContext,
   buildSupportResistanceContext,
   buildTrendlineContext,
+  buildEarningsContext,
+  buildExDividendContext,
 } from "@/lib/stock-analysis-context";
 import { buildPortfolioAnalysisPrompt } from "@/lib/prompts/portfolio-analysis-prompt";
 import { getNikkei225Data, type MarketIndexData } from "@/lib/market-index";
@@ -39,7 +41,7 @@ import {
   UNIT_SHARES,
 } from "@/lib/constants";
 import { getDaysAgoForDB } from "@/lib/date-utils";
-import { isDangerousStock } from "@/lib/stock-safety-rules";
+import { isDangerousStock, isPostExDividend } from "@/lib/stock-safety-rules";
 import { insertRecommendationOutcome, Prediction } from "@/lib/outcome-utils";
 import { applyPortfolioStyleSafetyRules, type StyleAnalysesMap, type PortfolioStyleAnalysis } from "@/lib/style-analysis";
 import { generateCorrectionExplanation, getStyleNameJa } from "@/lib/correction-explanation";
@@ -83,6 +85,8 @@ function postProcessPortfolioAnalysis(params: {
     isProfitable: boolean | null;
     volatility: unknown;
     atr14: unknown;
+    exDividendDate?: Date | null;
+    dividendYield?: unknown;
   };
   weekChangeRate: number | null;
   marketData: MarketIndexData | null;
@@ -233,6 +237,32 @@ function postProcessPortfolioAnalysis(params: {
           actualValue: `+${relVsMarket.toFixed(1)}%`,
         });
       }
+    }
+
+    // 配当権利落ち後の売り保護
+    // 権利落ち後3日以内の下落は配当落ち分を含む可能性があるため、sell→holdに補正
+    if (
+      sa.recommendation === "sell" &&
+      isPostExDividend(stock.exDividendDate ?? null) &&
+      profitPercent !== null &&
+      profitPercent > -5 // 含み損が軽微な場合のみ保護（大きな含み損は保護しない）
+    ) {
+      const dividendYieldNum = stock.dividendYield ? Number(stock.dividendYield) : null;
+      const yieldInfo = dividendYieldNum
+        ? `配当利回り${dividendYieldNum.toFixed(2)}%分の下落は配当落ちによるものです。`
+        : "直近の株価下落は配当落ちを含む可能性があります。";
+      sa.recommendation = "hold";
+      sa.sellReason = null;
+      sa.suggestedSellPercent = null;
+      sa.sellCondition = `${yieldInfo}配当落ち分だけを理由に売却するのは不利なため、数日間の値動きを確認してから判断しましょう。`;
+      sa.shortTerm = `【配当落ち保護】直近の株価下落は配当権利落ちによる自然な調整を含む可能性があります。トレンド転換かどうかは数日間の値動きで確認してください。AIの当初分析: ${sa.shortTerm}`;
+      sa.advice = `配当権利落ち直後の下落です。${yieldInfo}数日間の値動きを確認してから判断しましょう。`;
+      sa.correctionExplanation = generateCorrectionExplanation({
+        ruleId: "post_ex_dividend",
+        styleName,
+        originalRecommendation: "sell",
+        correctedRecommendation: "hold",
+      });
     }
 
     // 利益確定促進ルール（全スタイル対象、閾値はスタイル別）
@@ -611,7 +641,12 @@ export async function executePortfolioAnalysis(
   } catch (error) {
     console.error("市場データ取得失敗（フォールバック）:", error);
   }
-  const marketContext = buildMarketContext(marketData) + buildDefensiveModeContext(marketData);
+  const earningsContext = buildEarningsContext(stock.nextEarningsDate);
+  const exDividendContext = buildExDividendContext(
+    stock.exDividendDate,
+    stock.dividendYield ? Number(stock.dividendYield) : null,
+  );
+  const marketContext = buildMarketContext(marketData) + buildDefensiveModeContext(marketData) + earningsContext + exDividendContext;
 
   // セクタートレンド
   let sectorTrendContext = "";
@@ -1045,7 +1080,12 @@ export async function executeSimulatedPortfolioAnalysis(
   try {
     marketData = await getNikkei225Data();
   } catch (e) {}
-  const marketContext = buildMarketContext(marketData) + buildDefensiveModeContext(marketData);
+  const simEarningsContext = buildEarningsContext(stock.nextEarningsDate);
+  const simExDividendContext = buildExDividendContext(
+    stock.exDividendDate,
+    stock.dividendYield ? Number(stock.dividendYield) : null,
+  );
+  const marketContext = buildMarketContext(marketData) + buildDefensiveModeContext(marketData) + simEarningsContext + simExDividendContext;
 
   let sectorTrendContext = "";
   let sectorAvgWeekChangeRate: number | null = null;

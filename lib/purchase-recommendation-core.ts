@@ -19,9 +19,11 @@ import {
   buildRelativeStrengthContext,
   buildTrendlineContext,
   buildTimingIndicatorsContext,
+  buildEarningsContext,
+  buildExDividendContext,
 } from "@/lib/stock-analysis-context";
 import { buildPurchaseRecommendationPrompt } from "@/lib/prompts/purchase-recommendation-prompt";
-import { MA_DEVIATION, SELL_TIMING, TIMING_INDICATORS, AGGRESSIVE_REBOUND, GAP_UP_MOMENTUM } from "@/lib/constants";
+import { MA_DEVIATION, SELL_TIMING, TIMING_INDICATORS, AGGRESSIVE_REBOUND, GAP_UP_MOMENTUM, EARNINGS_SAFETY } from "@/lib/constants";
 import {
   calculateDeviationRate,
   calculateSMA,
@@ -39,6 +41,10 @@ import {
   getGapUpSurgeThreshold,
   getTechnicalBrakeThreshold,
   hasGapUpMomentum,
+  isPreEarningsBlock,
+  isEarningsNear,
+  getDaysUntilEarnings,
+  isPostExDividend,
 } from "@/lib/stock-safety-rules";
 import { generateCorrectionExplanation, getStyleNameJa } from "@/lib/correction-explanation";
 import { getSectorTrend, formatSectorTrendForPrompt } from "@/lib/sector-trend";
@@ -123,6 +129,8 @@ export async function executePurchaseRecommendation(
       turnoverValue: true,
       isDelisted: true,
       fetchFailCount: true,
+      nextEarningsDate: true,
+      exDividendDate: true,
     },
   });
 
@@ -307,6 +315,13 @@ export async function executePurchaseRecommendation(
     stock.fetchFailCount,
   );
 
+  // 決算・配当落ちコンテキスト
+  const earningsContext = buildEarningsContext(stock.nextEarningsDate);
+  const exDividendContext = buildExDividendContext(
+    stock.exDividendDate,
+    stock.dividendYield ? Number(stock.dividendYield) : null,
+  );
+
   // ユーザー設定のコンテキスト
   const styleMap: Record<string, string> = {
     CONSERVATIVE: "慎重派（守り） - 資産保護を最優先",
@@ -336,7 +351,7 @@ export async function executePurchaseRecommendation(
     pricesCount: prices.length,
     delistingContext,
     weekChangeContext,
-    marketContext: marketContext + defensiveModeContext,
+    marketContext: marketContext + defensiveModeContext + earningsContext + exDividendContext,
     sectorTrendContext,
     patternContext,
     technicalContext,
@@ -678,6 +693,29 @@ export async function executePurchaseRecommendation(
         originalRecommendation: "buy",
         correctedRecommendation: "stay",
       });
+    }
+
+    // 決算直前ブロック（3日前以内: buy→stay強制）
+    if (isPreEarningsBlock(stock.nextEarningsDate) && sa.recommendation === "buy") {
+      const daysUntil = getDaysUntilEarnings(stock.nextEarningsDate);
+      sa.recommendation = "stay";
+      sa.reason = `決算発表まであと${daysUntil}日のため、決算ギャンブルを避ける様子見を推奨します。${sa.reason}`;
+      sa.buyCondition = "決算発表後の値動きを確認してから購入を検討してください";
+      if (styleKey === "CONSERVATIVE") {
+        sa.advice = `決算発表が間近（あと${daysUntil}日）のため、結果を確認してから購入を検討しましょう。`;
+      }
+      sa.correctionExplanation = generateCorrectionExplanation({
+        ruleId: "pre_earnings_block",
+        styleName,
+        originalRecommendation: "buy",
+        correctedRecommendation: "stay",
+        actualValue: `${daysUntil}日`,
+      });
+    }
+
+    // 決算間近のconfidenceペナルティ（7日前以内）
+    if (isEarningsNear(stock.nextEarningsDate) && sa.recommendation === "buy") {
+      sa.confidence = Math.max(0.3, sa.confidence + EARNINGS_SAFETY.EARNINGS_NEAR_CONFIDENCE_PENALTY);
     }
 
     // 下方乖離ボーナス

@@ -535,6 +535,14 @@ export const EARNINGS_DATE_BADGE = {
   INFO_DAYS: 14, // 14日以内: グレー（14日超は非表示）
 } as const;
 
+// 決算・配当権利落ちのセーフティルール
+export const EARNINGS_SAFETY = {
+  PRE_EARNINGS_BLOCK_DAYS: 3, // 決算3日前から買いブロック
+  EARNINGS_NEAR_WARNING_DAYS: 7, // 7日前から警告
+  EARNINGS_NEAR_CONFIDENCE_PENALTY: -0.1, // 決算近接時のconfidenceペナルティ
+  POST_EX_DIVIDEND_DAYS: 3, // 権利落ち後3日間は配当落ち保護
+} as const;
+
 // 10セクターの定義
 export const SECTORS = [
   "半導体・電子部品",

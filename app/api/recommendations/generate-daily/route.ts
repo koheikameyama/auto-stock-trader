@@ -165,6 +165,7 @@ export async function POST(request: NextRequest) {
         fiftyTwoWeekLow: true,
         isDelisted: true,
         fetchFailCount: true,
+        nextEarningsDate: true,
       },
     });
 
@@ -339,6 +340,7 @@ async function processUser(
     fiftyTwoWeekLow: unknown;
     isDelisted: boolean;
     fetchFailCount: number;
+    nextEarningsDate: Date | null;
   }>,
   ownedStockIds: Set<string>,
   watchlistStockIds: Set<string>,
@@ -367,6 +369,7 @@ async function processUser(
     marketCap: s.marketCap ? Number(s.marketCap) : null,
     isProfitable: s.isProfitable,
     maDeviationRate: s.maDeviationRate ? Number(s.maDeviationRate) : null,
+    nextEarningsDate: s.nextEarningsDate ?? null,
   }));
 
   // 予算の1.5倍までの緩いフィルタ（候補を広めに取る）
