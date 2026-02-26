@@ -1,11 +1,7 @@
 name: Trading Hours Notification
 
 on:
-  schedule:
-    # 9:00 JST (0:00 UTC) - 取引開始通知
-    - cron: '0 0 * * 1-5'
-    # 15:30 JST (6:30 UTC) - 取引終了通知
-    - cron: '30 6 * * 1-5'
+  # cron-job.org から workflow_dispatch で正確な時刻にトリガー
   workflow_dispatch:
     inputs:
       notification_type:

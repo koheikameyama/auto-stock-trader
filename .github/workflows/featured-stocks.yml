@@ -1,17 +1,7 @@
 name: Featured Stocks Generation
 
 on:
-  schedule:
-    # 前場開始時（09:00 JST = 00:00 UTC）- 月〜金
-    - cron: '0 0 * * 1-5'
-    # 前場寄付き後（10:00 JST = 01:00 UTC）- 月〜金
-    - cron: '0 1 * * 1-5'
-    # 後場開始時（12:30 JST = 03:30 UTC）- 月〜金
-    - cron: '30 3 * * 1-5'
-    # 後場寄付き後（14:00 JST = 05:00 UTC）- 月〜金
-    - cron: '0 5 * * 1-5'
-    # 後場終了後（15:35 JST = 06:35 UTC）- 月〜金
-    - cron: '35 6 * * 1-5'
+  # cron-job.org から workflow_dispatch で正確な時刻にトリガー
   workflow_dispatch:
     inputs:
       session:

@@ -1,13 +1,7 @@
 name: Stock Predictions & Analysis
 
 on:
-  schedule:
-    # 前場・後場の各タイミングで5回実行
-    - cron: '0 0 * * 1-5'    # 9:00 JST - 前場開始（月〜金）
-    - cron: '0 1 * * 1-5'    # 10:00 JST - 前場中盤
-    - cron: '30 3 * * 1-5'   # 12:30 JST - 後場開始
-    - cron: '0 5 * * 1-5'    # 14:00 JST - 後場中盤
-    - cron: '30 6 * * 1-5'   # 15:30 JST - 大引け
+  # cron-job.org から workflow_dispatch で正確な時刻にトリガー
   workflow_dispatch:
     inputs:
       notify:
