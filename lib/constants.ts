@@ -202,12 +202,12 @@ export const CHAT_CONFIG = {
   MAX_TOKENS: 3000,
 } as const;
 
-// AI分析の更新スケジュール（平日のみ）
+// AI分析の更新スケジュール（平日のみ、session-batch.yml で一括実行）
 export const UPDATE_SCHEDULES = {
   // あなたへのおすすめ（session-personal-recommendations.yml）
-  PERSONAL_RECOMMENDATIONS: "9:00 / 10:00 / 12:30 / 14:00 / 15:35",
+  PERSONAL_RECOMMENDATIONS: "9:00 / 12:30 / 15:30",
   // ポートフォリオ分析・購入レコメンド（session-batch.yml）
-  STOCK_ANALYSIS: "9:00 / 10:00 / 12:30 / 14:00 / 15:30",
+  STOCK_ANALYSIS: "9:00 / 12:30 / 15:30",
 } as const;
 
 // キャッシュTTL（ミリ秒）
