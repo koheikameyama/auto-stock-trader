@@ -41,6 +41,7 @@ export default function FeaturedStocksByCategory() {
   const [personalRecommendations, setPersonalRecommendations] = useState<FeaturedStock[]>([])
   const [pricesLoaded, setPricesLoaded] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [regenerating, setRegenerating] = useState(false)
   const [recommendationDate, setRecommendationDate] = useState<string | null>(null)
 
   useEffect(() => {
@@ -104,6 +105,28 @@ export default function FeaturedStocksByCategory() {
       console.error("Error fetching featured stocks:", error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleRegenerate = async () => {
+    try {
+      setRegenerating(true)
+      setPricesLoaded(false)
+      const response = await fetch("/api/recommendations/regenerate", {
+        method: "POST",
+      })
+
+      if (!response.ok) {
+        console.error("Error regenerating recommendations:", response.status)
+        return
+      }
+
+      // 再生成後にデータを再取得
+      await fetchFeaturedStocks()
+    } catch (error) {
+      console.error("Error regenerating recommendations:", error)
+    } finally {
+      setRegenerating(false)
     }
   }
 
@@ -341,19 +364,46 @@ export default function FeaturedStocksByCategory() {
         </div>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
           <p className="text-xs sm:text-sm text-gray-600">
-            投資スタイルと予算に合わせてAIが選びました
+            {tRec("subtitle")}
           </p>
           <div className="flex items-center gap-2 text-xs text-gray-400">
-            <span>更新 {UPDATE_SCHEDULES.PERSONAL_RECOMMENDATIONS}（平日）</span>
+            <button
+              onClick={handleRegenerate}
+              disabled={regenerating}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <svg
+                className={`w-3.5 h-3.5 ${regenerating ? "animate-spin" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+              {regenerating ? tRec("regenerating") : tRec("regenerate")}
+            </button>
+            <span>{tRec("schedule", { schedule: UPDATE_SCHEDULES.PERSONAL_RECOMMENDATIONS })}</span>
           </div>
         </div>
       </div>
       <StaleAnalysisBanner analysisDate={recommendationDate} schedule={UPDATE_SCHEDULES.PERSONAL_RECOMMENDATIONS} />
-      <div className="overflow-x-auto pb-2 -mx-1 px-1">
-        <div className="flex gap-3 sm:gap-4" style={{ minWidth: "min-content" }}>
-          {personalRecommendations.map((stock) => renderStockCard(stock))}
+      {regenerating ? (
+        <div className="text-center py-8 sm:py-12">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent mb-3" />
+          <p className="text-sm text-gray-600">{tRec("regeneratingMessage")}</p>
         </div>
-      </div>
+      ) : (
+        <div className="overflow-x-auto pb-2 -mx-1 px-1">
+          <div className="flex gap-3 sm:gap-4" style={{ minWidth: "min-content" }}>
+            {personalRecommendations.map((stock) => renderStockCard(stock))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

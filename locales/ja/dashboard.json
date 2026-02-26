@@ -42,7 +42,12 @@
     "riskReward": "リスクリワード"
   },
   "recommendation": {
-    "purchaseJudgmentLabel": "おすすめ時点での評価"
+    "purchaseJudgmentLabel": "おすすめ時点での評価",
+    "subtitle": "投資スタイルと予算に合わせてAIが選びました",
+    "regenerate": "再生成",
+    "regenerating": "再生成中...",
+    "regeneratingMessage": "AIがあなたに合った銘柄を選んでいます...",
+    "schedule": "更新 {schedule}（平日）"
   },
   "nikkei": {
     "title": "日経平均株価",

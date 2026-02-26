@@ -93,6 +93,12 @@ Stock Buddyの中核機能であるAI推奨システムです。3種類の推奨
 
 **認証**: CRON_SECRET
 
+**手動再生成API**: `POST /api/recommendations/regenerate`
+
+**認証**: セッション認証
+
+ダッシュボードの「再生成」ボタンからユーザーが手動でおすすめを再生成できる。内部的に `generate-daily` を単一ユーザーで呼び出す。既存の当日おすすめを削除してから再生成するため、銘柄数が減っても古いデータが残らない。
+
 ### 2. 購入判断（PurchaseRecommendation）
 
 ウォッチリスト銘柄ごとに buy / stay / avoid の判断を生成。
@@ -234,6 +240,7 @@ AI生成後、非スタイル依存の安全補正（テクニカルブレーキ
 ## 関連ファイル
 
 - `app/api/recommendations/generate-daily/route.ts` - 日次おすすめ生成
+- `app/api/recommendations/regenerate/route.ts` - おすすめ手動再生成
 - `app/api/featured-stocks/route.ts` - おすすめ銘柄取得
 - `lib/purchase-recommendation-core.ts` - 購入判断ロジック
 - `lib/style-analysis.ts` - 投資スタイル別セーフティルール
