@@ -5,7 +5,7 @@ import { calculatePortfolioFromTransactions } from "@/lib/portfolio-calculator"
 import { getOpenAIClient } from "@/lib/openai"
 import { buildPortfolioOverallAnalysisPrompt } from "@/lib/prompts/portfolio-overall-analysis-prompt"
 import { getAllSectorTrends } from "@/lib/sector-trend"
-import { getTodayForDB } from "@/lib/date-utils"
+import { getTodayForDB, getDaysAgoForDB } from "@/lib/date-utils"
 import { getStyleLabel, DAILY_MARKET_NAVIGATOR } from "@/lib/constants"
 import dayjs from "dayjs"
 import utc from "dayjs/plugin/utc"
@@ -177,6 +177,7 @@ async function generateAnalysisWithAI(
     soldStocksText: string
     sectorTrendsText: string
     upcomingEarningsText: string
+    benchmarkText: string
   }
 ): Promise<{
   marketHeadline: string
@@ -237,6 +238,7 @@ async function generateAnalysisWithAI(
     soldStocksText: dailyContext.soldStocksText,
     sectorTrendsText: dailyContext.sectorTrendsText,
     upcomingEarningsText: dailyContext.upcomingEarningsText,
+    benchmarkText: dailyContext.benchmarkText,
   })
 
   // StockHighlight のスキーマ定義
@@ -647,6 +649,65 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
     ? upcomingEarnings.map(s => `- ${s.name}（${s.tickerCode}）: ${dayjs(s.nextEarningsDate).format("MM/DD")}`).join("\n")
     : "今後7日間に決算予定の銘柄はありません"
 
+  // === ベンチマーク比較データ ===
+  const benchmarkSnapshots = await prisma.portfolioSnapshot.findMany({
+    where: {
+      userId,
+      date: { gte: getDaysAgoForDB(30) },
+      nikkeiClose: { not: null },
+    },
+    orderBy: { date: "asc" },
+    select: { totalValue: true, nikkeiClose: true },
+  })
+
+  let benchmarkText = "データなし"
+  if (benchmarkSnapshots.length >= 2) {
+    const firstValue = Number(benchmarkSnapshots[0].totalValue)
+    const lastValue = Number(benchmarkSnapshots[benchmarkSnapshots.length - 1].totalValue)
+    const firstNikkei = Number(benchmarkSnapshots[0].nikkeiClose)
+    const lastNikkei = Number(benchmarkSnapshots[benchmarkSnapshots.length - 1].nikkeiClose)
+
+    if (firstValue > 0 && firstNikkei > 0) {
+      const portfolioReturn = ((lastValue - firstValue) / firstValue) * 100
+      const nikkeiReturn = ((lastNikkei - firstNikkei) / firstNikkei) * 100
+      const excessReturn = portfolioReturn - nikkeiReturn
+
+      // ベータ値計算
+      const dailyPortfolioReturns: number[] = []
+      const dailyNikkeiReturns: number[] = []
+      for (let i = 1; i < benchmarkSnapshots.length; i++) {
+        const pv = Number(benchmarkSnapshots[i - 1].totalValue)
+        const cv = Number(benchmarkSnapshots[i].totalValue)
+        const pn = Number(benchmarkSnapshots[i - 1].nikkeiClose)
+        const cn = Number(benchmarkSnapshots[i].nikkeiClose)
+        if (pv > 0 && pn > 0) {
+          dailyPortfolioReturns.push((cv - pv) / pv)
+          dailyNikkeiReturns.push((cn - pn) / pn)
+        }
+      }
+
+      let beta: number | null = null
+      if (dailyPortfolioReturns.length >= 10) {
+        const n = dailyPortfolioReturns.length
+        const avgP = dailyPortfolioReturns.reduce((a, b) => a + b, 0) / n
+        const avgN = dailyNikkeiReturns.reduce((a, b) => a + b, 0) / n
+        let cov = 0, varN = 0
+        for (let i = 0; i < n; i++) {
+          cov += (dailyPortfolioReturns[i] - avgP) * (dailyNikkeiReturns[i] - avgN)
+          varN += (dailyNikkeiReturns[i] - avgN) ** 2
+        }
+        beta = varN > 0 ? (cov / n) / (varN / n) : null
+      }
+
+      benchmarkText = [
+        `- 日経225リターン（直近1ヶ月）: ${nikkeiReturn >= 0 ? "+" : ""}${nikkeiReturn.toFixed(1)}%`,
+        `- ポートフォリオリターン（直近1ヶ月）: ${portfolioReturn >= 0 ? "+" : ""}${portfolioReturn.toFixed(1)}%`,
+        `- 超過リターン: ${excessReturn >= 0 ? "+" : ""}${excessReturn.toFixed(1)}%（日経平均を${excessReturn >= 0 ? "上回って" : "下回って"}いる）`,
+        beta !== null ? `- ベータ値: ${beta.toFixed(2)}（${beta < 1 ? "市場より穏やかに変動" : "市場より激しく変動"}）` : null,
+      ].filter(Boolean).join("\n")
+    }
+  }
+
   // AI分析を生成
   const aiResult = await generateAnalysisWithAI(
     session,
@@ -663,6 +724,7 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
       soldStocksText,
       sectorTrendsText,
       upcomingEarningsText,
+      benchmarkText,
     }
   )
 
