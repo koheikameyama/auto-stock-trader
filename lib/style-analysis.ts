@@ -39,6 +39,7 @@ export interface PortfolioStyleAnalysis {
   marketSignal: string;
   advice: string;
   shortTerm: string;
+  holdCondition: string | null;
   sellReason: string | null;
   sellCondition: string | null;
   suggestedSellPercent: number | null;

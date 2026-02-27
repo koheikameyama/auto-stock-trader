@@ -77,6 +77,7 @@ interface StyleAnalysisData {
   buyCondition?: string | null;
   buyTiming?: string | null;
   dipTargetPrice?: number | null;
+  holdCondition?: string | null;
   sellTiming?: string | null;
   sellTargetPrice?: number | null;
   shortTerm?: string;
@@ -367,6 +368,7 @@ export default function StockAnalysisCard({
               advice: styleData.advice,
               ...(styleData.sellReason !== undefined ? { sellReason: styleData.sellReason } : {}),
               ...(styleData.sellCondition !== undefined ? { sellCondition: styleData.sellCondition } : {}),
+              ...(styleData.holdCondition !== undefined ? { holdCondition: styleData.holdCondition } : {}),
               ...(styleData.suggestedSellPercent !== undefined ? { suggestedSellPercent: styleData.suggestedSellPercent } : {}),
               ...(styleData.sellTiming !== undefined ? { sellTiming: styleData.sellTiming } : {}),
               ...(styleData.sellTargetPrice !== undefined ? { sellTargetPrice: styleData.sellTargetPrice } : {}),
@@ -755,7 +757,7 @@ export default function StockAnalysisCard({
                 👀 ホールド
               </p>
               <p className="text-sm text-gray-700">
-                現在は重要な節目や調整局面にあります。不透明な動きが多いため、無理に動かず静観するのが賢明です。
+                {effectiveAnalysis.holdCondition || "現在は重要な節目や調整局面にあります。不透明な動きが多いため、無理に動かず静観するのが賢明です。"}
               </p>
             </div>
           )}

@@ -39,6 +39,7 @@
   "suggestedSellPercent": 50,
   "sellReason": "売却理由",
   "sellCondition": "売却条件",
+  "holdCondition": "hold時の待機目標（例: ○○円付近まで下がったら買い増し検討）",
   "advice": "アドバイステキスト",
   "confidence": 0.85,
   "isCriticalChange": false,
@@ -61,7 +62,7 @@
 
 **投資スタイル別分析（styleAnalyses）**:
 
-AIが1回のAPIコールで3つの投資スタイル（慎重派/バランス型/積極派）ごとに異なる判断（recommendation/confidence/advice/shortTerm/sellReason/sellCondition/suggestedSellPercent）を直接生成します。各スタイルの判断傾向:
+AIが1回のAPIコールで3つの投資スタイル（慎重派/バランス型/積極派）ごとに異なる判断（recommendation/confidence/advice/shortTerm/sellReason/sellCondition/holdCondition/suggestedSellPercent）を直接生成します。各スタイルの判断傾向:
 
 | スタイル | 判断傾向 | アドバイスのトーン |
 |----------|----------|-------------------|
@@ -79,6 +80,17 @@ AI生成後、非スタイル依存の安全補正（上記テーブルの大半
 | スタイル依存補正 | 条件（スタイルにより閾値が異なる） | 動作 |
 |------------------|--------------------------------------|------|
 | 急騰銘柄の買い増し抑制 | `isSurgeStock(weekChangeRate, style)` | buy → hold に変更 |
+
+**holdCondition（待機目標）**:
+- recommendation="hold" の場合、AIが `holdCondition` に具体的な待機目標を記載（例: 「○○円付近まで下がったら買い増し検討」「RSIが30以下になったら買い増し検討」）
+- 安全補正ルールで hold に変更された場合も、補正理由に基づいた holdCondition が自動設定される
+- buy/sell の場合は null
+
+**売却目標・撤退ラインの期間分析ベース算出**:
+- 短期予測価格（shortTermPriceHigh/Low）から売却目標率・撤退ライン率を逆算し、AIの率よりも優先して使用
+- 算出: `sellTargetRate = (shortTermPriceHigh - currentPrice) / currentPrice`、`exitRate = (currentPrice - shortTermPriceLow) / currentPrice`
+- ATR補正（スタイル別: 慎重派2.0x/バランス2.5x/積極派3.0x）とトレーリングストップは既存ロジックをそのまま適用
+- 予測価格が現在価格と矛盾する場合（High ≤ 現在価格等）はAIの率にフォールバック
 
 スタイル別の結果は `StockAnalysis.styleAnalyses` に JSON として保存され、フロントエンドでタブ切り替えにより比較表示できます。ユーザーの設定した投資スタイルがデフォルトタブとして表示されます。
 

@@ -118,15 +118,15 @@ ${delistingContext}${weekChangeContext}${marketContext}${sectorTrendContext}${pa
   "shortTermTrend": "up" | "neutral" | "down",
   "shortTermPriceLow": "短期（今週）の予測安値",
   "shortTermPriceHigh": "短期（今週）の予測高値",
-  "shortTermText": "短期予測の根拠・解説（初心者向け、60文字以内）",
+  "shortTermText": "短期予測の根拠・解説（テクニカル指標名と数値を含む具体的な根拠を2-3文で。150文字以内）",
   "midTermTrend": "up" | "neutral" | "down",
   "midTermPriceLow": "中期（今月）の予測安値",
   "midTermPriceHigh": "中期（今月）の予測高値",
-  "midTermText": "中期予測の根拠・解説（初心者向け、60文字以内）",
+  "midTermText": "中期予測の根拠・解説（ファンダメンタル・中期トレンドの根拠を2-3文で。150文字以内）",
   "longTermTrend": "up" | "neutral" | "down",
   "longTermPriceLow": "長期（今後3ヶ月）の予測安値",
   "longTermPriceHigh": "長期（今後3ヶ月）の予測高値",
-  "longTermText": "長期予測の根拠・解説（初心者向け、60文字以内）",
+  "longTermText": "長期予測の根拠・解説（事業展望・財務状況の根拠を2-3文で。150文字以内）",
 
   // B. 深掘り評価（文字列で返す。配列ではない）
   "positives": "・良い点1\n・良い点2\n・良い点3",

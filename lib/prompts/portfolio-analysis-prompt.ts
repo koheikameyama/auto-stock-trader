@@ -179,6 +179,7 @@ ${newsContext}${marketContext}${sectorTrendContext}
       "confidence": 0.0〜1.0の信頼度,
       "advice": "慎重派視点でのアドバイス（100文字以内）",
       "shortTerm": "慎重派視点での今週の判断（2-3文）",
+      "holdCondition": "holdの場合のみ: 待機目標（期間分析の価格予測を踏まえた具体的条件。例:「¥XXX付近まで下がったら買い増し検討」「¥XXXを超えたら利確検討」）。buy/sellの場合はnull",
       "sellReason": "売却理由（sellの場合のみ、holdやbuyの場合はnull）",
       "sellCondition": "売却条件（sellの場合のみ、holdやbuyの場合はnull）",
       "suggestedSellPercent": 推奨売却割合（25, 50, 75, 100のいずれか。sellの場合のみ、holdやbuyの場合はnull）,
@@ -190,6 +191,7 @@ ${newsContext}${marketContext}${sectorTrendContext}
       "confidence": 0.0〜1.0の信頼度,
       "advice": "バランス型視点でのアドバイス（100文字以内）",
       "shortTerm": "バランス型視点での今週の判断（2-3文）",
+      "holdCondition": "holdの場合のみ: 待機目標（同上）。buy/sellの場合はnull",
       "sellReason": "売却理由（sellの場合のみ、holdやbuyの場合はnull）",
       "sellCondition": "売却条件（sellの場合のみ、holdやbuyの場合はnull）",
       "suggestedSellPercent": 推奨売却割合（25, 50, 75, 100のいずれか。sellの場合のみ、holdやbuyの場合はnull）,
@@ -201,6 +203,7 @@ ${newsContext}${marketContext}${sectorTrendContext}
       "confidence": 0.0〜1.0の信頼度,
       "advice": "積極派視点でのアドバイス（100文字以内）",
       "shortTerm": "積極派視点での今週の判断（2-3文）",
+      "holdCondition": "holdの場合のみ: 待機目標（同上）。buy/sellの場合はnull",
       "sellReason": "売却理由（sellの場合のみ、holdやbuyの場合はnull）",
       "sellCondition": "売却条件（sellの場合のみ、holdやbuyの場合はnull）",
       "suggestedSellPercent": 推奨売却割合（25, 50, 75, 100のいずれか。sellの場合のみ、holdやbuyの場合はnull）,
@@ -256,8 +259,13 @@ ${PROMPT_NEWS_CONSTRAINTS}
 - shortTerm: 主にテクニカル指標を根拠として、「様子見」「買い増し検討」「売却検討」のいずれかの判断を必ず結論に含める
 - mediumTerm: 主にファンダメンタルとトレンドを根拠として、今月の見通しと推奨行動を必ず結論に含める
 - longTerm: 主に事業展望・財務状況を根拠として、長期継続の判断を必ず結論に含める
-- suggestedExitRate / suggestedSellTargetRate: 各スタイルごとに異なる率を設定すること（絶対価格はシステムが自動算出する）
+- suggestedExitRate / suggestedSellTargetRate: 各スタイルごとに異なる率を設定すること（絶対価格はシステムがshortTermPriceLow/Highから自動算出する。率はフォールバック用）
 - sellCondition: どの指標がどの水準になったら売るかを具体的に記述する。価格ではなく率や指標水準で条件を記述すること
+- holdCondition: recommendation="hold"の場合、期間分析の価格予測（shortTermPriceLow/High等）を踏まえ、「何を目指して待つか」の具体的な待機目標を記載する。例:
+  - 「¥XXX（短期予測安値）付近まで下がったら買い増し検討」
+  - 「¥XXX（短期予測高値）を超えたら一部利確を検討」
+  - 「RSIが30を下回る水準で反発を確認したら買い増し」
+  - 必ず期間分析の価格レンジや指標水準を含め、具体的なアクションポイントを示すこと
 - 損切りも重要な選択肢: 損失が大きく、回復の見込みが薄い場合は損切りを提案する
 
 【平均取得単価の機会費用的考え方 - 重要】

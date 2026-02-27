@@ -831,6 +831,31 @@ export async function executePurchaseRecommendation(
     );
   }
 
+  // --- 期間分析ベースの率を優先 ---
+  // 短期予測価格から売却目標率・撤退ライン率を逆算し、AIの率を上書き
+  if (currentPrice > 0) {
+    const shortTermPriceHigh = result.shortTermPriceHigh;
+    const shortTermPriceLow = result.shortTermPriceLow;
+    const predictionSellTargetRate =
+      shortTermPriceHigh && shortTermPriceHigh > currentPrice
+        ? (shortTermPriceHigh - currentPrice) / currentPrice
+        : null;
+    const predictionExitRate =
+      shortTermPriceLow && shortTermPriceLow > 0 && shortTermPriceLow < currentPrice
+        ? (currentPrice - shortTermPriceLow) / currentPrice
+        : null;
+
+    for (const styleKey of ALL_STYLE_KEYS) {
+      const sa = styleAnalyses[styleKey];
+      if (predictionSellTargetRate !== null) {
+        sa.suggestedSellTargetRate = predictionSellTargetRate;
+      }
+      if (predictionExitRate !== null) {
+        sa.suggestedExitRate = predictionExitRate;
+      }
+    }
+  }
+
   // ユーザーの選択スタイルの結果を取得
   const userStyle = (investmentStyle || "BALANCED") as "CONSERVATIVE" | "BALANCED" | "AGGRESSIVE";
   const userStyleResult = styleAnalyses[userStyle];
