@@ -8,6 +8,8 @@
     "showDetails": "詳細を見る",
     "hideDetails": "閉じる",
     "stockHighlights": "注目銘柄",
+    "sourcePortfolio": "保有",
+    "sourceWatchlist": "気になる",
     "sectorHighlights": "セクター動向",
     "tone": {
       "bullish": "リスクオン",

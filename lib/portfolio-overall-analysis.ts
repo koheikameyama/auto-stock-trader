@@ -27,6 +27,7 @@ export interface StockHighlight {
   dailyChangeRate: number
   weekChangeRate: number
   analysis: string
+  source: "portfolio" | "watchlist"
 }
 
 export interface SectorHighlight {
@@ -174,6 +175,7 @@ async function generateAnalysisWithAI(
   investmentStyle: string,
   dailyContext: {
     stockDailyMovementsText: string
+    watchlistDailyMovementsText: string
     soldStocksText: string
     sectorTrendsText: string
     upcomingEarningsText: string
@@ -235,6 +237,7 @@ async function generateAnalysisWithAI(
     unprofitablePortfolioNames: unprofitablePortfolioStocks.map(s => s.name),
     investmentStyle,
     stockDailyMovementsText: dailyContext.stockDailyMovementsText,
+    watchlistDailyMovementsText: dailyContext.watchlistDailyMovementsText,
     soldStocksText: dailyContext.soldStocksText,
     sectorTrendsText: dailyContext.sectorTrendsText,
     upcomingEarningsText: dailyContext.upcomingEarningsText,
@@ -251,8 +254,9 @@ async function generateAnalysisWithAI(
       dailyChangeRate: { type: "number" as const },
       weekChangeRate: { type: "number" as const },
       analysis: { type: "string" as const },
+      source: { type: "string" as const, enum: ["portfolio", "watchlist"] },
     },
-    required: ["stockName", "tickerCode", "sector", "dailyChangeRate", "weekChangeRate", "analysis"] as const,
+    required: ["stockName", "tickerCode", "sector", "dailyChangeRate", "weekChangeRate", "analysis", "source"] as const,
     additionalProperties: false as const,
   }
 
@@ -605,6 +609,20 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
     })
   const stockDailyMovementsText = [...holdingMovements, ...fullySoldTodayMovements].join("\n")
 
+  // 気になるリスト銘柄の値動きテキスト
+  const watchlistMovements = user.watchlistStocks.map(ws => {
+    const stock = ws.stock
+    const daily = stock.dailyChangeRate != null ? `前日比 ${Number(stock.dailyChangeRate) >= 0 ? "+" : ""}${Number(stock.dailyChangeRate).toFixed(1)}%` : "前日比 データなし"
+    const weekly = stock.weekChangeRate != null ? `週間 ${Number(stock.weekChangeRate) >= 0 ? "+" : ""}${Number(stock.weekChangeRate).toFixed(1)}%` : ""
+    const ma = stock.maDeviationRate != null ? `MA乖離 ${Number(stock.maDeviationRate) >= 0 ? "+" : ""}${Number(stock.maDeviationRate).toFixed(1)}%` : ""
+    const vol = stock.volumeRatio != null ? `出来高比 ${Number(stock.volumeRatio).toFixed(1)}倍` : ""
+    const parts = [daily, weekly, ma, vol].filter(Boolean).join(", ")
+    return `- ${stock.name}（${stock.tickerCode}）: ${stock.sector || "その他"}, ${parts}`
+  })
+  const watchlistDailyMovementsText = watchlistMovements.length > 0
+    ? watchlistMovements.join("\n")
+    : "気になるリスト銘柄なし"
+
   const soldStocksText = todaySellTransactions.length > 0
     ? todaySellTransactions.map(tx => {
         const avgPrice = tx.portfolioStock
@@ -721,6 +739,7 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
     investmentStyleLabel,
     {
       stockDailyMovementsText,
+      watchlistDailyMovementsText,
       soldStocksText,
       sectorTrendsText,
       upcomingEarningsText,

@@ -282,6 +282,15 @@ export default function DailyMarketNavigator({
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-gray-900">{stock.stockName}</span>
                           <span className="text-xs text-gray-400">(<CopyableTicker tickerCode={stock.tickerCode} />)</span>
+                          {stock.source && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                              stock.source === "portfolio"
+                                ? "bg-blue-100 text-blue-700"
+                                : "bg-yellow-100 text-yellow-700"
+                            }`}>
+                              {stock.source === "portfolio" ? t("sourcePortfolio") : t("sourceWatchlist")}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`text-sm font-bold ${daily.color}`}>{daily.text}</span>

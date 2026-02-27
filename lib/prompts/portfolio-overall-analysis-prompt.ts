@@ -17,6 +17,7 @@ export function buildPortfolioOverallAnalysisPrompt(params: {
   unprofitablePortfolioNames: string[];
   investmentStyle: string;
   stockDailyMovementsText: string;
+  watchlistDailyMovementsText: string;
   soldStocksText: string;
   sectorTrendsText: string;
   upcomingEarningsText: string;
@@ -39,6 +40,7 @@ export function buildPortfolioOverallAnalysisPrompt(params: {
     unprofitablePortfolioNames,
     investmentStyle,
     stockDailyMovementsText,
+    watchlistDailyMovementsText,
     soldStocksText,
     sectorTrendsText,
     upcomingEarningsText,
@@ -84,8 +86,11 @@ ${unprofitablePortfolioNames.length > 0
   ? `ポートフォリオ: ${unprofitablePortfolioNames.join("、")}（${unprofitablePortfolioNames.length}銘柄が赤字）`
   : "ポートフォリオ: 赤字銘柄なし"}
 
-【今日の値動きデータ】
+【今日の値動きデータ（保有銘柄）】
 ${stockDailyMovementsText}
+
+【気になるリスト銘柄の値動き】
+${watchlistDailyMovementsText}
 
 【本日の売却取引】
 ${soldStocksText}
@@ -140,7 +145,7 @@ function buildMorningOutputRules(investmentStyle: string): string {
 - portfolioSummary: ポートフォリオの状態を1-2文で説明。日経平均との比較（超過リターン）に基づいた評価を含める
 - actionPlan: 投資スタイル（${investmentStyle}）に基づく具体的なアクション。1-2文
 - buddyMessage: 親しみやすい口調で寄り添う1文。初心者を勇気づける前向きな激励
-- stockHighlights: 保有銘柄のうち、注目すべきもののみ（全部ではない）。値動きが大きい順に並べる
+- stockHighlights: 保有銘柄と気になるリスト銘柄の中から、注目すべきもののみ（全部ではない）。値動きが大きい順に並べる。sourceフィールドで保有銘柄は"portfolio"、気になるリスト銘柄は"watchlist"を設定する。気になるリスト銘柄は購入検討中のため、買い時の判断材料となる分析を添える
 - sectorHighlights: 保有銘柄に関連するセクターのみ
 
 【表現の指針】
@@ -193,7 +198,7 @@ function buildEveningOutputRules(investmentStyle: string): string {
 - portfolioSummary: 今日のポートフォリオの動きを1-2文で説明。日経平均との比較（超過リターン）に基づいた評価を含める
 - actionPlan: 投資スタイル（${investmentStyle}）に基づく明日に向けた具体的な準備。1-2文
 - buddyMessage: 親しみやすい口調で今日の労いと明日への期待を込めた1文
-- stockHighlights: 保有銘柄のうち、今日の動きが注目すべきもののみ（全部ではない）。値動きが大きい順に並べる
+- stockHighlights: 保有銘柄と気になるリスト銘柄の中から、今日の動きが注目すべきもののみ（全部ではない）。値動きが大きい順に並べる。sourceフィールドで保有銘柄は"portfolio"、気になるリスト銘柄は"watchlist"を設定する。気になるリスト銘柄は購入検討中のため、買い時の判断材料となる分析を添える
 - sectorHighlights: 保有銘柄に関連するセクターのみ
 
 【表現の指針】
