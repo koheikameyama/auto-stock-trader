@@ -34,6 +34,7 @@ export async function GET(request: Request) {
         unrealizedGain: true,
         unrealizedGainPercent: true,
         stockCount: true,
+        nikkeiClose: true,
       },
     })
 
@@ -44,6 +45,7 @@ export async function GET(request: Request) {
       unrealizedGain: Number(s.unrealizedGain),
       unrealizedGainPercent: Number(s.unrealizedGainPercent),
       stockCount: s.stockCount,
+      nikkeiClose: s.nikkeiClose ? Number(s.nikkeiClose) : null,
     }))
 
     return NextResponse.json({

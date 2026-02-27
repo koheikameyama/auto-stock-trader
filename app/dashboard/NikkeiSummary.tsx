@@ -11,6 +11,7 @@ import {
   ReferenceLine,
 } from "recharts"
 import { useTranslations } from "next-intl"
+import { BENCHMARK_METRICS } from "@/lib/constants"
 
 type Period = "1m" | "3m" | "1y"
 
@@ -38,6 +39,18 @@ interface ChartDataPoint {
   portfolioPercent: number | null
 }
 
+interface BenchmarkMetrics {
+  hasMetrics: boolean
+  reason?: string
+  dataPoints?: number
+  required?: number
+  portfolioReturn?: number
+  nikkeiReturn?: number
+  excessReturn?: number
+  beta?: number | null
+  sharpeRatio?: number | null
+}
+
 export default function NikkeiSummary() {
   const t = useTranslations("dashboard.nikkei")
   const [nikkei, setNikkei] = useState<NikkeiData | null>(null)
@@ -46,6 +59,9 @@ export default function NikkeiSummary() {
   const [chartLoading, setChartLoading] = useState(false)
   const [period, setPeriod] = useState<Period>("1m")
   const [showChart, setShowChart] = useState(false)
+  const [metrics, setMetrics] = useState<BenchmarkMetrics | null>(null)
+  const [metricsLoading, setMetricsLoading] = useState(false)
+  const [expandedMetric, setExpandedMetric] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchNikkei = async () => {
@@ -118,11 +134,27 @@ export default function NikkeiSummary() {
     }
   }, [])
 
+  const fetchMetrics = useCallback(async (p: Period) => {
+    setMetricsLoading(true)
+    try {
+      const res = await fetch(`/api/portfolio/benchmark-metrics?period=${p}`)
+      if (res.ok) {
+        const data = await res.json()
+        setMetrics(data)
+      }
+    } catch (error) {
+      console.error("Error fetching benchmark metrics:", error)
+    } finally {
+      setMetricsLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (showChart) {
       fetchChartData(period)
+      fetchMetrics(period)
     }
-  }, [showChart, period, fetchChartData])
+  }, [showChart, period, fetchChartData, fetchMetrics])
 
   const handleToggleChart = () => {
     setShowChart((prev) => !prev)
@@ -130,6 +162,32 @@ export default function NikkeiSummary() {
 
   const handlePeriodChange = (p: Period) => {
     setPeriod(p)
+  }
+
+  const getExcessReturnEval = (value: number) => {
+    if (value >= BENCHMARK_METRICS.EXCESS_RETURN_GOOD)
+      return { label: t("evalGood"), color: "text-green-600" }
+    if (value <= BENCHMARK_METRICS.EXCESS_RETURN_BAD)
+      return { label: t("evalCaution"), color: "text-red-600" }
+    return { label: t("evalNormal"), color: "text-gray-600" }
+  }
+
+  const getBetaEval = (value: number) => {
+    if (value < BENCHMARK_METRICS.BETA_STABLE)
+      return { label: t("betaStable"), color: "text-blue-600" }
+    if (value < BENCHMARK_METRICS.BETA_BALANCED)
+      return { label: t("betaBalanced"), color: "text-gray-600" }
+    if (value < BENCHMARK_METRICS.BETA_AGGRESSIVE)
+      return { label: t("betaAggressive"), color: "text-orange-600" }
+    return { label: t("betaHighRisk"), color: "text-red-600" }
+  }
+
+  const getSharpeEval = (value: number) => {
+    if (value >= BENCHMARK_METRICS.SHARPE_EXCELLENT)
+      return { label: t("evalExcellent"), color: "text-green-600" }
+    if (value >= BENCHMARK_METRICS.SHARPE_FAIR)
+      return { label: t("evalNormal"), color: "text-gray-600" }
+    return { label: t("evalNeedsImprovement"), color: "text-red-600" }
   }
 
   const formatDate = (dateStr: string) => {
@@ -380,6 +438,86 @@ export default function NikkeiSummary() {
                       value: `${outperformance >= 0 ? "+" : ""}${outperformance.toFixed(2)}%`,
                     })}
                   </span>
+                </div>
+              )}
+
+              {/* Benchmark Metrics */}
+              {metrics && metrics.hasMetrics && !metricsLoading && (
+                <div className="mt-3 pt-3 border-t border-gray-100">
+                  <p className="text-[10px] text-gray-500 mb-2">{t("benchmarkTitle")}</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {/* Excess Return */}
+                    <button
+                      onClick={() => setExpandedMetric(expandedMetric === "excess" ? null : "excess")}
+                      className="text-left bg-gray-50 rounded-lg p-2"
+                    >
+                      <p className="text-[10px] text-gray-500">{t("excessReturn")}</p>
+                      <p className="text-sm font-bold text-gray-900">
+                        {metrics.excessReturn! >= 0 ? "+" : ""}{metrics.excessReturn}%
+                      </p>
+                      <p className={`text-[10px] font-medium ${getExcessReturnEval(metrics.excessReturn!).color}`}>
+                        {getExcessReturnEval(metrics.excessReturn!).label}
+                      </p>
+                    </button>
+
+                    {/* Beta */}
+                    <button
+                      onClick={() => setExpandedMetric(expandedMetric === "beta" ? null : "beta")}
+                      className="text-left bg-gray-50 rounded-lg p-2"
+                    >
+                      <p className="text-[10px] text-gray-500">{t("beta")}</p>
+                      <p className="text-sm font-bold text-gray-900">
+                        {metrics.beta !== null ? metrics.beta!.toFixed(2) : "-"}
+                      </p>
+                      {metrics.beta !== null && (
+                        <p className={`text-[10px] font-medium ${getBetaEval(metrics.beta!).color}`}>
+                          {getBetaEval(metrics.beta!).label}
+                        </p>
+                      )}
+                    </button>
+
+                    {/* Sharpe Ratio */}
+                    <button
+                      onClick={() => setExpandedMetric(expandedMetric === "sharpe" ? null : "sharpe")}
+                      className="text-left bg-gray-50 rounded-lg p-2"
+                    >
+                      <p className="text-[10px] text-gray-500">{t("sharpeRatio")}</p>
+                      <p className="text-sm font-bold text-gray-900">
+                        {metrics.sharpeRatio !== null ? metrics.sharpeRatio!.toFixed(2) : "-"}
+                      </p>
+                      {metrics.sharpeRatio !== null && (
+                        <p className={`text-[10px] font-medium ${getSharpeEval(metrics.sharpeRatio!).color}`}>
+                          {getSharpeEval(metrics.sharpeRatio!).label}
+                        </p>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Expanded description */}
+                  {expandedMetric === "excess" && (
+                    <div className="mt-2 p-2 bg-blue-50 rounded-lg text-[11px] text-gray-700">
+                      {t("excessReturnDesc")}
+                    </div>
+                  )}
+                  {expandedMetric === "beta" && (
+                    <div className="mt-2 p-2 bg-blue-50 rounded-lg text-[11px] text-gray-700">
+                      {t("betaDesc")}
+                    </div>
+                  )}
+                  {expandedMetric === "sharpe" && (
+                    <div className="mt-2 p-2 bg-blue-50 rounded-lg text-[11px] text-gray-700">
+                      {t("sharpeRatioDesc")}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Insufficient data message */}
+              {metrics && !metrics.hasMetrics && metrics.reason === "insufficient_data" && !metricsLoading && (
+                <div className="mt-3 pt-3 border-t border-gray-100">
+                  <p className="text-[10px] text-gray-400 text-center">
+                    {t("insufficientData", { count: metrics.dataPoints ?? 0, required: metrics.required ?? 0 })}
+                  </p>
                 </div>
               )}
             </>

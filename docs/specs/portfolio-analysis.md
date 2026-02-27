@@ -110,6 +110,7 @@ UIはJST 15時を境にデフォルトセッションを自動切替。タブで
 - 業績状況（黒字銘柄数、増益/減益傾向）
 - 銘柄別の日次値動き（前日比・週間変化率・MA乖離・出来高比）
 - 本日の売却取引
+- ベンチマーク比較（日経225との超過リターン・ベータ値、直近1ヶ月）
 - ポートフォリオ内セクターのセクタートレンド
 - 今後7日間の決算予定銘柄
 - ユーザーの投資スタイル
@@ -265,6 +266,36 @@ Daily Market Navigator の分析を再生成。
 - `userId` (CRON時必須): ユーザーID
 - `session` (optional): `morning` | `evening`（デフォルト `morning`）
 
+### ベンチマーク比較
+
+#### `GET /api/portfolio/benchmark-metrics?period={1m|3m|6m|1y}`
+
+ポートフォリオと日経225のベンチマーク比較指標を計算。
+
+**レスポンス（データ十分時）**:
+```json
+{
+  "hasMetrics": true,
+  "period": "3m",
+  "dataPoints": 60,
+  "portfolioReturn": 5.5,
+  "nikkeiReturn": 2.3,
+  "excessReturn": 3.2,
+  "beta": 0.85,
+  "sharpeRatio": 1.24
+}
+```
+
+**レスポンス（データ不足時）**:
+```json
+{
+  "hasMetrics": false,
+  "reason": "insufficient_data",
+  "dataPoints": 15,
+  "required": 30
+}
+```
+
 ### ポートフォリオサマリー
 
 #### `GET /api/portfolio/summary`
@@ -411,6 +442,7 @@ PortfolioSnapshot テーブルからの時系列データ。
 | stockCount | Int | 保有銘柄数 |
 | sectorBreakdown | Json? | セクター別内訳 |
 | stockBreakdown | Json? | 銘柄別内訳 |
+| nikkeiClose | Decimal? | 日経225終値（ベンチマーク比較用） |
 
 ## 関連ファイル
 
@@ -421,6 +453,8 @@ PortfolioSnapshot テーブルからの時系列データ。
 - `app/api/portfolio/summary/route.ts` - サマリー API
 - `app/api/portfolio/composition/route.ts` - 構成比率 API
 - `app/api/portfolio/history/route.ts` - 資産推移 API
+- `app/api/portfolio/benchmark-metrics/route.ts` - ベンチマーク指標 API
+- `app/dashboard/NikkeiSummary.tsx` - 日経225 & ベンチマーク比較コンポーネント
 - `lib/portfolio-overall-analysis.ts` - Daily Market Navigator ロジック（型定義・生成・取得）
 - `lib/portfolio-analysis-core.ts` - 個別銘柄分析ロジック
 - `lib/portfolio-calculator.ts` - 計算ロジック

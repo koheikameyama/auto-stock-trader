@@ -6,14 +6,12 @@ export type BadgeKey =
   | "dashboard"
   | "my-stocks"
   | "news"
-  | "portfolio-analysis"
   | "ai-report"
 
 interface LastSeenData {
   dashboard?: string
   "my-stocks"?: string
   news?: string
-  "portfolio-analysis"?: string
   "ai-report"?: string
 }
 

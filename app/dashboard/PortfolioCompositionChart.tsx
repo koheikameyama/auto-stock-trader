@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import Link from "next/link"
 import {
   PieChart,
   Pie,
@@ -258,15 +257,6 @@ export default function PortfolioCompositionChart() {
             </span>
             <p className="text-sm text-gray-700">{sectorAnalysis.action}</p>
           </div>
-          <Link
-            href="/portfolio-analysis"
-            className="mt-3 flex items-center justify-center gap-1 w-full py-2 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
-          >
-            <span>ポートフォリオ総評を見る</span>
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </Link>
         </div>
       )}
     </div>

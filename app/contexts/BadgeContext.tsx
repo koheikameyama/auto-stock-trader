@@ -14,7 +14,6 @@ interface BadgeState {
   dashboard: boolean
   "my-stocks": boolean
   news: boolean
-  "portfolio-analysis": boolean
   "ai-report": boolean
   menu: boolean
 }
@@ -29,7 +28,6 @@ const defaultBadges: BadgeState = {
   dashboard: false,
   "my-stocks": false,
   news: false,
-  "portfolio-analysis": false,
   "ai-report": false,
   menu: false,
 }
@@ -52,8 +50,6 @@ export function BadgeProvider({ children }: { children: ReactNode }) {
       if (lastSeen.dashboard) params.set("dashboard", lastSeen.dashboard)
       if (lastSeen["my-stocks"]) params.set("my-stocks", lastSeen["my-stocks"])
       if (lastSeen.news) params.set("news", lastSeen.news)
-      if (lastSeen["portfolio-analysis"])
-        params.set("portfolio-analysis", lastSeen["portfolio-analysis"])
       if (lastSeen["ai-report"]) params.set("ai-report", lastSeen["ai-report"])
 
       const response = await fetch(`/api/badges?${params.toString()}`)
@@ -89,10 +85,9 @@ export function BadgeProvider({ children }: { children: ReactNode }) {
       // バッジを即座に更新
       setBadges((prev) => {
         const newBadges = { ...prev, [key]: false }
-        // menuは portfolio-analysis と ai-report の OR
-        if (key === "portfolio-analysis" || key === "ai-report") {
-          newBadges.menu =
-            newBadges["portfolio-analysis"] || newBadges["ai-report"]
+        // menuは ai-report の状態
+        if (key === "ai-report") {
+          newBadges.menu = newBadges["ai-report"]
         }
         return newBadges
       })

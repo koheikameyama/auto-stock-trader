@@ -20,6 +20,7 @@ export function buildPortfolioOverallAnalysisPrompt(params: {
   soldStocksText: string;
   sectorTrendsText: string;
   upcomingEarningsText: string;
+  benchmarkText: string;
 }): string {
   const {
     session,
@@ -41,6 +42,7 @@ export function buildPortfolioOverallAnalysisPrompt(params: {
     soldStocksText,
     sectorTrendsText,
     upcomingEarningsText,
+    benchmarkText,
   } = params;
 
   const roleAndSteps =
@@ -88,6 +90,9 @@ ${stockDailyMovementsText}
 【本日の売却取引】
 ${soldStocksText}
 
+【ベンチマーク比較（日経225）】
+${benchmarkText}
+
 【セクタートレンド】
 ${sectorTrendsText}
 
@@ -132,7 +137,7 @@ function buildMorningOutputRules(investmentStyle: string): string {
   return `## 出力ルール
 - marketHeadline: 市況を1文で要約。ニュースを創作しない。実データに基づく
 - marketKeyFactor: 主要因を1-2文で説明
-- portfolioSummary: ポートフォリオの状態を1-2文で説明
+- portfolioSummary: ポートフォリオの状態を1-2文で説明。日経平均との比較（超過リターン）に基づいた評価を含める
 - actionPlan: 投資スタイル（${investmentStyle}）に基づく具体的なアクション。1-2文
 - buddyMessage: 親しみやすい口調で寄り添う1文。初心者を勇気づける前向きな激励
 - stockHighlights: 保有銘柄のうち、注目すべきもののみ（全部ではない）。値動きが大きい順に並べる
@@ -185,7 +190,7 @@ function buildEveningOutputRules(investmentStyle: string): string {
   return `## 出力ルール
 - marketHeadline: 今日の市場を1文で総括。ニュースを創作しない。実データに基づく
 - marketKeyFactor: 今日の主要因を1-2文で振り返り
-- portfolioSummary: 今日のポートフォリオの動きを1-2文で説明
+- portfolioSummary: 今日のポートフォリオの動きを1-2文で説明。日経平均との比較（超過リターン）に基づいた評価を含める
 - actionPlan: 投資スタイル（${investmentStyle}）に基づく明日に向けた具体的な準備。1-2文
 - buddyMessage: 親しみやすい口調で今日の労いと明日への期待を込めた1文
 - stockHighlights: 保有銘柄のうち、今日の動きが注目すべきもののみ（全部ではない）。値動きが大きい順に並べる

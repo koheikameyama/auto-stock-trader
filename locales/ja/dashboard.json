@@ -72,6 +72,23 @@
     "outperformance": "市場に対して{value}",
     "tooltipDate": "{date}",
     "changePercent": "{value}%",
-    "vsNikkei": "日経比: {value}"
+    "vsNikkei": "日経比: {value}",
+    "benchmarkTitle": "ベンチマーク指標",
+    "excessReturn": "超過リターン",
+    "excessReturnDesc": "日経平均より何%多く（少なく）稼げたか。プラスなら市場に勝っています",
+    "beta": "ベータ値",
+    "betaDesc": "市場全体が1%動いた時、あなたのポートフォリオが何%動くか。1より大きいと市場より激しく動きます",
+    "sharpeRatio": "シャープレシオ",
+    "sharpeRatioDesc": "リスク（値動きの激しさ）に対するリターンの効率。1以上で優秀です",
+    "insufficientData": "データ不足（{count}日/{required}日必要）",
+    "betaStable": "安定型",
+    "betaBalanced": "バランス型",
+    "betaAggressive": "積極型",
+    "betaHighRisk": "ハイリスク",
+    "evalGood": "良好",
+    "evalNormal": "普通",
+    "evalCaution": "注意",
+    "evalExcellent": "優秀",
+    "evalNeedsImprovement": "改善の余地あり"
   }
 }

@@ -556,3 +556,21 @@ export const SECTORS = [
   "不動産",
   "素材",
 ] as const;
+
+// ベンチマーク比較指標の閾値
+export const BENCHMARK_METRICS = {
+  // 計算に必要な最小スナップショット日数
+  MIN_DATA_POINTS: 30,
+  // 無リスク金利（年率%）: 日本10年国債利回り近似
+  RISK_FREE_RATE_ANNUAL: 0.5,
+  // 超過リターンの評価
+  EXCESS_RETURN_GOOD: 3, // +3%以上で良好
+  EXCESS_RETURN_BAD: -3, // -3%以下で注意
+  // ベータ値の評価
+  BETA_STABLE: 0.5, // 安定型
+  BETA_BALANCED: 1.0, // バランス型
+  BETA_AGGRESSIVE: 1.5, // 積極型
+  // シャープレシオの評価
+  SHARPE_EXCELLENT: 1.0, // 優秀
+  SHARPE_FAIR: 0.5, // 普通
+} as const;

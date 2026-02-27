@@ -15,7 +15,6 @@ export async function GET(request: NextRequest) {
     const dashboardLastSeen = searchParams.get("dashboard")
     const myStocksLastSeen = searchParams.get("my-stocks")
     const newsLastSeen = searchParams.get("news")
-    const portfolioAnalysisLastSeen = searchParams.get("portfolio-analysis")
     const aiReportLastSeen = searchParams.get("ai-report")
 
     // 並列でバッジカウントを取得
@@ -23,7 +22,6 @@ export async function GET(request: NextRequest) {
       dashboardBadge,
       myStocksBadge,
       newsBadge,
-      portfolioAnalysisBadge,
       aiReportBadge,
     ] = await Promise.all([
       // ホーム: 新しいおすすめ銘柄
@@ -32,8 +30,6 @@ export async function GET(request: NextRequest) {
       getMyStocksBadge(userId, myStocksLastSeen),
       // ニュース: 新しいニュース
       getNewsBadge(newsLastSeen),
-      // 総評: 更新あり
-      getPortfolioAnalysisBadge(userId, portfolioAnalysisLastSeen),
       // AI精度レポート: 更新あり
       getAIReportBadge(aiReportLastSeen),
     ])
@@ -42,10 +38,9 @@ export async function GET(request: NextRequest) {
       dashboard: dashboardBadge,
       "my-stocks": myStocksBadge,
       news: newsBadge,
-      "portfolio-analysis": portfolioAnalysisBadge,
       "ai-report": aiReportBadge,
-      // その他タブ用（総評 or AI精度レポートが更新されていたら）
-      menu: portfolioAnalysisBadge || aiReportBadge,
+      // その他タブ用
+      menu: aiReportBadge,
     })
   } catch (error) {
     console.error("Error fetching badges:", error)
@@ -142,26 +137,6 @@ async function getNewsBadge(lastSeen: string | null): Promise<boolean> {
   })
 
   return !!newNews
-}
-
-// 総評: 更新があるか
-async function getPortfolioAnalysisBadge(
-  userId: string,
-  lastSeen: string | null
-): Promise<boolean> {
-  if (!lastSeen) return false
-
-  const lastSeenDate = new Date(lastSeen)
-
-  const analysis = await prisma.portfolioOverallAnalysis.findFirst({
-    where: { userId },
-    orderBy: { analyzedAt: "desc" },
-    select: { analyzedAt: true },
-  })
-
-  if (!analysis) return false
-
-  return analysis.analyzedAt > lastSeenDate
 }
 
 // AI精度レポート: 更新があるか

@@ -14,6 +14,7 @@ from collections import defaultdict
 
 import psycopg2
 import psycopg2.extras
+import yfinance as yf
 
 # scriptsディレクトリをパスに追加
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -210,6 +211,7 @@ def upsert_snapshots(conn, snapshots: list[dict], date: datetime):
             s["stockCount"],
             json.dumps(s["sectorBreakdown"], ensure_ascii=False),
             json.dumps(s["stockBreakdown"], ensure_ascii=False),
+            float(s["nikkeiClose"]) if s.get("nikkeiClose") is not None else None,
         ))
 
     with conn.cursor() as cur:
@@ -219,7 +221,7 @@ def upsert_snapshots(conn, snapshots: list[dict], date: datetime):
             INSERT INTO "PortfolioSnapshot" (
                 "id", "userId", "date", "totalValue", "totalCost",
                 "unrealizedGain", "unrealizedGainPercent", "stockCount",
-                "sectorBreakdown", "stockBreakdown", "createdAt"
+                "sectorBreakdown", "stockBreakdown", "nikkeiClose", "createdAt"
             )
             VALUES %s
             ON CONFLICT ("userId", "date") DO UPDATE SET
@@ -229,17 +231,34 @@ def upsert_snapshots(conn, snapshots: list[dict], date: datetime):
                 "unrealizedGainPercent" = EXCLUDED."unrealizedGainPercent",
                 "stockCount" = EXCLUDED."stockCount",
                 "sectorBreakdown" = EXCLUDED."sectorBreakdown",
-                "stockBreakdown" = EXCLUDED."stockBreakdown"
+                "stockBreakdown" = EXCLUDED."stockBreakdown",
+                "nikkeiClose" = EXCLUDED."nikkeiClose"
             ''',
             values,
             template='''(
-                gen_random_uuid()::text, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, NOW()
+                gen_random_uuid()::text, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, NOW()
             )''',
             page_size=100
         )
         conn.commit()
 
     return len(values)
+
+
+def fetch_nikkei_close() -> float | None:
+    """日経225の最新終値を取得"""
+    try:
+        ticker = yf.Ticker("^N225")
+        hist = ticker.history(period="5d")
+        if hist.empty:
+            print("Warning: Nikkei 225 data not available")
+            return None
+        close = float(hist["Close"].iloc[-1])
+        print(f"Nikkei 225 close: ¥{close:,.0f}")
+        return close
+    except Exception as e:
+        print(f"Warning: Failed to fetch Nikkei 225: {e}")
+        return None
 
 
 def main():
@@ -253,6 +272,9 @@ def main():
     print(f"Snapshot date: {today}")
 
     try:
+        # 0. 日経225終値を取得（全ユーザー共通）
+        nikkei_close = fetch_nikkei_close()
+
         # 1. 保有銘柄があるユーザーを取得
         user_ids = fetch_users_with_holdings(conn)
         print(f"Found {len(user_ids)} users with holdings")
@@ -270,6 +292,7 @@ def main():
         for user_id, holdings in all_holdings.items():
             snapshot = calculate_snapshot(holdings)
             snapshot["userId"] = user_id
+            snapshot["nikkeiClose"] = nikkei_close
             snapshots.append(snapshot)
             print(f"  User {user_id[:8]}...: {snapshot['stockCount']} stocks, ¥{float(snapshot['totalValue']):,.0f}")
 

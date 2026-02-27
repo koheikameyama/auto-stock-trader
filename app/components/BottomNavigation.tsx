@@ -116,8 +116,7 @@ export default function BottomNavigation() {
       return (
         pathname === "/menu" ||
         pathname.startsWith("/settings") ||
-        pathname.startsWith("/ai-report") ||
-        pathname.startsWith("/portfolio-analysis")
+        pathname.startsWith("/ai-report")
       );
     }
     return false;
