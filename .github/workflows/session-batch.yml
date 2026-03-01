@@ -24,12 +24,12 @@ on:
 # ──────────────────────────────────────────────
 # セッション別の実行内容:
 #
-#   pre-morning (08:00):   news(JP+US) → trends → navigator(morning)
+#   pre-morning (08:00):   news(JP+US) → trends → 分析ジョブ群 → navigator(morning) ← 分析結果を集約
 #   morning (09:10):       分析ジョブ群
-#   pre-afternoon (11:40): news(JP) + prices → trends + navigator(pre-afternoon) + 分析ジョブ群
+#   pre-afternoon (11:40): news(JP) + prices → trends → 分析ジョブ群 → navigator(pre-afternoon) ← 分析結果を集約
 #   afternoon (12:40):     分析ジョブ群
 #   close (15:40):         prices → trends → 分析 + gainers + snapshots
-#   post-close (17:00):    navigator(evening)
+#   post-close (17:00):    navigator(evening) ← close の分析結果を集約
 # ──────────────────────────────────────────────
 
 jobs:
@@ -59,22 +59,22 @@ jobs:
 
   purchase-recommendations:
     needs: [fetch-news, calculate-sector-trends]
-    if: "!failure() && !cancelled() && inputs.session != 'pre-morning' && inputs.session != 'post-close'"
+    if: "!failure() && !cancelled() && inputs.session != 'post-close'"
     uses: ./.github/workflows/session-purchase-recommendations.yml
     secrets: inherit
 
   portfolio-analysis:
     needs: [fetch-news, calculate-sector-trends]
-    if: "!failure() && !cancelled() && inputs.session != 'pre-morning' && inputs.session != 'post-close'"
+    if: "!failure() && !cancelled() && inputs.session != 'post-close'"
     uses: ./.github/workflows/session-portfolio-analysis.yml
     secrets: inherit
 
   personal-recommendations:
     needs: [fetch-news, calculate-sector-trends]
-    if: "!failure() && !cancelled() && inputs.session != 'pre-morning' && inputs.session != 'post-close'"
+    if: "!failure() && !cancelled() && inputs.session != 'post-close'"
     uses: ./.github/workflows/session-personal-recommendations.yml
     with:
-      session: ${{ inputs.session == 'morning' && 'morning' || inputs.session == 'close' && 'evening' || 'afternoon' }}
+      session: ${{ inputs.session == 'pre-morning' && 'morning' || inputs.session == 'morning' && 'morning' || inputs.session == 'close' && 'evening' || 'afternoon' }}
     secrets: inherit
 
   gainers-losers:
@@ -92,7 +92,7 @@ jobs:
   # ── マーケットナビゲーター ──
 
   daily-market-navigator:
-    needs: [fetch-news, calculate-sector-trends]
+    needs: [fetch-news, calculate-sector-trends, purchase-recommendations, portfolio-analysis, personal-recommendations]
     if: "!failure() && !cancelled() && (inputs.session == 'pre-morning' || inputs.session == 'pre-afternoon' || inputs.session == 'post-close')"
     uses: ./.github/workflows/session-daily-market-navigator.yml
     with:

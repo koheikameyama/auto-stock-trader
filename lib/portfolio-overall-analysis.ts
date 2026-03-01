@@ -165,6 +165,61 @@ export function getCurrentSession(): NavigatorSession {
 }
 
 /**
+ * 当日の分析結果をDBから読み込んでテキスト化する
+ */
+async function buildAnalysisResultsContext(userId: string): Promise<{
+  portfolioAnalysisText: string
+  purchaseRecommendationText: string
+}> {
+  const todayForDB = getTodayForDB()
+
+  // ポートフォリオ銘柄の分析結果（AI分析済みのもの）
+  const portfolioStocks = await prisma.portfolioStock.findMany({
+    where: { userId, lastAnalysis: { not: null } },
+    select: {
+      recommendation: true,
+      shortTerm: true,
+      sellReason: true,
+      stock: { select: { name: true, tickerCode: true, sector: true } },
+    },
+  })
+
+  const portfolioAnalysisLines = portfolioStocks.map(ps => {
+    const rec = ps.recommendation ?? "不明"
+    const short = ps.shortTerm ?? ""
+    const sell = ps.sellReason ?? ""
+    const detail = [short, sell].filter(Boolean).join(" / ")
+    return `- ${ps.stock.name}（${ps.stock.tickerCode}）[${ps.stock.sector ?? "その他"}]: 推奨=${rec}${detail ? ` — ${detail}` : ""}`
+  })
+
+  const portfolioAnalysisText = portfolioAnalysisLines.length > 0
+    ? portfolioAnalysisLines.join("\n")
+    : "ポートフォリオ分析データなし（未分析）"
+
+  // 購入判断の分析結果（当日分）
+  const purchaseRecs = await prisma.purchaseRecommendation.findMany({
+    where: { date: todayForDB },
+    select: {
+      recommendation: true,
+      confidence: true,
+      reason: true,
+      stock: { select: { name: true, tickerCode: true } },
+    },
+  })
+
+  const purchaseRecLines = purchaseRecs.map(pr => {
+    const conf = Math.round(pr.confidence * 100)
+    return `- ${pr.stock.name}（${pr.stock.tickerCode}）: ${pr.recommendation}（確信度${conf}%） — ${pr.reason}`
+  })
+
+  const purchaseRecommendationText = purchaseRecLines.length > 0
+    ? purchaseRecLines.join("\n")
+    : "購入判断データなし（未分析）"
+
+  return { portfolioAnalysisText, purchaseRecommendationText }
+}
+
+/**
  * OpenAI APIで Daily Market Navigator 分析を生成
  */
 async function generateAnalysisWithAI(
@@ -178,8 +233,8 @@ async function generateAnalysisWithAI(
   portfolioVolatility: number | null,
   investmentStyle: string,
   dailyContext: {
-    stockDailyMovementsText: string
-    watchlistDailyMovementsText: string
+    portfolioAnalysisText: string
+    purchaseRecommendationText: string
     soldStocksText: string
     sectorTrendsText: string
     upcomingEarningsText: string
@@ -240,8 +295,8 @@ async function generateAnalysisWithAI(
     decreasingCount,
     unprofitablePortfolioNames: unprofitablePortfolioStocks.map(s => s.name),
     investmentStyle,
-    stockDailyMovementsText: dailyContext.stockDailyMovementsText,
-    watchlistDailyMovementsText: dailyContext.watchlistDailyMovementsText,
+    portfolioAnalysisText: dailyContext.portfolioAnalysisText,
+    purchaseRecommendationText: dailyContext.purchaseRecommendationText,
     soldStocksText: dailyContext.soldStocksText,
     sectorTrendsText: dailyContext.sectorTrendsText,
     upcomingEarningsText: dailyContext.upcomingEarningsText,
@@ -581,51 +636,8 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
     },
   })
 
-  // 今日全売却した銘柄のstockIdを特定
-  const todaySoldStockIds = new Set(todaySellTransactions.map(tx => tx.stockId))
-
-  // 今日全売却した銘柄の日次データを収集
-  const portfolioStockIds = new Set(portfolioStocksData.map(s => s.stockId))
-  const fullySoldTodayMovements = user.portfolioStocks
-    .filter(ps => {
-      const { quantity } = calculatePortfolioFromTransactions(ps.transactions)
-      return quantity <= 0 && todaySoldStockIds.has(ps.stockId) && !portfolioStockIds.has(ps.stockId)
-    })
-    .map(ps => {
-      const stock = ps.stock
-      const daily = stock.dailyChangeRate != null ? `前日比 ${Number(stock.dailyChangeRate) >= 0 ? "+" : ""}${Number(stock.dailyChangeRate).toFixed(1)}%` : "前日比 データなし"
-      const weekly = stock.weekChangeRate != null ? `週間 ${Number(stock.weekChangeRate) >= 0 ? "+" : ""}${Number(stock.weekChangeRate).toFixed(1)}%` : ""
-      const ma = stock.maDeviationRate != null ? `MA乖離 ${Number(stock.maDeviationRate) >= 0 ? "+" : ""}${Number(stock.maDeviationRate).toFixed(1)}%` : ""
-      const vol = stock.volumeRatio != null ? `出来高比 ${Number(stock.volumeRatio).toFixed(1)}倍` : ""
-      const parts = [daily, weekly, ma, vol].filter(Boolean).join(", ")
-      return `- ${stock.name}（${stock.tickerCode}）【本日全売却】: ${parts}`
-    })
-
-  // 銘柄別の日次値動きテキスト
-  const holdingMovements = portfolioStocksData
-    .map(s => {
-      const daily = s.dailyChangeRate != null ? `前日比 ${s.dailyChangeRate >= 0 ? "+" : ""}${s.dailyChangeRate.toFixed(1)}%` : "前日比 データなし"
-      const weekly = s.weekChangeRate != null ? `週間 ${s.weekChangeRate >= 0 ? "+" : ""}${s.weekChangeRate.toFixed(1)}%` : ""
-      const ma = s.maDeviationRate != null ? `MA乖離 ${s.maDeviationRate >= 0 ? "+" : ""}${s.maDeviationRate.toFixed(1)}%` : ""
-      const vol = s.volumeRatio != null ? `出来高比 ${s.volumeRatio.toFixed(1)}倍` : ""
-      const parts = [daily, weekly, ma, vol].filter(Boolean).join(", ")
-      return `- ${s.name}（${s.tickerCode}）: ${parts}`
-    })
-  const stockDailyMovementsText = [...holdingMovements, ...fullySoldTodayMovements].join("\n")
-
-  // 気になるリスト銘柄の値動きテキスト
-  const watchlistMovements = user.watchlistStocks.map(ws => {
-    const stock = ws.stock
-    const daily = stock.dailyChangeRate != null ? `前日比 ${Number(stock.dailyChangeRate) >= 0 ? "+" : ""}${Number(stock.dailyChangeRate).toFixed(1)}%` : "前日比 データなし"
-    const weekly = stock.weekChangeRate != null ? `週間 ${Number(stock.weekChangeRate) >= 0 ? "+" : ""}${Number(stock.weekChangeRate).toFixed(1)}%` : ""
-    const ma = stock.maDeviationRate != null ? `MA乖離 ${Number(stock.maDeviationRate) >= 0 ? "+" : ""}${Number(stock.maDeviationRate).toFixed(1)}%` : ""
-    const vol = stock.volumeRatio != null ? `出来高比 ${Number(stock.volumeRatio).toFixed(1)}倍` : ""
-    const parts = [daily, weekly, ma, vol].filter(Boolean).join(", ")
-    return `- ${stock.name}（${stock.tickerCode}）: ${stock.sector || "その他"}, ${parts}`
-  })
-  const watchlistDailyMovementsText = watchlistMovements.length > 0
-    ? watchlistMovements.join("\n")
-    : "気になるリスト銘柄なし"
+  // 分析結果をDBから取得（集約型ナビゲーター用）
+  const { portfolioAnalysisText, purchaseRecommendationText } = await buildAnalysisResultsContext(userId)
 
   const soldStocksText = todaySellTransactions.length > 0
     ? todaySellTransactions.map(tx => {
@@ -742,8 +754,8 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
     portfolioVolatility,
     investmentStyleLabel,
     {
-      stockDailyMovementsText,
-      watchlistDailyMovementsText,
+      portfolioAnalysisText,
+      purchaseRecommendationText,
       soldStocksText,
       sectorTrendsText,
       upcomingEarningsText,

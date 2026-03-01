@@ -16,8 +16,8 @@ export function buildPortfolioOverallAnalysisPrompt(params: {
   decreasingCount: number;
   unprofitablePortfolioNames: string[];
   investmentStyle: string;
-  stockDailyMovementsText: string;
-  watchlistDailyMovementsText: string;
+  portfolioAnalysisText: string;
+  purchaseRecommendationText: string;
   soldStocksText: string;
   sectorTrendsText: string;
   upcomingEarningsText: string;
@@ -39,8 +39,8 @@ export function buildPortfolioOverallAnalysisPrompt(params: {
     decreasingCount,
     unprofitablePortfolioNames,
     investmentStyle,
-    stockDailyMovementsText,
-    watchlistDailyMovementsText,
+    portfolioAnalysisText,
+    purchaseRecommendationText,
     soldStocksText,
     sectorTrendsText,
     upcomingEarningsText,
@@ -90,11 +90,11 @@ ${unprofitablePortfolioNames.length > 0
   ? `ポートフォリオ: ${unprofitablePortfolioNames.join("、")}（${unprofitablePortfolioNames.length}銘柄が赤字）`
   : "ポートフォリオ: 赤字銘柄なし"}
 
-【今日の値動きデータ（保有銘柄）】
-${stockDailyMovementsText}
+【保有銘柄の分析結果（直近AI分析）】
+${portfolioAnalysisText}
 
-【気になるリスト銘柄の値動き】
-${watchlistDailyMovementsText}
+【購入判断の結果（直近AI分析）】
+${purchaseRecommendationText}
 
 【本日の売却取引】
 ${soldStocksText}
