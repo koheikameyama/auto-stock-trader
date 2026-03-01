@@ -3,6 +3,18 @@ import {
   PROMPT_NEWS_CONSTRAINTS,
 } from "@/lib/stock-analysis-context";
 
+const SESSION_CONTEXT: Record<string, string> = {
+  morning: "【分析タイミング: 前場（開場後）】\n今日の前場が始まりました。寄り付きの動きを踏まえ、今日エントリーするかどうかを判断します。短期シグナル（出来高・モメンタム）を重視してください。",
+  "mid-morning": "【分析タイミング: 前場中盤（10:30頃）】\n前場が中盤に差し掛かっています。寄り付きのトレンドが継続しているか確認し、エントリーの継続判断をしてください。",
+  "pre-afternoon": "【分析タイミング: 後場前（昼休み）】\n前場が終わりました。前場の値動きが本物かだましかを判断した上で、後場のエントリー・利確・損切りを検討してください。",
+  afternoon: "【分析タイミング: 後場（12:30〜14:00頃）】\n後場が始まりました。前場の流れが続いているか、あるいは反転しているかを踏まえて判断してください。",
+  "mid-afternoon": "【分析タイミング: 後場中盤（14:00頃）】\n大引けまで1時間余り。今日中に行動するか、翌日以降に持ち越すかを判断してください。",
+  close: "【分析タイミング: 大引け前後（15:30〜16:00）】\n今日の取引がほぼ終わりました。今日の結果を踏まえ、明日以降に向けてポジションを評価してください。",
+  "post-close": "【分析タイミング: 引け後（17:00頃）】\n今日の取引が終わりました。今日の動きを振り返り、明日以降の戦略を立ててください。中長期の視点で評価してください。",
+  evening: "【分析タイミング: 夜間】\n今日の取引が終わりました。今日の動きを振り返り、明日以降の戦略を立ててください。中長期の視点で評価してください。",
+  "pre-morning": "【分析タイミング: 開場前（8:00頃）】\n市場はまだ開いていません。データは前日終値ベースです。今日の戦略を事前に立て、指値注文や寄り付きの行動方針を決めてください。",
+}
+
 export function buildPurchaseRecommendationPrompt(params: {
   stockName: string;
   tickerCode: string;
@@ -26,6 +38,7 @@ export function buildPurchaseRecommendationPrompt(params: {
   timingIndicatorsContext: string;
   newsContext: string;
   hasPrediction: boolean;
+  session?: string;
 }): string {
   const {
     stockName,
@@ -50,11 +63,15 @@ export function buildPurchaseRecommendationPrompt(params: {
     timingIndicatorsContext,
     newsContext,
     hasPrediction,
+    session,
   } = params;
+
+  const sessionContext = session ? (SESSION_CONTEXT[session] ?? "") : ""
 
   return `あなたは投資を学びたい人向けのAIコーチです。
 以下の銘柄について、詳細な購入判断をしてください。
 専門用語は解説を添えて使ってください。
+${sessionContext ? `\n${sessionContext}\n` : ""}
 
 【銘柄情報】
 - 名前: ${stockName}

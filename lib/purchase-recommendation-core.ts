@@ -104,6 +104,7 @@ export interface PurchaseRecommendationResult {
 export async function executePurchaseRecommendation(
   userId: string | null,
   stockId: string,
+  session?: string,
 ): Promise<PurchaseRecommendationResult> {
   // 銘柄情報を取得（財務指標も含む）
   const stock = await prisma.stock.findUnique({
@@ -364,6 +365,7 @@ export async function executePurchaseRecommendation(
     timingIndicatorsContext,
     newsContext,
     hasPrediction,
+    session,
   });
 
   // OpenAI API呼び出し（Structured Outputs使用）

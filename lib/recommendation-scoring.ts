@@ -39,18 +39,37 @@ export const SCORE_WEIGHTS: Record<string, ScoreWeights> = {
 }
 
 // 時間帯別のプロンプト設定
-export const SESSION_PROMPTS: Record<string, { intro: string; focus: string }> = {
+export const SESSION_PROMPTS: Record<string, {
+  intro: string
+  focus: string
+  timeHorizon: string    // 推奨する時間軸
+  keySignals: string     // 重視すべきシグナル
+  actionContext: string  // どんな行動のための銘柄選定か
+  avoidSignals: string   // 避けるべきシグナル
+}> = {
   morning: {
     intro: "前日の動きを踏まえた今日のおすすめです。",
-    focus: "今日注目したい銘柄",
+    focus: "今日の前場に注目したい銘柄",
+    timeHorizon: "今日〜今週",
+    keySignals: "出来高急増・モメンタム・前日比の方向感・MA乖離率（過熱していないか）",
+    actionContext: "今日の前場でエントリーを検討する銘柄。寄り付き直後は様子見し、方向感が出た30分後を目安にする",
+    avoidSignals: "前週比+20%以上の急騰銘柄（過熱感あり）・出来高比0.5倍以下の薄商い銘柄",
   },
   afternoon: {
     intro: "前場の動きを踏まえたおすすめです。",
     focus: "後場に注目したい銘柄",
+    timeHorizon: "今日の後場〜明日",
+    keySignals: "前場の出来高比・前場の高値/安値からのトレンド継続性・MA乖離率の変化",
+    actionContext: "後場のエントリーまたは利確・損切りを検討する銘柄。前場の流れが続くか反転するかの判断材料を提供する",
+    avoidSignals: "前場で急騰後に出来高が細っている銘柄（後場に反落リスク）",
   },
   evening: {
     intro: "本日の取引を踏まえた明日へのおすすめです。",
-    focus: "明日以降に注目したい銘柄",
+    focus: "明日以降に仕込みたい銘柄",
+    timeHorizon: "明日〜来週",
+    keySignals: "週間トレンド・決算予定・セクタートレンドの方向性・ファンダメンタルズの強さ",
+    actionContext: "明日以降の仕込みを検討する銘柄。今日の動きより中長期の視点で、投資スタイルに合った銘柄を厳選する",
+    avoidSignals: "今日大きく動いた銘柄（翌日の反動リスク）・決算直前で不確実性が高い銘柄",
   },
 }
 

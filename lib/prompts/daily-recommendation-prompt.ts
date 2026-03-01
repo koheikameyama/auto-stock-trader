@@ -35,6 +35,12 @@ export function buildDailyRecommendationPrompt(params: {
 ${prompts.intro}
 以下のユーザーの投資スタイルに合った${prompts.focus}を7つ選んでください。
 
+【今回の分析の時間軸と観点】
+- 推奨する時間軸: ${prompts.timeHorizon}
+- 重視するシグナル: ${prompts.keySignals}
+- 選定の目的: ${prompts.actionContext}
+- 避けるべきシグナル: ${prompts.avoidSignals}
+
 【ユーザーの投資スタイル】
 - 投資スタイル: ${styleLabel}
 - 投資資金: ${budgetLabel}
@@ -49,6 +55,7 @@ ${PROMPT_MARKET_SIGNAL_DEFINITION}
 - 赤字かつ高ボラティリティ（50%超）の銘柄は選ばないでください
 - 財務指標（配当利回り、PBR、PER、ROE、売上成長率など）と銘柄特性がユーザーの投資スタイルに合っているかを判断してください
 - AI予測データがある銘柄は、銘柄の成長性や安定性の参考材料として活用してください
+- 「避けるべきシグナル」に該当する銘柄は選定から外してください
 
 ■ 投資スタイル別の選定基準:
 ${

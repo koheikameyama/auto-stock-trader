@@ -18,7 +18,7 @@ dayjs.extend(timezone)
 
 export type MarketTone = "bullish" | "bearish" | "neutral" | "sector_rotation"
 export type PortfolioStatus = "healthy" | "caution" | "warning" | "critical"
-export type NavigatorSession = "morning" | "evening"
+export type NavigatorSession = "morning" | "pre-afternoon" | "evening"
 
 export interface StockHighlight {
   stockName: string
@@ -156,8 +156,12 @@ function calculatePortfolioVolatility(stocks: PortfolioStockData[]): number | nu
  * JST 15時以降は evening、それ以前は morning
  */
 export function getCurrentSession(): NavigatorSession {
-  const hour = dayjs().tz("Asia/Tokyo").hour()
-  return hour >= DAILY_MARKET_NAVIGATOR.EVENING_SESSION_START_HOUR ? "evening" : "morning"
+  const jst = dayjs().tz("Asia/Tokyo")
+  const hour = jst.hour()
+  const minute = jst.minute()
+  if (hour >= DAILY_MARKET_NAVIGATOR.EVENING_SESSION_START_HOUR) return "evening"
+  if (hour > 11 || (hour === 11 && minute >= 40)) return "pre-afternoon"
+  return "morning"
 }
 
 /**

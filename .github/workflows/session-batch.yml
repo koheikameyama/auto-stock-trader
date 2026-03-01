@@ -97,10 +97,10 @@ jobs:
 
   daily-market-navigator:
     needs: [fetch-news, calculate-sector-trends]
-    if: "!failure() && !cancelled() && (inputs.session == 'pre-morning' || inputs.session == 'post-close')"
+    if: "!failure() && !cancelled() && (inputs.session == 'pre-morning' || inputs.session == 'pre-afternoon' || inputs.session == 'post-close')"
     uses: ./.github/workflows/session-daily-market-navigator.yml
     with:
-      session: ${{ inputs.session == 'pre-morning' && 'morning' || 'evening' }}
+      session: ${{ inputs.session == 'pre-morning' && 'morning' || inputs.session == 'pre-afternoon' && 'pre-afternoon' || 'evening' }}
     secrets: inherit
 
   # ── 通知 ──
