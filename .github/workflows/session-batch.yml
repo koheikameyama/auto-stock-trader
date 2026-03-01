@@ -63,19 +63,19 @@ jobs:
 
   purchase-recommendations:
     needs: [fetch-news, calculate-sector-trends]
-    if: "!failure() && !cancelled() && inputs.session != 'pre-morning' && inputs.session != 'pre-afternoon' && inputs.session != 'post-close'"
+    if: "!failure() && !cancelled() && inputs.session != 'pre-morning' && inputs.session != 'post-close'"
     uses: ./.github/workflows/session-purchase-recommendations.yml
     secrets: inherit
 
   portfolio-analysis:
     needs: [fetch-news, calculate-sector-trends]
-    if: "!failure() && !cancelled() && inputs.session != 'pre-morning' && inputs.session != 'pre-afternoon' && inputs.session != 'post-close'"
+    if: "!failure() && !cancelled() && inputs.session != 'pre-morning' && inputs.session != 'post-close'"
     uses: ./.github/workflows/session-portfolio-analysis.yml
     secrets: inherit
 
   personal-recommendations:
     needs: [fetch-news, calculate-sector-trends]
-    if: "!failure() && !cancelled() && inputs.session != 'pre-morning' && inputs.session != 'pre-afternoon' && inputs.session != 'post-close'"
+    if: "!failure() && !cancelled() && inputs.session != 'pre-morning' && inputs.session != 'post-close'"
     uses: ./.github/workflows/session-personal-recommendations.yml
     with:
       session: ${{ inputs.session == 'morning' && 'morning' || inputs.session == 'close' && 'evening' || 'afternoon' }}
