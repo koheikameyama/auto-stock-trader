@@ -19,18 +19,11 @@ import AnalysisTab from "./components/AnalysisTab"
 
 type TabType = "overview" | "outcomes" | "analysis"
 
-interface ImprovementData {
-  target: string
-  action: string
-  reason: string
-}
-
 interface CategoryData {
   count: number | null
   avgReturn: number | null
   plusRate?: number | null
   successRate: number | null
-  improvement?: string | ImprovementData | null
 }
 
 interface DetailData {
@@ -84,20 +77,6 @@ function formatPercent(value: number | null): string {
   return `${sign}${value.toFixed(1)}%`
 }
 
-function renderImprovement(improvement: string | ImprovementData | null | undefined): string {
-  if (!improvement) return ""
-  if (typeof improvement === "string") {
-    // 旧形式（文字列）または新形式のJSON文字列をパース
-    try {
-      const parsed = JSON.parse(improvement) as ImprovementData
-      return `${parsed.target}を${parsed.action}します（${parsed.reason}）`
-    } catch {
-      return improvement
-    }
-  }
-  // 新形式（オブジェクト）
-  return `${improvement.target}を${improvement.action}します（${improvement.reason}）`
-}
 
 export default function AIReportClient() {
   // ページ訪問時に閲覧済みをマーク
@@ -468,36 +447,6 @@ export default function AIReportClient() {
         </div>
       )}
 
-      {/* 改善ポイント */}
-      {(latest.daily.improvement || latest.purchase.improvement || latest.analysis.improvement) && (
-        <div className="bg-amber-50 rounded-xl p-5 shadow-sm">
-          <h2 className="text-lg font-bold text-amber-800 mb-2 flex items-center gap-2">
-            <span>🔧</span>
-            {t('improvementPlan')}
-          </h2>
-          <p className="text-sm text-amber-600 mb-4">{t('improvementDescription')}</p>
-          <div className="space-y-3">
-            {latest.daily.improvement && (
-              <div className="text-sm text-amber-700">
-                <span className="font-medium">{t('categories.recommendations')}:</span>{" "}
-                <span>{renderImprovement(latest.daily.improvement)}</span>
-              </div>
-            )}
-            {latest.purchase.improvement && (
-              <div className="text-sm text-amber-700">
-                <span className="font-medium">{t('categories.purchases')}:</span>{" "}
-                <span>{renderImprovement(latest.purchase.improvement)}</span>
-              </div>
-            )}
-            {latest.analysis.improvement && (
-              <div className="text-sm text-amber-700">
-                <span className="font-medium">{t('categories.analysis')}:</span>{" "}
-                <span>{renderImprovement(latest.analysis.improvement)}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
         </>
       )}
     </div>

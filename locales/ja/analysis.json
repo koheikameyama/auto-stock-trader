@@ -15,8 +15,6 @@
     "evaluationTime": "{date} 時点（7日前の推奨を評価）",
     "detailedAnalysis": "推薦精度の詳細分析",
     "successRateTrend": "成功率の推移",
-    "improvementPlan": "今後の改善予定",
-    "improvementDescription": "AIのパフォーマンス向上のため、以下の改善を行います",
     "categories": {
       "recommendations": "おすすめ銘柄",
       "purchases": "購入判断",

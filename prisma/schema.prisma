@@ -582,21 +582,18 @@ model WeeklyAIReport {
   dailyRecommendationAvgReturn   Decimal? @db.Decimal(8, 2)
   dailyRecommendationPlusRate    Decimal? @db.Decimal(5, 2)
   dailyRecommendationSuccessRate Decimal? @db.Decimal(5, 2)
-  dailyRecommendationImprovement String?
 
   // 購入判断
   purchaseRecommendationCount       Int?
   purchaseRecommendationAvgReturn   Decimal? @db.Decimal(8, 2)
   purchaseRecommendationPlusRate    Decimal? @db.Decimal(5, 2)
   purchaseRecommendationSuccessRate Decimal? @db.Decimal(5, 2)
-  purchaseRecommendationImprovement String?
 
   // 銘柄分析
   stockAnalysisCount       Int?
   stockAnalysisAvgReturn   Decimal? @db.Decimal(8, 2)
   stockAnalysisPlusRate    Decimal? @db.Decimal(5, 2)
   stockAnalysisSuccessRate Decimal? @db.Decimal(5, 2)
-  stockAnalysisImprovement String?
 
   // 詳細データ（JSON）
   details Json? // ベスト/ワースト、セクター別等
@@ -617,21 +614,18 @@ model DailyAIReport {
   dailyRecommendationAvgReturn   Decimal? @db.Decimal(8, 2)
   dailyRecommendationPlusRate    Decimal? @db.Decimal(5, 2)
   dailyRecommendationSuccessRate Decimal? @db.Decimal(5, 2)
-  dailyRecommendationImprovement String?
 
   // 購入判断
   purchaseRecommendationCount       Int?
   purchaseRecommendationAvgReturn   Decimal? @db.Decimal(8, 2)
   purchaseRecommendationPlusRate    Decimal? @db.Decimal(5, 2)
   purchaseRecommendationSuccessRate Decimal? @db.Decimal(5, 2)
-  purchaseRecommendationImprovement String?
 
   // 銘柄分析
   stockAnalysisCount       Int?
   stockAnalysisAvgReturn   Decimal? @db.Decimal(8, 2)
   stockAnalysisPlusRate    Decimal? @db.Decimal(5, 2)
   stockAnalysisSuccessRate Decimal? @db.Decimal(5, 2)
-  stockAnalysisImprovement String?
 
   // 詳細データ（JSON）
   details Json? // ベスト/ワースト、セクター別等
