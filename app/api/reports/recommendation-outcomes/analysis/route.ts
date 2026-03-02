@@ -10,17 +10,17 @@ function isSuccess(prediction: string, returnValue: number | null): boolean | nu
 
   switch (prediction) {
     case "buy":
-      return returnValue > -3
+      return returnValue > 0
     case "stay":
-      return returnValue <= 5
+      return returnValue <= 2
     case "remove":
-      return returnValue < 3
+      return returnValue < 0
     case "up":
-      return returnValue > -3
+      return returnValue > 0
     case "down":
-      return returnValue < 3
+      return returnValue < 0
     case "neutral":
-      return returnValue >= -5 && returnValue <= 5
+      return returnValue >= -3 && returnValue <= 3
     default:
       return null
   }
@@ -66,6 +66,7 @@ export async function GET(request: NextRequest) {
         returnAfter14Days: true,
         benchmarkReturn7Days: true,
         sectorTrendDirection: true,
+        recommendedAt: true,
       },
     })
 
@@ -77,6 +78,9 @@ export async function GET(request: NextRequest) {
         byPrediction: [],
         byTimeHorizon: [],
         benchmark: [],
+        byMarketCondition: [],
+        byStockCharacteristics: { byMarketCap: [], byVolatility: [] },
+        cumulativeReturn: [],
         message: "評価済みのデータがまだありません",
       })
     }
@@ -271,6 +275,179 @@ export async function GET(request: NextRequest) {
       }
     })
 
+    // 市況別分析（benchmarkReturn7Daysで市況を分類）
+    const marketConditionGroups: Record<string, { count: number; successes: number; totalReturn: number }> = {
+      bullish: { count: 0, successes: 0, totalReturn: 0 },
+      neutral: { count: 0, successes: 0, totalReturn: 0 },
+      bearish: { count: 0, successes: 0, totalReturn: 0 },
+    }
+
+    for (const o of outcomes) {
+      if (o.benchmarkReturn7Days === null) continue
+      const bm = Number(o.benchmarkReturn7Days)
+      const condition = bm > 2 ? "bullish" : bm < -2 ? "bearish" : "neutral"
+      const ret7 = Number(o.returnAfter7Days)
+
+      marketConditionGroups[condition].count++
+      marketConditionGroups[condition].totalReturn += ret7
+      if (isSuccess(o.prediction, ret7)) {
+        marketConditionGroups[condition].successes++
+      }
+    }
+
+    const conditionLabels: Record<string, string> = {
+      bullish: "強気相場（日経+2%以上）",
+      neutral: "中立相場",
+      bearish: "弱気相場（日経-2%以下）",
+    }
+
+    const byMarketCondition = (["bullish", "neutral", "bearish"] as const).map((condition) => {
+      const data = marketConditionGroups[condition]
+      return {
+        condition,
+        label: conditionLabels[condition],
+        count: data.count,
+        successRate: data.count > 0 ? Math.round((data.successes / data.count) * 100) : 0,
+        avgReturn: data.count > 0 ? Math.round((data.totalReturn / data.count) * 100) / 100 : 0,
+      }
+    }).filter(d => d.count > 0)
+
+    // 銘柄特性別分析
+    const marketCapGroups: Record<string, { count: number; successes: number; totalReturn: number }> = {
+      large: { count: 0, successes: 0, totalReturn: 0 },
+      mid: { count: 0, successes: 0, totalReturn: 0 },
+      small: { count: 0, successes: 0, totalReturn: 0 },
+      unknown: { count: 0, successes: 0, totalReturn: 0 },
+    }
+
+    const volatilityGroups: Record<string, { count: number; successes: number; totalReturn: number }> = {
+      low: { count: 0, successes: 0, totalReturn: 0 },
+      mid: { count: 0, successes: 0, totalReturn: 0 },
+      high: { count: 0, successes: 0, totalReturn: 0 },
+    }
+
+    for (const o of outcomes) {
+      const ret7 = Number(o.returnAfter7Days)
+      const success = isSuccess(o.prediction, ret7)
+
+      // 時価総額区分（円単位: 大型>5000億, 中型500億-5000億, 小型<500億）
+      const mcapKey = o.marketCap === null
+        ? "unknown"
+        : Number(o.marketCap) > 500_000_000_000
+          ? "large"
+          : Number(o.marketCap) > 50_000_000_000
+            ? "mid"
+            : "small"
+
+      marketCapGroups[mcapKey].count++
+      marketCapGroups[mcapKey].totalReturn += ret7
+      if (success) marketCapGroups[mcapKey].successes++
+
+      // ボラティリティ区分
+      if (o.volatility !== null) {
+        const vol = Number(o.volatility)
+        const volKey = vol < 20 ? "low" : vol <= 40 ? "mid" : "high"
+        volatilityGroups[volKey].count++
+        volatilityGroups[volKey].totalReturn += ret7
+        if (success) volatilityGroups[volKey].successes++
+      }
+    }
+
+    const marketCapLabels: Record<string, string> = {
+      large: "大型株（5000億円超）",
+      mid: "中型株（500億〜5000億）",
+      small: "小型株（500億未満）",
+      unknown: "不明",
+    }
+    const volatilityLabels: Record<string, string> = {
+      low: "低ボラ（<20%）",
+      mid: "中ボラ（20-40%）",
+      high: "高ボラ（>40%）",
+    }
+
+    const byStockCharacteristics = {
+      byMarketCap: (["large", "mid", "small", "unknown"] as const)
+        .map((category) => {
+          const data = marketCapGroups[category]
+          return {
+            category,
+            label: marketCapLabels[category],
+            count: data.count,
+            successRate: data.count > 0 ? Math.round((data.successes / data.count) * 100) : 0,
+            avgReturn: data.count > 0 ? Math.round((data.totalReturn / data.count) * 100) / 100 : 0,
+          }
+        })
+        .filter(d => d.count > 0),
+      byVolatility: (["low", "mid", "high"] as const)
+        .map((category) => {
+          const data = volatilityGroups[category]
+          return {
+            category,
+            label: volatilityLabels[category],
+            count: data.count,
+            successRate: data.count > 0 ? Math.round((data.successes / data.count) * 100) : 0,
+            avgReturn: data.count > 0 ? Math.round((data.totalReturn / data.count) * 100) / 100 : 0,
+          }
+        })
+        .filter(d => d.count > 0),
+    }
+
+    // 累積リターンシミュレーション（prediction="buy" の週次平均リターン）
+    const buyOutcomes = outcomes
+      .filter(o => o.prediction === "buy" && o.returnAfter7Days !== null)
+      .sort((a, b) => a.recommendedAt.getTime() - b.recommendedAt.getTime())
+
+    const weeklyBuckets: Record<string, { aiReturns: number[]; benchmarkReturns: number[]; weekStart: Date }> = {}
+
+    for (const o of buyOutcomes) {
+      const d = o.recommendedAt
+      // 週の開始日（月曜日）を計算
+      const dayOfWeek = d.getDay()
+      const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+      const monday = new Date(d.getTime() - daysToMonday * 24 * 60 * 60 * 1000)
+      monday.setHours(0, 0, 0, 0)
+      const key = monday.toISOString().slice(0, 10)
+
+      if (!weeklyBuckets[key]) {
+        weeklyBuckets[key] = { aiReturns: [], benchmarkReturns: [], weekStart: monday }
+      }
+
+      weeklyBuckets[key].aiReturns.push(Number(o.returnAfter7Days))
+      if (o.benchmarkReturn7Days !== null) {
+        weeklyBuckets[key].benchmarkReturns.push(Number(o.benchmarkReturn7Days))
+      }
+    }
+
+    let cumAI = 100
+    let cumNikkei = 100
+
+    const cumulativeReturn = Object.keys(weeklyBuckets)
+      .sort()
+      .map((key) => {
+        const bucket = weeklyBuckets[key]
+        const weeklyAI = bucket.aiReturns.reduce((sum, r) => sum + r, 0) / bucket.aiReturns.length
+        const weeklyNikkei = bucket.benchmarkReturns.length > 0
+          ? bucket.benchmarkReturns.reduce((sum, r) => sum + r, 0) / bucket.benchmarkReturns.length
+          : null
+
+        cumAI = cumAI * (1 + weeklyAI / 100)
+        if (weeklyNikkei !== null) {
+          cumNikkei = cumNikkei * (1 + weeklyNikkei / 100)
+        }
+
+        const weekEnd = new Date(bucket.weekStart.getTime() + 6 * 24 * 60 * 60 * 1000)
+        const fmt = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`
+
+        return {
+          weekLabel: `${fmt(bucket.weekStart)}〜${fmt(weekEnd)}`,
+          count: bucket.aiReturns.length,
+          weeklyAI: Math.round(weeklyAI * 100) / 100,
+          weeklyNikkei: weeklyNikkei !== null ? Math.round(weeklyNikkei * 100) / 100 : null,
+          cumAI: Math.round(cumAI * 100) / 100,
+          cumNikkei: Math.round(cumNikkei * 100) / 100,
+        }
+      })
+
     return NextResponse.json({
       byConfidence,
       bySector,
@@ -278,6 +455,9 @@ export async function GET(request: NextRequest) {
       byPrediction,
       byTimeHorizon,
       benchmark,
+      byMarketCondition,
+      byStockCharacteristics,
+      cumulativeReturn,
     })
   } catch (error) {
     console.error("Error fetching recommendation outcome analysis:", error)

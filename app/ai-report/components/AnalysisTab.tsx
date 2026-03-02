@@ -39,12 +39,33 @@ interface BenchmarkData {
   excess: number | null
 }
 
+interface MarketConditionData {
+  condition: string
+  label: string
+  count: number
+  successRate: number
+  avgReturn: number
+}
+
+interface StockCharacteristicItem {
+  category: string
+  label: string
+  count: number
+  successRate: number
+  avgReturn: number
+}
+
 interface AnalysisResponse {
   byConfidence: ConfidenceData[]
   bySector: SectorData[]
   byPrediction: PredictionData[]
   byTimeHorizon: TimeHorizonData[]
   benchmark: BenchmarkData[]
+  byMarketCondition: MarketConditionData[]
+  byStockCharacteristics: {
+    byMarketCap: StockCharacteristicItem[]
+    byVolatility: StockCharacteristicItem[]
+  }
   message?: string
 }
 
@@ -63,6 +84,8 @@ export default function AnalysisTab() {
   const tPredictionPerf = useTranslations('analysis.analysisTab.predictionPerformance')
   const tTimeHorizon = useTranslations('analysis.analysisTab.timeHorizon')
   const tBenchmark = useTranslations('analysis.analysisTab.benchmark')
+  const tMarketCondition = useTranslations('analysis.analysisTab.marketCondition')
+  const tStockChara = useTranslations('analysis.analysisTab.stockCharacteristics')
   const [data, setData] = useState<AnalysisResponse | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -330,6 +353,122 @@ export default function AnalysisTab() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* 市況別パフォーマンス */}
+      {data.byMarketCondition.length > 0 && (
+        <div className="bg-white rounded-xl p-5 shadow-sm">
+          <h3 className="text-lg font-bold text-gray-900 mb-4">{tMarketCondition('title')}</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            {tMarketCondition('description')}
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200">
+                  <th className="text-left py-2 px-2 text-gray-600">{tMarketCondition('condition')}</th>
+                  <th className="text-right py-2 px-2 text-gray-600">{tMarketCondition('count')}</th>
+                  <th className="text-right py-2 px-2 text-gray-600">{tMarketCondition('successRate7Days')}</th>
+                  <th className="text-right py-2 px-2 text-gray-600">{tMarketCondition('avgReturn')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.byMarketCondition.map((row) => (
+                  <tr key={row.condition} className="border-b border-gray-100">
+                    <td className="py-2 px-2 text-gray-900 font-medium">{row.label}</td>
+                    <td className="py-2 px-2 text-right text-gray-700">{row.count}</td>
+                    <td className="py-2 px-2 text-right">
+                      <span className={`font-medium ${row.successRate >= 70 ? "text-green-600" : row.successRate >= 50 ? "text-yellow-600" : "text-red-600"}`}>
+                        {row.successRate}%
+                      </span>
+                    </td>
+                    <td className={`py-2 px-2 text-right font-medium ${row.avgReturn >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      {formatPercent(row.avgReturn)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* 銘柄特性別パフォーマンス */}
+      {(data.byStockCharacteristics.byMarketCap.length > 0 || data.byStockCharacteristics.byVolatility.length > 0) && (
+        <div className="bg-white rounded-xl p-5 shadow-sm">
+          <h3 className="text-lg font-bold text-gray-900 mb-4">{tStockChara('title')}</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            {tStockChara('description')}
+          </p>
+
+          {data.byStockCharacteristics.byMarketCap.length > 0 && (
+            <div className="mb-6">
+              <h4 className="text-sm font-semibold text-gray-700 mb-3">{tStockChara('marketCap')}</h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 px-2 text-gray-600">{tStockChara('category')}</th>
+                      <th className="text-right py-2 px-2 text-gray-600">{tStockChara('count')}</th>
+                      <th className="text-right py-2 px-2 text-gray-600">{tStockChara('successRate7Days')}</th>
+                      <th className="text-right py-2 px-2 text-gray-600">{tStockChara('avgReturn')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.byStockCharacteristics.byMarketCap.map((row) => (
+                      <tr key={row.category} className="border-b border-gray-100">
+                        <td className="py-2 px-2 text-gray-900">{row.label}</td>
+                        <td className="py-2 px-2 text-right text-gray-700">{row.count}</td>
+                        <td className="py-2 px-2 text-right">
+                          <span className={`font-medium ${row.successRate >= 70 ? "text-green-600" : row.successRate >= 50 ? "text-yellow-600" : "text-red-600"}`}>
+                            {row.successRate}%
+                          </span>
+                        </td>
+                        <td className={`py-2 px-2 text-right font-medium ${row.avgReturn >= 0 ? "text-green-600" : "text-red-600"}`}>
+                          {formatPercent(row.avgReturn)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {data.byStockCharacteristics.byVolatility.length > 0 && (
+            <div>
+              <h4 className="text-sm font-semibold text-gray-700 mb-3">{tStockChara('volatility')}</h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 px-2 text-gray-600">{tStockChara('category')}</th>
+                      <th className="text-right py-2 px-2 text-gray-600">{tStockChara('count')}</th>
+                      <th className="text-right py-2 px-2 text-gray-600">{tStockChara('successRate7Days')}</th>
+                      <th className="text-right py-2 px-2 text-gray-600">{tStockChara('avgReturn')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.byStockCharacteristics.byVolatility.map((row) => (
+                      <tr key={row.category} className="border-b border-gray-100">
+                        <td className="py-2 px-2 text-gray-900">{row.label}</td>
+                        <td className="py-2 px-2 text-right text-gray-700">{row.count}</td>
+                        <td className="py-2 px-2 text-right">
+                          <span className={`font-medium ${row.successRate >= 70 ? "text-green-600" : row.successRate >= 50 ? "text-yellow-600" : "text-red-600"}`}>
+                            {row.successRate}%
+                          </span>
+                        </td>
+                        <td className={`py-2 px-2 text-right font-medium ${row.avgReturn >= 0 ? "text-green-600" : "text-red-600"}`}>
+                          {formatPercent(row.avgReturn)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
