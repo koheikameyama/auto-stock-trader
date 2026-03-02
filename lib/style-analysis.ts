@@ -122,6 +122,48 @@ export function applyPurchaseStyleSafetyRules(params: {
     const styleResult = { ...styleAnalyses[style], correctionExplanation: null as string | null };
     const styleName = getStyleNameJa(style);
 
+    // 極端な急騰は skipSafetyRules でも強制ブロック（ハードリミット）
+    if (
+      weekChangeRate !== null &&
+      weekChangeRate >= MOMENTUM.EXTREME_SURGE_THRESHOLD &&
+      styleResult.recommendation === "buy"
+    ) {
+      styleResult.recommendation = "stay";
+      styleResult.caution = `週間+${weekChangeRate.toFixed(0)}%の急騰は高値掴みリスクが極めて高いため、様子見を推奨します。${styleResult.caution}`;
+      if (style === INVESTMENT_STYLES.CONSERVATIVE) {
+        styleResult.advice = `週間+${weekChangeRate.toFixed(0)}%の急騰後です。高値掴みリスクが非常に高いため、大幅な調整を待ってから購入を検討しましょう。`;
+      }
+      styleResult.correctionExplanation = generateCorrectionExplanation({
+        ruleId: "extreme_surge_block",
+        styleName,
+        originalRecommendation: "buy",
+        correctedRecommendation: "stay",
+        thresholdValue: `+${MOMENTUM.EXTREME_SURGE_THRESHOLD}%`,
+        actualValue: `+${weekChangeRate.toFixed(0)}%`,
+      });
+    }
+
+    // 極端な過熱は skipSafetyRules でも強制ブロック（ハードリミット）
+    if (
+      deviationRate !== null &&
+      deviationRate >= MA_DEVIATION.EXTREME_UPPER_THRESHOLD &&
+      styleResult.recommendation === "buy"
+    ) {
+      styleResult.recommendation = "stay";
+      styleResult.caution = `25日移動平均線から+${deviationRate.toFixed(1)}%乖離しており極端な過熱圏のため、様子見を推奨します。${styleResult.caution}`;
+      if (style === INVESTMENT_STYLES.CONSERVATIVE) {
+        styleResult.advice = `移動平均線から+${deviationRate.toFixed(1)}%乖離しており極端な過熱圏です。大幅な調整を待ってから購入を検討しましょう。`;
+      }
+      styleResult.correctionExplanation = generateCorrectionExplanation({
+        ruleId: "extreme_overheat_block",
+        styleName,
+        originalRecommendation: "buy",
+        correctedRecommendation: "stay",
+        thresholdValue: `+${MA_DEVIATION.EXTREME_UPPER_THRESHOLD}%`,
+        actualValue: `+${deviationRate.toFixed(1)}%`,
+      });
+    }
+
     // セーフティルールを適用
     if (!skipSafetyRules) {
       // 下落トレンドの強制補正

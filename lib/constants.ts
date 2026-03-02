@@ -431,6 +431,7 @@ export const MA_DEVIATION = {
   LOW_VOLATILITY_THRESHOLD: 30, // 低ボラティリティの閾値（%）
   DIP_BUY_THRESHOLD: 5, // 乖離率(%)がこれを超えたら押し目買い推奨
   RSI_OVERBOUGHT_THRESHOLD: 70, // RSIがこれを超えたら押し目買い推奨
+  EXTREME_UPPER_THRESHOLD: 50, // skipSafetyRulesでもブロックする極端な上方乖離（%）
 } as const;
 
 // トレンドねじれ（Divergence）検出の閾値
@@ -460,6 +461,7 @@ export const MOMENTUM = {
   UNPROFITABLE_SURGE_THRESHOLD: 20, // 赤字企業の急騰は+20%からブロック
   // 過熱圏ルール: アクティブ型は無効化
   AGGRESSIVE_SKIP_OVERHEAT: true, // アクティブ型: 過熱圏ルールをスキップ
+  EXTREME_SURGE_THRESHOLD: 50, // skipSafetyRulesでもブロックする極端な急騰（%）
   // おすすめスコアリング用ペナルティ
   DECLINE_SCORE_PENALTY: -15, // 下落銘柄のスコアペナルティ
   STRONG_DECLINE_SCORE_PENALTY: -25, // 強い下落銘柄のスコアペナルティ

@@ -661,8 +661,10 @@ export async function executePurchaseRecommendation(
     }
 
     // 異常出来高+急騰の強制補正（仕手株リスク）
+    // skipSafetyRules でも極端な出来高急増（閾値の2倍以上）はブロック
     const volumeSpikeRate = stock.volumeSpikeRate ? Number(stock.volumeSpikeRate) : null;
-    if (!skipSafetyRules && volumeSpikeRate !== null && gapUpRate !== null
+    const isExtremeVolumeSpike = volumeSpikeRate !== null && volumeSpikeRate >= TIMING_INDICATORS.VOLUME_SPIKE_EXTREME_THRESHOLD * 2;
+    if ((!skipSafetyRules || isExtremeVolumeSpike) && volumeSpikeRate !== null && gapUpRate !== null
       && volumeSpikeRate >= TIMING_INDICATORS.VOLUME_SPIKE_EXTREME_THRESHOLD
       && gapUpRate >= TIMING_INDICATORS.GAP_UP_WARNING_THRESHOLD
       && sa.recommendation === "buy") {

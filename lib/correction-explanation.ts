@@ -24,7 +24,9 @@ export type CorrectionRuleId =
   | "relative_strength_protection"
   | "profit_taking_promotion"
   | "delisted_stock"
-  | "dangerous_stock_buy_suppression";
+  | "dangerous_stock_buy_suppression"
+  | "extreme_surge_block"
+  | "extreme_overheat_block";
 
 /** 補正コンテキスト */
 export interface CorrectionContext {
@@ -63,6 +65,8 @@ const RULE_NAMES: Record<CorrectionRuleId, string> = {
   profit_taking_promotion: "利確促進ルール",
   delisted_stock: "データ取得不可銘柄ルール",
   dangerous_stock_buy_suppression: "危険銘柄買い増し抑制",
+  extreme_surge_block: "極端な急騰ブロック",
+  extreme_overheat_block: "極端な過熱圏ブロック",
 };
 
 /** 投資スタイルキー→日本語名 */
