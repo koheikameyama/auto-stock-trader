@@ -229,7 +229,7 @@ export const DAILY_MARKET_NAVIGATOR = {
 
 // チャットAI設定
 export const CHAT_CONFIG = {
-  MAX_STEPS: 3, // ツール呼び出しの最大ステップ数
+  MAX_STEPS: 5, // ツール呼び出しの最大ステップ数
   MODEL: "gpt-4o-mini",
   TEMPERATURE: 0.7,
   MAX_TOKENS: 3000,

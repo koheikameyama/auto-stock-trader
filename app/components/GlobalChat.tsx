@@ -130,7 +130,7 @@ export default function GlobalChat() {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const { messages, sendMessage, status, setMessages } = useChat({
+  const { messages, sendMessage, status, setMessages, error } = useChat({
     id: stockContext?.stockId ?? "global",
     transport: useMemo(
       () =>
@@ -362,6 +362,19 @@ export default function GlobalChat() {
                       考えています...
                     </span>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {error && (
+              <div className="flex justify-start">
+                <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 max-w-[80%]">
+                  <p className="text-sm text-red-600">
+                    エラーが発生しました。もう一度お試しください。
+                  </p>
+                  <p className="text-xs text-red-400 mt-1">
+                    {error.message}
+                  </p>
                 </div>
               </div>
             )}
