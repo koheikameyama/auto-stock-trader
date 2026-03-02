@@ -28,8 +28,9 @@ export interface RelatedNews {
  * 関連ニュースを取得する（ハイブリッド検索）
  *
  * 優先度:
- * 1. 銘柄コード検索（content LIKE '%7203%'）
- * 2. セクター検索（sector IN (...)）
+ * 1. tickerCode フィールド直接マッチ（yfinanceで取得した銘柄紐付きニュース）
+ * 2. 銘柄コード検索（content LIKE '%7203%'）
+ * 3. セクター検索（sector IN (...)）
  */
 export async function getRelatedNews(
   params: NewsRAGParams
@@ -45,8 +46,36 @@ export async function getRelatedNews(
     const cutoffDate = dayjs.utc().subtract(daysAgo, "day").startOf("day").toDate()
     const newsMap = new Map<string, RelatedNews>()
 
-    // ステップ1: 銘柄コード検索（優先）
+    // ステップ1: tickerCode 直接マッチ（yfinance取得分・優先）
     if (tickerCodes.length > 0) {
+      const directNews = await prisma.marketNews.findMany({
+        where: {
+          tickerCode: { in: tickerCodes },
+          publishedAt: { gte: cutoffDate },
+        },
+        orderBy: { publishedAt: "desc" },
+        take: limit,
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          url: true,
+          source: true,
+          sector: true,
+          sentiment: true,
+          publishedAt: true,
+        },
+      })
+
+      for (const n of directNews) {
+        if (!newsMap.has(n.id)) {
+          newsMap.set(n.id, { ...n, matchType: "ticker" })
+        }
+      }
+    }
+
+    // ステップ2: 銘柄コードをコンテンツ内から検索（フォールバック）
+    if (tickerCodes.length > 0 && newsMap.size < limit) {
       for (const tickerCode of tickerCodes) {
         const news = await prisma.marketNews.findMany({
           where: {
@@ -56,11 +85,12 @@ export async function getRelatedNews(
             publishedAt: {
               gte: cutoffDate,
             },
+            id: { notIn: Array.from(newsMap.keys()) },
           },
           orderBy: {
             publishedAt: "desc",
           },
-          take: limit,
+          take: limit - newsMap.size,
           select: {
             id: true,
             title: true,

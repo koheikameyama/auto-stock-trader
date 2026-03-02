@@ -69,24 +69,35 @@ def cleanup_old_data():
                 total_deleted += cur.rowcount
 
             # 4. MarketNews（マーケットニュース）
-            cur.execute('SELECT COUNT(*) FROM "MarketNews" WHERE "publishedAt" < %s', (cutoff_date,))
+            # RSS取得分（tickerCode IS NULL）: RETENTION_DAYS 保持
+            cur.execute('SELECT COUNT(*) FROM "MarketNews" WHERE "tickerCode" IS NULL AND "publishedAt" < %s', (cutoff_date,))
             count = cur.fetchone()[0]
-            print(f"\n[4/6] MarketNews: {count} records to delete")
+            print(f"\n[4a/7] MarketNews (RSS, tickerCode=null): {count} records to delete")
             if count > 0:
-                cur.execute('DELETE FROM "MarketNews" WHERE "publishedAt" < %s', (cutoff_date,))
+                cur.execute('DELETE FROM "MarketNews" WHERE "tickerCode" IS NULL AND "publishedAt" < %s', (cutoff_date,))
+                print(f"  Deleted: {cur.rowcount}")
+                total_deleted += cur.rowcount
+
+            # yfinance取得分（tickerCode IS NOT NULL）: 14日保持
+            stock_news_cutoff = get_days_ago_jst(14)
+            cur.execute('SELECT COUNT(*) FROM "MarketNews" WHERE "tickerCode" IS NOT NULL AND "publishedAt" < %s', (stock_news_cutoff,))
+            count = cur.fetchone()[0]
+            print(f"\n[4b/7] MarketNews (yfinance, tickerCode!=null): {count} records to delete")
+            if count > 0:
+                cur.execute('DELETE FROM "MarketNews" WHERE "tickerCode" IS NOT NULL AND "publishedAt" < %s', (stock_news_cutoff,))
                 print(f"  Deleted: {cur.rowcount}")
                 total_deleted += cur.rowcount
 
             # 5. SectorTrend（セクタートレンド）
             cur.execute('SELECT COUNT(*) FROM "SectorTrend" WHERE date < %s', (cutoff_date.date(),))
             count = cur.fetchone()[0]
-            print(f"\n[5/6] SectorTrend: {count} records to delete")
+            print(f"\n[5/7] SectorTrend: {count} records to delete")
             if count > 0:
                 cur.execute('DELETE FROM "SectorTrend" WHERE date < %s', (cutoff_date.date(),))
                 print(f"  Deleted: {cur.rowcount}")
                 total_deleted += cur.rowcount
 
-            # 6. データ取得不可銘柄（1ヶ月以上 isDelisted=true）
+            # 7. データ取得不可銘柄（1ヶ月以上 isDelisted=true）
             # 全リレーションが onDelete: Cascade なので関連データも自動削除される
             cur.execute('''
                 SELECT COUNT(*) FROM "Stock"
@@ -94,7 +105,7 @@ def cleanup_old_data():
                   AND "lastFetchFailedAt" < %s
             ''', (cutoff_date,))
             count = cur.fetchone()[0]
-            print(f"\n[6/6] Data unavailable stocks ({RETENTION_DAYS}+ days): {count} records to delete")
+            print(f"\n[7/7] Data unavailable stocks ({RETENTION_DAYS}+ days): {count} records to delete")
             if count > 0:
                 cur.execute('''
                     DELETE FROM "Stock"

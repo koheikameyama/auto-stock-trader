@@ -191,7 +191,10 @@ model MarketNews {
   createdAt   DateTime @default(now())
   market      String   @default("JP") // "JP" or "US"
   region      String? // "日本", "米国" など（表示用）
+  tickerCode  String? // 銘柄コード（yfinanceで取得した場合に設定、例: "7203"）
 
+  @@unique([url, tickerCode])
+  @@index([tickerCode])
   @@index([publishedAt(sort: Desc)])
   @@index([sector])
   @@index([source])

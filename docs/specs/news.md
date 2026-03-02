@@ -93,14 +93,24 @@
 | カラム | 型 | 説明 |
 |--------|-----|------|
 | title | String | タイトル |
-| content | Text | 本文 |
+| content | Text | 本文（yfinance取得分は空文字） |
 | url | String? | 記事URL |
-| source | String | ソース（tavily） |
+| source | String | ソース（RSS名 / yfinance / publisher名） |
 | sector | String? | 関連セクター |
 | sentiment | String? | positive / negative / neutral |
 | publishedAt | DateTime | 公開日時 |
 | market | String | JP / US |
 | region | String? | 表示用地域名 |
+| tickerCode | String? | 銘柄コード（yfinanceで取得した場合に設定、例: "7203"） |
+
+**ユニーク制約**: `(url, tickerCode)`（同一URLでも銘柄ごとに別行保存可）
+
+#### ソース別の特徴
+
+| source | tickerCode | 用途 |
+|--------|-----------|------|
+| RSS各種（nikkei等） | null | 市場全体ニュース・セクタートレンド |
+| yfinance / publisher名 | 銘柄コード | 銘柄個別ニュース・AI分析入力 |
 
 ### SectorTrend
 
@@ -119,10 +129,26 @@
 
 ## ニュース取得スケジュール
 
-| 時刻（JST） | 対象 |
-|-------------|------|
-| 07:30 | JP + USニュース |
-| 12:00（平日のみ） | JPニュースのみ |
+| 時刻（JST） | 対象 | スクリプト |
+|-------------|------|----------|
+| 08:00（pre-morning） | JP + USニュース（RSS） | `scripts/news/fetch-news.ts`, `fetch-us-news.ts` |
+| 08:00（pre-morning） | 全銘柄個別ニュース（yfinance） | `scripts/github-actions/fetch_stock_news.py` |
+| 11:40（pre-afternoon） | JPニュース（RSS） | `scripts/news/fetch-news.ts` |
+
+## データ保持期間
+
+| 種別 | 保持期間 |
+|------|---------|
+| RSS取得ニュース（tickerCode=null） | 30日 |
+| yfinance取得ニュース（tickerCode!=null） | 14日 |
+
+## 銘柄別ニュース（getRelatedNews の動作）
+
+`lib/news-rag.ts` の `getRelatedNews` は以下の優先度でニュースを取得：
+
+1. **tickerCode 直接マッチ**（yfinance取得分）→ 精度最高
+2. **コンテンツ内銘柄コード検索**（content LIKE '%7203%'）→ フォールバック
+3. **セクターマッチ**（sector IN (...)）→ 最終フォールバック
 
 ## 関連ファイル
 
@@ -132,6 +158,7 @@
 - `app/api/news/dashboard/route.ts` - ダッシュボード用 API
 - `app/api/sector-trends/route.ts` - セクタートレンド API
 - `lib/news.ts` - ニュース処理
-- `lib/news-rag.ts` - ニュースRAG
-- `scripts/news/fetch-news.ts` - JPニュース取得スクリプト
-- `scripts/news/fetch-us-news.ts` - USニュース取得スクリプト
+- `lib/news-rag.ts` - ニュースRAG（getRelatedNews）
+- `scripts/news/fetch-news.ts` - JPニュース取得スクリプト（RSS）
+- `scripts/news/fetch-us-news.ts` - USニュース取得スクリプト（RSS）
+- `scripts/github-actions/fetch_stock_news.py` - 銘柄別ニュース取得（yfinance）
