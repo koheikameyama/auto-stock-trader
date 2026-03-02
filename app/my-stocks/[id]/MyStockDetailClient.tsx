@@ -25,7 +25,6 @@ import { useChatContext } from "@/app/contexts/ChatContext";
 import { useStockPrice } from "@/app/hooks/useStockPrice";
 import IndividualSettingsModal from "../IndividualSettingsModal";
 import PurchaseSimulation from "@/app/components/PurchaseSimulation";
-import BacktestSection from "@/app/components/backtest/BacktestSection";
 
 interface Transaction {
   id: string;
@@ -748,7 +747,6 @@ export default function MyStockDetailClient({
                     onSetBuyAlert={handleSetDipBuyAlert}
                     currentTargetBuyPrice={currentTargetBuyPrice}
                   />
-                  <BacktestSection stockId={stock.stockId} />
                 </>
               )}
               {watchlistTab === "how-to-buy" &&

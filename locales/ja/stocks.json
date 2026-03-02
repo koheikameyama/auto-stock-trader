@@ -336,27 +336,6 @@
     "postMarketTitle": "本日の振り返り分析です",
     "postMarketDescription": "大引け後の分析結果です。明日の取引に向けた参考情報としてご覧ください。"
   },
-  "backtest": {
-    "title": "過去の分析を確認",
-    "subtitle": "任意の過去日付でAI分析を再現し、予測精度を確認できます",
-    "dateLabel": "分析日（過去の日付）",
-    "runButton": "分析を実行",
-    "running": "分析中...",
-    "after1Day": "翌日",
-    "after7Days": "7日後",
-    "after14Days": "14日後",
-    "basePrice": "基準価格: {price}円",
-    "actualReturns": "実際のリターン",
-    "aiPrediction": "AI予測",
-    "confidence": "信頼度 {value}%",
-    "successLabel": "AI予測 的中（7日後リターンで判定）",
-    "missLabel": "AI予測 外れ（7日後リターンで判定）",
-    "note": "財務指標は現在の値を使用しています。ニュース・市場情報はバックテスト時はスキップされます。",
-    "error": "分析に失敗しました",
-    "buy": "買い",
-    "stay": "様子見",
-    "avoid": "見送り"
-  },
   "tooltips": {
     "pbr": "PBR（株価純資産倍率）とは、株価が1株あたりの純資産の何倍かを示す指標です。1倍以下なら会社の資産より株が安い＝割安の可能性があります",
     "per": "PER（株価収益率）とは、株価が1株あたりの利益の何倍かを示す指標です。低いほど利益に対して株が割安と言えます",
