@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "userId is required for CRON requests" }, { status: 400 })
       }
       userId = body.userId
-      if (body.session === "morning" || body.session === "evening") {
+      if (body.session === "morning" || body.session === "pre-afternoon" || body.session === "evening") {
         navigatorSession = body.session
       }
     } else {
