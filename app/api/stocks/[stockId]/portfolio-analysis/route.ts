@@ -7,6 +7,7 @@ import {
   AnalysisError,
 } from "@/lib/portfolio-analysis-core"
 import { fetchStockPrices } from "@/lib/stock-price-fetcher"
+import { calculatePortfolioFromTransactions } from "@/lib/portfolio-calculator"
 import dayjs from "dayjs"
 import utc from "dayjs/plugin/utc"
 import timezone from "dayjs/plugin/timezone"
@@ -100,16 +101,10 @@ export async function GET(
       currentPrice = prices[0]?.currentPrice ?? null
     }
 
-    // 買値（平均取得単価）を計算
-    let totalBuyCost = 0
-    let totalBuyQuantity = 0
-    for (const tx of portfolioStock.transactions) {
-      if (tx.type === "buy") {
-        totalBuyCost += Number(tx.totalAmount)
-        totalBuyQuantity += tx.quantity
-      }
-    }
-    const averagePurchasePrice = totalBuyQuantity > 0 ? totalBuyCost / totalBuyQuantity : null
+    // 買値（平均取得単価）を計算（売り取引を考慮した正確な計算）
+    const { averagePurchasePrice: avgPriceDecimal } =
+      calculatePortfolioFromTransactions(portfolioStock.transactions)
+    const averagePurchasePrice = avgPriceDecimal.toNumber() || null
 
     // 日本時間で今日の00:00:00を取得
     const todayJST = dayjs().tz("Asia/Tokyo").startOf("day")
