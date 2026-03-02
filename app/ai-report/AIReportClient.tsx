@@ -19,18 +19,11 @@ import AnalysisTab from "./components/AnalysisTab"
 
 type TabType = "overview" | "outcomes" | "analysis"
 
-interface ImprovementData {
-  target: string
-  action: string
-  reason: string
-}
-
 interface CategoryData {
   count: number | null
   avgReturn: number | null
   plusRate?: number | null
   successRate: number | null
-  improvement?: string | ImprovementData | null
 }
 
 interface DetailData {
@@ -73,6 +66,15 @@ interface AIAccuracyData {
   totalDays: number
 }
 
+interface CumulativeReturnPoint {
+  weekLabel: string
+  count: number
+  weeklyAI: number
+  weeklyNikkei: number | null
+  cumAI: number
+  cumNikkei: number
+}
+
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr)
   return `${date.getMonth() + 1}/${date.getDate()}`
@@ -84,20 +86,6 @@ function formatPercent(value: number | null): string {
   return `${sign}${value.toFixed(1)}%`
 }
 
-function renderImprovement(improvement: string | ImprovementData | null | undefined): string {
-  if (!improvement) return ""
-  if (typeof improvement === "string") {
-    // 旧形式（文字列）または新形式のJSON文字列をパース
-    try {
-      const parsed = JSON.parse(improvement) as ImprovementData
-      return `${parsed.target}を${parsed.action}します（${parsed.reason}）`
-    } catch {
-      return improvement
-    }
-  }
-  // 新形式（オブジェクト）
-  return `${improvement.target}を${improvement.action}します（${improvement.reason}）`
-}
 
 export default function AIReportClient() {
   // ページ訪問時に閲覧済みをマーク
@@ -107,18 +95,29 @@ export default function AIReportClient() {
   const tTabs = useTranslations('analysis.tabs')
   const [activeTab, setActiveTab] = useState<TabType>("overview")
   const [data, setData] = useState<AIAccuracyData | null>(null)
+  const [cumulativeData, setCumulativeData] = useState<CumulativeReturnPoint[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const response = await fetch("/api/reports/ai-accuracy?limit=30")
-        if (!response.ok) {
+        const [accuracyRes, analysisRes] = await Promise.all([
+          fetch("/api/reports/ai-accuracy?limit=30"),
+          fetch("/api/reports/recommendation-outcomes/analysis?days=60"),
+        ])
+        if (!accuracyRes.ok) {
           throw new Error(t('fetchError'))
         }
-        const result = await response.json()
+        const result = await accuracyRes.json()
         setData(result)
+
+        if (analysisRes.ok) {
+          const analysisResult = await analysisRes.json()
+          if (analysisResult.cumulativeReturn) {
+            setCumulativeData(analysisResult.cumulativeReturn)
+          }
+        }
       } catch (err) {
         console.error("Error fetching AI accuracy report:", err)
         setError(err instanceof Error ? err.message : t('generalError'))
@@ -385,6 +384,50 @@ export default function AIReportClient() {
         </div>
       )}
 
+      {/* 累積リターンシミュレーション */}
+      {cumulativeData.length > 1 && (
+        <div className="bg-white rounded-xl p-5 shadow-sm">
+          <h2 className="text-lg font-bold text-gray-900 mb-1">{t('cumulativeReturn.title')}</h2>
+          <p className="text-sm text-gray-500 mb-4">{t('cumulativeReturn.description')}</p>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={cumulativeData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="weekLabel" tick={{ fontSize: 11 }} stroke="#9ca3af" interval="preserveStartEnd" />
+                <YAxis
+                  tick={{ fontSize: 12 }}
+                  stroke="#9ca3af"
+                  tickFormatter={(value) => `${value}`}
+                />
+                <Tooltip
+                  formatter={(value, name) => [`${(value as number)?.toFixed(1)}`, name]}
+                  labelFormatter={(label) => `週: ${label}`}
+                />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="cumAI"
+                  name={t('cumulativeReturn.ai')}
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls
+                />
+                <Line
+                  type="monotone"
+                  dataKey="cumNikkei"
+                  name={t('cumulativeReturn.nikkei')}
+                  stroke="#f97316"
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
       {/* 詳細データ */}
       {details && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -468,36 +511,6 @@ export default function AIReportClient() {
         </div>
       )}
 
-      {/* 改善ポイント */}
-      {(latest.daily.improvement || latest.purchase.improvement || latest.analysis.improvement) && (
-        <div className="bg-amber-50 rounded-xl p-5 shadow-sm">
-          <h2 className="text-lg font-bold text-amber-800 mb-2 flex items-center gap-2">
-            <span>🔧</span>
-            {t('improvementPlan')}
-          </h2>
-          <p className="text-sm text-amber-600 mb-4">{t('improvementDescription')}</p>
-          <div className="space-y-3">
-            {latest.daily.improvement && (
-              <div className="text-sm text-amber-700">
-                <span className="font-medium">{t('categories.recommendations')}:</span>{" "}
-                <span>{renderImprovement(latest.daily.improvement)}</span>
-              </div>
-            )}
-            {latest.purchase.improvement && (
-              <div className="text-sm text-amber-700">
-                <span className="font-medium">{t('categories.purchases')}:</span>{" "}
-                <span>{renderImprovement(latest.purchase.improvement)}</span>
-              </div>
-            )}
-            {latest.analysis.improvement && (
-              <div className="text-sm text-amber-700">
-                <span className="font-medium">{t('categories.analysis')}:</span>{" "}
-                <span>{renderImprovement(latest.analysis.improvement)}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
         </>
       )}
     </div>

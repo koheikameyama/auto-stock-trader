@@ -150,116 +150,6 @@ def generate_single_insight(client: OpenAI, category: str, data: dict) -> str | 
         return None
 
 
-IMPROVEMENT_SCHEMA = {
-    "type": "json_schema",
-    "json_schema": {
-        "name": "improvement_suggestion",
-        "strict": True,
-        "schema": {
-            "type": "object",
-            "properties": {
-                "target": {
-                    "type": "string",
-                    "description": "改善対象（例: 小型医薬品株のリスク評価基準）"
-                },
-                "action": {
-                    "type": "string",
-                    "enum": ["厳格化", "見直し", "強化", "調整", "改善", "追加"],
-                    "description": "改善アクションの種類"
-                },
-                "reason": {
-                    "type": "string",
-                    "description": "改善が必要な理由（例: 開発リスクが高いため）"
-                }
-            },
-            "required": ["target", "action", "reason"],
-            "additionalProperties": False
-        }
-    }
-}
-
-
-def generate_improvement_suggestion(client: OpenAI, category: str, failures: list[dict], sector_trends: dict | None = None) -> dict | None:
-    """失敗パターンから改善提案を生成（構造化出力）"""
-    if not failures:
-        return None
-
-    if category == "daily":
-        failure_text = "パフォーマンスが悪かったおすすめ銘柄:\n"
-        for f in failures[:3]:
-            details = []
-            details.append(f['sector'])
-            if f.get('marketCapCategory') and f['marketCapCategory'] != "不明":
-                details.append(f['marketCapCategory'])
-            if f.get('valuation') and f['valuation'] != "不明":
-                details.append(f['valuation'])
-            if f.get('pricePosition') and f['pricePosition'] != "不明":
-                details.append(f['pricePosition'])
-            if f.get('volatility'):
-                details.append(f"ボラ{f['volatility']:.0f}%")
-            # セクタートレンド文脈を追加
-            if sector_trends and f['sector'] in sector_trends:
-                st = sector_trends[f['sector']]
-                trend_label = {"up": "追い風", "down": "逆風", "neutral": "中立"}.get(st['trendDirection'], "不明")
-                details.append(f"セクター{trend_label}(スコア{st['compositeScore']:+.0f})" if st['compositeScore'] is not None else f"セクター{trend_label}")
-            failure_text += f"- {f['name']} ({', '.join(details)}): {f['performance']:+.1f}%\n"
-
-    elif category == "purchase":
-        failure_text = "外れた購入推奨:\n"
-        for f in failures[:3]:
-            rec_label = {"buy": "買い推奨", "stay": "様子見推奨", "remove": "見送り推奨"}.get(f["recommendation"], f["recommendation"])
-            sector = f.get("sector", "その他")
-            trend_info = ""
-            if sector_trends and sector in sector_trends:
-                st = sector_trends[sector]
-                trend_label = {"up": "追い風", "down": "逆風", "neutral": "中立"}.get(st['trendDirection'], "不明")
-                trend_info = f"（セクター{trend_label}）"
-            failure_text += f"- {f['name']}{trend_info}: {rec_label}→{f['performance']:+.1f}%\n"
-            failure_text += f"  判断理由: {f.get('reason', '不明')[:100]}\n"
-
-    elif category == "analysis":
-        failure_text = "外れた予測:\n"
-        for f in failures[:3]:
-            trend_label = {"up": "上昇予測", "down": "下落予測", "neutral": "横ばい予測"}.get(f["shortTermTrend"], f["shortTermTrend"])
-            sector = f.get("sector", "その他")
-            trend_info = ""
-            if sector_trends and sector in sector_trends:
-                st = sector_trends[sector]
-                st_label = {"up": "追い風", "down": "逆風", "neutral": "中立"}.get(st['trendDirection'], "不明")
-                trend_info = f"（セクター{st_label}）"
-            failure_text += f"- {f['name']}{trend_info}: {trend_label}→{f['performance']:+.1f}%\n"
-            failure_text += f"  アドバイス: {f.get('advice', '不明')[:100]}\n"
-
-    else:
-        return None
-
-    prompt = f"""{failure_text}
-
-上記の失敗パターンを分析し、今後の改善アクションを提案してください。
-- target: 具体的な改善対象（何を改善するか）
-- action: アクションの種類（厳格化/見直し/強化/調整/改善/追加のいずれか）
-- reason: なぜその改善が必要か（失敗の原因に基づいて）
-
-【重要】提供されたデータのみに基づいて提案してください。外部情報や推測は含めないでください。"""
-
-    try:
-        response = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[
-                {"role": "system", "content": "あなたは株式投資AIの分析改善アドバイザーです。失敗パターンを分析し、具体的な改善提案を行ってください。提供されたデータのみを使用し、外部情報や推測は含めないでください。"},
-                {"role": "user", "content": prompt},
-            ],
-            response_format=IMPROVEMENT_SCHEMA,
-            temperature=OPENAI_TEMPERATURE,
-            max_tokens=OPENAI_MAX_TOKENS_IMPROVEMENT,
-        )
-        result = json.loads(response.choices[0].message.content)
-        return result
-    except Exception as e:
-        print(f"    Warning: {category} improvement suggestion failed: {e}")
-        return None
-
-
 def generate_ai_insights(daily: dict, purchase: dict, analysis: dict, sector_trends: dict | None = None) -> dict | None:
     """各カテゴリごとにAIインサイトを生成（並列処理）"""
     client = get_openai_client()
@@ -272,35 +162,22 @@ def generate_ai_insights(daily: dict, purchase: dict, analysis: dict, sector_tre
 
     insights = {}
 
-    # 並列実行するタスクを定義
-    tasks = []
+    # 並列実行するタスクを定義 (key, category, data)
+    tasks: list[tuple[str, str, dict]] = []
     if daily["count"] > 0:
-        tasks.append(("daily", "insight", client, "daily", daily))
+        tasks.append(("daily", "daily", daily))
     if purchase["count"] > 0:
-        tasks.append(("purchase", "insight", client, "purchase", purchase))
+        tasks.append(("purchase", "purchase", purchase))
     if analysis["count"] > 0:
-        tasks.append(("analysis", "insight", client, "analysis", analysis))
-    if daily.get("failures"):
-        tasks.append(("dailyImprovement", "improvement", client, "daily", daily["failures"]))
-    if purchase.get("failures"):
-        tasks.append(("purchaseImprovement", "improvement", client, "purchase", purchase["failures"]))
-    if analysis.get("failures"):
-        tasks.append(("analysisImprovement", "improvement", client, "analysis", analysis["failures"]))
+        tasks.append(("analysis", "analysis", analysis))
 
     # ThreadPoolExecutorで並列実行
-    def execute_task(task):
-        key, task_type, client, category, data = task
-        if task_type == "insight":
-            return key, generate_single_insight(client, category, data)
-        else:
-            return key, generate_improvement_suggestion(client, category, data, sector_trends)
-
     with ThreadPoolExecutor(max_workers=AI_CONCURRENCY_LIMIT) as executor:
-        futures = [executor.submit(execute_task, task) for task in tasks]
+        futures = {executor.submit(generate_single_insight, client, category, data): key for key, category, data in tasks}
         for future in as_completed(futures):
+            key = futures[future]
             try:
-                key, result = future.result()
-                insights[key] = result
+                insights[key] = future.result()
             except Exception as e:
                 print(f"    Warning: Task failed: {e}")
 
@@ -844,25 +721,22 @@ def save_report_to_db(
                 "dailyRecommendationAvgReturn",
                 "dailyRecommendationPlusRate",
                 "dailyRecommendationSuccessRate",
-                "dailyRecommendationImprovement",
                 "purchaseRecommendationCount",
                 "purchaseRecommendationAvgReturn",
                 "purchaseRecommendationPlusRate",
                 "purchaseRecommendationSuccessRate",
-                "purchaseRecommendationImprovement",
                 "stockAnalysisCount",
                 "stockAnalysisAvgReturn",
                 "stockAnalysisPlusRate",
                 "stockAnalysisSuccessRate",
-                "stockAnalysisImprovement",
                 details,
                 "createdAt"
             ) VALUES (
                 gen_random_uuid()::text,
                 %s,
-                %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s, %s,
                 %s, NOW()
             )
             ON CONFLICT (date) DO UPDATE SET
@@ -870,17 +744,14 @@ def save_report_to_db(
                 "dailyRecommendationAvgReturn" = EXCLUDED."dailyRecommendationAvgReturn",
                 "dailyRecommendationPlusRate" = EXCLUDED."dailyRecommendationPlusRate",
                 "dailyRecommendationSuccessRate" = EXCLUDED."dailyRecommendationSuccessRate",
-                "dailyRecommendationImprovement" = EXCLUDED."dailyRecommendationImprovement",
                 "purchaseRecommendationCount" = EXCLUDED."purchaseRecommendationCount",
                 "purchaseRecommendationAvgReturn" = EXCLUDED."purchaseRecommendationAvgReturn",
                 "purchaseRecommendationPlusRate" = EXCLUDED."purchaseRecommendationPlusRate",
                 "purchaseRecommendationSuccessRate" = EXCLUDED."purchaseRecommendationSuccessRate",
-                "purchaseRecommendationImprovement" = EXCLUDED."purchaseRecommendationImprovement",
                 "stockAnalysisCount" = EXCLUDED."stockAnalysisCount",
                 "stockAnalysisAvgReturn" = EXCLUDED."stockAnalysisAvgReturn",
                 "stockAnalysisPlusRate" = EXCLUDED."stockAnalysisPlusRate",
                 "stockAnalysisSuccessRate" = EXCLUDED."stockAnalysisSuccessRate",
-                "stockAnalysisImprovement" = EXCLUDED."stockAnalysisImprovement",
                 details = EXCLUDED.details
         ''', (
             today_jst,
@@ -888,17 +759,14 @@ def save_report_to_db(
             daily["avgReturn"] if daily["count"] > 0 else None,
             daily["positiveRate"] if daily["count"] > 0 else None,
             daily["successRate"] if daily["count"] > 0 else None,
-            json.dumps(insights.get("dailyImprovement"), ensure_ascii=False) if insights and insights.get("dailyImprovement") else None,
             purchase["count"] if purchase["count"] > 0 else None,
             purchase["avgReturn"] if purchase["count"] > 0 else None,
             None,  # purchaseはplusRateがない
             purchase["successRate"] if purchase["count"] > 0 else None,
-            json.dumps(insights.get("purchaseImprovement"), ensure_ascii=False) if insights and insights.get("purchaseImprovement") else None,
             analysis["count"] if analysis["count"] > 0 else None,
             analysis["avgReturn"] if analysis["count"] > 0 else None,
             None,  # analysisはplusRateがない
             analysis["successRate"] if analysis["count"] > 0 else None,
-            json.dumps(insights.get("analysisImprovement"), ensure_ascii=False) if insights and insights.get("analysisImprovement") else None,
             json.dumps(details, ensure_ascii=False),
         ))
         conn.commit()
@@ -1009,13 +877,8 @@ def main():
                         "daily": "おすすめ",
                         "purchase": "購入推奨",
                         "analysis": "分析",
-                        "dailyImprovement": "おすすめ・改善",
-                        "purchaseImprovement": "購入推奨・改善",
-                        "analysisImprovement": "分析・改善"
                     }.get(key, key)
-                    # 構造化出力（dict）の場合は文字列に変換
-                    display_value = str(value) if isinstance(value, dict) else value
-                    print(f"   {label}: {display_value[:50]}...")
+                    print(f"   {label}: {value[:50]}...")
         else:
             print("   Skipped (no API key or error)")
 

@@ -74,7 +74,6 @@ export async function GET(request: NextRequest) {
               successRate: latest.dailyRecommendationSuccessRate
                 ? Number(latest.dailyRecommendationSuccessRate)
                 : null,
-              improvement: latest.dailyRecommendationImprovement,
             },
             purchase: {
               count: latest.purchaseRecommendationCount,
@@ -87,7 +86,6 @@ export async function GET(request: NextRequest) {
               successRate: latest.purchaseRecommendationSuccessRate
                 ? Number(latest.purchaseRecommendationSuccessRate)
                 : null,
-              improvement: latest.purchaseRecommendationImprovement,
             },
             analysis: {
               count: latest.stockAnalysisCount,
@@ -100,7 +98,6 @@ export async function GET(request: NextRequest) {
               successRate: latest.stockAnalysisSuccessRate
                 ? Number(latest.stockAnalysisSuccessRate)
                 : null,
-              improvement: latest.stockAnalysisImprovement,
             },
             details: latest.details,
           }

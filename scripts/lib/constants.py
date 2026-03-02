@@ -119,26 +119,27 @@ MOVERS_COUNT = 5
 # パフォーマンス評価の成功基準（%）
 # =============================================================================
 
-# おすすめ銘柄: 騰落率がこれより大きければ成功
-DAILY_SUCCESS_THRESHOLD = -3
+# おすすめ銘柄: 騰落率がこれより大きければ成功（プラスのみ成功）
+DAILY_SUCCESS_THRESHOLD = 0
 
-# 購入推奨 buy: 騰落率がこれより大きければ成功
-PURCHASE_BUY_SUCCESS_THRESHOLD = -3
+# 購入推奨 buy: 騰落率がこれより大きければ成功（プラスのみ成功）
+PURCHASE_BUY_SUCCESS_THRESHOLD = 0
 
-# 購入推奨 stay: 騰落率がこれ以下なら成功
-PURCHASE_STAY_SUCCESS_THRESHOLD = 5
+# 購入推奨 stay: 騰落率がこれ以下なら成功（逃した機会損失の基準を厳しく）
+PURCHASE_STAY_SUCCESS_THRESHOLD = 2
 
-# 購入推奨 remove: 騰落率がこれ未満なら成功
-PURCHASE_REMOVE_SUCCESS_THRESHOLD = 3
+# 購入推奨 remove: 騰落率がこれ未満なら成功（下落しなければ除外は失敗）
+PURCHASE_REMOVE_SUCCESS_THRESHOLD = 0
 
-# ポートフォリオ分析 up: 騰落率がこれより大きければ成功
-ANALYSIS_UP_SUCCESS_THRESHOLD = -3
+# ポートフォリオ分析 up: 騰落率がこれより大きければ成功（プラスのみ成功）
+ANALYSIS_UP_SUCCESS_THRESHOLD = 0
 
-# ポートフォリオ分析 down: 騰落率がこれ未満なら成功
-ANALYSIS_DOWN_SUCCESS_THRESHOLD = 3
+# ポートフォリオ分析 down: 騰落率がこれ未満なら成功（下落しなければ失敗）
+ANALYSIS_DOWN_SUCCESS_THRESHOLD = 0
 
-# ポートフォリオ分析 neutral: 騰落率がこの範囲内なら成功
-ANALYSIS_NEUTRAL_SUCCESS_THRESHOLD = 5
+# ポートフォリオ分析 neutral: 騰落率がこの範囲内なら成功（横ばい判定の範囲を現実的に）
+ANALYSIS_NEUTRAL_LOW = -3
+ANALYSIS_NEUTRAL_HIGH = 3
 
 # =============================================================================
 # OpenAI使用量チェック

@@ -15,8 +15,12 @@
     "evaluationTime": "{date} 時点（7日前の推奨を評価）",
     "detailedAnalysis": "推薦精度の詳細分析",
     "successRateTrend": "成功率の推移",
-    "improvementPlan": "今後の改善予定",
-    "improvementDescription": "AIのパフォーマンス向上のため、以下の改善を行います",
+    "cumulativeReturn": {
+      "title": "累積リターンシミュレーション",
+      "description": "AI買い推奨を全て購入し続けた場合の仮想推移（日経225比較）",
+      "ai": "AI推奨",
+      "nikkei": "日経225"
+    },
     "categories": {
       "recommendations": "おすすめ銘柄",
       "purchases": "購入判断",
@@ -127,6 +131,24 @@
       "aiAverage": "AI推薦平均",
       "nikkei225": "日経225",
       "excessReturn": "超過リターン"
+    },
+    "marketCondition": {
+      "title": "市況別パフォーマンス",
+      "description": "上昇相場・下落相場でAIの精度は変わるか？",
+      "condition": "市況",
+      "count": "件数",
+      "successRate7Days": "成功率（7日後）",
+      "avgReturn": "平均リターン"
+    },
+    "stockCharacteristics": {
+      "title": "銘柄特性別パフォーマンス",
+      "description": "大型株と小型株、高ボラ銘柄での精度の違い",
+      "marketCap": "時価総額別",
+      "volatility": "ボラティリティ別",
+      "category": "区分",
+      "count": "件数",
+      "successRate7Days": "成功率（7日後）",
+      "avgReturn": "平均リターン"
     }
   },
   "recommendation": {
