@@ -106,7 +106,7 @@ function AvoidSellTimingSection({
       <div className="bg-red-50 border border-red-200 rounded-lg p-3">
         <div className="flex items-center gap-2 mb-1">
           <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-semibold">
-            即見送り推奨
+            見送り推奨
           </span>
         </div>
         <p className="text-sm text-red-800">

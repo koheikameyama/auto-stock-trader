@@ -202,7 +202,7 @@ export default function StockCard({
               recommendation?.recommendation === "avoid" &&
               recommendation.sellTiming === "market" ? (
               <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">
-                即見送り
+                見送り推奨
               </span>
             ) : (
               <span

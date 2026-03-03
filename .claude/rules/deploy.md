@@ -27,11 +27,12 @@ grep DATABASE_URL .env
 
 - 本番DBに直接マイグレーションを実行しない
 - `DATABASE_URL="postgresql://..." npx prisma migrate deploy` は不要
-- **Claude Codeは本番DBへのマイグレーション操作を一切行わない**
+- **Claude Codeは本番DBへのマイグレーション操作を原則行わない**
   - `prisma migrate resolve --applied` を本番DBに対して実行しない
   - `prisma migrate deploy` を本番DBに対して実行しない
   - 本番DBに直接SQLを実行しない
   - マイグレーションが必要な場合はユーザーに依頼する
+  - **ただし、ユーザーから明示的に指示があれば本番DB操作を実行してよい**
 
 ## ✅ 正しい手順（ローカルDBのみ）
 
