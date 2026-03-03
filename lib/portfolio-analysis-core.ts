@@ -663,12 +663,12 @@ export async function executePortfolioAnalysis(
     profitPercent = (profit / totalCost) * 100;
   }
 
-  // 直近30日の価格データを取得（yfinanceからリアルタイム取得）
+  // SMA25計算に25営業日以上が必要なため3ヶ月分取得
   const historicalPrices = await fetchHistoricalPrices(
     portfolioStock.stock.tickerCode,
-    "1m",
+    MA_DEVIATION.FETCH_PERIOD,
   );
-  const prices = historicalPrices.slice(-30); // oldest-first
+  const prices = historicalPrices.slice(-MA_DEVIATION.FETCH_SLICE); // oldest-first
 
   // ローソク足パターン分析
   const patternContext = buildCandlestickContext(prices);
@@ -1136,8 +1136,8 @@ export async function executeSimulatedPortfolioAnalysis(
     profitPercent = (profit / totalCost) * 100;
   }
 
-  const historicalPrices = await fetchHistoricalPrices(stock.tickerCode, "1m");
-  const prices = historicalPrices.slice(-30);
+  const historicalPrices = await fetchHistoricalPrices(stock.tickerCode, MA_DEVIATION.FETCH_PERIOD);
+  const prices = historicalPrices.slice(-MA_DEVIATION.FETCH_SLICE);
 
   const patternContext = buildCandlestickContext(prices);
   const technicalContext = buildTechnicalContext(prices);
