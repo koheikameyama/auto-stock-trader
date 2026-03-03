@@ -14,6 +14,7 @@ import DailyMarketNavigator from "./DailyMarketNavigator";
 import NikkeiSummary from "./NikkeiSummary";
 import GapPredictionCard from "./GapPredictionCard";
 import BudgetSummary from "./BudgetSummary";
+import GeopoliticalRiskCard from "./GeopoliticalRiskCard"
 import { SectorTrendHeatmap } from "./SectorTrendHeatmap";
 import { getRichStyleLabel } from "@/lib/constants";
 import { calculatePortfolioFromTransactions } from "@/lib/portfolio-calculator";
@@ -225,6 +226,9 @@ export default async function DashboardPage() {
               <PortfolioCompositionChart />
             </div>
           )}
+
+          {/* 地政学・マクロリスクカード */}
+          <GeopoliticalRiskCard />
 
           {/* セクタートレンドヒートマップ */}
           <SectorTrendHeatmap />
