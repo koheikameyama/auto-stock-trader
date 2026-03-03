@@ -434,7 +434,8 @@ export const MA_DEVIATION = {
   DIP_BUY_THRESHOLD: 5, // 乖離率(%)がこれを超えたら押し目買い推奨
   RSI_OVERBOUGHT_THRESHOLD: 70, // RSIがこれを超えたら押し目買い推奨
   EXTREME_UPPER_THRESHOLD: 50, // skipSafetyRulesでもブロックする極端な上方乖離（%）
-  // 押し目フォールバック: volatility / 2 をベースに、上下限でクランプ
+  DIP_ATR_MULTIPLIER: 1.0, // 押し目買い目安: currentPrice - ATR14 × この倍率
+  // ATRがない場合のフォールバック: volatility / 2 をベースに、上下限でクランプ
   DIP_PRICE_VOLATILITY_FACTOR: 0.5, // ボラティリティに掛ける係数（volatility * factor / 100 = 下落率）
   DIP_PRICE_MIN_RATE: 0.02, // 最小フォールバック率（2%）
   DIP_PRICE_MAX_RATE: 0.15, // 最大フォールバック率（15%）
@@ -496,8 +497,7 @@ export const SELL_TIMING = {
   NEAR_AVERAGE_PRICE_THRESHOLD: 5, // 平均購入価格から+5%以内は「平均価格に近い」とみなす（指値提案）
   TREND_OVERRIDE_LOSS_THRESHOLD: -15, // 中長期トレンド保護を無視する損失閾値(%)
   SELL_PRICE_PROXIMITY_THRESHOLD: 0.02, // 売却目標近接の閾値（比率）
-  REBOUND_MIN_UPSIDE: 0.03, // 戻り売り目安の最低上乗せ率（volatilityがない場合のフォールバック）
-  REBOUND_VOLATILITY_FACTOR: 0.5, // 戻り売り目安のvolatility倍率（volatility * この値を上乗せ）
+  REBOUND_ATR_MULTIPLIER: 1.0, // 戻り売り目安: currentPrice + ATR14 × この倍率
 } as const;
 
 // スタイル間合意度によるconfidence補正

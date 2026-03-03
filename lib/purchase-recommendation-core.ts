@@ -126,6 +126,7 @@ export async function executePurchaseRecommendation(
       fiftyTwoWeekHigh: true,
       fiftyTwoWeekLow: true,
       volatility: true,
+      atr14: true,
       gapUpRate: true,
       volumeSpikeRate: true,
       turnoverValue: true,
@@ -758,6 +759,7 @@ export async function executePurchaseRecommendation(
       sma25: sma25ForTiming,
       currentPrice,
       volatility,
+      atr14: stock.atr14 ? Number(stock.atr14) : null,
     },
     sellTimingParams: {
       deviationRate,

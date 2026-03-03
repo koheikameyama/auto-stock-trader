@@ -454,12 +454,16 @@ function postProcessPortfolioAnalysis(params: {
     sellTargetPrice = userStyleResult.suggestedSellPrice;
   }
 
-  // 戻り売り目安が現在価格以下の場合、volatility連動で補正
-  if (sellTiming === "rebound" && sellTargetPrice && currentPrice && sellTargetPrice <= currentPrice) {
-    const upsideRate = volatility
-      ? Math.max(volatility / 100 * SELL_TIMING.REBOUND_VOLATILITY_FACTOR, SELL_TIMING.REBOUND_MIN_UPSIDE)
-      : SELL_TIMING.REBOUND_MIN_UPSIDE;
-    sellTargetPrice = Math.round(currentPrice * (1 + upsideRate));
+  // 戻り売り目安が現在価格以下の場合、ATRベースで補正（ATRなしならmarketに切替）
+  if (sellTiming === "rebound" && currentPrice && (!sellTargetPrice || sellTargetPrice <= currentPrice)) {
+    const atr14 = stock.atr14 ? Number(stock.atr14) : null;
+    if (atr14 && atr14 > 0) {
+      sellTargetPrice = Math.round(currentPrice + atr14 * SELL_TIMING.REBOUND_ATR_MULTIPLIER);
+    } else {
+      // ATRがない場合は根拠のある目安を出せないためmarketに切替
+      sellTiming = "market";
+      sellTargetPrice = null;
+    }
   }
 
   // --- 投資スタイル別のセーフティルールを適用 ---
