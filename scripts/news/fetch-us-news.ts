@@ -5,6 +5,7 @@
  * 機能:
  * - Google News RSSから米国株式関連ニュースを取得
  * - セクター・センチメント分析（ルールベース + AI）
+ * - 地政学・マクロニュースの市場インパクト分析
  * - MarketNewsテーブルへの保存（market="US"）
  */
 
@@ -15,6 +16,22 @@ import Parser from "rss-parser"
 const prisma = new PrismaClient()
 const parser = new Parser()
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+
+// セクターenum値
+const SECTOR_VALUES = [
+  "半導体・電子部品",
+  "自動車",
+  "金融",
+  "医薬品",
+  "通信",
+  "小売",
+  "不動産",
+  "エネルギー",
+  "素材",
+  "IT・サービス",
+] as const
+
+type SectorValue = (typeof SECTOR_VALUES)[number]
 
 // 米国ニュースソースURL
 const RSS_URLS: Record<string, string> = {
@@ -35,6 +52,10 @@ const RSS_URLS: Record<string, string> = {
   // 決算関連
   google_news_earnings:
     "https://news.google.com/rss/search?q=earnings+report+stocks+when:2d&hl=en&gl=US&ceid=US:en",
+  // 地政学リスク
+  google_news_geopolitical: `https://news.google.com/rss/search?q=${encodeURIComponent("tariff OR sanctions OR geopolitical OR war OR conflict")}&hl=en-US&gl=US&ceid=US:en`,
+  // マクロ経済
+  google_news_macro: `https://news.google.com/rss/search?q=${encodeURIComponent("Fed rate OR interest rate OR inflation OR monetary policy")}&hl=en-US&gl=US&ceid=US:en`,
 }
 
 // セクター分類キーワード（英語→日本語セクターへのマッピング）
@@ -122,6 +143,17 @@ interface RssEntry {
   pubDate?: string
 }
 
+interface AIAnalysisResult {
+  sector: string | null
+  sentiment: string | null
+  isStockRelated: boolean
+  isMarketImpact: boolean
+  category: "stock" | "geopolitical" | "macro"
+  impactSectors: SectorValue[]
+  impactDirection: "positive" | "negative" | "mixed" | null
+  impactSummary: string | null
+}
+
 function detectSectorByKeywords(text: string): string | null {
   const textLower = text.toLowerCase()
 
@@ -153,11 +185,22 @@ function detectSentimentByKeywords(text: string): string | null {
 async function analyzeWithOpenAI(
   title: string,
   content: string
-): Promise<{ sector: string | null; sentiment: string | null; isStockRelated: boolean }> {
+): Promise<AIAnalysisResult> {
+  const defaultResult: AIAnalysisResult = {
+    sector: null,
+    sentiment: null,
+    isStockRelated: true,
+    isMarketImpact: false,
+    category: "stock",
+    impactSectors: [],
+    impactDirection: null,
+    impactSummary: null,
+  }
+
   try {
     if (!process.env.OPENAI_API_KEY) {
       console.log("OPENAI_API_KEY not found, skipping AI analysis")
-      return { sector: null, sentiment: null, isStockRelated: true }
+      return defaultResult
     }
 
     const prompt = `Analyze the following US market news.
@@ -165,12 +208,35 @@ async function analyzeWithOpenAI(
 Title: ${title}
 Content: ${content}
 
-Determine the following 3 items:
+Determine the following items:
 1. is_stock_related: Whether this news is related to stocks, investments, or financial markets (true/false)
    - News about stock prices, corporate earnings, market trends, economic indicators, monetary policy → true
    - News about sports, entertainment, crime, weather, etc. unrelated to stock markets → false
 2. sector (Japanese): 半導体・電子部品, 自動車, 金融, 医薬品, 通信, 小売, 不動産, エネルギー, 素材, IT・サービス, or null
-3. sentiment: positive, neutral, negative, or null`
+3. sentiment: positive, neutral, negative, or null
+4. is_market_impact: Whether this news could impact the overall stock market (true/false)
+   - Geopolitical risks (tariffs, sanctions, war, conflict, US-China tensions) → true
+   - Macroeconomic news (monetary policy, rate hikes/cuts, inflation, GDP) → true
+   - Individual company earnings or performance only → false
+   - News affecting overall market trends → true
+5. category: Classification of the news
+   - "stock": News about individual stocks or sectors
+   - "geopolitical": Geopolitical risk news (tariffs, sanctions, war, conflict, diplomacy)
+   - "macro": Macroeconomic news (monetary policy, exchange rates, interest rates, economic indicators)
+6. impact_sectors: If there is market impact, array of affected sectors (in Japanese)
+   - Sector values: 半導体・電子部品, 自動車, 金融, 医薬品, 通信, 小売, 不動産, エネルギー, 素材, IT・サービス
+   - Empty array [] if no impact or unknown
+7. impact_direction: Direction of market impact
+   - "positive": Positive impact on stock prices
+   - "negative": Negative impact on stock prices
+   - "mixed": Both positive and negative impacts
+   - null: Unknown or not applicable
+8. impact_summary: Explanation of market impact (in Japanese, 1-2 sentences)
+   - Only fill in when is_market_impact=true
+   - Example: "米中関税引き上げにより、輸出関連セクター（自動車・半導体）に下落圧力。"
+   - null when is_market_impact=false`
+
+    const sectorEnumValues = [...SECTOR_VALUES, null]
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -185,13 +251,42 @@ Determine the following 3 items:
             type: "object",
             properties: {
               is_stock_related: { type: "boolean" },
-              sector: { type: ["string", "null"], enum: ["半導体・電子部品", "自動車", "金融", "医薬品", "通信", "小売", "不動産", "エネルギー", "素材", "IT・サービス", null] },
+              sector: {
+                type: ["string", "null"],
+                enum: sectorEnumValues,
+              },
               sentiment: {
                 type: ["string", "null"],
                 enum: ["positive", "neutral", "negative", null],
               },
+              is_market_impact: { type: "boolean" },
+              category: {
+                type: "string",
+                enum: ["stock", "geopolitical", "macro"],
+              },
+              impact_sectors: {
+                type: "array",
+                items: {
+                  type: "string",
+                  enum: [...SECTOR_VALUES],
+                },
+              },
+              impact_direction: {
+                type: ["string", "null"],
+                enum: ["positive", "negative", "mixed", null],
+              },
+              impact_summary: { type: ["string", "null"] },
             },
-            required: ["is_stock_related", "sector", "sentiment"],
+            required: [
+              "is_stock_related",
+              "sector",
+              "sentiment",
+              "is_market_impact",
+              "category",
+              "impact_sectors",
+              "impact_direction",
+              "impact_summary",
+            ],
             additionalProperties: false,
           },
         },
@@ -203,10 +298,15 @@ Determine the following 3 items:
       sector: result.sector || null,
       sentiment: result.sentiment || null,
       isStockRelated: result.is_stock_related ?? true,
+      isMarketImpact: result.is_market_impact ?? false,
+      category: result.category ?? "stock",
+      impactSectors: Array.isArray(result.impact_sectors) ? result.impact_sectors : [],
+      impactDirection: result.impact_direction ?? null,
+      impactSummary: result.impact_summary ?? null,
     }
   } catch (error) {
     console.log(`OpenAI API error: ${error}`)
-    return { sector: null, sentiment: null, isStockRelated: true }
+    return defaultResult
   }
 }
 
@@ -259,11 +359,16 @@ async function main(): Promise<void> {
     publishedAt: Date
     market: string
     region: string
+    category: string
+    impactSectors: string | null
+    impactDirection: string | null
+    impactSummary: string | null
   }[] = []
 
   let ruleBasedCount = 0
   let aiBasedCount = 0
   let skippedCount = 0
+  let marketImpactCount = 0
 
   try {
     // 各RSSフィードを取得
@@ -292,23 +397,31 @@ async function main(): Promise<void> {
         let sector = detectSectorByKeywords(text)
         let sentiment = detectSentimentByKeywords(text)
 
+        // AI分析結果を保持（新フィールド用）
+        let aiResult: AIAnalysisResult | null = null
+
         // ルールベースで判定できなかった場合はAI分析
         if (sector === null || sentiment === null) {
-          const aiResult = await analyzeWithOpenAI(
+          aiResult = await analyzeWithOpenAI(
             entry.title,
             entry.contentSnippet || ""
           )
 
-          // セクターがルールベースで検出できず、AIも株式関連でないと判断した場合はスキップ
-          if (sector === null && !aiResult.isStockRelated) {
+          // セクターがルールベースで検出できず、AIも株式関連でなく、市場インパクトもない場合はスキップ
+          if (sector === null && !aiResult.isStockRelated && !aiResult.isMarketImpact) {
             skippedCount++
-            console.log(`  Skipped (not stock-related): ${entry.title}`)
+            console.log(`  Skipped (not stock-related, no market impact): ${entry.title}`)
             continue
           }
 
           if (sector === null) sector = aiResult.sector
           if (sentiment === null) sentiment = aiResult.sentiment
           aiBasedCount++
+
+          if (aiResult.isMarketImpact) {
+            marketImpactCount++
+            console.log(`  Market impact (${aiResult.category}): ${entry.title}`)
+          }
         } else {
           ruleBasedCount++
         }
@@ -326,16 +439,21 @@ async function main(): Promise<void> {
           publishedAt,
           market: "US",
           region: "米国",
+          category: aiResult?.category ?? "stock",
+          impactSectors: aiResult?.impactSectors?.length ? JSON.stringify(aiResult.impactSectors) : null,
+          impactDirection: aiResult?.impactDirection ?? null,
+          impactSummary: aiResult?.impactSummary ?? null,
         })
       }
     }
 
     // ニュースをデータベースに保存
     if (newsToSave.length > 0) {
-      console.log(`\nAnalyzing ${newsToSave.length} new entries...`)
+      console.log(`\nSaving ${newsToSave.length} new entries...`)
       console.log(`  Rule-based: ${ruleBasedCount} entries`)
       console.log(`  AI-based: ${aiBasedCount} entries`)
-      console.log(`  Skipped (not stock-related): ${skippedCount} entries`)
+      console.log(`  Market impact: ${marketImpactCount} entries`)
+      console.log(`  Skipped (not stock-related, no market impact): ${skippedCount} entries`)
 
       // バッチ作成
       const created = await prisma.marketNews.createMany({
@@ -344,6 +462,10 @@ async function main(): Promise<void> {
       })
 
       console.log(`Saved ${created.count} US news to database`)
+      console.log(`  Category breakdown:`)
+      console.log(`    stock: ${newsToSave.filter((n) => n.category === "stock").length}`)
+      console.log(`    geopolitical: ${newsToSave.filter((n) => n.category === "geopolitical").length}`)
+      console.log(`    macro: ${newsToSave.filter((n) => n.category === "macro").length}`)
     } else {
       console.log("\nNo new US news to save")
     }
