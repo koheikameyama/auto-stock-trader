@@ -11,6 +11,10 @@ export interface NewsItem {
   publishedAt: Date
   market: string
   region: string | null
+  category?: string | null
+  impactSectors?: string | null
+  impactDirection?: string | null
+  impactSummary?: string | null
   relatedStocks?: {
     id: string
     name: string

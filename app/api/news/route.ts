@@ -10,11 +10,13 @@ export async function GET(request: NextRequest) {
     const market = (searchParams.get("market") || "ALL") as "JP" | "US" | "ALL"
     const daysAgo = parseInt(searchParams.get("daysAgo") || "7", 10)
     const withRelated = searchParams.get("withRelated") === "true"
+    const category = (searchParams.get("category") || undefined) as "impact" | "all" | undefined
 
     const options: GetNewsOptions = {
       limit,
       market,
       daysAgo,
+      category,
     }
 
     let news

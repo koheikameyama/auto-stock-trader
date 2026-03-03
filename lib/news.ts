@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { getDaysAgoForDB } from "@/lib/date-utils"
 import { calculatePortfolioFromTransactions } from "@/lib/portfolio-calculator"
 import dayjs from "dayjs"
 import utc from "dayjs/plugin/utc"
@@ -16,6 +17,7 @@ export interface GetNewsOptions {
   market?: "JP" | "US" | "ALL"
   userId?: string // 保有銘柄との関連付け用
   daysAgo?: number
+  category?: "impact" | "all"
 }
 
 // セクターマッピング（米国→日本）
@@ -36,7 +38,7 @@ const US_TO_JP_SECTOR_MAP: Record<string, string[]> = {
  * ニュース一覧を取得する
  */
 export async function getNews(options: GetNewsOptions = {}): Promise<NewsItem[]> {
-  const { limit = 20, market = "ALL", daysAgo = 7 } = options
+  const { limit = 20, market = "ALL", daysAgo = 7, category } = options
 
   const cutoffDate = dayjs().subtract(daysAgo, "day").toDate()
 
@@ -48,6 +50,10 @@ export async function getNews(options: GetNewsOptions = {}): Promise<NewsItem[]>
 
   if (market !== "ALL") {
     whereClause.market = market
+  }
+
+  if (category === "impact") {
+    whereClause.category = { in: ["geopolitical", "macro"] }
   }
 
   const news = await prisma.marketNews.findMany({
@@ -69,6 +75,10 @@ export async function getNews(options: GetNewsOptions = {}): Promise<NewsItem[]>
     publishedAt: n.publishedAt,
     market: n.market,
     region: n.region,
+    category: n.category,
+    impactSectors: n.impactSectors,
+    impactDirection: n.impactDirection,
+    impactSummary: n.impactSummary,
   }))
 }
 
@@ -79,7 +89,7 @@ export async function getNewsWithRelatedStocks(
   userId: string,
   options: GetNewsOptions = {}
 ): Promise<NewsItem[]> {
-  const { limit = 10, market = "ALL", daysAgo = 7 } = options
+  const { limit = 10, market = "ALL", daysAgo = 7, category } = options
 
   // ユーザーの保有銘柄を取得
   const portfolioStocks = await prisma.portfolioStock.findMany({
@@ -133,6 +143,10 @@ export async function getNewsWithRelatedStocks(
 
   if (market !== "ALL") {
     whereClause.market = market
+  }
+
+  if (category === "impact") {
+    whereClause.category = { in: ["geopolitical", "macro"] }
   }
 
   const allNews = await prisma.marketNews.findMany({
@@ -208,6 +222,10 @@ export async function getNewsWithRelatedStocks(
       publishedAt: news.publishedAt,
       market: news.market,
       region: news.region,
+      category: news.category,
+      impactSectors: news.impactSectors,
+      impactDirection: news.impactDirection,
+      impactSummary: news.impactSummary,
       relatedStocks: relatedStocks.length > 0 ? relatedStocks : undefined,
     })
   }
@@ -239,3 +257,48 @@ export async function getDashboardNews(
   })
 }
 
+/**
+ * ダッシュボード用の地政学・マクロニュースを取得
+ */
+export async function getGeopoliticalNews(limit: number = 5): Promise<NewsItem[]> {
+  const cutoffDate = getDaysAgoForDB(3)
+
+  const news = await prisma.marketNews.findMany({
+    where: {
+      category: { in: ["geopolitical", "macro"] },
+      publishedAt: { gte: cutoffDate },
+    },
+    select: {
+      id: true,
+      title: true,
+      sentiment: true,
+      category: true,
+      impactSectors: true,
+      impactDirection: true,
+      impactSummary: true,
+      publishedAt: true,
+      market: true,
+    },
+    orderBy: {
+      publishedAt: "desc",
+    },
+    take: limit,
+  })
+
+  return news.map((n) => ({
+    id: n.id,
+    title: n.title,
+    content: "",
+    url: null,
+    source: "",
+    sector: null,
+    sentiment: n.sentiment,
+    publishedAt: n.publishedAt,
+    market: n.market,
+    region: null,
+    category: n.category,
+    impactSectors: n.impactSectors,
+    impactDirection: n.impactDirection,
+    impactSummary: n.impactSummary,
+  }))
+}
