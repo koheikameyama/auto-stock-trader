@@ -627,34 +627,39 @@ export default function MyStocksClient() {
     });
   }, [userStocks, prices]);
 
-  // ウォッチリストを買い推奨順に並び替え
-  // 1. 買い推奨の銘柄を上に
-  // 2. 買い推奨同士はconfidence（スコア）の高い順
-  // 3. それ以外は追加日時の新しい順
+  // ウォッチリストを推奨ステータス順 × 信頼度順に並び替え
+  // 1. buy > stay > avoid の順
+  // 2. 同じステータス内は信頼度の高い順（buyはuserFitScore優先）
+  // 3. 信頼度が同じ場合は追加日時の新しい順
   const watchlistStocks = useMemo(() => {
     const filtered = userStocks.filter((s) => s.type === "watchlist");
+
+    const recOrder: Record<string, number> = { buy: 0, stay: 1, avoid: 2 };
+
     return filtered.sort((a, b) => {
       const recA = recommendations[a.stockId];
       const recB = recommendations[b.stockId];
 
-      const isBuyA = recA?.recommendation === "buy";
-      const isBuyB = recB?.recommendation === "buy";
+      const orderA = recOrder[recA?.recommendation ?? "stay"] ?? 1;
+      const orderB = recOrder[recB?.recommendation ?? "stay"] ?? 1;
 
-      // 買い推奨を上に
-      if (isBuyA && !isBuyB) return -1;
-      if (!isBuyA && isBuyB) return 1;
+      // ステータスが異なる場合はステータス順
+      if (orderA !== orderB) return orderA - orderB;
 
-      // 両方買い推奨の場合はuserFitScore（スコア）の高い順、なければconfidenceで並べる
-      if (isBuyA && isBuyB) {
+      // 同じステータス内: buyの場合はuserFitScore優先
+      if (recA?.recommendation === "buy" && recB?.recommendation === "buy") {
         const scoreA = recA?.userFitScore ?? null;
         const scoreB = recB?.userFitScore ?? null;
-        if (scoreA !== null && scoreB !== null) {
+        if (scoreA !== null && scoreB !== null && scoreA !== scoreB) {
           return scoreB - scoreA;
         }
-        return (recB?.confidence ?? 0) - (recA?.confidence ?? 0);
       }
 
-      // それ以外は追加日時の新しい順
+      // 同じステータス内: 信頼度の高い順
+      const confDiff = (recB?.confidence ?? 0) - (recA?.confidence ?? 0);
+      if (confDiff !== 0) return confDiff;
+
+      // 信頼度も同じ場合は追加日時の新しい順
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
   }, [userStocks, recommendations]);

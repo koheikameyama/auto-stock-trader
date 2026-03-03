@@ -857,11 +857,16 @@ export default function PurchaseRecommendation({
         <StyleTabs />
         <InformationalBanner />
         <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg shadow-md p-4 sm:p-6 mb-4">
-          <div className="flex items-center gap-2 mb-4">
-            <span className="text-2xl">💡</span>
-            <h3 className="text-base sm:text-lg font-bold text-green-800">
-              購入を検討できるタイミングです
-            </h3>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">💡</span>
+              <h3 className="text-base sm:text-lg font-bold text-green-800">
+                購入を検討できるタイミングです
+              </h3>
+            </div>
+            <span className={`flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-bold ${confidencePercent >= 75 ? "bg-green-200 text-green-800" : confidencePercent >= 50 ? "bg-yellow-200 text-yellow-800" : "bg-gray-200 text-gray-700"}`}>
+              信頼度 {confidencePercent}%
+            </span>
           </div>
 
           <p className="text-sm text-gray-700 mb-4">{effectiveData.reason}</p>
@@ -883,18 +888,6 @@ export default function PurchaseRecommendation({
           </div>
 
           <MarketSignalRow />
-
-          <div className="flex items-center gap-2 mb-3">
-            <div className="flex-1 bg-gray-200 rounded-full h-2">
-              <div
-                className="bg-green-500 h-2 rounded-full transition-all duration-500"
-                style={{ width: `${confidencePercent}%` }}
-              />
-            </div>
-            <span className="text-xs text-gray-600 whitespace-nowrap">
-              信頼度 {confidencePercent}%
-            </span>
-          </div>
 
           <div className="text-center space-y-1">
             <AnalysisTimestamp dateString={data.analyzedAt} />
@@ -919,11 +912,16 @@ export default function PurchaseRecommendation({
         <StyleTabs />
         <InformationalBanner />
         <div className="bg-gradient-to-br from-red-50 to-rose-50 rounded-lg shadow-md p-4 sm:p-6 mb-4">
-          <div className="flex items-center gap-2 mb-4">
-            <span className="text-2xl">🚫</span>
-            <h3 className="text-base sm:text-lg font-bold text-red-800">
-              見送りをおすすめします
-            </h3>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">🚫</span>
+              <h3 className="text-base sm:text-lg font-bold text-red-800">
+                見送りをおすすめします
+              </h3>
+            </div>
+            <span className={`flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-bold ${confidencePercent >= 75 ? "bg-green-200 text-green-800" : confidencePercent >= 50 ? "bg-yellow-200 text-yellow-800" : "bg-gray-200 text-gray-700"}`}>
+              信頼度 {confidencePercent}%
+            </span>
           </div>
 
           <p className="text-sm text-gray-700 mb-4">{effectiveData.reason}</p>
@@ -953,18 +951,6 @@ export default function PurchaseRecommendation({
 
           <MarketSignalRow />
 
-          <div className="flex items-center gap-2 mb-3">
-            <div className="flex-1 bg-gray-200 rounded-full h-2">
-              <div
-                className="bg-red-500 h-2 rounded-full transition-all duration-500"
-                style={{ width: `${confidencePercent}%` }}
-              />
-            </div>
-            <span className="text-xs text-gray-600 whitespace-nowrap">
-              信頼度 {confidencePercent}%
-            </span>
-          </div>
-
           <div className="text-center space-y-1">
             <AnalysisTimestamp dateString={data.analyzedAt} />
             <p className="text-xs text-gray-400">
@@ -987,11 +973,16 @@ export default function PurchaseRecommendation({
       <StyleTabs />
       <InformationalBanner />
       <div className="bg-gradient-to-br from-blue-50 to-sky-50 rounded-lg shadow-md p-4 sm:p-6 mb-4">
-        <div className="flex items-center gap-2 mb-4">
-          <span className="text-2xl">⏳</span>
-          <h3 className="text-base sm:text-lg font-bold text-blue-800">
-            もう少し様子を見ましょう
-          </h3>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">⏳</span>
+            <h3 className="text-base sm:text-lg font-bold text-blue-800">
+              もう少し様子を見ましょう
+            </h3>
+          </div>
+          <span className={`flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-bold ${confidencePercent >= 75 ? "bg-green-200 text-green-800" : confidencePercent >= 50 ? "bg-yellow-200 text-yellow-800" : "bg-gray-200 text-gray-700"}`}>
+            信頼度 {confidencePercent}%
+          </span>
         </div>
 
         <p className="text-sm text-gray-700 mb-4">{effectiveData.reason}</p>
@@ -1026,18 +1017,6 @@ export default function PurchaseRecommendation({
         </div>
 
         <MarketSignalRow />
-
-        <div className="flex items-center gap-2 mb-3">
-          <div className="flex-1 bg-gray-200 rounded-full h-2">
-            <div
-              className="bg-blue-500 h-2 rounded-full transition-all duration-500"
-              style={{ width: `${confidencePercent}%` }}
-            />
-          </div>
-          <span className="text-xs text-gray-600 whitespace-nowrap">
-            信頼度 {confidencePercent}%
-          </span>
-        </div>
 
         <div className="text-center space-y-1">
           <AnalysisTimestamp dateString={data.analyzedAt} />

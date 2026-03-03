@@ -527,9 +527,19 @@ export default function StockAnalysisCard({
       {effectiveAnalysis?.recommendation && (
         <div className="bg-white rounded-lg shadow-md p-4 border-l-4 border-blue-500">
           <div className="mb-2">
-            <p className="font-semibold text-gray-800 mb-1.5">
-              💡 AIアドバイス
-            </p>
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="font-semibold text-gray-800">
+                💡 AIアドバイス
+              </p>
+              {effectiveAnalysis.confidence !== null && (() => {
+                const pct = Math.round(effectiveAnalysis.confidence * 100);
+                return (
+                  <span className={`flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-bold ${pct >= 75 ? "bg-green-200 text-green-800" : pct >= 50 ? "bg-yellow-200 text-yellow-800" : "bg-gray-200 text-gray-700"}`}>
+                    信頼度 {pct}%
+                  </span>
+                );
+              })()}
+            </div>
             <div className="flex items-center gap-2">
               {getStatusBadge(effectiveAnalysis.recommendation)}
               {getMarketSignalBadge(effectiveAnalysis.marketSignal)}
@@ -886,37 +896,6 @@ export default function StockAnalysisCard({
             </div>
           )}
 
-          {effectiveAnalysis.confidence !== null &&
-            (() => {
-              const pct = Math.round(effectiveAnalysis.confidence * 100);
-              const color =
-                pct >= 75
-                  ? "bg-green-500"
-                  : pct >= 50
-                    ? "bg-yellow-500"
-                    : "bg-red-400";
-              const label = pct >= 75 ? "高" : pct >= 50 ? "中" : "低";
-              return (
-                <div className="mt-1 pt-2 border-t border-gray-100">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs text-gray-500">
-                      AI分析の信頼度（データの質・量に基づく）
-                    </span>
-                    <span
-                      className={`text-xs font-semibold ${pct >= 75 ? "text-green-600" : pct >= 50 ? "text-yellow-600" : "text-red-500"}`}
-                    >
-                      {label} {pct}%
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className={`${color} h-2 rounded-full transition-all`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })()}
         </div>
       )}
 
