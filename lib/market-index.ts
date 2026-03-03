@@ -61,6 +61,49 @@ export async function getNikkei225Data(): Promise<MarketIndexData | null> {
 }
 
 /**
+ * S&P 500のトレンドデータを取得
+ * @returns MarketIndexData または取得失敗時は null
+ */
+export async function getSP500Data(): Promise<MarketIndexData | null> {
+  try {
+    const prices = await fetchHistoricalPrices("^GSPC", "1m")
+
+    if (prices.length < 2) {
+      console.warn("S&P 500の価格データが不足しています")
+      return null
+    }
+
+    const latestPrice = prices[prices.length - 1].close
+    const weekAgoPrice = prices[Math.max(0, prices.length - 5)].close
+
+    const weekChangeRate = ((latestPrice - weekAgoPrice) / weekAgoPrice) * 100
+
+    let trend: "up" | "down" | "neutral"
+    if (weekChangeRate >= MARKET_INDEX.UP_TREND_THRESHOLD) {
+      trend = "up"
+    } else if (weekChangeRate <= MARKET_INDEX.DOWN_TREND_THRESHOLD) {
+      trend = "down"
+    } else {
+      trend = "neutral"
+    }
+
+    const isMarketCrash = weekChangeRate <= MARKET_INDEX.CRASH_THRESHOLD
+    const isMarketPanic = weekChangeRate <= MARKET_INDEX.PANIC_THRESHOLD
+
+    return {
+      currentPrice: latestPrice,
+      weekChangeRate,
+      trend,
+      isMarketCrash,
+      isMarketPanic,
+    }
+  } catch (error) {
+    console.error("S&P 500データの取得に失敗:", error)
+    return null
+  }
+}
+
+/**
  * トレンドを日本語に変換
  */
 export function getTrendDescription(trend: "up" | "down" | "neutral"): string {
