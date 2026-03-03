@@ -150,3 +150,18 @@ USD_TO_JPY = 150
 
 # gpt-4o-mini料金（USD per 1M tokens）
 GPT4O_MINI_PRICING = {"input": 0.15, "output": 0.60}
+
+# =============================================================================
+# ギャップ予測（プレマーケットデータ取得）
+# =============================================================================
+
+# yfinanceティッカー
+PRE_MARKET_TICKERS = {
+    "nikkei_futures": "NKD=F",
+    "usdjpy": "USDJPY=X",
+    "sp500": "^GSPC",
+    "nasdaq": "^IXIC",
+}
+
+# 取得期間（直近N日）
+PRE_MARKET_FETCH_DAYS = 5

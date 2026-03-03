@@ -773,3 +773,35 @@ model PortfolioSnapshot {
   @@unique([userId, date])
   @@index([userId, date(sort: Desc)])
 }
+
+// ========================================
+// プレマーケットデータ（海外市場・先物・為替）
+// ========================================
+
+// 寄り付きギャップ予測用の海外市場データ（毎朝07:00 JST取得）
+model PreMarketData {
+  id   String   @id @default(cuid())
+  date DateTime @db.Date
+
+  // CME日経先物
+  nikkeiFuturesClose     Decimal? @db.Decimal(10, 2)
+  nikkeiFuturesChangeRate Decimal? @db.Decimal(8, 2)
+
+  // USD/JPY為替
+  usdjpyClose      Decimal? @db.Decimal(10, 4)
+  usdjpyChangeRate Decimal? @db.Decimal(8, 2)
+
+  // S&P 500
+  sp500Close      Decimal? @db.Decimal(10, 2)
+  sp500ChangeRate Decimal? @db.Decimal(8, 2)
+
+  // NASDAQ
+  nasdaqClose      Decimal? @db.Decimal(10, 2)
+  nasdaqChangeRate Decimal? @db.Decimal(8, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([date])
+  @@index([date(sort: Desc)])
+}

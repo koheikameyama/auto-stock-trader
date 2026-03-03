@@ -636,3 +636,40 @@ export const BENCHMARK_METRICS = {
   SHARPE_EXCELLENT: 1.0, // 優秀
   SHARPE_FAIR: 0.5, // 普通
 } as const;
+
+// ギャップ予測（寄り付きギャップ推定）
+export const GAP_PREDICTION = {
+  // 市場全体ギャップ推定の重み
+  NIKKEI_FUTURES_WEIGHT: 0.50,
+  SP500_WEIGHT: 0.25,
+  NASDAQ_WEIGHT: 0.15,
+  USDJPY_WEIGHT: 0.10,
+  // 為替影響係数（1%の円安→約0.3%プラス影響）
+  USDJPY_IMPACT_FACTOR: 0.3,
+  // ベータ近似のクランプ
+  BETA_MIN: 0.3,
+  BETA_MAX: 3.0,
+  // severity判定閾値（|gapRate| %）
+  HIGH_SEVERITY_THRESHOLD: 2.0,
+  MEDIUM_SEVERITY_THRESHOLD: 0.8,
+  // セクター別NASDAQ重み上乗せ
+  SECTOR_NASDAQ_BONUS: {
+    "半導体・電子部品": 0.15,
+    "IT・サービス": 0.10,
+    "自動車": 0.05,
+    "不動産": -0.05,
+  } as Record<string, number>,
+  // セクター別為替感応度
+  SECTOR_FX_SENSITIVITY: {
+    "半導体・電子部品": 1.5,
+    "自動車": 1.5,
+    "IT・サービス": 1.0,
+    "素材": 1.2,
+    "医薬品": 1.0,
+    "エネルギー": 1.0,
+    "金融": 0.5,
+    "通信": 0.5,
+    "小売": 0.3,
+    "不動産": 0.3,
+  } as Record<string, number>,
+} as const;

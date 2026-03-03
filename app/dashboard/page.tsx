@@ -12,6 +12,7 @@ import PortfolioHistoryChart from "./PortfolioHistoryChart";
 import PortfolioCompositionChart from "./PortfolioCompositionChart";
 import DailyMarketNavigator from "./DailyMarketNavigator";
 import NikkeiSummary from "./NikkeiSummary";
+import GapPredictionCard from "./GapPredictionCard";
 import BudgetSummary from "./BudgetSummary";
 import { SectorTrendHeatmap } from "./SectorTrendHeatmap";
 import { getRichStyleLabel } from "@/lib/constants";
@@ -86,6 +87,9 @@ export default async function DashboardPage() {
             portfolioCount={portfolioCount}
             watchlistCount={watchlistCount}
           />
+
+          {/* 寄り付きギャップ予測（morningセッションのみ表示） */}
+          <GapPredictionCard />
 
           {/* 投資スタイル未設定の場合のプロンプト */}
           {!user.settings && (

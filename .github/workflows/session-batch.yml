@@ -24,7 +24,7 @@ on:
 # ──────────────────────────────────────────────
 # セッション別の実行内容:
 #
-#   pre-morning (08:00):   news(JP+US) + stock-news(全銘柄個別) → trends → 分析ジョブ群 → navigator(morning) ← 分析結果を集約
+#   pre-morning (08:00):   pre-market-data + news(JP+US) + stock-news(全銘柄個別) → trends → 分析ジョブ群 → navigator(morning) ← 分析結果を集約
 #   morning (09:30):       分析ジョブ群（開場30分後・値動き安定後の再判定）
 #   pre-afternoon (11:40): news(JP) + prices → trends → 分析ジョブ群 → navigator(pre-afternoon) ← 分析結果を集約
 #   afternoon (13:00):     分析ジョブ群（後場開始30分後の再判定）
@@ -45,6 +45,11 @@ jobs:
   fetch-stock-news:
     if: inputs.session == 'pre-morning'
     uses: ./.github/workflows/fetch-stock-news.yml
+    secrets: inherit
+
+  fetch-pre-market-data:
+    if: inputs.session == 'pre-morning'
+    uses: ./.github/workflows/session-fetch-pre-market-data.yml
     secrets: inherit
 
   fetch-stock-prices:

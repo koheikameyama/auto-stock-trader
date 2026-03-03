@@ -10,6 +10,7 @@ GitHub Actionsで定期実行されるバッチ処理群です。株価データ
 SESSION (08:00 / 09:30 / 11:40 / 13:00 / 15:40 / 17:00 JST) ── session-batch.yml
 
   Phase 1: データ取得（並列）
+  ├─ fetch-pre-market-data（pre-morningのみ: 海外市場・先物・為替）
   ├─ fetch-news（morning: JP+US / afternoon: JP / 他セッション: スキップ）
   └─ fetch-stock-prices（全銘柄の株価更新）
 
@@ -74,6 +75,7 @@ fetch-news + fetch-stock-prices（並列）
 
 | ワークフロー | 処理 | セッション条件 |
 |-------------|------|--------------|
+| `session-fetch-pre-market-data.yml` | 海外市場データ取得 | pre-morning のみ |
 | `session-fetch-news.yml` | ニュース取得 | morning(JP+US) + afternoon(JP) のみ |
 | `session-fetch-stock-prices.yml` | 株価更新 | 常に |
 | `session-calculate-sector-trends.yml` | セクタートレンド計算 | 常に |
@@ -192,6 +194,7 @@ fetch-news + fetch-stock-prices（並列）
 
 | スクリプト | 処理 | 並列化 |
 |-----------|------|--------|
+| `fetch_pre_market_data.py` | 海外市場データ取得 | yf.download（バッチ） |
 | `fetch_stock_prices.py` | 株価一括更新 | yf.download（バッチ） |
 | `generate_personal_recommendations.py` | 日次おすすめ生成 | API呼び出し |
 | `generate_purchase_recommendations.py` | 購入判断生成 | 逐次処理 |
@@ -245,7 +248,7 @@ fetch-news + fetch-stock-prices（並列）
 
 | ワークフロー | 操作テーブル |
 |-------------|-------------|
-| session-batch（統合） | Stock（価格）, MarketNews, SectorTrend, PurchaseRecommendation, StockAnalysis, UserDailyRecommendation, DailyMarketMover, PortfolioSnapshot, PortfolioOverallAnalysis |
+| session-batch（統合） | Stock（価格）, MarketNews, SectorTrend, PurchaseRecommendation, StockAnalysis, UserDailyRecommendation, DailyMarketMover, PortfolioSnapshot, PortfolioOverallAnalysis, PreMarketData |
 | 業績データ | Stock（業績カラム群） |
 | 事業内容 | Stock.businessDescription |
 | クリーンアップ | StockAnalysis, PurchaseRecommendation, UserDailyRecommendation, MarketNews, SectorTrend |
