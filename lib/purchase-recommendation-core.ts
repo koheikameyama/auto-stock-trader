@@ -21,6 +21,8 @@ import {
   buildTimingIndicatorsContext,
   buildEarningsContext,
   buildExDividendContext,
+  buildGeopoliticalRiskContext,
+  type GeopoliticalRiskData,
 } from "@/lib/stock-analysis-context";
 import { buildPurchaseRecommendationPrompt } from "@/lib/prompts/purchase-recommendation-prompt";
 import { MA_DEVIATION, SELL_TIMING, TIMING_INDICATORS, AGGRESSIVE_REBOUND, GAP_UP_MOMENTUM, EARNINGS_SAFETY, CROSS_STYLE_CONSENSUS } from "@/lib/constants";
@@ -287,8 +289,24 @@ export async function executePurchaseRecommendation(
   const { text: weekChangeContext, rate: weekChangeRate } =
     buildWeekChangeContext(prices);
 
+  // 地政学リスク指標（VIX・WTI）を取得
+  const todayForDB = getTodayForDB();
+  const preMarketData = await prisma.preMarketData.findFirst({
+    where: { date: todayForDB },
+    select: {
+      vixClose: true, vixChangeRate: true,
+      wtiClose: true, wtiChangeRate: true,
+    },
+  });
+  const geopoliticalRiskData: GeopoliticalRiskData = {
+    vixClose: preMarketData?.vixClose ? Number(preMarketData.vixClose) : null,
+    vixChangeRate: preMarketData?.vixChangeRate ? Number(preMarketData.vixChangeRate) : null,
+    wtiClose: preMarketData?.wtiClose ? Number(preMarketData.wtiClose) : null,
+    wtiChangeRate: preMarketData?.wtiChangeRate ? Number(preMarketData.wtiChangeRate) : null,
+  };
+
   // 市場全体の状況コンテキスト
-  const marketContext = buildMarketContext(marketData);
+  const marketContext = buildMarketContext(marketData) + buildGeopoliticalRiskContext(geopoliticalRiskData);
   const defensiveModeContext = buildDefensiveModeContext(marketData);
 
   // セクタートレンド

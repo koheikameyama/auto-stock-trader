@@ -683,3 +683,18 @@ export const GAP_PREDICTION = {
     "不動産": 0.3,
   } as Record<string, number>,
 } as const;
+
+// 地政学リスク指標の閾値
+export const GEOPOLITICAL_RISK = {
+  // VIX（恐怖指数）の閾値
+  VIX_HIGH: 30,
+  VIX_ELEVATED: 25,
+  VIX_NORMAL: 20,
+
+  // VIXの急変動閾値（前日比%）
+  VIX_SPIKE_THRESHOLD: 20,
+
+  // WTI原油の急変動閾値（前日比%）
+  WTI_SPIKE_THRESHOLD: 5,
+  WTI_CRASH_THRESHOLD: -5,
+} as const;

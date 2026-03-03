@@ -692,7 +692,11 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
     getSP500Data(),
     prisma.preMarketData.findFirst({
       where: { date: todayForDB },
-      select: { nasdaqClose: true, nasdaqChangeRate: true },
+      select: {
+        nasdaqClose: true, nasdaqChangeRate: true,
+        vixClose: true, vixChangeRate: true,
+        wtiClose: true, wtiChangeRate: true,
+      },
     }),
   ])
 
@@ -707,6 +711,15 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
   if (preMarketData?.nasdaqClose) {
     const nasdaqChange = Number(preMarketData.nasdaqChangeRate)
     marketParts.push(`- NASDAQ: $${Number(preMarketData.nasdaqClose).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / 前日比: ${nasdaqChange >= 0 ? "+" : ""}${nasdaqChange.toFixed(1)}%`)
+  }
+  if (preMarketData?.vixClose) {
+    const vixChange = Number(preMarketData.vixChangeRate)
+    const vixLevel = Number(preMarketData.vixClose) >= 30 ? "(高リスク)" : Number(preMarketData.vixClose) >= 25 ? "(やや高リスク)" : Number(preMarketData.vixClose) >= 20 ? "(通常)" : "(低リスク)"
+    marketParts.push(`- VIX（恐怖指数）: ${Number(preMarketData.vixClose).toFixed(2)} ${vixLevel} / 前日比: ${vixChange >= 0 ? "+" : ""}${vixChange.toFixed(1)}%`)
+  }
+  if (preMarketData?.wtiClose) {
+    const wtiChange = Number(preMarketData.wtiChangeRate)
+    marketParts.push(`- WTI原油: $${Number(preMarketData.wtiClose).toFixed(2)}/バレル / 前日比: ${wtiChange >= 0 ? "+" : ""}${wtiChange.toFixed(1)}%`)
   }
   if (marketParts.length > 0) {
     marketOverviewText = marketParts.join("\n")

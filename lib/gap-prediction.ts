@@ -13,6 +13,8 @@ export interface PreMarketDataInput {
   usdjpy: PreMarketIndicator | null
   sp500: PreMarketIndicator | null
   nasdaq: PreMarketIndicator | null
+  vix: PreMarketIndicator | null
+  wti: PreMarketIndicator | null
 }
 
 export interface MarketGapEstimate {
