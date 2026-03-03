@@ -9,9 +9,10 @@ import { getSectorScoreBonus, type SectorTrendData } from "@/lib/sector-trend"
 
 // 設定
 export const SCORING_CONFIG = {
-  MAX_PER_SECTOR: 5,       // 各セクターからの最大銘柄数
-  MAX_CANDIDATES_FOR_AI: 15, // AIに渡す最大銘柄数
-  MAX_VOLATILITY: 50,      // ボラティリティ上限（%）
+  MAX_PER_SECTOR: 5,          // 各セクターからの最大銘柄数
+  MAX_CANDIDATES_FOR_AI: 15,  // AIに渡す最大銘柄数
+  MAX_VOLATILITY: 50,         // ボラティリティ上限（%）
+  BUDGET_ROUND_UP_UNIT: 100_000, // 予算切り上げ単位（円）
 }
 
 // 赤字 AND 高ボラティリティ銘柄へのスコアペナルティ（投資スタイル別）
@@ -312,23 +313,27 @@ export function applySectorDiversification(stocks: ScoredStock[]): ScoredStock[]
   return diversified
 }
 
-/** 予算の1.5倍までの緩いフィルタ（スコアリング前の候補絞り込み用） */
-const BUDGET_MARGIN = 1.5
+/** 予算を10万円単位で切り上げる（残り3万→10万、残り12万→20万、0→10万） */
+export function roundUpBudget(budget: number): number {
+  const unit = SCORING_CONFIG.BUDGET_ROUND_UP_UNIT
+  return Math.max(unit, Math.ceil(budget / unit) * unit)
+}
 
+/** 切り上げ予算でフィルタ（スコアリング前の候補絞り込み用） */
 export function filterByLooseBudget(
   stocks: StockForScoring[],
   budget: number | null
 ): StockForScoring[] {
   if (!budget) return stocks
-  const looseBudget = budget * BUDGET_MARGIN
+  const effectiveBudget = roundUpBudget(budget)
   return stocks.filter(s =>
-    s.latestPrice !== null && s.latestPrice * 100 <= looseBudget
+    s.latestPrice !== null && s.latestPrice * 100 <= effectiveBudget
   )
 }
 
 /**
  * スコアリング後の最終予算絞り込み
- * 予算内の銘柄を優先し、5件未満なら予算超の銘柄も安い順に追加
+ * 切り上げ予算内の銘柄を優先し、5件未満なら予算超の銘柄も安い順に追加
  */
 const MIN_RECOMMENDATIONS = 5
 
@@ -338,15 +343,21 @@ export function narrowByBudget(
 ): { stocks: ScoredStock[]; isBudgetExceeded: boolean } {
   if (!budget) return { stocks, isBudgetExceeded: false }
 
+  const effectiveBudget = roundUpBudget(budget)
+
   const withinBudget = stocks.filter(s =>
-    s.latestPrice !== null && s.latestPrice * 100 <= budget
+    s.latestPrice !== null && s.latestPrice * 100 <= effectiveBudget
   )
 
   if (withinBudget.length >= MIN_RECOMMENDATIONS) {
-    return { stocks: withinBudget, isBudgetExceeded: false }
+    // 実際の予算を超えているかは元の budget で判定
+    const isBudgetExceeded = withinBudget.some(s =>
+      s.latestPrice !== null && s.latestPrice * 100 > budget
+    )
+    return { stocks: withinBudget, isBudgetExceeded }
   }
 
-  // 予算内が5件未満: 予算超の銘柄を安い順に追加
+  // 切り上げ予算内が5件未満: 予算超の銘柄を安い順に追加
   const overBudgetIds = new Set(withinBudget.map(s => s.id))
   const overBudget = stocks
     .filter(s => !overBudgetIds.has(s.id) && s.latestPrice !== null)
