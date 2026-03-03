@@ -29,6 +29,7 @@ import {
   FETCH_FAIL_WARNING_THRESHOLD,
   VOLUME_ANALYSIS,
   RELATIVE_STRENGTH,
+  GEOPOLITICAL_RISK,
 } from "@/lib/constants";
 import { MarketIndexData } from "@/lib/market-index";
 
@@ -446,6 +447,70 @@ export function buildDefensiveModeContext(marketData: MarketIndexData | null): s
 - 新規購入は特に慎重に判断してください
 - 「落ちるナイフを掴む」リスクを重視してください
 - 市場の安定を確認するまで様子見が安全です
+`;
+}
+
+/**
+ * 地政学リスクデータ型
+ */
+export interface GeopoliticalRiskData {
+  vixClose: number | null;
+  vixChangeRate: number | null;
+  wtiClose: number | null;
+  wtiChangeRate: number | null;
+}
+
+/**
+ * 地政学リスクコンテキスト文字列を生成する（両ルート共通）
+ */
+export function buildGeopoliticalRiskContext(data: GeopoliticalRiskData): string {
+  const parts: string[] = [];
+
+  if (data.vixClose != null) {
+    const vixLevel =
+      data.vixClose >= GEOPOLITICAL_RISK.VIX_HIGH ? "高リスク" :
+      data.vixClose >= GEOPOLITICAL_RISK.VIX_ELEVATED ? "やや高リスク" :
+      data.vixClose >= GEOPOLITICAL_RISK.VIX_NORMAL ? "通常" :
+      "低リスク";
+
+    const changeStr = data.vixChangeRate != null
+      ? ` / 前日比: ${data.vixChangeRate >= 0 ? "+" : ""}${data.vixChangeRate.toFixed(1)}%`
+      : "";
+
+    parts.push(`- VIX（恐怖指数）: ${data.vixClose.toFixed(2)} [${vixLevel}]${changeStr}`);
+
+    if (data.vixClose >= GEOPOLITICAL_RISK.VIX_HIGH) {
+      parts.push(`  ⚠️ VIXが${GEOPOLITICAL_RISK.VIX_HIGH}を超えており、市場は強い不安状態です。新規購入は特に慎重に判断してください`);
+    } else if (data.vixClose >= GEOPOLITICAL_RISK.VIX_ELEVATED) {
+      parts.push(`  ⚠️ VIXがやや高水準です。リスク管理に注意してください`);
+    }
+
+    if (data.vixChangeRate != null && data.vixChangeRate >= GEOPOLITICAL_RISK.VIX_SPIKE_THRESHOLD) {
+      parts.push(`  ⚠️ VIXが急上昇しています（前日比+${data.vixChangeRate.toFixed(1)}%）。市場の恐怖感が急激に高まっています`);
+    }
+  }
+
+  if (data.wtiClose != null) {
+    const changeStr = data.wtiChangeRate != null
+      ? ` / 前日比: ${data.wtiChangeRate >= 0 ? "+" : ""}${data.wtiChangeRate.toFixed(1)}%`
+      : "";
+
+    parts.push(`- WTI原油: $${data.wtiClose.toFixed(2)}/バレル${changeStr}`);
+
+    if (data.wtiChangeRate != null) {
+      if (data.wtiChangeRate >= GEOPOLITICAL_RISK.WTI_SPIKE_THRESHOLD) {
+        parts.push(`  ⚠️ 原油価格が急騰しています。地政学的リスク（中東情勢等）の影響の可能性。エネルギー関連銘柄に注目、輸送コスト増加による他セクターへの悪影響に注意`);
+      } else if (data.wtiChangeRate <= GEOPOLITICAL_RISK.WTI_CRASH_THRESHOLD) {
+        parts.push(`  ⚠️ 原油価格が急落しています。景気後退懸念またはOPEC動向の影響の可能性。エネルギーセクターは逆風`);
+      }
+    }
+  }
+
+  if (parts.length === 0) return "";
+
+  return `
+【地政学リスク指標】
+${parts.join("\n")}
 `;
 }
 

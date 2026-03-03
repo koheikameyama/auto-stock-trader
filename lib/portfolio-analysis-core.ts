@@ -22,6 +22,8 @@ import {
   buildTrendlineContext,
   buildEarningsContext,
   buildExDividendContext,
+  buildGeopoliticalRiskContext,
+  type GeopoliticalRiskData,
 } from "@/lib/stock-analysis-context";
 import { buildPortfolioAnalysisPrompt } from "@/lib/prompts/portfolio-analysis-prompt";
 import { getNikkei225Data, type MarketIndexData } from "@/lib/market-index";
@@ -40,7 +42,7 @@ import {
   PROFIT_TAKING_PROMOTION,
   UNIT_SHARES,
 } from "@/lib/constants";
-import { getDaysAgoForDB } from "@/lib/date-utils";
+import { getDaysAgoForDB, getTodayForDB } from "@/lib/date-utils";
 import { isDangerousStock, isPostExDividend } from "@/lib/stock-safety-rules";
 import { insertRecommendationOutcome, Prediction } from "@/lib/outcome-utils";
 import { applyPortfolioStyleSafetyRules, type StyleAnalysesMap, type PortfolioStyleAnalysis } from "@/lib/style-analysis";
@@ -741,7 +743,24 @@ export async function executePortfolioAnalysis(
     stock.exDividendDate,
     stock.dividendYield ? Number(stock.dividendYield) : null,
   );
-  const marketContext = buildMarketContext(marketData) + buildDefensiveModeContext(marketData) + earningsContext + exDividendContext;
+
+  // 地政学リスク指標（VIX・WTI）を取得
+  const todayForDB = getTodayForDB();
+  const preMarketData = await prisma.preMarketData.findFirst({
+    where: { date: todayForDB },
+    select: {
+      vixClose: true, vixChangeRate: true,
+      wtiClose: true, wtiChangeRate: true,
+    },
+  });
+  const geopoliticalRiskData: GeopoliticalRiskData = {
+    vixClose: preMarketData?.vixClose ? Number(preMarketData.vixClose) : null,
+    vixChangeRate: preMarketData?.vixChangeRate ? Number(preMarketData.vixChangeRate) : null,
+    wtiClose: preMarketData?.wtiClose ? Number(preMarketData.wtiClose) : null,
+    wtiChangeRate: preMarketData?.wtiChangeRate ? Number(preMarketData.wtiChangeRate) : null,
+  };
+
+  const marketContext = buildMarketContext(marketData) + buildDefensiveModeContext(marketData) + buildGeopoliticalRiskContext(geopoliticalRiskData) + earningsContext + exDividendContext;
 
   // セクタートレンド
   let sectorTrendContext = "";
@@ -1183,7 +1202,24 @@ export async function executeSimulatedPortfolioAnalysis(
     stock.exDividendDate,
     stock.dividendYield ? Number(stock.dividendYield) : null,
   );
-  const marketContext = buildMarketContext(marketData) + buildDefensiveModeContext(marketData) + simEarningsContext + simExDividendContext;
+
+  // 地政学リスク指標（VIX・WTI）を取得
+  const simTodayForDB = getTodayForDB();
+  const simPreMarketData = await prisma.preMarketData.findFirst({
+    where: { date: simTodayForDB },
+    select: {
+      vixClose: true, vixChangeRate: true,
+      wtiClose: true, wtiChangeRate: true,
+    },
+  });
+  const simGeopoliticalRiskData: GeopoliticalRiskData = {
+    vixClose: simPreMarketData?.vixClose ? Number(simPreMarketData.vixClose) : null,
+    vixChangeRate: simPreMarketData?.vixChangeRate ? Number(simPreMarketData.vixChangeRate) : null,
+    wtiClose: simPreMarketData?.wtiClose ? Number(simPreMarketData.wtiClose) : null,
+    wtiChangeRate: simPreMarketData?.wtiChangeRate ? Number(simPreMarketData.wtiChangeRate) : null,
+  };
+
+  const marketContext = buildMarketContext(marketData) + buildDefensiveModeContext(marketData) + buildGeopoliticalRiskContext(simGeopoliticalRiskData) + simEarningsContext + simExDividendContext;
 
   let sectorTrendContext = "";
   let sectorAvgWeekChangeRate: number | null = null;

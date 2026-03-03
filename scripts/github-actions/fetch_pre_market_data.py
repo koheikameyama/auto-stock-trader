@@ -119,6 +119,8 @@ def save_to_db(conn, data: dict) -> None:
     usdjpy = data.get("usdjpy", {})
     sp500 = data.get("sp500", {})
     nasdaq = data.get("nasdaq", {})
+    vix = data.get("vix", {})
+    wti = data.get("wti", {})
 
     with conn.cursor() as cur:
         cur.execute(
@@ -129,9 +131,13 @@ def save_to_db(conn, data: dict) -> None:
                 "usdjpyClose", "usdjpyChangeRate",
                 "sp500Close", "sp500ChangeRate",
                 "nasdaqClose", "nasdaqChangeRate",
+                "vixClose", "vixChangeRate",
+                "wtiClose", "wtiChangeRate",
                 "createdAt", "updatedAt"
             ) VALUES (
                 gen_random_uuid(), %s,
+                %s, %s,
+                %s, %s,
                 %s, %s,
                 %s, %s,
                 %s, %s,
@@ -147,6 +153,10 @@ def save_to_db(conn, data: dict) -> None:
                 "sp500ChangeRate" = EXCLUDED."sp500ChangeRate",
                 "nasdaqClose" = EXCLUDED."nasdaqClose",
                 "nasdaqChangeRate" = EXCLUDED."nasdaqChangeRate",
+                "vixClose" = EXCLUDED."vixClose",
+                "vixChangeRate" = EXCLUDED."vixChangeRate",
+                "wtiClose" = EXCLUDED."wtiClose",
+                "wtiChangeRate" = EXCLUDED."wtiChangeRate",
                 "updatedAt" = NOW()
             """,
             (
@@ -155,6 +165,8 @@ def save_to_db(conn, data: dict) -> None:
                 usdjpy.get("close"), usdjpy.get("changeRate"),
                 sp500.get("close"), sp500.get("changeRate"),
                 nasdaq.get("close"), nasdaq.get("changeRate"),
+                vix.get("close"), vix.get("changeRate"),
+                wti.get("close"), wti.get("changeRate"),
             ),
         )
 

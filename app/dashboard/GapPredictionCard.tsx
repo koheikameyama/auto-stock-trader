@@ -15,6 +15,8 @@ interface MarketGapData {
   usdjpy: PreMarketIndicator | null
   sp500: PreMarketIndicator | null
   nasdaq: PreMarketIndicator | null
+  vix: PreMarketIndicator | null
+  wti: PreMarketIndicator | null
   estimatedGapRate: number
   gapDirection: GapDirection
   severity: GapSeverity
@@ -72,13 +74,18 @@ function IndicatorRow({
   label,
   description,
   indicator,
+  invertColor = false,
 }: {
   label: string
   description: string
   indicator: PreMarketIndicator | null
+  invertColor?: boolean
 }) {
   if (!indicator) return null
   const change = formatChangeRate(indicator.changeRate)
+  const color = invertColor
+    ? (indicator.changeRate > 0 ? "text-red-600" : indicator.changeRate < 0 ? "text-green-600" : "text-gray-600")
+    : change.color
 
   return (
     <div className="flex items-center justify-between py-2 border-b border-gray-100 last:border-b-0">
@@ -90,7 +97,7 @@ function IndicatorRow({
         <div className="text-sm font-mono text-gray-700">
           {indicator.close.toLocaleString(undefined, { maximumFractionDigits: 2 })}
         </div>
-        <div className={`text-xs font-semibold ${change.color}`}>{change.text}</div>
+        <div className={`text-xs font-semibold ${color}`}>{change.text}</div>
       </div>
     </div>
   )
@@ -210,6 +217,17 @@ export default function GapPredictionCard() {
             label={t("nasdaq")}
             description={t("nasdaqDesc")}
             indicator={market.nasdaq}
+          />
+          <IndicatorRow
+            label={t("vix")}
+            description={t("vixDesc")}
+            indicator={market.vix}
+            invertColor
+          />
+          <IndicatorRow
+            label={t("wti")}
+            description={t("wtiDesc")}
+            indicator={market.wti}
           />
         </div>
       </div>

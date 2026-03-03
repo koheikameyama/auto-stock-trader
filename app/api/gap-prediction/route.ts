@@ -49,6 +49,12 @@ export async function GET() {
       nasdaq: preMarketData.nasdaqClose
         ? { close: Number(preMarketData.nasdaqClose), changeRate: Number(preMarketData.nasdaqChangeRate) }
         : null,
+      vix: preMarketData.vixClose
+        ? { close: Number(preMarketData.vixClose), changeRate: Number(preMarketData.vixChangeRate) }
+        : null,
+      wti: preMarketData.wtiClose
+        ? { close: Number(preMarketData.wtiClose), changeRate: Number(preMarketData.wtiChangeRate) }
+        : null,
     }
 
     // 市場全体のギャップ推定
@@ -106,6 +112,8 @@ export async function GET() {
         usdjpy: input.usdjpy,
         sp500: input.sp500,
         nasdaq: input.nasdaq,
+        vix: input.vix,
+        wti: input.wti,
         ...marketGap,
       },
       stocks,

@@ -801,6 +801,14 @@ model PreMarketData {
   nasdaqClose      Decimal? @db.Decimal(10, 2)
   nasdaqChangeRate Decimal? @db.Decimal(8, 2)
 
+  // VIX（恐怖指数）
+  vixClose      Decimal? @db.Decimal(10, 2)
+  vixChangeRate Decimal? @db.Decimal(8, 2)
+
+  // WTI原油先物
+  wtiClose      Decimal? @db.Decimal(10, 2)
+  wtiChangeRate Decimal? @db.Decimal(8, 2)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

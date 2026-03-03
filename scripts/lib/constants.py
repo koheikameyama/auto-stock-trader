@@ -161,6 +161,8 @@ PRE_MARKET_TICKERS = {
     "usdjpy": "USDJPY=X",
     "sp500": "^GSPC",
     "nasdaq": "^IXIC",
+    "vix": "^VIX",
+    "wti": "CL=F",
 }
 
 # 取得期間（直近N日）
