@@ -38,10 +38,7 @@ import {
   getStyleLabel,
 } from "@/lib/constants";
 import {
-  isSurgeStock,
-  isDangerousStock,
-  isOverheated,
-  isInDecline,
+  checkRecommendationSafety,
 } from "@/lib/stock-safety-rules";
 import {
   calculateStockScores,
@@ -805,42 +802,39 @@ ${ctx.technicalContext}${ctx.candlestickContext}${ctx.chartPatternContext}${ctx.
       )
       .slice(0, 7);
 
-    // AI後のログ警告: 危険な銘柄を検出してログに記録（除外はしない）
-    for (const selection of validSelections) {
+    // セーフティルールチェック: 購入分析で見送り推奨になる銘柄を除外
+    const safeSelections = validSelections.filter((selection: { tickerCode: string; reason: string; investmentTheme: string }) => {
       const ctx = stockContexts.find(
         (c: StockContext) => c.stock.tickerCode === selection.tickerCode,
       );
-      if (!ctx) continue;
+      if (!ctx) return true;
 
       const s = ctx.stock;
       const volatility = s.volatility !== null ? Number(s.volatility) : null;
 
-      if (isInDecline(ctx.weekChangeRate, investmentStyle)) {
-        console.warn(
-          `  ⚠️ Safety warning: ${s.tickerCode} is in decline (week: ${ctx.weekChangeRate?.toFixed(0)}%)`,
-        );
-      }
-      if (isSurgeStock(ctx.weekChangeRate, investmentStyle)) {
-        console.warn(
-          `  ⚠️ Safety warning: ${s.tickerCode} is surge stock (week: +${ctx.weekChangeRate?.toFixed(0)}%)`,
-        );
-      }
-      if (isDangerousStock(s.isProfitable, volatility)) {
-        console.warn(
-          `  ⚠️ Safety warning: ${s.tickerCode} is dangerous (unprofitable + high volatility)`,
-        );
-      }
-      if (isOverheated(ctx.deviationRate, investmentStyle)) {
-        console.warn(
-          `  ⚠️ Safety warning: ${s.tickerCode} is overheated (deviation: +${ctx.deviationRate?.toFixed(1)}%)`,
-        );
-      }
-    }
+      const safetyCheck = checkRecommendationSafety({
+        isProfitable: s.isProfitable,
+        volatility,
+        weekChangeRate: ctx.weekChangeRate,
+        deviationRate: ctx.deviationRate,
+        nextEarningsDate: s.nextEarningsDate,
+      });
 
+      if (safetyCheck.exclude) {
+        console.log(
+          `  ❌ Excluded ${s.tickerCode}: ${safetyCheck.reason} (rule: ${safetyCheck.rule})`,
+        );
+        return false;
+      }
+
+      return true;
+    });
+
+    const excludedCount = validSelections.length - safeSelections.length;
     console.log(
-      `  AI selected ${validSelections.length} stocks (marketSignal: ${result.marketSignal})`,
+      `  AI selected ${validSelections.length} stocks, ${safeSelections.length} passed safety${excludedCount > 0 ? ` (${excludedCount} excluded)` : ""} (marketSignal: ${result.marketSignal})`,
     );
-    return validSelections;
+    return safeSelections;
   } catch (error) {
     console.error("  AI selection error:", error);
     return null;

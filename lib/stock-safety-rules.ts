@@ -205,6 +205,57 @@ export function getDaysUntilEarnings(nextEarningsDate: Date | null): number | nu
   return diffDays >= 0 ? diffDays : null;
 }
 
+// --- おすすめ銘柄用セーフティチェック ---
+
+export interface RecommendationSafetyResult {
+  exclude: boolean;
+  rule: string | null;
+  reason: string | null;
+}
+
+/**
+ * おすすめ銘柄のセーフティチェック
+ * 購入分析の強制補正ルール（buy→stay）と共通のルールを適用し、
+ * 見送り推奨になる銘柄をおすすめから事前に除外する
+ */
+export function checkRecommendationSafety(params: {
+  isProfitable: boolean | null;
+  volatility: number | null;
+  weekChangeRate: number | null;
+  deviationRate: number | null;
+  nextEarningsDate: Date | null;
+}): RecommendationSafetyResult {
+  const { isProfitable, volatility, weekChangeRate, deviationRate, nextEarningsDate } = params;
+
+  // 危険銘柄（赤字×高ボラ）
+  if (isDangerousStock(isProfitable, volatility)) {
+    return { exclude: true, rule: "dangerous_stock", reason: `赤字×高ボラティリティ(${volatility?.toFixed(0)}%)` };
+  }
+
+  // 赤字×急騰（仕手株・バブルリスク）— skipSafetyRulesでもブロックされる
+  if (isUnprofitableSurge(isProfitable, weekChangeRate)) {
+    return { exclude: true, rule: "unprofitable_surge", reason: `赤字×急騰(+${weekChangeRate?.toFixed(0)}%)` };
+  }
+
+  // 決算直前（3日以内）— skipSafetyRulesでもブロックされる
+  if (isPreEarningsBlock(nextEarningsDate)) {
+    const days = getDaysUntilEarnings(nextEarningsDate);
+    return { exclude: true, rule: "pre_earnings", reason: `決算${days}日前` };
+  }
+
+  // 極端な急騰 — skipSafetyRulesでもブロックされる水準
+  if (weekChangeRate !== null && weekChangeRate >= MOMENTUM.EXTREME_SURGE_THRESHOLD) {
+    return { exclude: true, rule: "extreme_surge", reason: `週間+${weekChangeRate.toFixed(0)}%の極端な急騰` };
+  }
+
+  // 極端な過熱 — skipSafetyRulesでもブロックされる水準
+  if (deviationRate !== null && deviationRate >= MA_DEVIATION.EXTREME_UPPER_THRESHOLD) {
+    return { exclude: true, rule: "extreme_overheat", reason: `乖離率+${deviationRate.toFixed(1)}%の極端な過熱` };
+  }
+
+  return { exclude: false, rule: null, reason: null };
+}
+
 /**
  * 配当権利落ち直後判定
  * 権利落ち日から3日以内なら保護対象
