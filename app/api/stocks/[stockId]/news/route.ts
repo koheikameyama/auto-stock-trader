@@ -34,7 +34,7 @@ export async function GET(
     const news = await getRelatedNews({
       tickerCodes: [tickerCode],
       sectors: stock.sector ? [stock.sector] : [],
-      limit: 5,
+      limit: 10,
       daysAgo: 14,
     })
 

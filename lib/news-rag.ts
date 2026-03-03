@@ -115,10 +115,10 @@ export async function getRelatedNews(
       }
     }
 
-    // ステップ2: セクター検索（フォールバック）
-    // 銘柄コード検索で十分な件数が取得できていない場合のみ
-    if (newsMap.size < limit && sectors.length > 0) {
-      const remainingLimit = limit - newsMap.size
+    // ステップ3: セクター検索（常時取得）
+    // 銘柄固有ニュースに加えて、関連セクターのニュースも必ず含める
+    if (sectors.length > 0) {
+      const remainingLimit = Math.max(limit - newsMap.size, 3)
 
       const sectorNews = await prisma.marketNews.findMany({
         where: {
