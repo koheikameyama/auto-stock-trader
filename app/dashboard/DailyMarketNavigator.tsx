@@ -242,7 +242,7 @@ export default function DailyMarketNavigator({
                   const weekly = formatChangeRate(stock.weekChangeRate)
                   return (
                     <div key={stock.tickerCode} className="bg-gray-50 rounded-lg p-3 border border-gray-100">
-                      <div className="flex items-center justify-between mb-1">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-1">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-gray-900">{stock.stockName}</span>
                           <span className="text-xs text-gray-400">(<CopyableTicker tickerCode={stock.tickerCode} />)</span>

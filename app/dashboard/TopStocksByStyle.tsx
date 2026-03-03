@@ -404,16 +404,13 @@ export default function TopStocksByStyle() {
   return (
     <div className="bg-white rounded-xl p-4 sm:p-6 shadow-md">
       <div className="mb-4 sm:mb-5">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-xl sm:text-2xl">🏆</span>
-          <h3 className="text-lg sm:text-xl font-bold text-gray-900">
-            {t("title")}
-          </h3>
-        </div>
-        <div className="flex items-center gap-2">
-          <p className="text-xs sm:text-sm text-gray-600">
-            {t("subtitle")}
-          </p>
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <span className="text-xl sm:text-2xl">🏆</span>
+            <h3 className="text-lg sm:text-xl font-bold text-gray-900">
+              {t("title")}
+            </h3>
+          </div>
           {styleConfig && (
             <span
               className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${styleConfig.bg} ${styleConfig.color}`}
@@ -422,6 +419,9 @@ export default function TopStocksByStyle() {
             </span>
           )}
         </div>
+        <p className="text-xs sm:text-sm text-gray-600">
+          {t("subtitle")}
+        </p>
         <span className="text-xs text-gray-400">
           {t("schedule", { schedule: UPDATE_SCHEDULES.STOCK_ANALYSIS })}
         </span>
