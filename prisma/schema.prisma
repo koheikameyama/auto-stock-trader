@@ -760,8 +760,9 @@ model PortfolioSnapshot {
   // 銘柄数
   stockCount Int // 保有銘柄数
 
-  // ベンチマーク（日経225終値）
-  nikkeiClose Decimal? @db.Decimal(10, 2)
+  // ベンチマーク
+  nikkeiClose Decimal? @db.Decimal(10, 2) // 日経225終値
+  sp500Close  Decimal? @db.Decimal(10, 2) // S&P 500終値
 
   // セクター別内訳（JSON）
   sectorBreakdown Json? // [{sector: "情報・通信", value: 150000, percent: 30.5}, ...]

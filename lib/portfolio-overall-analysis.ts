@@ -5,6 +5,7 @@ import { calculatePortfolioFromTransactions } from "@/lib/portfolio-calculator"
 import { getOpenAIClient } from "@/lib/openai"
 import { buildPortfolioOverallAnalysisPrompt } from "@/lib/prompts/portfolio-overall-analysis-prompt"
 import { getAllSectorTrends } from "@/lib/sector-trend"
+import { getNikkei225Data, getSP500Data, getTrendDescription } from "@/lib/market-index"
 import { getTodayForDB, getDaysAgoForDB } from "@/lib/date-utils"
 import { getStyleLabel, DAILY_MARKET_NAVIGATOR } from "@/lib/constants"
 import dayjs from "dayjs"
@@ -239,6 +240,7 @@ async function generateAnalysisWithAI(
     sectorTrendsText: string
     upcomingEarningsText: string
     benchmarkText: string
+    marketOverviewText: string
   }
 ): Promise<{
   marketHeadline: string
@@ -301,6 +303,7 @@ async function generateAnalysisWithAI(
     sectorTrendsText: dailyContext.sectorTrendsText,
     upcomingEarningsText: dailyContext.upcomingEarningsText,
     benchmarkText: dailyContext.benchmarkText,
+    marketOverviewText: dailyContext.marketOverviewText,
   })
 
   // StockHighlight のスキーマ定義
@@ -683,6 +686,32 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
     ? upcomingEarnings.map(s => `- ${s.name}（${s.tickerCode}）: ${dayjs(s.nextEarningsDate).format("MM/DD")}`).join("\n")
     : "今後7日間に決算予定の銘柄はありません"
 
+  // === 市場概況データ（日経・NY市場） ===
+  const [nikkeiData, sp500Data, preMarketData] = await Promise.all([
+    getNikkei225Data(),
+    getSP500Data(),
+    prisma.preMarketData.findFirst({
+      where: { date: todayForDB },
+      select: { nasdaqClose: true, nasdaqChangeRate: true },
+    }),
+  ])
+
+  let marketOverviewText = "データなし"
+  const marketParts: string[] = []
+  if (nikkeiData) {
+    marketParts.push(`- 日経225: ¥${Math.round(nikkeiData.currentPrice).toLocaleString()} / 週間変動: ${nikkeiData.weekChangeRate >= 0 ? "+" : ""}${nikkeiData.weekChangeRate.toFixed(1)}% / トレンド: ${getTrendDescription(nikkeiData.trend)}`)
+  }
+  if (sp500Data) {
+    marketParts.push(`- S&P 500: $${sp500Data.currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / 週間変動: ${sp500Data.weekChangeRate >= 0 ? "+" : ""}${sp500Data.weekChangeRate.toFixed(1)}% / トレンド: ${getTrendDescription(sp500Data.trend)}`)
+  }
+  if (preMarketData?.nasdaqClose) {
+    const nasdaqChange = Number(preMarketData.nasdaqChangeRate)
+    marketParts.push(`- NASDAQ: $${Number(preMarketData.nasdaqClose).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / 前日比: ${nasdaqChange >= 0 ? "+" : ""}${nasdaqChange.toFixed(1)}%`)
+  }
+  if (marketParts.length > 0) {
+    marketOverviewText = marketParts.join("\n")
+  }
+
   // === ベンチマーク比較データ ===
   const benchmarkSnapshots = await prisma.portfolioSnapshot.findMany({
     where: {
@@ -691,7 +720,7 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
       nikkeiClose: { not: null },
     },
     orderBy: { date: "asc" },
-    select: { totalValue: true, nikkeiClose: true },
+    select: { totalValue: true, nikkeiClose: true, sp500Close: true },
   })
 
   let benchmarkText = "データなし"
@@ -733,12 +762,25 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
         beta = varN > 0 ? (cov / n) / (varN / n) : null
       }
 
-      benchmarkText = [
+      const benchmarkLines = [
         `- 日経225リターン（直近1ヶ月）: ${nikkeiReturn >= 0 ? "+" : ""}${nikkeiReturn.toFixed(1)}%`,
         `- ポートフォリオリターン（直近1ヶ月）: ${portfolioReturn >= 0 ? "+" : ""}${portfolioReturn.toFixed(1)}%`,
-        `- 超過リターン: ${excessReturn >= 0 ? "+" : ""}${excessReturn.toFixed(1)}%（日経平均を${excessReturn >= 0 ? "上回って" : "下回って"}いる）`,
+        `- 超過リターン（vs日経225）: ${excessReturn >= 0 ? "+" : ""}${excessReturn.toFixed(1)}%（日経平均を${excessReturn >= 0 ? "上回って" : "下回って"}いる）`,
         beta !== null ? `- ベータ値: ${beta.toFixed(2)}（${beta < 1 ? "市場より穏やかに変動" : "市場より激しく変動"}）` : null,
-      ].filter(Boolean).join("\n")
+      ]
+
+      // S&P 500ベンチマーク比較
+      const sp500WithData = benchmarkSnapshots.filter(s => s.sp500Close !== null)
+      if (sp500WithData.length >= 2) {
+        const firstSP500 = Number(sp500WithData[0].sp500Close)
+        const lastSP500 = Number(sp500WithData[sp500WithData.length - 1].sp500Close)
+        if (firstSP500 > 0) {
+          const sp500Return = ((lastSP500 - firstSP500) / firstSP500) * 100
+          benchmarkLines.push(`- S&P 500リターン（直近1ヶ月）: ${sp500Return >= 0 ? "+" : ""}${sp500Return.toFixed(1)}%`)
+        }
+      }
+
+      benchmarkText = benchmarkLines.filter(Boolean).join("\n")
     }
   }
 
@@ -760,6 +802,7 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
       sectorTrendsText,
       upcomingEarningsText,
       benchmarkText,
+      marketOverviewText,
     }
   )
 

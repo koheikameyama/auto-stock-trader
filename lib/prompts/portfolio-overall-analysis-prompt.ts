@@ -22,6 +22,7 @@ export function buildPortfolioOverallAnalysisPrompt(params: {
   sectorTrendsText: string;
   upcomingEarningsText: string;
   benchmarkText: string;
+  marketOverviewText: string;
 }): string {
   const {
     session,
@@ -45,6 +46,7 @@ export function buildPortfolioOverallAnalysisPrompt(params: {
     sectorTrendsText,
     upcomingEarningsText,
     benchmarkText,
+    marketOverviewText,
   } = params;
 
   const roleAndSteps =
@@ -99,7 +101,10 @@ ${purchaseRecommendationText}
 【本日の売却取引】
 ${soldStocksText}
 
-【ベンチマーク比較（日経225）】
+【市場概況（日経・NY市場）】
+${marketOverviewText}
+
+【ベンチマーク比較】
 ${benchmarkText}
 
 【セクタートレンド】
@@ -116,16 +121,17 @@ ${outputRules}`;
 function buildMorningRoleAndSteps(investmentStyle: string): string {
   return `## あなたの役割
 市場はまだ開いていません（開場前の分析です）。
-前日終値・ニュース・セクタートレンドをもとに、今日の戦略を開場前に立ててください。
+前日終値・セクタートレンド・NY市場の動向をもとに、今日の戦略を開場前に立ててください。
 
 ⚠️ 重要: 提供されているデータは「前日終値ベース」です。今日の株価はまだ動いていません。
+⚠️ NY市場（S&P 500・NASDAQ）の前夜の動きは、日本市場の寄り付きに影響することが多いです。
 
 ## ユーザーの投資スタイル: ${investmentStyle}
 
 ## 分析の3ステップ
 
 【STEP 1: 今日の地合いを「予測」する】
-前日の値動き・ニュース・セクタートレンドから、今日の地合いを予測してください：
+前日の値動き・セクタートレンド・NY市場（S&P 500・NASDAQ）の動向から、今日の地合いを予測してください：
 - bullish: リスクオンが予想される（前日堅調・ポジティブなニュース）
 - bearish: リスクオフが予想される（前日軟調・ネガティブなニュース）
 - neutral: 方向感が読めない（材料乏しく様子見ムード）
@@ -146,8 +152,8 @@ function buildMorningRoleAndSteps(investmentStyle: string): string {
 
 function buildMorningOutputRules(investmentStyle: string): string {
   return `## 出力ルール
-- marketHeadline: 「今日の地合いの予測」を1文で。前日比・ニュースの要点を含める。ニュースを創作しない
-- marketKeyFactor: 今日の地合いを左右する主要因を1-2文で説明
+- marketHeadline: 「今日の地合いの予測」を1文で。前日比・NY市場の動向を含める。ニュースを創作しない
+- marketKeyFactor: 今日の地合いを左右する主要因を1-2文で説明。NY市場の影響があれば言及する
 - portfolioSummary: ポートフォリオの現在地を1-2文で説明。日経平均との比較（超過リターン）に基づいた評価を含める
 - actionPlan: 投資スタイル（${investmentStyle}）に基づく、開場前の具体的な行動方針。「今日は〜してください」と断定する。1-2文
 - buddyMessage: 開場前の緊張をほぐし、冷静に臨めるよう背中を押す1文。「今日も焦らず、まず30分は様子見を」のような落ち着いたトーンで
@@ -174,9 +180,10 @@ function buildMorningOutputRules(investmentStyle: string): string {
 function buildPreAfternoonRoleAndSteps(investmentStyle: string): string {
   return `## あなたの役割
 前場（9:00〜11:30）が終わりました。
-後場（12:30〜15:30）に向けて、前場の値動きをもとにポジションを調整してください。
+後場（12:30〜15:30）に向けて、前場の値動きとNY市場の動向をもとにポジションを調整してください。
 
 ⚠️ 重要: 今日の前場の動きが反映されています。この結果が「本物か、だましか」を見極めることが最重要です。
+⚠️ 前夜のNY市場の流れが前場に反映されたか、乖離しているかも判断材料にしてください。
 
 ## ユーザーの投資スタイル: ${investmentStyle}
 
@@ -236,6 +243,7 @@ function buildEveningRoleAndSteps(investmentStyle: string): string {
   return `## あなたの役割
 あなたはStock Buddyの「アナリスト兼コーチ」です。
 今日の市場が閉まった後に、ユーザーのポートフォリオを振り返り、明日の準備を手伝います。
+日経市場とNY市場（S&P 500・NASDAQ）の相関も考慮して分析してください。
 
 ## ユーザーの投資スタイル: ${investmentStyle}
 
@@ -263,8 +271,8 @@ function buildEveningRoleAndSteps(investmentStyle: string): string {
 
 function buildEveningOutputRules(investmentStyle: string): string {
   return `## 出力ルール
-- marketHeadline: 今日の市場を1文で総括。ニュースを創作しない。実データに基づく
-- marketKeyFactor: 今日の主要因を1-2文で振り返り
+- marketHeadline: 今日の市場を1文で総括。日経とNY市場の動きを踏まえる。ニュースを創作しない。実データに基づく
+- marketKeyFactor: 今日の主要因を1-2文で振り返り。NY市場との相関があれば言及する
 - portfolioSummary: 今日のポートフォリオの動きを1-2文で説明。日経平均との比較（超過リターン）に基づいた評価を含める
 - actionPlan: 投資スタイル（${investmentStyle}）に基づく明日に向けた具体的な準備。1-2文
 - buddyMessage: 親しみやすい口調で今日の労いと明日への期待を込めた1文

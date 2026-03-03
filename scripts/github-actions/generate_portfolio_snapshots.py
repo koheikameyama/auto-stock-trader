@@ -230,6 +230,7 @@ def upsert_snapshots(conn, snapshots: list[dict], date: datetime):
             json.dumps(s["stockBreakdown"], ensure_ascii=False),
             float(s["nikkeiClose"]) if s.get("nikkeiClose") is not None else None,
             float(s["realizedGain"]) if s.get("realizedGain") is not None else None,
+            float(s["sp500Close"]) if s.get("sp500Close") is not None else None,
         ))
 
     with conn.cursor() as cur:
@@ -239,7 +240,8 @@ def upsert_snapshots(conn, snapshots: list[dict], date: datetime):
             INSERT INTO "PortfolioSnapshot" (
                 "id", "userId", "date", "totalValue", "totalCost",
                 "unrealizedGain", "unrealizedGainPercent", "stockCount",
-                "sectorBreakdown", "stockBreakdown", "nikkeiClose", "realizedGain", "createdAt"
+                "sectorBreakdown", "stockBreakdown", "nikkeiClose", "realizedGain",
+                "sp500Close", "createdAt"
             )
             VALUES %s
             ON CONFLICT ("userId", "date") DO UPDATE SET
@@ -251,11 +253,12 @@ def upsert_snapshots(conn, snapshots: list[dict], date: datetime):
                 "sectorBreakdown" = EXCLUDED."sectorBreakdown",
                 "stockBreakdown" = EXCLUDED."stockBreakdown",
                 "nikkeiClose" = EXCLUDED."nikkeiClose",
-                "realizedGain" = EXCLUDED."realizedGain"
+                "realizedGain" = EXCLUDED."realizedGain",
+                "sp500Close" = EXCLUDED."sp500Close"
             ''',
             values,
             template='''(
-                gen_random_uuid()::text, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, NOW()
+                gen_random_uuid()::text, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, NOW()
             )''',
             page_size=100
         )
@@ -280,6 +283,22 @@ def fetch_nikkei_close() -> float | None:
         return None
 
 
+def fetch_sp500_close() -> float | None:
+    """S&P 500の最新終値を取得"""
+    try:
+        ticker = yf.Ticker("^GSPC")
+        hist = ticker.history(period="5d")
+        if hist.empty:
+            print("Warning: S&P 500 data not available")
+            return None
+        close = float(hist["Close"].iloc[-1])
+        print(f"S&P 500 close: ${close:,.2f}")
+        return close
+    except Exception as e:
+        print(f"Warning: Failed to fetch S&P 500: {e}")
+        return None
+
+
 def main():
     print("=" * 60)
     print("Portfolio Snapshot Generation")
@@ -291,8 +310,9 @@ def main():
     print(f"Snapshot date: {today}")
 
     try:
-        # 0. 日経225終値を取得（全ユーザー共通）
+        # 0. ベンチマーク終値を取得（全ユーザー共通）
         nikkei_close = fetch_nikkei_close()
+        sp500_close = fetch_sp500_close()
 
         # 1. 保有銘柄があるユーザーを取得
         user_ids = fetch_users_with_holdings(conn)
@@ -312,6 +332,7 @@ def main():
             snapshot = calculate_snapshot(holdings)
             snapshot["userId"] = user_id
             snapshot["nikkeiClose"] = nikkei_close
+            snapshot["sp500Close"] = sp500_close
             snapshot["realizedGain"] = realized_gains.get(user_id, Decimal("0"))
             snapshots.append(snapshot)
             print(f"  User {user_id[:8]}...: {snapshot['stockCount']} stocks, ¥{float(snapshot['totalValue']):,.0f}")
