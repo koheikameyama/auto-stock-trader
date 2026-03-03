@@ -8,6 +8,7 @@ import {
   type PreMarketDataInput,
   type StockGapEstimate,
 } from "@/lib/gap-prediction"
+import { calculatePortfolioFromTransactions } from "@/lib/portfolio-calculator"
 
 /**
  * GET /api/gap-prediction
@@ -60,12 +61,18 @@ export async function GET() {
     // 市場全体のギャップ推定
     const marketGap = estimateMarketGap(input)
 
-    // ポートフォリオ銘柄の個別ギャップ推定
-    const portfolioStocks = await prisma.portfolioStock.findMany({
+    // ポートフォリオ銘柄の個別ギャップ推定（保有中のみ）
+    const allPortfolioStocks = await prisma.portfolioStock.findMany({
       where: { userId: session.user.id },
       include: {
         stock: true,
+        transactions: { orderBy: { transactionDate: "asc" } },
       },
+    })
+
+    const portfolioStocks = allPortfolioStocks.filter((ps) => {
+      const { quantity } = calculatePortfolioFromTransactions(ps.transactions)
+      return quantity > 0
     })
 
     let stocks: StockGapEstimate[] = []
