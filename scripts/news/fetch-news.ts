@@ -5,6 +5,7 @@
  * 機能:
  * - Google News RSSから株式関連ニュースを取得
  * - セクター・センチメント分析（ルールベース + AI）
+ * - 地政学・マクロニュースの市場インパクト分析
  * - MarketNewsテーブルへの保存
  * - 話題の銘柄コード抽出
  */
@@ -18,6 +19,22 @@ import * as path from "path"
 const prisma = new PrismaClient()
 const parser = new Parser()
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+
+// セクターenum値
+const SECTOR_VALUES = [
+  "半導体・電子部品",
+  "自動車",
+  "金融",
+  "医薬品",
+  "通信",
+  "小売",
+  "不動産",
+  "エネルギー",
+  "素材",
+  "IT・サービス",
+] as const
+
+type SectorValue = (typeof SECTOR_VALUES)[number]
 
 // ニュースソースURL
 const RSS_URLS: Record<string, string> = {
@@ -39,6 +56,8 @@ const RSS_URLS: Record<string, string> = {
   google_news_minkabu: "https://news.google.com/rss/search?q=site:minkabu.jp+株+when:7d&hl=ja&gl=JP&ceid=JP:ja",
   google_news_toyokeizai:
     "https://news.google.com/rss/search?q=site:toyokeizai.net+株+OR+企業+when:7d&hl=ja&gl=JP&ceid=JP:ja",
+  google_news_geopolitical: `https://news.google.com/rss/search?q=${encodeURIComponent("関税 OR 制裁 OR 地政学 OR 戦争 OR 紛争 OR 米中")}&hl=ja&gl=JP&ceid=JP:ja`,
+  google_news_macro: `https://news.google.com/rss/search?q=${encodeURIComponent("金融政策 OR 利上げ OR 利下げ OR 円安 OR 円高 OR 為替")}&hl=ja&gl=JP&ceid=JP:ja`,
 }
 
 // フィードごとのソース名マッピング
@@ -54,6 +73,8 @@ const FEED_SOURCE_MAP: Record<string, string> = {
   google_news_kabutan: "kabutan",
   google_news_minkabu: "minkabu",
   google_news_toyokeizai: "toyokeizai",
+  google_news_geopolitical: "google_news",
+  google_news_macro: "google_news",
 }
 
 // セクター分類キーワード
@@ -87,6 +108,18 @@ interface RssEntry {
 interface StockNameEntry {
   name: string
   tickerCode: string
+}
+
+interface AIAnalysisResult {
+  sector: string | null
+  sentiment: string | null
+  isStockRelated: boolean
+  tickerCodes: string[]
+  isMarketImpact: boolean
+  category: "stock" | "geopolitical" | "macro"
+  impactSectors: SectorValue[]
+  impactDirection: "positive" | "negative" | "mixed" | null
+  impactSummary: string | null
 }
 
 /**
@@ -143,11 +176,23 @@ function detectSentimentByKeywords(text: string): string | null {
   return null
 }
 
-async function analyzeWithOpenAI(title: string, content: string): Promise<{ sector: string | null; sentiment: string | null; isStockRelated: boolean; tickerCodes: string[] }> {
+async function analyzeWithOpenAI(title: string, content: string): Promise<AIAnalysisResult> {
+  const defaultResult: AIAnalysisResult = {
+    sector: null,
+    sentiment: null,
+    isStockRelated: true,
+    tickerCodes: [],
+    isMarketImpact: false,
+    category: "stock",
+    impactSectors: [],
+    impactDirection: null,
+    impactSummary: null,
+  }
+
   try {
     if (!process.env.OPENAI_API_KEY) {
       console.log("OPENAI_API_KEY not found, skipping AI analysis")
-      return { sector: null, sentiment: null, isStockRelated: true, tickerCodes: [] }
+      return defaultResult
     }
 
     const prompt = `以下のニュースを分析してください。
@@ -155,7 +200,7 @@ async function analyzeWithOpenAI(title: string, content: string): Promise<{ sect
 タイトル: ${title}
 内容: ${content}
 
-以下の4項目を判定してください:
+以下の項目を判定してください:
 1. is_stock_related: このニュースが株式・投資・金融市場に関連するかどうか（true/false）
    - 株価、企業業績、市場動向、経済指標、金融政策などに関するニュースはtrue
    - スポーツ、芸能、事件、天気など株式市場と無関係なニュースはfalse
@@ -163,7 +208,30 @@ async function analyzeWithOpenAI(title: string, content: string): Promise<{ sect
 3. sentiment: センチメント（positive、neutral、negative、またはnull）
 4. ticker_codes: このニュースに登場する日本株の4桁銘柄コードの配列（例: ["7203", "6758"]）
    - 銘柄名（例：トヨタ、ソニー）から銘柄コードに変換できる場合も含める
-   - 不明の場合は空配列 []`
+   - 不明の場合は空配列 []
+5. is_market_impact: このニュースが日本の株式市場全体に影響を与えうるか（true/false）
+   - 地政学リスク（関税、制裁、戦争、紛争、米中対立など）はtrue
+   - マクロ経済（金融政策、利上げ/利下げ、為替変動、GDP、インフレなど）はtrue
+   - 個別企業の決算や業績のみに関するニュースはfalse
+   - 市場全体の動向に影響するニュースはtrue
+6. category: ニュースの分類
+   - "stock": 個別銘柄・セクターに関するニュース
+   - "geopolitical": 地政学リスクに関するニュース（関税、制裁、戦争、紛争、外交など）
+   - "macro": マクロ経済に関するニュース（金融政策、為替、金利、経済指標など）
+7. impact_sectors: 市場インパクトがある場合、影響を受けるセクターの配列
+   - セクター値: 半導体・電子部品、自動車、金融、医薬品、通信、小売、不動産、エネルギー、素材、IT・サービス
+   - 影響がないまたは不明の場合は空配列 []
+8. impact_direction: 市場への影響の方向性
+   - "positive": 株価にプラスの影響
+   - "negative": 株価にマイナスの影響
+   - "mixed": プラスとマイナスが混在
+   - null: 不明または該当なし
+9. impact_summary: 市場への影響の説明（日本語、1-2文）
+   - is_market_impact=trueの場合のみ記載
+   - 例: "米中関税引き上げにより、輸出関連セクター（自動車・半導体）に下落圧力。"
+   - is_market_impact=falseの場合はnull`
+
+    const sectorEnumValues = [...SECTOR_VALUES, null]
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -178,11 +246,44 @@ async function analyzeWithOpenAI(title: string, content: string): Promise<{ sect
             type: "object",
             properties: {
               is_stock_related: { type: "boolean" },
-              sector: { type: ["string", "null"], enum: ["半導体・電子部品", "自動車", "金融", "医薬品", "通信", "小売", "不動産", "エネルギー", "素材", "IT・サービス", null] },
-              sentiment: { type: ["string", "null"], enum: ["positive", "neutral", "negative", null] },
+              sector: {
+                type: ["string", "null"],
+                enum: sectorEnumValues,
+              },
+              sentiment: {
+                type: ["string", "null"],
+                enum: ["positive", "neutral", "negative", null],
+              },
               ticker_codes: { type: "array", items: { type: "string" } },
+              is_market_impact: { type: "boolean" },
+              category: {
+                type: "string",
+                enum: ["stock", "geopolitical", "macro"],
+              },
+              impact_sectors: {
+                type: "array",
+                items: {
+                  type: "string",
+                  enum: [...SECTOR_VALUES],
+                },
+              },
+              impact_direction: {
+                type: ["string", "null"],
+                enum: ["positive", "negative", "mixed", null],
+              },
+              impact_summary: { type: ["string", "null"] },
             },
-            required: ["is_stock_related", "sector", "sentiment", "ticker_codes"],
+            required: [
+              "is_stock_related",
+              "sector",
+              "sentiment",
+              "ticker_codes",
+              "is_market_impact",
+              "category",
+              "impact_sectors",
+              "impact_direction",
+              "impact_summary",
+            ],
             additionalProperties: false,
           },
         },
@@ -195,10 +296,15 @@ async function analyzeWithOpenAI(title: string, content: string): Promise<{ sect
       sentiment: result.sentiment || null,
       isStockRelated: result.is_stock_related ?? true,
       tickerCodes: Array.isArray(result.ticker_codes) ? result.ticker_codes : [],
+      isMarketImpact: result.is_market_impact ?? false,
+      category: result.category ?? "stock",
+      impactSectors: Array.isArray(result.impact_sectors) ? result.impact_sectors : [],
+      impactDirection: result.impact_direction ?? null,
+      impactSummary: result.impact_summary ?? null,
     }
   } catch (error) {
     console.log(`OpenAI API error: ${error}`)
-    return { sector: null, sentiment: null, isStockRelated: true, tickerCodes: [] }
+    return defaultResult
   }
 }
 
@@ -250,11 +356,16 @@ async function main(): Promise<void> {
     market: string
     region: string
     tickerCode?: string
+    category: string
+    impactSectors: string | null
+    impactDirection: string | null
+    impactSummary: string | null
   }[] = []
 
   let ruleBasedCount = 0
   let aiBasedCount = 0
   let skippedCount = 0
+  let marketImpactCount = 0
 
   try {
     // DBから銘柄名→銘柄コードのマッピングを取得（銘柄名マッチング用）
@@ -294,20 +405,28 @@ async function main(): Promise<void> {
         let sector = detectSectorByKeywords(text)
         let sentiment = detectSentimentByKeywords(text)
 
+        // AI分析結果を保持（新フィールド用）
+        let aiResult: AIAnalysisResult | null = null
+
         // ルールベースで判定できなかった場合はAI分析
         if (sector === null || sentiment === null) {
-          const aiResult = await analyzeWithOpenAI(entry.title, entry.contentSnippet || "")
+          aiResult = await analyzeWithOpenAI(entry.title, entry.contentSnippet || "")
 
-          // セクターがルールベースで検出できず、AIも株式関連でないと判断した場合はスキップ
-          if (sector === null && !aiResult.isStockRelated) {
+          // セクターがルールベースで検出できず、AIも株式関連でなく、市場インパクトもない場合はスキップ
+          if (sector === null && !aiResult.isStockRelated && !aiResult.isMarketImpact) {
             skippedCount++
-            console.log(`  Skipped (not stock-related): ${entry.title}`)
+            console.log(`  Skipped (not stock-related, no market impact): ${entry.title}`)
             continue
           }
 
           if (sector === null) sector = aiResult.sector
           if (sentiment === null) sentiment = aiResult.sentiment
           aiBasedCount++
+
+          if (aiResult.isMarketImpact) {
+            marketImpactCount++
+            console.log(`  Market impact (${aiResult.category}): ${entry.title}`)
+          }
 
           // 銘柄名マッチなしの場合はAI抽出コードをフォールバックとして使用（DBで検証）
           if (matchedByName.length === 0 && aiResult.tickerCodes.length > 0) {
@@ -335,6 +454,10 @@ async function main(): Promise<void> {
           publishedAt,
           market: "JP",
           region: "日本",
+          category: aiResult?.category ?? "stock",
+          impactSectors: aiResult?.impactSectors?.length ? JSON.stringify(aiResult.impactSectors) : null,
+          impactDirection: aiResult?.impactDirection ?? null,
+          impactSummary: aiResult?.impactSummary ?? null,
         }
 
         if (matchedTickerCodes.length > 0) {
@@ -360,7 +483,8 @@ async function main(): Promise<void> {
       console.log(`\nSaving ${newsToSave.length} new entries...`)
       console.log(`  Rule-based: ${ruleBasedCount} entries`)
       console.log(`  AI-based: ${aiBasedCount} entries`)
-      console.log(`  Skipped (not stock-related): ${skippedCount} entries`)
+      console.log(`  Market impact: ${marketImpactCount} entries`)
+      console.log(`  Skipped (not stock-related, no market impact): ${skippedCount} entries`)
 
       // バッチ作成（(url, tickerCode) のユニーク制約で重複スキップ）
       const created = await prisma.marketNews.createMany({
@@ -371,6 +495,10 @@ async function main(): Promise<void> {
       console.log(`Saved ${created.count} news to database`)
       console.log(`  With tickerCode: ${newsToSave.filter((n) => n.tickerCode).length} entries`)
       console.log(`  Without tickerCode: ${newsToSave.filter((n) => !n.tickerCode).length} entries`)
+      console.log(`  Category breakdown:`)
+      console.log(`    stock: ${newsToSave.filter((n) => n.category === "stock").length}`)
+      console.log(`    geopolitical: ${newsToSave.filter((n) => n.category === "geopolitical").length}`)
+      console.log(`    macro: ${newsToSave.filter((n) => n.category === "macro").length}`)
     }
 
     // 結果を表示
