@@ -27,7 +27,8 @@ export type CorrectionRuleId =
   | "dangerous_stock_buy_suppression"
   | "extreme_surge_block"
   | "extreme_overheat_block"
-  | "low_consensus";
+  | "low_consensus"
+  | "rebound_warning";
 
 /** 補正コンテキスト */
 export interface CorrectionContext {
@@ -69,6 +70,7 @@ const RULE_NAMES: Record<CorrectionRuleId, string> = {
   extreme_surge_block: "極端な急騰ブロック",
   extreme_overheat_block: "極端な過熱圏ブロック",
   low_consensus: "スタイル間合意度不足",
+  rebound_warning: "リバウンド警戒ルール",
 };
 
 /** 投資スタイルキー→日本語名 */

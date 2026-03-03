@@ -921,6 +921,22 @@ export async function executePurchaseRecommendation(
         longTermPriceLow: result.longTermPriceLow,
         longTermPriceHigh: result.longTermPriceHigh,
       });
+
+      // リバウンド警戒時の買い抑制（全スタイル共通）
+      // 下降トレンド中の一時的な反発で「buy」を出すのを防ぐ
+      if (divergence.type === "rebound_warning" && sa.recommendation === "buy") {
+        const styleName = getStyleNameJa(styleKey);
+        sa.recommendation = "stay";
+        sa.buyTiming = null;
+        sa.dipTargetPrice = null;
+        sa.buyCondition = "下降トレンド中の一時的な反発（リバウンド）のため、トレンド転換を確認してから検討してください";
+        sa.correctionExplanation = generateCorrectionExplanation({
+          ruleId: "rebound_warning",
+          styleName,
+          originalRecommendation: "buy",
+          correctedRecommendation: "stay",
+        });
+      }
     }
   }
 

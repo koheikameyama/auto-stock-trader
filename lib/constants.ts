@@ -479,7 +479,7 @@ export const MOMENTUM = {
 // 利益確定促進ルール（含み益 + 短期下落予兆 → 利確を促す）
 export const PROFIT_TAKING_PROMOTION = {
   // 利確促進の最低含み益率（%）: これ以上で短期下落予兆がある場合に利確を促す
-  CONSERVATIVE_MIN_PROFIT: 3, // 安定配当型: +3%以上で利確検討
+  CONSERVATIVE_MIN_PROFIT: 5, // 安定配当型: +5%以上で利確検討
   BALANCED_MIN_PROFIT: 8, // 成長投資型: +8%以上で利確検討
   AGGRESSIVE_MIN_PROFIT: 15, // アクティブ型: +15%以上で一部利確検討（大きな利益を守る）
   // 推奨売却割合
