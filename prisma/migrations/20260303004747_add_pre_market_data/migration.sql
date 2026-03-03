@@ -23,8 +23,8 @@ ALTER TABLE "PortfolioStock" ALTER COLUMN "takeProfitRate" SET DATA TYPE DECIMAL
 ALTER COLUMN "stopLossRate" SET DATA TYPE DECIMAL(8,2);
 
 -- AlterTable
-ALTER TABLE "UserDailyRecommendation" DROP COLUMN "stopLossRate",
-DROP COLUMN "takeProfitRate";
+ALTER TABLE "UserDailyRecommendation" DROP COLUMN IF EXISTS "stopLossRate",
+DROP COLUMN IF EXISTS "takeProfitRate";
 
 -- CreateTable
 CREATE TABLE "PreMarketData" (

@@ -207,9 +207,13 @@ def main():
                     style_confidence = confidence
                     style_reason = reason
 
+                # 押し目（dip）は条件付き推奨なので通知しない
+                style_buy_timing = style_data.get("buyTiming", None) if style_analyses and user_style in style_analyses else None
+
                 if (
                     style_rec == "buy"
                     and style_confidence >= BUY_RECOMMENDATION_CONFIDENCE_THRESHOLD
+                    and style_buy_timing != "dip"
                 ):
                     confidence_pct = int(style_confidence * 100)
                     reason_short = style_reason[:50] + "..." if len(style_reason) > 50 else style_reason
