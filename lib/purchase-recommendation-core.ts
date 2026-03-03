@@ -189,9 +189,9 @@ export async function executePurchaseRecommendation(
     );
   }
 
-  // 直近30日の価格データを取得
-  const historicalPrices = await fetchHistoricalPrices(stock.tickerCode, "1m");
-  const prices = historicalPrices.slice(-30); // oldest-first
+  // 直近3ヶ月の価格データを取得（SMA25計算に25営業日以上が必要）
+  const historicalPrices = await fetchHistoricalPrices(stock.tickerCode, "3m");
+  const prices = historicalPrices.slice(-60); // oldest-first
 
   if (prices.length === 0) {
     throw new AnalysisError("価格データがありません", "NO_PRICE_DATA");
