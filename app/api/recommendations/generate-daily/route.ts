@@ -818,6 +818,7 @@ ${ctx.technicalContext}${ctx.candlestickContext}${ctx.chartPatternContext}${ctx.
         weekChangeRate: ctx.weekChangeRate,
         deviationRate: ctx.deviationRate,
         nextEarningsDate: s.nextEarningsDate,
+        investmentStyle,
       });
 
       if (safetyCheck.exclude) {

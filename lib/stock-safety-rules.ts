@@ -224,8 +224,9 @@ export function checkRecommendationSafety(params: {
   weekChangeRate: number | null;
   deviationRate: number | null;
   nextEarningsDate: Date | null;
+  investmentStyle?: string | null;
 }): RecommendationSafetyResult {
-  const { isProfitable, volatility, weekChangeRate, deviationRate, nextEarningsDate } = params;
+  const { isProfitable, volatility, weekChangeRate, deviationRate, nextEarningsDate, investmentStyle } = params;
 
   // 危険銘柄（赤字×高ボラ）
   if (isDangerousStock(isProfitable, volatility)) {
@@ -251,6 +252,11 @@ export function checkRecommendationSafety(params: {
   // 極端な過熱 — skipSafetyRulesでもブロックされる水準
   if (deviationRate !== null && deviationRate >= MA_DEVIATION.EXTREME_UPPER_THRESHOLD) {
     return { exclude: true, rule: "extreme_overheat", reason: `乖離率+${deviationRate.toFixed(1)}%の極端な過熱` };
+  }
+
+  // 下落トレンド（投資スタイル別の閾値で判定）
+  if (isInDecline(weekChangeRate, investmentStyle)) {
+    return { exclude: true, rule: "in_decline", reason: `下落トレンド(${weekChangeRate?.toFixed(0)}%)` };
   }
 
   return { exclude: false, rule: null, reason: null };
