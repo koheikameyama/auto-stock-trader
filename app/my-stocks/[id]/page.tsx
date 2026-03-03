@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { getTodayForDB } from "@/lib/date-utils";
 import AuthenticatedLayout from "@/app/components/AuthenticatedLayout";
 import MyStockDetailClient from "./MyStockDetailClient";
 import { calculatePortfolioFromTransactions } from "@/lib/portfolio-calculator";
@@ -45,7 +46,7 @@ async function StockDetailContent({
   }
 
   // Fetch the specific user stock (either portfolio or watchlist)
-  const [portfolioStock, watchlistStock] = await Promise.all([
+  const [portfolioStock, watchlistStock, preMarketData] = await Promise.all([
     prisma.portfolioStock.findFirst({
       where: {
         id: stockId,
@@ -75,6 +76,16 @@ async function StockDetailContent({
             },
           },
         },
+      },
+    }),
+    // Get today's market environment data (VIX/WTI)
+    prisma.preMarketData.findFirst({
+      where: { date: getTodayForDB() },
+      select: {
+        vixClose: true,
+        vixChangeRate: true,
+        wtiClose: true,
+        wtiChangeRate: true,
       },
     }),
   ]);
@@ -315,6 +326,12 @@ async function StockDetailContent({
       stock={stockData}
       portfolioDetails={portfolioDetails}
       purchaseSimulationData={purchaseSimulationData}
+      marketEnvironment={preMarketData ? {
+        vixClose: preMarketData.vixClose ? Number(preMarketData.vixClose) : null,
+        vixChangeRate: preMarketData.vixChangeRate ? Number(preMarketData.vixChangeRate) : null,
+        wtiClose: preMarketData.wtiClose ? Number(preMarketData.wtiClose) : null,
+        wtiChangeRate: preMarketData.wtiChangeRate ? Number(preMarketData.wtiChangeRate) : null,
+      } : null}
     />
   );
 }

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useTranslations } from "next-intl"
 import TermTooltip from "@/app/components/TermTooltip"
+import { GEOPOLITICAL_RISK } from "@/lib/constants"
 import type {
   TechnicalIndicators,
   CandlestickPatternData,
@@ -25,12 +26,20 @@ interface TechnicalAnalysisData {
   maAlignment: MAAlignmentData | null
 }
 
+interface MarketEnvironment {
+  vixClose: number | null
+  vixChangeRate: number | null
+  wtiClose: number | null
+  wtiChangeRate: number | null
+}
+
 interface Props {
   stockId: string
   embedded?: boolean
   gapUpRate?: number | null
   volumeSpikeRate?: number | null
   turnoverValue?: number | null
+  marketEnvironment?: MarketEnvironment | null
 }
 
 function SignalBadge({ signal, size = "sm", t }: { signal: SignalType; size?: "sm" | "md"; t: (key: string) => string }) {
@@ -73,7 +82,7 @@ function StrengthBar({ value, max = 100 }: { value: number; max?: number }) {
   )
 }
 
-export default function TechnicalAnalysis({ stockId, embedded = false, gapUpRate, volumeSpikeRate, turnoverValue }: Props) {
+export default function TechnicalAnalysis({ stockId, embedded = false, gapUpRate, volumeSpikeRate, turnoverValue, marketEnvironment }: Props) {
   const tTooltip = useTranslations('stocks.tooltips')
   const t = useTranslations('stocks.technicalAnalysis')
   const [data, setData] = useState<TechnicalAnalysisData | null>(null)
@@ -488,6 +497,99 @@ export default function TechnicalAnalysis({ stockId, embedded = false, gapUpRate
             </div>
           </div>
         ) : null}
+        {/* 市場環境（VIX・WTI） */}
+        {marketEnvironment && (marketEnvironment.vixClose != null || marketEnvironment.wtiClose != null) && (
+          <div className="border-t border-gray-100 pt-4">
+            <h3 className="text-sm font-semibold text-gray-900 mb-2">
+              {t('marketEnvironment.label')}
+            </h3>
+            <div className="space-y-2">
+              {/* VIX */}
+              {marketEnvironment.vixClose != null && (() => {
+                const vix = marketEnvironment.vixClose!
+                const vixChange = marketEnvironment.vixChangeRate
+                const level =
+                  vix >= GEOPOLITICAL_RISK.VIX_HIGH ? "high" as const :
+                  vix >= GEOPOLITICAL_RISK.VIX_ELEVATED ? "elevated" as const :
+                  vix >= GEOPOLITICAL_RISK.VIX_NORMAL ? "normal" as const :
+                  "low" as const
+                const levelColor = {
+                  high: "text-red-600",
+                  elevated: "text-amber-600",
+                  normal: "text-gray-700",
+                  low: "text-green-600",
+                }
+                const levelBgColor = {
+                  high: "bg-red-50",
+                  elevated: "bg-amber-50",
+                  normal: "bg-muted/50",
+                  low: "bg-green-50",
+                }
+                return (
+                  <div className={`${levelBgColor[level]} rounded-lg p-3`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        {t('marketEnvironment.vix.label')}
+                        <TermTooltip id="ta-vix" text={tTooltip('vix')} />
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-medium ${levelColor[level]}`}>
+                          {t(`marketEnvironment.vix.level.${level}`)}
+                        </span>
+                        <span className={`text-sm font-bold ${levelColor[level]}`}>
+                          {vix.toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                    {vixChange != null && (
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">
+                          {t('marketEnvironment.vix.desc')}
+                        </p>
+                        <span className={`text-xs ${vixChange >= 0 ? "text-red-500" : "text-blue-500"}`}>
+                          {t('marketEnvironment.changeRate')} {vixChange >= 0 ? "+" : ""}{vixChange.toFixed(1)}%
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
+              {/* WTI */}
+              {marketEnvironment.wtiClose != null && (() => {
+                const wti = marketEnvironment.wtiClose!
+                const wtiChange = marketEnvironment.wtiChangeRate
+                const isSpike = wtiChange != null && wtiChange >= GEOPOLITICAL_RISK.WTI_SPIKE_THRESHOLD
+                const isCrash = wtiChange != null && wtiChange <= GEOPOLITICAL_RISK.WTI_CRASH_THRESHOLD
+                const bgColor = isSpike ? "bg-red-50" : isCrash ? "bg-blue-50" : "bg-muted/50"
+                return (
+                  <div className={`${bgColor} rounded-lg p-3`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        {t('marketEnvironment.wti.label')}
+                        <TermTooltip id="ta-wti" text={tTooltip('wti')} />
+                      </span>
+                      <span className="text-sm font-bold text-gray-900">
+                        ${wti.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-muted-foreground">
+                        {t('marketEnvironment.wti.desc')}
+                      </p>
+                      {wtiChange != null && (
+                        <span className={`text-xs ${wtiChange >= 0 ? "text-red-500" : "text-blue-500"}`}>
+                          {t('marketEnvironment.changeRate')} {wtiChange >= 0 ? "+" : ""}{wtiChange.toFixed(1)}%
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+        )}
+
         {/* データがない場合 */}
         {!technicalIndicators.rsi && !technicalIndicators.macd && !candlestickPattern && chartPatterns.length === 0 && (
           <p className="text-sm text-gray-500">{t('insufficientData')}</p>

@@ -54,6 +54,7 @@ async function StockDetailContent({
     watchlistEntry,
     trackedEntry,
     portfolioEntry,
+    preMarketData,
   ] = await Promise.all([
     prisma.stock.findUnique({
       where: { id: stockId },
@@ -81,6 +82,16 @@ async function StockDetailContent({
         transactions: {
           orderBy: { transactionDate: "asc" },
         },
+      },
+    }),
+    // Get today's market environment data (VIX/WTI)
+    prisma.preMarketData.findFirst({
+      where: { date: getTodayForDB() },
+      select: {
+        vixClose: true,
+        vixChangeRate: true,
+        wtiClose: true,
+        wtiChangeRate: true,
       },
     }),
   ]);
@@ -250,6 +261,12 @@ async function StockDetailContent({
       }
       trackedStockId={trackedEntry?.id}
       soldStockInfo={soldStockInfo}
+      marketEnvironment={preMarketData ? {
+        vixClose: preMarketData.vixClose ? Number(preMarketData.vixClose) : null,
+        vixChangeRate: preMarketData.vixChangeRate ? Number(preMarketData.vixChangeRate) : null,
+        wtiClose: preMarketData.wtiClose ? Number(preMarketData.wtiClose) : null,
+        wtiChangeRate: preMarketData.wtiChangeRate ? Number(preMarketData.wtiChangeRate) : null,
+      } : null}
     />
   );
 }
