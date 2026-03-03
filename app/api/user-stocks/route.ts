@@ -30,6 +30,8 @@ export interface UserStockResponse {
   longTerm?: string | null;
   // AI推奨（StockAnalysisから取得）
   recommendation?: "buy" | "sell" | "hold" | null;
+  // AI分析の信頼度（StockAnalysisから取得）
+  confidence?: number | null;
   // 分析日時（StockAnalysisから取得）
   analyzedAt?: string | null;
   // 売却提案（Portfolio only）
@@ -131,7 +133,7 @@ export async function GET(request: NextRequest) {
                 fetchFailCount: true;
                 isDelisted: true;
                 analyses: {
-                  select: { recommendation: true; analyzedAt: true };
+                  select: { recommendation: true; confidence: true; analyzedAt: true };
                   orderBy: { analyzedAt: "desc" };
                   take: 1;
                 };
@@ -182,6 +184,7 @@ export async function GET(request: NextRequest) {
               analyses: {
                 select: {
                   recommendation: true,
+                  confidence: true,
                   analyzedAt: true,
                 },
                 orderBy: { analyzedAt: "desc" },
@@ -242,6 +245,7 @@ export async function GET(request: NextRequest) {
         | "sell"
         | "hold"
         | null;
+      const confidence = latestAnalysis?.confidence ?? null;
       const analyzedAt = latestAnalysis?.analyzedAt
         ? latestAnalysis.analyzedAt.toISOString()
         : null;
@@ -261,6 +265,7 @@ export async function GET(request: NextRequest) {
         takeProfitRate: ps.takeProfitRate != null ? Number(ps.takeProfitRate) : null,
         stopLossRate: ps.stopLossRate != null ? Number(ps.stopLossRate) : null,
         recommendation,
+        confidence,
         analyzedAt,
         // 売却提案
         suggestedSellPrice: ps.suggestedSellPrice
