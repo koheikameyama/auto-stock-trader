@@ -421,7 +421,8 @@ export const TRENDLINE = {
 
 // 移動平均乖離率の閾値
 export const MA_DEVIATION = {
-  PERIOD: 25, // 移動平均の期間（日）
+  PERIOD: 25, // 短期移動平均の期間（日）
+  LONG_PERIOD: 75, // 長期移動平均の期間（日）
   FETCH_PERIOD: "3m" as const, // SMA25計算に必要な取得期間
   FETCH_SLICE: 60, // 取得データから使用する件数
   UPPER_THRESHOLD: 20, // 上方乖離の閾値（%）

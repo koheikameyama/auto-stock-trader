@@ -748,6 +748,7 @@ export async function executePurchaseRecommendation(
   // --- 投資スタイル別のセーフティルール・タイミング判定を適用 ---
   const rsiForTiming = calculateRSI(pricesNewestFirst, 14);
   const sma25ForTiming = calculateSMA(pricesNewestFirst, MA_DEVIATION.PERIOD);
+  const sma75ForTiming = calculateSMA(pricesNewestFirst, MA_DEVIATION.LONG_PERIOD);
 
   const styleAnalyses = applyPurchaseStyleSafetyRules({
     styleAnalyses: result.styleAnalyses,
@@ -757,6 +758,7 @@ export async function executePurchaseRecommendation(
       deviationRate,
       rsi: rsiForTiming,
       sma25: sma25ForTiming,
+      sma75: sma75ForTiming,
       currentPrice,
       volatility,
       atr14: stock.atr14 ? Number(stock.atr14) : null,

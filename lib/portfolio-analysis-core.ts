@@ -111,6 +111,7 @@ function postProcessPortfolioAnalysis(params: {
   const deviationRate = calculateDeviationRate(pricesNewestFirst, MA_DEVIATION.PERIOD);
   const rsiValue = calculateRSI(pricesNewestFirst);
   const sma25 = calculateSMA(pricesNewestFirst, MA_DEVIATION.PERIOD);
+  const sma75 = calculateSMA(pricesNewestFirst, MA_DEVIATION.LONG_PERIOD);
   const volatility = stock.volatility ? Number(stock.volatility) : null;
 
   // --- 安全補正を全3スタイルにループ適用 ---
@@ -449,18 +450,14 @@ function postProcessPortfolioAnalysis(params: {
     }
   }
 
-  // SMA25がない場合のフォールバック
-  if (!sellTargetPrice && sellTiming === "rebound" && userStyleResult.suggestedSellPrice) {
-    sellTargetPrice = userStyleResult.suggestedSellPrice;
-  }
-
-  // 戻り売り目安が現在価格以下の場合、ATRベースで補正（ATRなしならmarketに切替）
+  // 戻り売り目安のフォールバックチェーン: SMA25 → SMA75 → ATR14 → market
   if (sellTiming === "rebound" && currentPrice && (!sellTargetPrice || sellTargetPrice <= currentPrice)) {
     const atr14 = stock.atr14 ? Number(stock.atr14) : null;
-    if (atr14 && atr14 > 0) {
+    if (sma75 !== null && sma75 > currentPrice) {
+      sellTargetPrice = sma75;
+    } else if (atr14 && atr14 > 0) {
       sellTargetPrice = Math.round(currentPrice + atr14 * SELL_TIMING.REBOUND_ATR_MULTIPLIER);
     } else {
-      // ATRがない場合は根拠のある目安を出せないためmarketに切替
       sellTiming = "market";
       sellTargetPrice = null;
     }
