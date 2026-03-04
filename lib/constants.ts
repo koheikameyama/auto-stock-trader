@@ -254,11 +254,13 @@ export const OPENAI_CONFIG = {
 // Daily Market Navigator 設定
 export const DAILY_MARKET_NAVIGATOR = {
   // 分析に必要な最小銘柄数（ポートフォリオ＋ウォッチリスト合計）
-  MIN_STOCKS: 3,
+  MIN_STOCKS: 0,
   OPENAI_MODEL: "gpt-4o-mini",
   OPENAI_TEMPERATURE: 0.3,
   // 夜セッション開始時間（JST）: この時間以降は evening セッション
   EVENING_SESSION_START_HOUR: 15,
+  // AIプロンプトに含めるセクタートレンドの最大数
+  MAX_SECTOR_TRENDS_FOR_AI: 10,
 } as const;
 
 // チャットAI設定
@@ -539,6 +541,36 @@ export const SELL_TIMING = {
   TREND_OVERRIDE_LOSS_THRESHOLD: -15, // 中長期トレンド保護を無視する損失閾値(%)
   SELL_PRICE_PROXIMITY_THRESHOLD: 0.02, // 売却目標近接の閾値（比率）
   REBOUND_ATR_MULTIPLIER: 1.0, // 戻り売り目安: currentPrice + ATR14 × この倍率
+} as const;
+
+// avoid判定のconfidence閾値（投資スタイル別）
+// AIが avoid を出した場合、confidence がこの閾値未満なら stay に逆補正される
+export const AVOID_CONFIDENCE_THRESHOLD: Record<string, number> = {
+  CONSERVATIVE: 0.6, // 安全重視 → avoid が出やすい
+  BALANCED: 0.65,
+  AGGRESSIVE: 0.75, // リスク許容 → avoid が出にくい
+};
+
+// stay → avoid 強制補正の閾値（投資スタイル別）
+export const AVOID_ESCALATION = {
+  // 条件1: 赤字 + 減益トレンド + 週間変化率が閾値以下
+  UNPROFITABLE_DECLINE: {
+    CONSERVATIVE: -3,
+    BALANCED: -5,
+    AGGRESSIVE: -10,
+  } as Record<string, number>,
+  // 条件2: テクニカル売りシグナル強度が閾値以上 + 中期予測down
+  TECHNICAL_FULL_NEGATIVE: {
+    CONSERVATIVE: 60,
+    BALANCED: 70,
+    AGGRESSIVE: 85,
+  } as Record<string, number>,
+  // 条件3: MA乖離率が閾値以下 + 週間変化率マイナス（反発の兆候なし）
+  PROLONGED_DECLINE_DEVIATION: {
+    CONSERVATIVE: -8,
+    BALANCED: -12,
+    AGGRESSIVE: -18,
+  } as Record<string, number>,
 } as const;
 
 // スタイル間合意度によるconfidence補正

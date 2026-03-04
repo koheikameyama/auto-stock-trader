@@ -4,7 +4,7 @@
  * おすすめ分析・購入判断の両方で共通して使う。
  * 条件判定のみを提供し、アクション（除外 or stay変更）は呼び出し側に委ねる。
  */
-import { MA_DEVIATION, MOMENTUM, TIMING_INDICATORS, TECHNICAL_BRAKE, GAP_UP_MOMENTUM, MARKET_DEFENSIVE_MODE, EARNINGS_SAFETY } from "@/lib/constants";
+import { MA_DEVIATION, MOMENTUM, TIMING_INDICATORS, TECHNICAL_BRAKE, GAP_UP_MOMENTUM, MARKET_DEFENSIVE_MODE, EARNINGS_SAFETY, AVOID_ESCALATION } from "@/lib/constants";
 
 /** 高ボラティリティの閾値（%） */
 const HIGH_VOLATILITY_THRESHOLD = 50;
@@ -305,4 +305,54 @@ export function getDefensiveThresholds(investmentStyle: string | null, isDefensi
     overheatThreshold: Math.round(baseOverheat * MARKET_DEFENSIVE_MODE.OVERHEAT_TIGHTENING_FACTOR),
     gapUpThreshold: Math.round(baseGapUp * MARKET_DEFENSIVE_MODE.GAP_UP_TIGHTENING_FACTOR),
   };
+}
+
+// --- stay → avoid 強制補正の判定関数 ---
+
+/**
+ * 業績悪化 + 下落トレンドで avoid 推奨すべきか判定
+ * 赤字 + 減益トレンド + 週間変化率が閾値以下
+ */
+export function shouldAvoidUnprofitableDecline(
+  isProfitable: boolean | null,
+  profitTrend: string | null,
+  weekChangeRate: number | null,
+  investmentStyle: string,
+): boolean {
+  if (isProfitable !== false) return false;
+  if (profitTrend !== "decreasing") return false;
+  if (weekChangeRate === null) return false;
+  const threshold = AVOID_ESCALATION.UNPROFITABLE_DECLINE[investmentStyle] ?? AVOID_ESCALATION.UNPROFITABLE_DECLINE.BALANCED;
+  return weekChangeRate <= threshold;
+}
+
+/**
+ * テクニカル全面ネガティブで avoid 推奨すべきか判定
+ * テクニカル総合売りシグナル + 強度が閾値以上 + 中期予測が下落
+ */
+export function shouldAvoidTechnicalNegative(
+  technicalSignal: string,
+  technicalStrength: number,
+  midTermTrend: string | null,
+  investmentStyle: string,
+): boolean {
+  if (technicalSignal !== "sell") return false;
+  if (midTermTrend !== "down") return false;
+  const threshold = AVOID_ESCALATION.TECHNICAL_FULL_NEGATIVE[investmentStyle] ?? AVOID_ESCALATION.TECHNICAL_FULL_NEGATIVE.BALANCED;
+  return technicalStrength >= threshold;
+}
+
+/**
+ * 長期下落トレンドで avoid 推奨すべきか判定
+ * MA乖離率が閾値以下 + 週間変化率もマイナス（反発の兆候なし）
+ */
+export function shouldAvoidProlongedDecline(
+  deviationRate: number | null,
+  weekChangeRate: number | null,
+  investmentStyle: string,
+): boolean {
+  if (deviationRate === null || weekChangeRate === null) return false;
+  if (weekChangeRate >= 0) return false;
+  const threshold = AVOID_ESCALATION.PROLONGED_DECLINE_DEVIATION[investmentStyle] ?? AVOID_ESCALATION.PROLONGED_DECLINE_DEVIATION.BALANCED;
+  return deviationRate <= threshold;
 }

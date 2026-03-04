@@ -28,7 +28,10 @@ export type CorrectionRuleId =
   | "extreme_surge_block"
   | "extreme_overheat_block"
   | "low_consensus"
-  | "rebound_warning";
+  | "rebound_warning"
+  | "unprofitable_decline_avoid"
+  | "technical_negative_avoid"
+  | "prolonged_decline_avoid";
 
 /** 補正コンテキスト */
 export interface CorrectionContext {
@@ -71,6 +74,9 @@ const RULE_NAMES: Record<CorrectionRuleId, string> = {
   extreme_overheat_block: "極端な過熱圏ブロック",
   low_consensus: "スタイル間合意度不足",
   rebound_warning: "リバウンド警戒ルール",
+  unprofitable_decline_avoid: "業績悪化×下落トレンドルール",
+  technical_negative_avoid: "テクニカル全面ネガティブルール",
+  prolonged_decline_avoid: "長期下落トレンドルール",
 };
 
 /** 投資スタイルキー→日本語名 */
@@ -150,6 +156,15 @@ export function generateCorrectionExplanation(ctx: CorrectionContext): string {
 
     case "low_consensus":
       return `3つの投資スタイルのうち${ctx.actualValue}のみが買い推奨のため、「${ruleName}」が適用されました。買いの根拠が弱い状態のため、より明確なシグナルを待つ判断になりました。`;
+
+    case "unprofitable_decline_avoid":
+      return `業績が赤字かつ減益トレンドで、週間${ctx.actualValue}の下落が続いており、「${ruleName}」に該当しました。改善の兆候が見られないため、ウォッチリストからの除外を推奨します。`;
+
+    case "technical_negative_avoid":
+      return `テクニカル指標が全面的に売りシグナル（強度${ctx.actualValue}）を示しており、中期予測も下落のため「${ruleName}」に該当しました。当面の回復が見込めないため、見送り推奨に変更されました。`;
+
+    case "prolonged_decline_avoid":
+      return `25日移動平均線から${ctx.actualValue}の下方乖離が続いており、反発の兆候もないため「${ruleName}」に該当しました。下落トレンドが長期化しているため、見送り推奨に変更されました。`;
 
     default:
       return `「${ruleName}」により、AIの判断が${ctx.originalRecommendation}から${ctx.correctedRecommendation}に補正されました。`;

@@ -27,7 +27,7 @@ import {
   type GeopoliticalRiskData,
 } from "@/lib/stock-analysis-context";
 import { buildPurchaseRecommendationPrompt } from "@/lib/prompts/purchase-recommendation-prompt";
-import { MA_DEVIATION, SELL_TIMING, TIMING_INDICATORS, AGGRESSIVE_REBOUND, GAP_UP_MOMENTUM, EARNINGS_SAFETY, CROSS_STYLE_CONSENSUS, GEOPOLITICAL_RISK } from "@/lib/constants";
+import { MA_DEVIATION, SELL_TIMING, TIMING_INDICATORS, AGGRESSIVE_REBOUND, GAP_UP_MOMENTUM, EARNINGS_SAFETY, CROSS_STYLE_CONSENSUS, GEOPOLITICAL_RISK, AVOID_CONFIDENCE_THRESHOLD, AVOID_ESCALATION } from "@/lib/constants";
 import {
   calculateDeviationRate,
   calculateSMA,
@@ -48,6 +48,9 @@ import {
   isPreEarningsBlock,
   isEarningsNear,
   getDaysUntilEarnings,
+  shouldAvoidUnprofitableDecline,
+  shouldAvoidTechnicalNegative,
+  shouldAvoidProlongedDecline,
 } from "@/lib/stock-safety-rules";
 import { generateCorrectionExplanation, getStyleNameJa } from "@/lib/correction-explanation";
 import { detectTrendDivergence, generateDivergenceExplanation } from "@/lib/trend-divergence";
@@ -650,8 +653,9 @@ export async function executePurchaseRecommendation(
       }
     }
 
-    // avoid は confidence >= 0.8 の場合のみ許可
-    if (sa.recommendation === "avoid" && sa.confidence < 0.8) {
+    // avoid は confidence が閾値以上の場合のみ許可（投資スタイル別）
+    const avoidConfidenceThreshold = AVOID_CONFIDENCE_THRESHOLD[styleKey] ?? 0.65;
+    if (sa.recommendation === "avoid" && sa.confidence < avoidConfidenceThreshold) {
       sa.recommendation = "stay";
     }
 
@@ -797,6 +801,59 @@ export async function executePurchaseRecommendation(
         correctedRecommendation: "stay",
         actualValue: `${deviationRate.toFixed(1)}%`,
       });
+    }
+
+    // --- stay → avoid 強制補正（ウォッチリスト棚卸し支援） ---
+    // パニック売り防止で stay に戻された銘柄は再度 avoid にしない
+    const wasProtectedFromPanicSell = sa.correctionExplanation?.includes("パニック売り防止");
+
+    if (sa.recommendation === "stay" && !wasProtectedFromPanicSell && !skipSafetyRules) {
+      // 条件1: 業績悪化 + 下落トレンド
+      if (shouldAvoidUnprofitableDecline(stock.isProfitable, stock.profitTrend, weekChangeRate, styleKey)) {
+        sa.recommendation = "avoid";
+        sa.confidence = Math.max(0.7, sa.confidence);
+        sa.reason = `業績が赤字かつ減益トレンドで、下落が続いているため見送りを推奨します。${sa.reason}`;
+        sa.caution = `業績改善の兆候が見られません。ウォッチリストからの除外を検討してください。${sa.caution}`;
+        sa.correctionExplanation = generateCorrectionExplanation({
+          ruleId: "unprofitable_decline_avoid",
+          styleName,
+          originalRecommendation: "stay",
+          correctedRecommendation: "avoid",
+          actualValue: `${weekChangeRate?.toFixed(0)}%`,
+        });
+      }
+
+      // 条件2: テクニカル全面ネガティブ + 中期下落
+      if (sa.recommendation === "stay" &&
+          shouldAvoidTechnicalNegative(combinedTechnical.signal, combinedTechnical.strength, result.midTermTrend, styleKey)) {
+        sa.recommendation = "avoid";
+        sa.confidence = Math.max(0.7, sa.confidence);
+        sa.reason = `テクニカル指標が全面的にネガティブで中期的にも下落が予想されるため、見送りを推奨します。${sa.reason}`;
+        sa.caution = `当面の回復が見込めない状況です。ウォッチリストからの除外を検討してください。${sa.caution}`;
+        sa.correctionExplanation = generateCorrectionExplanation({
+          ruleId: "technical_negative_avoid",
+          styleName,
+          originalRecommendation: "stay",
+          correctedRecommendation: "avoid",
+          actualValue: `${combinedTechnical.strength}%`,
+        });
+      }
+
+      // 条件3: 長期下落トレンド（MA乖離率 + 週間変化率）
+      if (sa.recommendation === "stay" &&
+          shouldAvoidProlongedDecline(deviationRate, weekChangeRate, styleKey)) {
+        sa.recommendation = "avoid";
+        sa.confidence = Math.max(0.7, sa.confidence);
+        sa.reason = `25日移動平均線から大幅に下方乖離しており反発の兆候もないため、見送りを推奨します。${sa.reason}`;
+        sa.caution = `下落トレンドが長期化しています。ウォッチリストからの除外を検討してください。${sa.caution}`;
+        sa.correctionExplanation = generateCorrectionExplanation({
+          ruleId: "prolonged_decline_avoid",
+          styleName,
+          originalRecommendation: "stay",
+          correctedRecommendation: "avoid",
+          actualValue: `${deviationRate?.toFixed(1)}%`,
+        });
+      }
     }
   }
 

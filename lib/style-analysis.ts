@@ -313,8 +313,11 @@ export function applyPurchaseStyleSafetyRules(params: {
 
       if (isDeviationOk && isRsiOk) {
         styleResult.sellTiming = "market";
+      } else if (styleResult.correctionExplanation) {
+        // ルールベースで強制設定された avoid は保護（stay に戻さない）
+        styleResult.sellTiming = null;
       } else {
-        // 売られすぎ状態は「様子見」として扱う（ウォッチリスト文脈では戻り待ちではなく様子見が適切）
+        // AI判定の avoid で売られすぎ状態は「様子見」として扱う
         styleResult.recommendation = "stay";
         styleResult.sellTiming = null;
       }
