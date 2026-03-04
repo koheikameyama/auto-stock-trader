@@ -247,8 +247,8 @@ function buildMorningOutputRules(investmentStyle: string, hasPortfolio: boolean)
     : `- portfolioSummary: 市場動向のまとめと投資チャンスの概要を1-2文で`;
 
   const actionPlanRule = hasPortfolio
-    ? `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、開場前の具体的な行動方針。「今日は〜してください」と断定する。最優先のアクション（具体的な銘柄名と根拠）とセクタートレンドに基づく戦略を中心に2-3文で。決算を控える銘柄がある場合やVIX30以上やWTI原油±3%以上などリスク要因がある場合は投資スタイルに応じた解釈で言及すること（安定型なら慎重姿勢を推奨、積極型ならボラティリティをチャンスとしても評価）`
-    : `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、注目セクターや銘柄探しの提案。注目セクター（compositeScore参照）と気になるリスト銘柄の買い時評価を中心に2-3文で。決算を控える銘柄がある場合やVIX30以上やWTI原油±3%以上などリスク要因がある場合は投資スタイルに応じた解釈で言及すること（安定型なら慎重姿勢を推奨、積極型ならボラティリティをチャンスとしても評価）`;
+    ? `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、開場前の具体的な行動方針。「今日は〜してください」と断定する。最優先のアクション（具体的な銘柄名と根拠）とセクタートレンドに基づく戦略を中心に2-3文で。決算を控える銘柄がある場合やVIX30以上やWTI原油±3%以上などリスク要因がある場合は投資スタイルに応じた解釈で言及すること（安定型なら慎重姿勢を推奨、積極型ならボラティリティをチャンスとしても評価）。【重要】セクターを推奨する際は、そのセクターのtrendDirection（↑/↓/→）と矛盾しないこと。下落トレンド（↓）のセクターを「注目しましょう」とポジティブに推奨してはならない。逆張り候補として挙げる場合は「下落傾向だが反転の兆しがある」等の根拠を必ず明示すること`
+    : `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、注目セクターや銘柄探しの提案。注目セクター（compositeScore参照）と気になるリスト銘柄の買い時評価を中心に2-3文で。決算を控える銘柄がある場合やVIX30以上やWTI原油±3%以上などリスク要因がある場合は投資スタイルに応じた解釈で言及すること（安定型なら慎重姿勢を推奨、積極型ならボラティリティをチャンスとしても評価）。【重要】セクターを推奨する際は、そのセクターのtrendDirection（↑/↓/→）と矛盾しないこと。下落トレンド（↓）のセクターを「注目しましょう」とポジティブに推奨してはならない。逆張り候補として挙げる場合は「下落傾向だが反転の兆しがある」等の根拠を必ず明示すること`;
 
   const portfolioStatusRule = hasPortfolio
     ? ``
@@ -270,7 +270,7 @@ ${portfolioStatusRule}${portfolioSummaryRule}
 ${actionPlanRule}
 - buddyMessage: 開場前の緊張をほぐし、冷静に臨めるよう背中を押す1文。「今日も焦らず、まず30分は様子見を」のような落ち着いたトーンで
 ${stockHighlightsRule}
-- sectorHighlights: 保有銘柄に関連するセクター、および注目度の高いセクター（compositeScore上位）。セクター内に気になるリスト銘柄がある場合はwatchlistStocksに含めること
+- sectorHighlights: 保有銘柄に関連するセクター、および注目度の高いセクター（compositeScore上位）。セクター内に気になるリスト銘柄がある場合はwatchlistStocksに含めること。【重要】各セクターのcommentaryはtrendDirection（↑/↓/→）と整合性を取ること。下落トレンド（↓）のセクターに対してポジティブなcommentaryを書かないこと
 
 【表現の指針】
 - 専門用語には必ず解説を添える（例：「ボラティリティ（値動きの激しさ）」）
@@ -342,8 +342,8 @@ function buildPreAfternoonOutputRules(investmentStyle: string, hasPortfolio: boo
     : `- portfolioSummary: 前場の市場動向と注目セクターの動きを1-2文でまとめる`;
 
   const actionPlanRule = hasPortfolio
-    ? `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、後場の具体的な行動方針。「後場は〜してください」と断定する。最優先のアクション（具体的な銘柄名と根拠）とセクタートレンドに基づく戦略を中心に2-3文で。決算を控える銘柄がある場合やリスク要因がある場合は言及すること`
-    : `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、後場の投資チャンスの提案。前場の動きを踏まえた注目セクターと気になるリスト銘柄の買い時評価を中心に2-3文で。決算を控える銘柄がある場合やリスク要因がある場合は言及すること`;
+    ? `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、後場の具体的な行動方針。「後場は〜してください」と断定する。最優先のアクション（具体的な銘柄名と根拠）とセクタートレンドに基づく戦略を中心に2-3文で。決算を控える銘柄がある場合やリスク要因がある場合は言及すること。【重要】セクターを推奨する際は、そのセクターのtrendDirection（↑/↓/→）と矛盾しないこと。下落トレンド（↓）のセクターをポジティブに推奨してはならない`
+    : `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、後場の投資チャンスの提案。前場の動きを踏まえた注目セクターと気になるリスト銘柄の買い時評価を中心に2-3文で。決算を控える銘柄がある場合やリスク要因がある場合は言及すること。【重要】セクターを推奨する際は、そのセクターのtrendDirection（↑/↓/→）と矛盾しないこと。下落トレンド（↓）のセクターをポジティブに推奨してはならない。逆張り候補として挙げる場合は根拠を明示すること`;
 
   const portfolioStatusRule = hasPortfolio
     ? ``
@@ -365,7 +365,7 @@ ${portfolioStatusRule}${portfolioSummaryRule}
 ${actionPlanRule}
 - buddyMessage: 前場の結果を受け止め、後場に冷静に臨めるよう背中を押す1文。前場が良くても悪くても落ち着いたトーンで
 ${stockHighlightsRule}
-- sectorHighlights: 保有銘柄に関連するセクター、および注目度の高いセクター（compositeScore上位）。セクター内に気になるリスト銘柄がある場合はwatchlistStocksに含めること
+- sectorHighlights: 保有銘柄に関連するセクター、および注目度の高いセクター（compositeScore上位）。セクター内に気になるリスト銘柄がある場合はwatchlistStocksに含めること。【重要】各セクターのcommentaryはtrendDirection（↑/↓/→）と整合性を取ること。下落トレンド（↓）のセクターに対してポジティブなcommentaryを書かないこと
 
 【表現の指針】
 - 専門用語には必ず解説を添える（例：「出来高比（通常の何倍取引されているか）」）
@@ -432,8 +432,8 @@ function buildEveningOutputRules(investmentStyle: string, hasPortfolio: boolean)
     : `- portfolioSummary: 今日の市場動向と注目セクターのまとめを1-2文で`;
 
   const actionPlanRule = hasPortfolio
-    ? `- actionPlan: 投資スタイル（${investmentStyle}）に基づく明日に向けた具体的な準備。今日の結果を踏まえた最優先のアクション（具体的な銘柄名と根拠）とセクタートレンドに基づく明日の戦略を中心に2-3文で。決算を控える銘柄がある場合やリスク要因がある場合は言及すること`
-    : `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、明日の投資チャンスの提案。今日の動きを踏まえた注目セクターと気になるリスト銘柄の評価を中心に2-3文で。決算を控える銘柄がある場合やリスク要因がある場合は言及すること`;
+    ? `- actionPlan: 投資スタイル（${investmentStyle}）に基づく明日に向けた具体的な準備。今日の結果を踏まえた最優先のアクション（具体的な銘柄名と根拠）とセクタートレンドに基づく明日の戦略を中心に2-3文で。決算を控える銘柄がある場合やリスク要因がある場合は言及すること。【重要】セクターを推奨する際は、そのセクターのtrendDirection（↑/↓/→）と矛盾しないこと。下落トレンド（↓）のセクターをポジティブに推奨してはならない`
+    : `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、明日の投資チャンスの提案。今日の動きを踏まえた注目セクターと気になるリスト銘柄の評価を中心に2-3文で。決算を控える銘柄がある場合やリスク要因がある場合は言及すること。【重要】セクターを推奨する際は、そのセクターのtrendDirection（↑/↓/→）と矛盾しないこと。下落トレンド（↓）のセクターをポジティブに推奨してはならない。逆張り候補として挙げる場合は根拠を明示すること`;
 
   const portfolioStatusRule = hasPortfolio
     ? ``
@@ -455,7 +455,7 @@ ${portfolioStatusRule}${portfolioSummaryRule}
 ${actionPlanRule}
 - buddyMessage: 親しみやすい口調で今日の労いと明日への期待を込めた1文
 ${stockHighlightsRule}
-- sectorHighlights: 保有銘柄に関連するセクター、および注目度の高いセクター（compositeScore上位）。セクター内に気になるリスト銘柄がある場合はwatchlistStocksに含めること
+- sectorHighlights: 保有銘柄に関連するセクター、および注目度の高いセクター（compositeScore上位）。セクター内に気になるリスト銘柄がある場合はwatchlistStocksに含めること。【重要】各セクターのcommentaryはtrendDirection（↑/↓/→）と整合性を取ること。下落トレンド（↓）のセクターに対してポジティブなcommentaryを書かないこと
 
 【表現の指針】
 - 専門用語には必ず解説を添える（例：「ボラティリティ（値動きの激しさ）」）
