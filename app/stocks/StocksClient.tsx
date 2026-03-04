@@ -19,6 +19,11 @@ interface StockListItem {
   dailyChangeRate: number | null
   weekChangeRate: number | null
   isProfitable: boolean | null
+  buySignal: {
+    isBuyCandidate: boolean
+    chartSignals: string[]
+    fundamentalSignals: string[]
+  }
   latestRecommendation: {
     recommendation: string
     confidence: number
@@ -321,8 +326,13 @@ export default function StocksClient() {
                     </div>
                   </div>
 
-                  {/* AI recommendation + score */}
+                  {/* AI recommendation + buy signal + score */}
                   <div className="mt-2 flex items-center gap-2 flex-wrap">
+                    {stock.buySignal.isBuyCandidate && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium text-amber-700 bg-amber-50">
+                        {t("buySignal")}
+                      </span>
+                    )}
                     {recConfig && rec && (
                       <span
                         className={`text-xs px-2 py-0.5 rounded-full font-medium ${recConfig.color} ${recConfig.bg}`}
