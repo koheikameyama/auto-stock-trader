@@ -185,7 +185,7 @@ export default function StockCard({
       >
         {/* AI推奨バッジ - 右上（無効化時は非表示） */}
         {aiJudgment && !isDisabled && (
-          <div className="absolute top-3 right-3 sm:top-4 sm:right-4 flex items-center gap-1.5">
+          <div className="absolute top-3 right-3 sm:top-4 sm:right-4 flex flex-col items-end gap-1">
             {isWatchlist &&
             recommendation?.recommendation === "buy" &&
             recommendation.buyTiming ? (
@@ -213,7 +213,7 @@ export default function StockCard({
                 {aiJudgment.text}
               </span>
             )}
-            {/* 信頼度バッジ */}
+            {/* 信頼度バッジ - ステータスの下に表示 */}
             {(() => {
               const conf = isWatchlist ? recommendation?.confidence : stock.confidence;
               if (conf == null) return null;
