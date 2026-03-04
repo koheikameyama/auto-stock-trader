@@ -4,17 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       session:
-        description: 'Session (morning/evening)'
+        description: 'Session (morning/pre-afternoon/evening)'
         required: true
         default: 'evening'
         type: choice
         options:
           - morning
+          - pre-afternoon
           - evening
   workflow_call:
     inputs:
       session:
-        description: 'Session (morning/evening)'
+        description: 'Session (morning/pre-afternoon/evening)'
         type: string
         default: 'evening'
 
