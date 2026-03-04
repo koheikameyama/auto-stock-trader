@@ -252,20 +252,12 @@ ${step3}`;
 
 function buildMorningOutputRules(investmentStyle: string, hasPortfolio: boolean): string {
   const portfolioSummaryRule = hasPortfolio
-    ? `- portfolioSummary: ポートフォリオの現在地を2-3文で説明。超過リターンの具体的数値（日経平均を何%上回っている/下回っているか）を含める。ベータ値が1.3以上なら「市場より大きく動くハイリスク型」、0.7以下なら「市場より安定した守備型」と特性を伝える`
+    ? `- portfolioSummary: ポートフォリオの現在地を1-2文で説明。超過リターンの具体的数値（日経平均を何%上回っている/下回っているか）を含める。ベータ値が1.3以上または0.7以下の場合はリスク特性にも触れる`
     : `- portfolioSummary: 市場動向のまとめと投資チャンスの概要を1-2文で`;
 
   const actionPlanRule = hasPortfolio
-    ? `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、開場前の具体的な行動方針。3-4文で以下を網羅する:
-  1. 最優先のアクション（具体的な銘柄名と根拠を含む）。「今日は〜してください」と断定する
-  2. セクタートレンドに基づく戦略
-  3. 今後7日間に決算を控える銘柄がある場合、その銘柄名と注意点
-  4. VIXが25以上またはWTI原油が前日比±3%以上の場合、リスク要因と対処法`
-    : `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、注目セクターや銘柄探しの提案。3-4文で以下を網羅する:
-  1. 注目セクターとその根拠（セクタートレンドのcompositeScoreを参照）
-  2. 気になるリスト銘柄があればその買い時評価
-  3. 今後7日間に決算を控える注目銘柄がある場合、その注意点
-  4. VIXが25以上またはWTI原油が前日比±3%以上の場合、リスク要因と対処法`;
+    ? `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、開場前の具体的な行動方針。「今日は〜してください」と断定する。最優先のアクション（具体的な銘柄名と根拠）とセクタートレンドに基づく戦略を中心に2-3文で。決算を控える銘柄がある場合やVIX30以上やWTI原油±3%以上などリスク要因がある場合は投資スタイルに応じた解釈で言及すること（安定型なら慎重姿勢を推奨、積極型ならボラティリティをチャンスとしても評価）`
+    : `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、注目セクターや銘柄探しの提案。注目セクター（compositeScore参照）と気になるリスト銘柄の買い時評価を中心に2-3文で。決算を控える銘柄がある場合やVIX30以上やWTI原油±3%以上などリスク要因がある場合は投資スタイルに応じた解釈で言及すること（安定型なら慎重姿勢を推奨、積極型ならボラティリティをチャンスとしても評価）`;
 
   const portfolioStatusRule = hasPortfolio
     ? ``
@@ -282,7 +274,7 @@ function buildMorningOutputRules(investmentStyle: string, hasPortfolio: boolean)
 
   return `## 出力ルール
 - marketHeadline: 「今日の地合いの予測」を1文で。前日比・NY市場の動向を含める。ニュースを創作しない
-- marketKeyFactor: 今日の地合いを左右する主要因を1-2文で説明。NY市場の影響があれば言及する。VIXが25以上の場合はリスク水準を明示、WTI原油が前日比±3%以上の場合はエネルギーセクターへの影響を言及する
+- marketKeyFactor: 今日の地合いを左右する主要因を1-2文で説明。NY市場の影響があれば言及する。VIXが30以上の場合はリスク水準を明示、WTI原油が前日比±3%以上の場合はエネルギーセクターへの影響を言及する
 ${portfolioStatusRule}${portfolioSummaryRule}
 ${actionPlanRule}
 - buddyMessage: 開場前の緊張をほぐし、冷静に臨めるよう背中を押す1文。「今日も焦らず、まず30分は様子見を」のような落ち着いたトーンで
@@ -356,20 +348,12 @@ ${step3}`;
 
 function buildPreAfternoonOutputRules(investmentStyle: string, hasPortfolio: boolean): string {
   const portfolioSummaryRule = hasPortfolio
-    ? `- portfolioSummary: 前場終了時点のポートフォリオの状態を2-3文で説明。含み損益の変化と超過リターンの具体的数値を含める。ベータ値が1.3以上なら「市場より大きく動くハイリスク型」、0.7以下なら「市場より安定した守備型」と特性を伝える`
+    ? `- portfolioSummary: 前場終了時点のポートフォリオの状態を1-2文で説明。含み損益の変化と超過リターンの具体的数値を含める。ベータ値が1.3以上または0.7以下の場合はリスク特性にも触れる`
     : `- portfolioSummary: 前場の市場動向と注目セクターの動きを1-2文でまとめる`;
 
   const actionPlanRule = hasPortfolio
-    ? `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、後場の具体的な行動方針。3-4文で以下を網羅する:
-  1. 最優先のアクション（具体的な銘柄名と根拠を含む）。「後場は〜してください」と断定する
-  2. セクタートレンドに基づく戦略
-  3. 今後7日間に決算を控える銘柄がある場合、その銘柄名と注意点
-  4. リスク要因がある場合はその対処法`
-    : `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、後場の投資チャンスの提案。3-4文で以下を網羅する:
-  1. 前場の動きを踏まえた注目セクターと根拠
-  2. 気になるリスト銘柄があれば前場の動きを踏まえた買い時評価
-  3. 今後7日間に決算を控える注目銘柄がある場合、その注意点
-  4. リスク要因がある場合はその対処法`;
+    ? `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、後場の具体的な行動方針。「後場は〜してください」と断定する。最優先のアクション（具体的な銘柄名と根拠）とセクタートレンドに基づく戦略を中心に2-3文で。決算を控える銘柄がある場合やリスク要因がある場合は言及すること`
+    : `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、後場の投資チャンスの提案。前場の動きを踏まえた注目セクターと気になるリスト銘柄の買い時評価を中心に2-3文で。決算を控える銘柄がある場合やリスク要因がある場合は言及すること`;
 
   const portfolioStatusRule = hasPortfolio
     ? ``
@@ -386,7 +370,7 @@ function buildPreAfternoonOutputRules(investmentStyle: string, hasPortfolio: boo
 
   return `## 出力ルール
 - marketHeadline: 前場の地合いを1文で総括。「前場は〜でした」という形式で実データに基づく
-- marketKeyFactor: 前場の動きを左右した主要因を1-2文で説明。VIXが25以上の場合はリスク水準を明示、WTI原油が前日比±3%以上の場合はエネルギーセクターへの影響を言及する
+- marketKeyFactor: 前場の動きを左右した主要因を1-2文で説明。VIXが30以上の場合はリスク水準を明示、WTI原油が前日比±3%以上の場合はエネルギーセクターへの影響を言及する
 ${portfolioStatusRule}${portfolioSummaryRule}
 ${actionPlanRule}
 - buddyMessage: 前場の結果を受け止め、後場に冷静に臨めるよう背中を押す1文。前場が良くても悪くても落ち着いたトーンで
@@ -455,20 +439,12 @@ ${step3}`;
 
 function buildEveningOutputRules(investmentStyle: string, hasPortfolio: boolean): string {
   const portfolioSummaryRule = hasPortfolio
-    ? `- portfolioSummary: 今日のポートフォリオの動きを2-3文で説明。超過リターンの具体的数値（日経平均を何%上回った/下回ったか）を含める。ベータ値が1.3以上なら「市場より大きく動くハイリスク型」、0.7以下なら「市場より安定した守備型」と特性を伝える`
+    ? `- portfolioSummary: 今日のポートフォリオの動きを1-2文で説明。超過リターンの具体的数値（日経平均を何%上回った/下回ったか）を含める。ベータ値が1.3以上または0.7以下の場合はリスク特性にも触れる`
     : `- portfolioSummary: 今日の市場動向と注目セクターのまとめを1-2文で`;
 
   const actionPlanRule = hasPortfolio
-    ? `- actionPlan: 投資スタイル（${investmentStyle}）に基づく明日に向けた具体的な準備。3-4文で以下を網羅する:
-  1. 今日の結果を踏まえた最優先のアクション（具体的な銘柄名と根拠を含む）
-  2. セクタートレンドに基づく明日の戦略
-  3. 今後7日間に決算を控える銘柄がある場合、決算前の対応方針
-  4. リスク要因がある場合はその対処法`
-    : `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、明日の投資チャンスの提案。3-4文で以下を網羅する:
-  1. 今日の動きを踏まえた注目セクターと明日の注目ポイント
-  2. 気になるリスト銘柄があれば今日の動きを踏まえた評価
-  3. 今後7日間に決算を控える注目銘柄がある場合、その注意点
-  4. リスク要因がある場合はその対処法`;
+    ? `- actionPlan: 投資スタイル（${investmentStyle}）に基づく明日に向けた具体的な準備。今日の結果を踏まえた最優先のアクション（具体的な銘柄名と根拠）とセクタートレンドに基づく明日の戦略を中心に2-3文で。決算を控える銘柄がある場合やリスク要因がある場合は言及すること`
+    : `- actionPlan: 投資スタイル（${investmentStyle}）に基づく、明日の投資チャンスの提案。今日の動きを踏まえた注目セクターと気になるリスト銘柄の評価を中心に2-3文で。決算を控える銘柄がある場合やリスク要因がある場合は言及すること`;
 
   const portfolioStatusRule = hasPortfolio
     ? ``
@@ -485,7 +461,7 @@ function buildEveningOutputRules(investmentStyle: string, hasPortfolio: boolean)
 
   return `## 出力ルール
 - marketHeadline: 今日の市場を1文で総括。日経とNY市場の動きを踏まえる。ニュースを創作しない。実データに基づく
-- marketKeyFactor: 今日の主要因を1-2文で振り返り。NY市場との相関があれば言及する。VIXが25以上の場合はリスク水準を明示、WTI原油が前日比±3%以上の場合はエネルギーセクターへの影響を言及する
+- marketKeyFactor: 今日の主要因を1-2文で振り返り。NY市場との相関があれば言及する。VIXが30以上の場合はリスク水準を明示、WTI原油が前日比±3%以上の場合はエネルギーセクターへの影響を言及する
 ${portfolioStatusRule}${portfolioSummaryRule}
 ${actionPlanRule}
 - buddyMessage: 親しみやすい口調で今日の労いと明日への期待を込めた1文
