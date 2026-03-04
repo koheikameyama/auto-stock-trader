@@ -129,6 +129,7 @@ export async function executePurchaseRecommendation(
       isProfitable: true,
       profitTrend: true,
       revenueGrowth: true,
+      netIncomeGrowth: true,
       eps: true,
       fiftyTwoWeekHigh: true,
       fiftyTwoWeekLow: true,
@@ -354,7 +355,14 @@ export async function executePurchaseRecommendation(
   );
 
   // 決算・配当落ちコンテキスト
-  const earningsContext = buildEarningsContext(stock.nextEarningsDate);
+  const earningsContext = buildEarningsContext(stock.nextEarningsDate, {
+    isProfitable: stock.isProfitable,
+    profitTrend: stock.profitTrend,
+    revenueGrowth: stock.revenueGrowth ? Number(stock.revenueGrowth) : null,
+    netIncomeGrowth: stock.netIncomeGrowth ? Number(stock.netIncomeGrowth) : null,
+    eps: stock.eps ? Number(stock.eps) : null,
+    per: stock.per ? Number(stock.per) : null,
+  });
   const exDividendContext = buildExDividendContext(
     stock.exDividendDate,
     stock.dividendYield ? Number(stock.dividendYield) : null,

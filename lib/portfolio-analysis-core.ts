@@ -750,7 +750,14 @@ export async function executePortfolioAnalysis(
   } catch (error) {
     console.error("市場データ取得失敗（フォールバック）:", error);
   }
-  const earningsContext = buildEarningsContext(stock.nextEarningsDate);
+  const earningsContext = buildEarningsContext(stock.nextEarningsDate, {
+    isProfitable: stock.isProfitable,
+    profitTrend: stock.profitTrend,
+    revenueGrowth: stock.revenueGrowth ? Number(stock.revenueGrowth) : null,
+    netIncomeGrowth: stock.netIncomeGrowth ? Number(stock.netIncomeGrowth) : null,
+    eps: stock.eps ? Number(stock.eps) : null,
+    per: stock.per ? Number(stock.per) : null,
+  });
   const exDividendContext = buildExDividendContext(
     stock.exDividendDate,
     stock.dividendYield ? Number(stock.dividendYield) : null,
@@ -1235,7 +1242,14 @@ export async function executeSimulatedPortfolioAnalysis(
   try {
     marketData = await getNikkei225Data();
   } catch (e) {}
-  const simEarningsContext = buildEarningsContext(stock.nextEarningsDate);
+  const simEarningsContext = buildEarningsContext(stock.nextEarningsDate, {
+    isProfitable: stock.isProfitable,
+    profitTrend: stock.profitTrend,
+    revenueGrowth: stock.revenueGrowth ? Number(stock.revenueGrowth) : null,
+    netIncomeGrowth: stock.netIncomeGrowth ? Number(stock.netIncomeGrowth) : null,
+    eps: stock.eps ? Number(stock.eps) : null,
+    per: stock.per ? Number(stock.per) : null,
+  });
   const simExDividendContext = buildExDividendContext(
     stock.exDividendDate,
     stock.dividendYield ? Number(stock.dividendYield) : null,

@@ -647,8 +647,19 @@ ${parts.join("\n")}
 /**
  * 決算間近コンテキスト文字列を生成する
  * @param nextEarningsDate - 次回決算発表予定日
+ * @param financials - 業績データ（任意）
  */
-export function buildEarningsContext(nextEarningsDate: Date | null): string {
+export function buildEarningsContext(
+  nextEarningsDate: Date | null,
+  financials?: {
+    isProfitable?: boolean | null;
+    profitTrend?: string | null;
+    revenueGrowth?: number | null;
+    netIncomeGrowth?: number | null;
+    eps?: number | null;
+    per?: number | null;
+  },
+): string {
   if (!nextEarningsDate) return "";
 
   const now = new Date();
@@ -657,11 +668,45 @@ export function buildEarningsContext(nextEarningsDate: Date | null): string {
 
   if (diffDays < 0 || diffDays > 7) return "";
 
+  // 業績サマリーを構築
+  const financialLines: string[] = [];
+  if (financials) {
+    // 損益状況
+    const profitLabel = financials.isProfitable === false ? "赤字" : financials.isProfitable === true ? "黒字" : null;
+    const trendLabel = financials.profitTrend === "increasing" ? "増益傾向" : financials.profitTrend === "decreasing" ? "減益傾向" : financials.profitTrend === "stable" ? "横ばい" : null;
+    const profitParts = [profitLabel, trendLabel].filter(Boolean);
+    if (profitParts.length > 0) {
+      const growthParts: string[] = [];
+      if (financials.revenueGrowth != null) growthParts.push(`売上前年比${financials.revenueGrowth >= 0 ? "+" : ""}${financials.revenueGrowth.toFixed(1)}%`);
+      if (financials.netIncomeGrowth != null && financials.isProfitable !== false) growthParts.push(`利益前年比${financials.netIncomeGrowth >= 0 ? "+" : ""}${financials.netIncomeGrowth.toFixed(1)}%`);
+      const growthSuffix = growthParts.length > 0 ? `（${growthParts.join("、")}）` : "";
+      financialLines.push(`- 直近業績: ${profitParts.join("・")}${growthSuffix}`);
+    }
+
+    // バリュエーション
+    if (financials.per != null && financials.isProfitable !== false) {
+      financialLines.push(`- バリュエーション: PER ${financials.per.toFixed(1)}倍`);
+    } else if (financials.isProfitable === false) {
+      financialLines.push(`- バリュエーション: PER算出不可（赤字）`);
+    }
+
+    // 決算前の見通し
+    if (financials.isProfitable === false) {
+      financialLines.push(`- 業績不振のため決算でネガティブサプライズのリスクあり`);
+    } else if (financials.profitTrend === "increasing") {
+      financialLines.push(`- 業績好調のため決算も期待できる傾向ですが、株価に織り込み済みの可能性もあります`);
+    } else if (financials.profitTrend === "decreasing") {
+      financialLines.push(`- 減益傾向のため決算でさらなる下方修正のリスクがあります`);
+    }
+  }
+
+  const financialSection = financialLines.length > 0 ? financialLines.join("\n") + "\n" : "";
+
   if (diffDays <= 3) {
     return `
 【⚠️ 決算発表まであと${diffDays}日】
 - 決算発表日: ${nextEarningsDate.toISOString().split("T")[0]}
-- 決算直前のため、新規購入は「決算ギャンブル」になります
+${financialSection}- 決算直前のため、新規購入は「決算ギャンブル」になります
 - 決算内容次第で大幅な値動きの可能性があります
 - 決算後の値動きを確認してから判断することを推奨します
 `;
@@ -670,7 +715,7 @@ export function buildEarningsContext(nextEarningsDate: Date | null): string {
   return `
 【決算発表まであと${diffDays}日】
 - 決算発表日: ${nextEarningsDate.toISOString().split("T")[0]}
-- 決算結果次第で株価が大きく動く可能性があります
+${financialSection}- 決算結果次第で株価が大きく動く可能性があります
 - 新規購入する場合は決算リスクを考慮してください
 `;
 }
