@@ -9,6 +9,7 @@ import { useTranslations } from "next-intl"
 
 interface PortfolioSummaryProps {
   hasHoldings: boolean
+  hasPortfolioStocks: boolean
 }
 
 interface HoldingStock {
@@ -22,7 +23,7 @@ interface HoldingStock {
   unrealizedGainPercent: number | null
 }
 
-export default function PortfolioSummary({ hasHoldings }: PortfolioSummaryProps) {
+export default function PortfolioSummary({ hasHoldings, hasPortfolioStocks }: PortfolioSummaryProps) {
   const t = useTranslations("dashboard.portfolioSummary")
   const { fetchPortfolioSummary, fetchNikkei, fetchUserStocks, fetchStockPrices } = useAppStore()
   const [summary, setSummary] = useState<PortfolioSummaryData | null>(null)
@@ -32,7 +33,7 @@ export default function PortfolioSummary({ hasHoldings }: PortfolioSummaryProps)
   const [isExpanded, setIsExpanded] = useState(false)
 
   useEffect(() => {
-    if (!hasHoldings) {
+    if (!hasPortfolioStocks) {
       setLoading(false)
       return
     }
@@ -42,7 +43,7 @@ export default function PortfolioSummary({ hasHoldings }: PortfolioSummaryProps)
         const [summaryData, nikkeiData, userStocks] = await Promise.all([
           fetchPortfolioSummary(),
           fetchNikkei(),
-          fetchUserStocks(),
+          hasHoldings ? fetchUserStocks() : Promise.resolve([]),
         ])
 
         setSummary(summaryData)
@@ -93,9 +94,9 @@ export default function PortfolioSummary({ hasHoldings }: PortfolioSummaryProps)
     }
 
     fetchData()
-  }, [hasHoldings, fetchPortfolioSummary, fetchNikkei, fetchUserStocks, fetchStockPrices])
+  }, [hasHoldings, hasPortfolioStocks, fetchPortfolioSummary, fetchNikkei, fetchUserStocks, fetchStockPrices])
 
-  if (!hasHoldings) {
+  if (!hasPortfolioStocks) {
     return null
   }
 
@@ -139,6 +140,11 @@ export default function PortfolioSummary({ hasHoldings }: PortfolioSummaryProps)
     ? summary.unrealizedGainPercent - nikkei.changePercent
     : null
   const isOutperforming = comparison !== null && comparison > 0
+
+  // 保有中の銘柄がない場合（売却済みのみ）: PerformanceSummaryだけ表示
+  if (!hasHoldings) {
+    return <PerformanceSummary summary={summary} />
+  }
 
   return (
     <>

@@ -64,6 +64,7 @@ export default async function DashboardPage() {
     return quantity > 0;
   });
   const hasHoldings = activePortfolioStocks.length > 0;
+  const hasPortfolioStocks = user.portfolioStocks.length > 0;
   const portfolioCount = activePortfolioStocks.length;
   const watchlistCount = user.watchlistStocks.length;
 
@@ -211,10 +212,10 @@ export default async function DashboardPage() {
           <NikkeiSummary />
 
           {/* 損益サマリー（クリックでマイ銘柄へ） */}
-          <PortfolioSummary hasHoldings={hasHoldings} />
+          <PortfolioSummary hasHoldings={hasHoldings} hasPortfolioStocks={hasPortfolioStocks} />
 
           {/* 資産推移グラフ */}
-          {hasHoldings && (
+          {hasPortfolioStocks && (
             <div className="mt-4 sm:mt-6">
               <PortfolioHistoryChart />
             </div>
