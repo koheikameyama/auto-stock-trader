@@ -73,6 +73,7 @@ export default function MyStocksClient() {
   const [recommendations, setRecommendations] = useState<
     Record<string, PurchaseRecommendation>
   >({});
+  const [sectorScores, setSectorScores] = useState<Record<string, number>>({});
   const [trackedStaleTickers, setTrackedStaleTickers] = useState<Set<string>>(
     new Set(),
   );
@@ -289,6 +290,29 @@ export default function MyStocksClient() {
       fetchRecommendations();
     }
   }, [userStocks]);
+
+  // セクタートレンド取得（ウォッチリストのソート用）
+  useEffect(() => {
+    async function fetchSectorTrends() {
+      try {
+        const res = await fetch("/api/sector-trends");
+        if (!res.ok) return;
+        const data = await res.json();
+        const scores: Record<string, number> = {};
+        if (data.trends) {
+          data.trends.forEach((t: { sector: string; compositeScore: number | null }) => {
+            if (t.sector && t.compositeScore !== null) {
+              scores[t.sector] = t.compositeScore;
+            }
+          });
+        }
+        setSectorScores(scores);
+      } catch {
+        // ignore
+      }
+    }
+    fetchSectorTrends();
+  }, []);
 
   // ギャップ予測データを取得（JST 7:00〜15:00のみ）
   useEffect(() => {
@@ -677,14 +701,15 @@ export default function MyStocksClient() {
     });
   }, [userStocks, prices]);
 
-  // ウォッチリストを推奨ステータス順 × 信頼度順に並び替え
+  // ウォッチリストを buyTiming × セクター順位で並び替え
   // 1. buy > stay > avoid の順
-  // 2. 同じステータス内は信頼度の高い順（buyはuserFitScore優先）
-  // 3. 信頼度が同じ場合は追加日時の新しい順
+  // 2. buyTiming: market(成行OK) > dip(押し目) > null の順
+  // 3. セクター compositeScore の高い順
   const watchlistStocks = useMemo(() => {
     const filtered = userStocks.filter((s) => s.type === "watchlist");
 
     const recOrder: Record<string, number> = { buy: 0, stay: 1, avoid: 2 };
+    const timingOrder: Record<string, number> = { market: 0, dip: 1 };
 
     return filtered.sort((a, b) => {
       const recA = recommendations[a.stockId];
@@ -696,23 +721,20 @@ export default function MyStocksClient() {
       // ステータスが異なる場合はステータス順
       if (orderA !== orderB) return orderA - orderB;
 
-      // 同じステータス内: buyの場合はuserFitScore優先
-      if (recA?.recommendation === "buy" && recB?.recommendation === "buy") {
-        const scoreA = recA?.userFitScore ?? null;
-        const scoreB = recB?.userFitScore ?? null;
-        if (scoreA !== null && scoreB !== null && scoreA !== scoreB) {
-          return scoreB - scoreA;
-        }
-      }
+      // buyTiming: market > dip > null
+      const timingA = timingOrder[recA?.buyTiming ?? ""] ?? 2;
+      const timingB = timingOrder[recB?.buyTiming ?? ""] ?? 2;
+      if (timingA !== timingB) return timingA - timingB;
 
-      // 同じステータス内: 信頼度の高い順
-      const confDiff = (recB?.confidence ?? 0) - (recA?.confidence ?? 0);
-      if (confDiff !== 0) return confDiff;
+      // セクター compositeScore の高い順
+      const sectorA = a.stock.sector ? (sectorScores[a.stock.sector] ?? -Infinity) : -Infinity;
+      const sectorB = b.stock.sector ? (sectorScores[b.stock.sector] ?? -Infinity) : -Infinity;
+      if (sectorA !== sectorB) return sectorB - sectorA;
 
-      // 信頼度も同じ場合は追加日時の新しい順
+      // 同じ場合は追加日時の新しい順
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
-  }, [userStocks, recommendations]);
+  }, [userStocks, recommendations, sectorScores]);
 
   const displayStocks =
     activeTab === "portfolio" ? portfolioStocks : watchlistStocks;
