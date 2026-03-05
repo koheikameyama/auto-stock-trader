@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { formatAnalysisTime } from "@/lib/analysis-time";
+import SectorTrendBadge from "@/app/components/SectorTrendBadge";
 import {
   getActionButtonClass,
   ACTION_BUTTON_LABELS,
@@ -104,6 +105,7 @@ interface StockCardProps {
   portfolioRecommendation?: "buy" | "sell" | "hold" | null;
   analyzedAt?: string | null;
   gapPrediction?: GapPredictionData;
+  sectorTrend?: { compositeScore: number; trendDirection: string };
   onAdditionalPurchase?: () => void;
   onSell?: () => void;
   onPurchase?: () => void;
@@ -121,6 +123,7 @@ export default function StockCard({
   portfolioRecommendation,
   analyzedAt,
   gapPrediction,
+  sectorTrend,
   onAdditionalPurchase,
   onSell,
   onPurchase,
@@ -276,9 +279,12 @@ export default function StockCard({
               {stock.stock.name}
             </h3>
           </div>
-          <p className="text-xs sm:text-sm text-gray-500">
-            <CopyableTicker tickerCode={stock.stock.tickerCode} />
-            {stock.stock.sector && ` • ${stock.stock.sector}`}
+          <p className="text-xs sm:text-sm text-gray-500 flex items-center flex-wrap gap-y-0.5">
+            <span>
+              <CopyableTicker tickerCode={stock.stock.tickerCode} />
+              {stock.stock.sector && ` • ${stock.stock.sector}`}
+            </span>
+            {sectorTrend && <SectorTrendBadge compositeScore={sectorTrend.compositeScore} trendDirection={sectorTrend.trendDirection} />}
           </p>
         </div>
 

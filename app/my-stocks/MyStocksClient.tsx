@@ -15,6 +15,7 @@ import {
   MAX_PORTFOLIO_STOCKS,
   MAX_WATCHLIST_STOCKS,
   GAP_PREDICTION_DISPLAY,
+  getSectorGroup,
 } from "@/lib/constants";
 import dayjs from "dayjs";
 import utcPlugin from "dayjs/plugin/utc";
@@ -73,7 +74,7 @@ export default function MyStocksClient() {
   const [recommendations, setRecommendations] = useState<
     Record<string, PurchaseRecommendation>
   >({});
-  const [sectorScores, setSectorScores] = useState<Record<string, number>>({});
+  const [sectorTrends, setSectorTrends] = useState<Record<string, { compositeScore: number; trendDirection: string }>>({});
   const [trackedStaleTickers, setTrackedStaleTickers] = useState<Set<string>>(
     new Set(),
   );
@@ -291,22 +292,22 @@ export default function MyStocksClient() {
     }
   }, [userStocks]);
 
-  // セクタートレンド取得（ウォッチリストのソート用）
+  // セクタートレンド取得（ウォッチリストのソート用 + カード表示用）
   useEffect(() => {
     async function fetchSectorTrends() {
       try {
         const res = await fetch("/api/sector-trends");
         if (!res.ok) return;
         const data = await res.json();
-        const scores: Record<string, number> = {};
+        const trends: Record<string, { compositeScore: number; trendDirection: string }> = {};
         if (data.trends) {
-          data.trends.forEach((t: { sector: string; compositeScore: number | null }) => {
+          data.trends.forEach((t: { sector: string; compositeScore: number | null; trendDirection: string }) => {
             if (t.sector && t.compositeScore !== null) {
-              scores[t.sector] = t.compositeScore;
+              trends[t.sector] = { compositeScore: t.compositeScore, trendDirection: t.trendDirection };
             }
           });
         }
-        setSectorScores(scores);
+        setSectorTrends(trends);
       } catch {
         // ignore
       }
@@ -727,14 +728,14 @@ export default function MyStocksClient() {
       if (timingA !== timingB) return timingA - timingB;
 
       // セクター compositeScore の高い順
-      const sectorA = a.stock.sector ? (sectorScores[a.stock.sector] ?? -Infinity) : -Infinity;
-      const sectorB = b.stock.sector ? (sectorScores[b.stock.sector] ?? -Infinity) : -Infinity;
+      const sectorA = a.stock.sector ? (sectorTrends[a.stock.sector]?.compositeScore ?? -Infinity) : -Infinity;
+      const sectorB = b.stock.sector ? (sectorTrends[b.stock.sector]?.compositeScore ?? -Infinity) : -Infinity;
       if (sectorA !== sectorB) return sectorB - sectorA;
 
       // 同じ場合は追加日時の新しい順
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
-  }, [userStocks, recommendations, sectorScores]);
+  }, [userStocks, recommendations, sectorTrends]);
 
   const displayStocks =
     activeTab === "portfolio" ? portfolioStocks : watchlistStocks;
@@ -1029,6 +1030,10 @@ export default function MyStocksClient() {
                     isStale={staleTickers.has(stock.stock.tickerCode)}
                     recommendation={recommendations[stock.stockId]}
                     gapPrediction={gapPredictions[stock.stockId]}
+                    sectorTrend={(() => {
+                      const group = getSectorGroup(stock.stock.sector);
+                      return group ? sectorTrends[group] : undefined;
+                    })()}
                     portfolioRecommendation={
                       stock.type === "portfolio"
                         ? stock.recommendation

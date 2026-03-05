@@ -99,6 +99,8 @@ interface Props {
     avgPER: number | null;
     avgPBR: number | null;
     avgROE: number | null;
+    compositeScore: number | null;
+    trendDirection: string;
   } | null;
 }
 
@@ -283,6 +285,7 @@ export default function StockDetailClient({
       name={stock.name}
       tickerCode={stock.tickerCode}
       sector={stock.sector}
+      sectorTrend={sectorAvg?.compositeScore != null ? { compositeScore: sectorAvg.compositeScore, trendDirection: sectorAvg.trendDirection } : undefined}
       badge={badgeInfo.badge}
       badgeClassName={badgeInfo.className}
       backHref="/dashboard"

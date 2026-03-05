@@ -278,6 +278,13 @@
       "hint": "50%以下なら余裕あり"
     }
   },
+  "sectorTrend": {
+    "strongTailwind": "強い追い風",
+    "tailwind": "追い風",
+    "strongHeadwind": "強い逆風",
+    "headwind": "逆風",
+    "neutral": "中立"
+  },
   "sectorComparison": {
     "title": "セクター内の位置づけ",
     "subtitle": "同じセクターの平均と比較",

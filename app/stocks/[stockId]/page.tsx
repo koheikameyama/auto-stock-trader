@@ -98,6 +98,8 @@ async function StockDetailContent({
     avgPER: sectorTrend.avgPER,
     avgPBR: sectorTrend.avgPBR,
     avgROE: sectorTrend.avgROE,
+    compositeScore: sectorTrend.compositeScore,
+    trendDirection: sectorTrend.trendDirection,
   } : null
 
   const stockData = {
