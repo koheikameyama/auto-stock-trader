@@ -58,6 +58,8 @@ export interface UserStockResponse {
     fetchFailCount?: number;
     isDelisted?: boolean;
     nextEarningsDate?: string | null;
+    delistingNewsDetectedAt?: string | null;
+    delistingNewsReason?: string | null;
   };
   createdAt: string;
   updatedAt: string;
@@ -106,6 +108,8 @@ export async function GET(request: NextRequest) {
                 fetchFailCount: true;
                 isDelisted: true;
                 nextEarningsDate: true;
+                delistingNewsDetectedAt: true;
+                delistingNewsReason: true;
               };
             };
           };
@@ -126,6 +130,8 @@ export async function GET(request: NextRequest) {
                 market: true;
                 fetchFailCount: true;
                 isDelisted: true;
+                delistingNewsDetectedAt: true;
+                delistingNewsReason: true;
               };
             };
             transactions: { orderBy: { transactionDate: "asc" } };
@@ -149,6 +155,8 @@ export async function GET(request: NextRequest) {
               fetchFailCount: true,
               isDelisted: true,
               nextEarningsDate: true,
+              delistingNewsDetectedAt: true,
+              delistingNewsReason: true,
             },
           },
         },
@@ -169,6 +177,8 @@ export async function GET(request: NextRequest) {
               market: true,
               fetchFailCount: true,
               isDelisted: true,
+              delistingNewsDetectedAt: true,
+              delistingNewsReason: true,
             },
           },
           transactions: {
@@ -204,6 +214,8 @@ export async function GET(request: NextRequest) {
           fetchFailCount: ws.stock.fetchFailCount,
           isDelisted: ws.stock.isDelisted,
           nextEarningsDate: ws.stock.nextEarningsDate?.toISOString() ?? null,
+          delistingNewsDetectedAt: ws.stock.delistingNewsDetectedAt?.toISOString() ?? null,
+          delistingNewsReason: ws.stock.delistingNewsReason ?? null,
         },
         createdAt: ws.createdAt.toISOString(),
         updatedAt: ws.updatedAt.toISOString(),
@@ -250,6 +262,8 @@ export async function GET(request: NextRequest) {
           currentPrice: null, // クライアント側で非同期取得
           fetchFailCount: ps.stock.fetchFailCount,
           isDelisted: ps.stock.isDelisted,
+          delistingNewsDetectedAt: ps.stock.delistingNewsDetectedAt?.toISOString() ?? null,
+          delistingNewsReason: ps.stock.delistingNewsReason ?? null,
         },
         createdAt: ps.createdAt.toISOString(),
         updatedAt: ps.updatedAt.toISOString(),

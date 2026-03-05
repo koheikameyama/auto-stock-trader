@@ -19,10 +19,15 @@ jobs:
       - name: Install Python dependencies
         run: pip install psycopg2-binary yfinance openai
 
+      - name: Install requests
+        run: pip install requests
+
       - name: Fetch stock news
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: python scripts/github-actions/fetch_stock_news.py
 
       - name: Notify Slack on success

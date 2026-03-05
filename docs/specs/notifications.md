@@ -21,6 +21,7 @@
 | `market_alert` | 市場警戒アラート | 市場急変を検知（VIX急騰、日経急落等）。トリガー種別と値を表示 |
 | `daily_highlights` | 注目データ更新 | 今日の注目データが更新された際の通知 |
 | `trend_divergence` | トレンド乖離 | 短期/長期トレンドの乖離が検出された際の通知。乖離状況と注目価格水準を表示 |
+| `delisting_warning` | 上場廃止警告 | ポートフォリオ・ウォッチリスト銘柄の上場廃止関連ニュースを検出した際の通知 |
 
 ※ 廃止された通知タイプ: `buy_recommendation`（買い推奨）、`switch_proposal`（乗り換え提案）、`market_shield_activated/deactivated`（マーケットシールド発動/解除）
 

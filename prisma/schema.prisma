@@ -175,6 +175,10 @@ model Stock {
   isDelisted        Boolean   @default(false) // 上場廃止フラグ
   hasChartData      Boolean   @default(true) // チャートデータが利用可能か（バッチ更新時に判定）
 
+  // 上場廃止ニュース検出
+  delistingNewsDetectedAt DateTime? // 上場廃止関連ニュースが検出された日時
+  delistingNewsReason     String?   @db.Text // 上場廃止関連と判断された理由
+
   analyses                 StockAnalysis[]
   featuredStocks           DailyFeaturedStock[]
   watchlistStocks          WatchlistStock[]
@@ -603,7 +607,7 @@ model Notification {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // 通知タイプ: "price_alert" | "plunge" | "stop_loss" | "profit_milestone" | "market_alert" | "daily_highlights"
+  // 通知タイプ: "price_alert" | "plunge" | "stop_loss" | "profit_milestone" | "market_alert" | "daily_highlights" | "delisting_warning"
   type String
 
   // 関連銘柄

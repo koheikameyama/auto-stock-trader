@@ -60,6 +60,10 @@
       "label": "注目データ",
       "icon": "📊"
     },
+    "delisting_warning": {
+      "label": "上場廃止警告",
+      "icon": "🚫"
+    },
     "default": {
       "label": "通知",
       "icon": "🔔"

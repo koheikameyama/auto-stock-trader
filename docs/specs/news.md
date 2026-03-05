@@ -160,7 +160,7 @@
 | 時刻（JST） | 対象 | スクリプト |
 |-------------|------|----------|
 | 08:00（pre-morning） | JP + USニュース（RSS） | `scripts/news/fetch-news.ts`, `fetch-us-news.ts` |
-| 08:00（pre-morning） | 全銘柄個別ニュース（yfinance） | `scripts/github-actions/fetch_stock_news.py` |
+| 08:00（pre-morning） | 全銘柄個別ニュース（yfinance）+ 上場廃止ニュース検出 | `scripts/github-actions/fetch_stock_news.py` |
 | 11:40（pre-afternoon） | JPニュース（RSS） | `scripts/news/fetch-news.ts` |
 
 ## AI分析（地政学・マクロニュース対応）
