@@ -44,6 +44,7 @@ export default function NotificationsPage() {
     stop_loss: { icon: tTypes('stop_loss.icon'), color: "bg-orange-100 text-orange-800", label: tTypes('stop_loss.label') },
     buy_target: { icon: tTypes('buy_target.icon'), color: "bg-green-100 text-green-800", label: tTypes('buy_target.label') },
     profit_milestone: { icon: tTypes('profit_milestone.icon'), color: "bg-emerald-100 text-emerald-800", label: tTypes('profit_milestone.label') },
+    delisting_warning: { icon: tTypes('delisting_warning.icon'), color: "bg-red-100 text-red-800", label: tTypes('delisting_warning.label') },
   }
 
   // タイトルから銘柄の所属（保有/気になる）を判断

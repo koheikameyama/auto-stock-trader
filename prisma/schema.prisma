@@ -603,7 +603,7 @@ model Notification {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // 通知タイプ: "price_alert" | "plunge" | "stop_loss" | "profit_milestone" | "market_alert" | "daily_highlights"
+  // 通知タイプ: "price_alert" | "plunge" | "stop_loss" | "profit_milestone" | "market_alert" | "daily_highlights" | "delisting_warning"
   type String
 
   // 関連銘柄
