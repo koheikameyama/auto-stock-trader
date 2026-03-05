@@ -25,7 +25,7 @@ on:
 #
 #   pre-morning (08:00):   pre-market-data + news(JP+US) + stock-news → trends → レポート + PF分析 → navigator(morning)
 #   morning (09:30):       prices → trends → レポート + PF分析 + 注目データ（開場30分後・値動き安定後の再判定）
-#   pre-afternoon (11:40): news(JP) + prices → trends → レポート + PF分析 → navigator(pre-afternoon)
+#   pre-afternoon (11:40): news(JP) + prices → trends → レポート + PF分析 + 注目データ → navigator(pre-afternoon)
 #   afternoon (13:00):     レポート + PF分析 + 注目データ（後場開始30分後の再判定）
 #   close (15:40):         prices → trends → レポート + PF分析 + 注目データ + gainers + snapshots → navigator(evening)
 # ──────────────────────────────────────────────
@@ -81,10 +81,10 @@ jobs:
 
   daily-highlights:
     needs: [fetch-news, calculate-sector-trends]
-    if: "!failure() && !cancelled() && (inputs.session == 'morning' || inputs.session == 'afternoon' || inputs.session == 'close')"
+    if: "!failure() && !cancelled() && (inputs.session == 'morning' || inputs.session == 'pre-afternoon' || inputs.session == 'afternoon' || inputs.session == 'close')"
     uses: ./.github/workflows/session-daily-highlights.yml
     with:
-      session: ${{ inputs.session }}
+      session: ${{ inputs.session == 'pre-afternoon' && 'afternoon' || inputs.session }}
     secrets: inherit
 
   gainers-losers:
