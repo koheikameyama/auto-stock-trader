@@ -72,8 +72,13 @@ model User {
   // 資産スナップショット
   portfolioSnapshots PortfolioSnapshot[]
 
+  // アクティビティ追跡
+  lastActivityAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([lastActivityAt])
 }
 
 model VerificationToken {

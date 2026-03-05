@@ -4,6 +4,35 @@
 
 GitHub Actionsで定期実行されるバッチ処理群です。株価データ取得、AI分析生成、データメンテナンスを自動化します。
 
+## アクティブユーザーフィルタリング
+
+AIコスト削減のため、**7日以上ログインしていないユーザー**はAIを使用するバッチ処理の対象から除外される。
+
+**判定ロジック**:
+- `User.lastActivityAt` が7日以内 → アクティブ（対象）
+- `User.lastActivityAt` が NULL かつ `createdAt` が7日以内 → 新規ユーザー（対象）
+- それ以外 → 非アクティブ（除外）
+
+**アクティビティ追跡**: JWT callback で1時間に1回 `lastActivityAt` を更新。
+
+**フィルタ対象バッチ（AI APIコストあり）**:
+
+| バッチ | フィルタ方法 |
+|--------|------------|
+| ポートフォリオ総評（`generate_portfolio_overall_analysis.py`） | SQLで User JOIN + フィルタ |
+| ポートフォリオ分析（`generate_portfolio_analysis.py`） | SQLで User JOIN + フィルタ |
+| 購入判断（`generate_purchase_recommendations.py`） | SQLで User JOIN + フィルタ |
+| おすすめ生成（`generate-daily/route.ts`） | Prismaクエリでフィルタ |
+
+**フィルタ対象外（AIコストなし）**:
+
+| バッチ | 理由 |
+|--------|------|
+| 資産スナップショット（`generate_portfolio_snapshots.py`） | DB操作のみ、履歴の空白回避 |
+| 株価アラート（`check_price_alerts.py`） | 通知のみ、復帰促進 |
+
+**定数**: `USER_ACTIVITY.INACTIVE_THRESHOLD_DAYS` (TS) / `INACTIVE_THRESHOLD_DAYS` (Python) = 7
+
 ## 日次データフロー
 
 ```

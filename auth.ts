@@ -2,8 +2,11 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { PrismaClient } from "@prisma/client";
+import { USER_ACTIVITY } from "@/lib/constants";
 
 const prisma = new PrismaClient();
+
+const THROTTLE_MS = USER_ACTIVITY.UPDATE_THROTTLE_HOURS * 60 * 60 * 1000;
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -38,7 +41,29 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           select: { role: true },
         });
         token.role = dbUser?.role ?? "user";
+        token.lastActivityAt = Date.now();
+        await prisma.user.update({
+          where: { id: user.id as string },
+          data: { lastActivityAt: new Date() },
+        });
       }
+
+      // スロットル付きアクティビティ追跡（1時間に1回のみDB更新）
+      const lastActivity = (token.lastActivityAt as number) || 0;
+      if (Date.now() - lastActivity > THROTTLE_MS) {
+        token.lastActivityAt = Date.now();
+        if (token.id) {
+          prisma.user
+            .update({
+              where: { id: token.id as string },
+              data: { lastActivityAt: new Date() },
+            })
+            .catch((err: unknown) => {
+              console.error("Failed to update lastActivityAt:", err);
+            });
+        }
+      }
+
       return token;
     },
     async session({ session, token }) {

@@ -17,6 +17,10 @@ from datetime import datetime
 import psycopg2
 import requests
 
+# scriptsディレクトリをPythonパスに追加
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from lib.user_activity import get_active_user_filter_sql
+
 
 def get_database_url() -> str:
     url = os.environ.get("DATABASE_URL")
@@ -43,9 +47,10 @@ def get_cron_secret() -> str:
 
 
 def fetch_eligible_users(conn) -> list[dict]:
-    """対象ユーザーを取得（全ユーザー）"""
+    """対象ユーザーを取得（アクティブユーザーのみ）"""
+    active_filter = get_active_user_filter_sql()
     with conn.cursor() as cur:
-        cur.execute('''
+        cur.execute(f'''
             SELECT
                 u.id,
                 (SELECT COUNT(*) FROM "PortfolioStock" ps
@@ -64,6 +69,7 @@ def fetch_eligible_users(conn) -> list[dict]:
                 ) as portfolio_count,
                 (SELECT COUNT(*) FROM "WatchlistStock" ws WHERE ws."userId" = u.id) as watchlist_count
             FROM "User" u
+            WHERE {active_filter}
         ''')
         rows = cur.fetchall()
         return [

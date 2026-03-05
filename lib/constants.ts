@@ -32,6 +32,15 @@ export const MIN_CHART_DATA_POINTS = 20;
 // デフォルト値
 export const DEFAULT_INVESTMENT_BUDGET = 100000;
 
+// ユーザーアクティビティ
+export const USER_ACTIVITY = {
+  /** バッチ処理の非アクティブ除外閾値（日数）
+   * → Python: INACTIVE_THRESHOLD_DAYS */
+  INACTIVE_THRESHOLD_DAYS: 7,
+  /** DB更新のスロットル間隔（時間） - これより新しい場合は更新しない */
+  UPDATE_THROTTLE_HOURS: 1,
+} as const;
+
 // 投資スタイル（投資戦略）
 export const INVESTMENT_STYLES = {
   CONSERVATIVE: "CONSERVATIVE", // 安定配当型

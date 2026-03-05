@@ -36,6 +36,7 @@ import {
   MA_DEVIATION,
   STALE_DATA_DAYS,
   INVESTMENT_THEMES,
+  USER_ACTIVITY,
   getStyleLabel,
   getSectorGroup,
 } from "@/lib/constants";
@@ -112,8 +113,22 @@ export async function POST(request: NextRequest) {
   console.log(`Target User: ${targetUserId || "all"}`);
 
   try {
+    // 非アクティブユーザーをバッチ対象から除外（targetUserId指定時は除外しない）
+    const activeThreshold = getDaysAgoForDB(USER_ACTIVITY.INACTIVE_THRESHOLD_DAYS);
     const users = await prisma.userSettings.findMany({
-      where: targetUserId ? { userId: targetUserId } : undefined,
+      where: targetUserId
+        ? { userId: targetUserId }
+        : {
+            user: {
+              OR: [
+                { lastActivityAt: { gte: activeThreshold } },
+                {
+                  lastActivityAt: null,
+                  createdAt: { gte: activeThreshold },
+                },
+              ],
+            },
+          },
       select: {
         userId: true,
         investmentStyle: true,

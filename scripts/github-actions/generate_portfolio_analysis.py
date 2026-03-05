@@ -13,6 +13,10 @@ from datetime import datetime
 import psycopg2
 import requests
 
+# scriptsディレクトリをPythonパスに追加
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from lib.user_activity import get_active_user_filter_sql
+
 
 def get_database_url() -> str:
     url = os.environ.get("DATABASE_URL")
@@ -39,9 +43,10 @@ def get_cron_secret() -> str:
 
 
 def fetch_portfolio_stocks(conn) -> list[dict]:
-    """保有中（quantity > 0）のポートフォリオ銘柄とユーザーIDを取得（チャートデータがある銘柄のみ）"""
+    """保有中（quantity > 0）のポートフォリオ銘柄とユーザーIDを取得（アクティブユーザーのみ、チャートデータがある銘柄のみ）"""
+    active_filter = get_active_user_filter_sql()
     with conn.cursor() as cur:
-        cur.execute('''
+        cur.execute(f'''
             SELECT
                 ps."stockId",
                 ps."userId",
@@ -49,7 +54,9 @@ def fetch_portfolio_stocks(conn) -> list[dict]:
                 s."tickerCode"
             FROM "PortfolioStock" ps
             JOIN "Stock" s ON ps."stockId" = s.id
+            JOIN "User" u ON ps."userId" = u.id
             WHERE s."hasChartData" = true
+              AND {active_filter}
               AND COALESCE(
                 (SELECT SUM(
                     CASE WHEN t.type = 'buy' THEN t.quantity

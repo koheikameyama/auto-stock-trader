@@ -19,6 +19,7 @@ import requests
 # scriptsディレクトリをPythonパスに追加
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from lib.constants import BUY_RECOMMENDATION_CONFIDENCE_THRESHOLD
+from lib.user_activity import get_active_user_filter_sql
 
 
 def get_database_url() -> str:
@@ -46,24 +47,32 @@ def get_cron_secret() -> str:
 
 
 def fetch_watchlist_stocks(conn) -> list[dict]:
-    """ウォッチリストの銘柄IDを取得（重複排除、チャートデータがある銘柄のみ）"""
+    """ウォッチリストの銘柄IDを取得（アクティブユーザーのウォッチリストのみ、重複排除、チャートデータがある銘柄のみ）"""
+    active_filter = get_active_user_filter_sql()
     with conn.cursor() as cur:
-        cur.execute('''
+        cur.execute(f'''
             SELECT DISTINCT ws."stockId", s.name, s."tickerCode"
             FROM "WatchlistStock" ws
             JOIN "Stock" s ON ws."stockId" = s.id
+            JOIN "User" u ON ws."userId" = u.id
             WHERE s."hasChartData" = true
               AND s."isDelisted" = false
+              AND {active_filter}
         ''')
         rows = cur.fetchall()
     return [{"stockId": row[0], "name": row[1], "tickerCode": row[2]} for row in rows]
 
 
 def fetch_watchlist_users_for_stock(conn, stock_id: str) -> list[dict]:
-    """指定銘柄をウォッチしているユーザーIDとウォッチリストIDを取得"""
+    """指定銘柄をウォッチしているアクティブユーザーIDとウォッチリストIDを取得"""
+    active_filter = get_active_user_filter_sql()
     with conn.cursor() as cur:
-        cur.execute('''
-            SELECT "userId", id FROM "WatchlistStock" WHERE "stockId" = %s
+        cur.execute(f'''
+            SELECT ws."userId", ws.id
+            FROM "WatchlistStock" ws
+            JOIN "User" u ON ws."userId" = u.id
+            WHERE ws."stockId" = %s
+              AND {active_filter}
         ''', (stock_id,))
         rows = cur.fetchall()
     return [{"userId": row[0], "watchlistId": row[1]} for row in rows]
