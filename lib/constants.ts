@@ -79,6 +79,12 @@ export const ATR_EXIT_STRATEGY = {
   PROFIT_MILESTONES: [10, 20, 30],
   // 最低リスクリワード比（売却目標率 >= 撤退ライン率 × この値）
   MIN_RISK_REWARD_RATIO: 3,
+  // 撤退ライン率の上限（超えたらbuy→stayに降格）
+  MAX_EXIT_RATE_FOR_BUY: {
+    CONSERVATIVE: 0.10,
+    BALANCED: 0.15,
+    AGGRESSIVE: 0.20,
+  },
 } as const;
 
 // 投資スタイル別の表示設定（他の設定と形式を統一）

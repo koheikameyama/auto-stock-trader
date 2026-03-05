@@ -1001,6 +1001,13 @@ export async function executePurchaseRecommendation(
           const minSellTargetRate = sa.suggestedExitRate * ATR_EXIT_STRATEGY.MIN_RISK_REWARD_RATIO;
           sa.suggestedSellTargetRate = Math.max(sa.suggestedSellTargetRate, minSellTargetRate);
         }
+
+        // 撤退ライン率がスタイル別上限を超えたらbuy→stayに降格
+        const maxExitRate = ATR_EXIT_STRATEGY.MAX_EXIT_RATE_FOR_BUY[style];
+        if (maxExitRate != null && sa.suggestedExitRate > maxExitRate && sa.recommendation === "buy") {
+          sa.recommendation = "stay";
+          sa.caution = `撤退ラインが${Math.round(sa.suggestedExitRate * 100)}%と深く、リスクが高いため買い推奨を見送ります。${sa.caution || ""}`;
+        }
       }
     }
   }
