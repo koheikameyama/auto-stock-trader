@@ -3,12 +3,6 @@ name: Fetch Stock Prices
 on:
   workflow_dispatch:
   workflow_call:
-    inputs:
-      user-stocks-only:
-        description: 'ユーザー関連銘柄のみ取得'
-        required: false
-        type: boolean
-        default: false
 
 jobs:
   generate:
@@ -28,9 +22,4 @@ jobs:
       - name: Fetch stock prices
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          if [ "${{ inputs.user-stocks-only }}" = "true" ]; then
-            python scripts/github-actions/fetch_stock_prices.py --user-stocks-only
-          else
-            python scripts/github-actions/fetch_stock_prices.py
-          fi
+        run: python scripts/github-actions/fetch_stock_prices.py
