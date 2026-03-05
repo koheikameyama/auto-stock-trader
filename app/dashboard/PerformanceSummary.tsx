@@ -34,7 +34,7 @@ export default function PerformanceSummary({ summary }: PerformanceSummaryProps)
             </Link>
           )}
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
           {/* トータル損益 */}
           <div className="text-center">
             <div className="text-xs text-gray-500 mb-1">{t("totalGain")}</div>
@@ -51,6 +51,25 @@ export default function PerformanceSummary({ summary }: PerformanceSummaryProps)
             }`}>
               {summary.totalGainPercent >= 0 ? "+" : ""}
               {summary.totalGainPercent.toFixed(1)}%
+            </div>
+          </div>
+
+          {/* 前日比 */}
+          <div className="text-center">
+            <div className="text-xs text-gray-500 mb-1">{t("dailyChange")}</div>
+            <div
+              className={`text-base sm:text-lg font-bold ${
+                summary.dailyChange >= 0 ? "text-green-600" : "text-red-600"
+              }`}
+            >
+              {summary.dailyChange >= 0 ? "+" : ""}
+              ¥{Math.round(summary.dailyChange).toLocaleString()}
+            </div>
+            <div className={`text-[10px] ${
+              summary.dailyChangePercent >= 0 ? "text-green-500" : "text-red-500"
+            }`}>
+              {summary.dailyChangePercent >= 0 ? "+" : ""}
+              {summary.dailyChangePercent.toFixed(1)}%
             </div>
           </div>
 

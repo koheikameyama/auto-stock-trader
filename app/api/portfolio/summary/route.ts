@@ -47,8 +47,10 @@ export async function GET() {
       ? await fetchStockPrices(holdingTickers)
       : { prices: [] }
     const priceMap = new Map(prices.map((p) => [p.tickerCode, p.currentPrice]))
+    const prevCloseMap = new Map(prices.map((p) => [p.tickerCode, p.previousClose]))
 
     let totalValue = 0
+    let totalPrevValue = 0
     let totalCost = 0
 
     // 確定損益の計算用
@@ -71,7 +73,11 @@ export async function GET() {
         const currentPrice = priceMap.get(ps.stock.tickerCode)
         if (currentPrice == null) continue
 
+        const prevClose = prevCloseMap.get(ps.stock.tickerCode)
         totalValue += currentPrice * quantity
+        if (prevClose != null) {
+          totalPrevValue += prevClose * quantity
+        }
         totalCost += averagePurchasePrice.toNumber() * quantity
 
         // 部分売却がある場合: 確定損益も計算
@@ -128,6 +134,11 @@ export async function GET() {
       return NextResponse.json({ summary: null })
     }
 
+    const dailyChange = totalPrevValue > 0 ? totalValue - totalPrevValue : 0
+    const dailyChangePercent = totalPrevValue > 0
+      ? (dailyChange / totalPrevValue) * 100
+      : 0
+
     const unrealizedGain = totalValue - totalCost
     const unrealizedGainPercent = totalCost > 0
       ? (unrealizedGain / totalCost) * 100
@@ -149,6 +160,8 @@ export async function GET() {
       summary: {
         totalValue,
         totalCost,
+        dailyChange,
+        dailyChangePercent,
         unrealizedGain,
         unrealizedGainPercent,
         realizedGain,

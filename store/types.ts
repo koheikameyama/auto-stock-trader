@@ -112,6 +112,8 @@ export interface StockPrice {
 export interface PortfolioSummary {
   totalValue: number;
   totalCost: number;
+  dailyChange: number;
+  dailyChangePercent: number;
   unrealizedGain: number;
   unrealizedGainPercent: number;
   // 運用成績
