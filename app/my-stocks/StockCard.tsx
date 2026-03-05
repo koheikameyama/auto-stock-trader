@@ -236,12 +236,15 @@ export default function StockCard({
 
         {/* Delisted Warning */}
         {(stock.stock.isDelisted ||
+          stock.stock.delistingNewsDetectedAt ||
           (stock.stock.fetchFailCount ?? 0) >=
             FETCH_FAIL_WARNING_THRESHOLD) && (
           <div className="mb-3">
             <DelistedWarning
               isDelisted={stock.stock.isDelisted ?? false}
               fetchFailCount={stock.stock.fetchFailCount ?? 0}
+              delistingNewsDetectedAt={stock.stock.delistingNewsDetectedAt}
+              delistingNewsReason={stock.stock.delistingNewsReason}
               compact
             />
           </div>

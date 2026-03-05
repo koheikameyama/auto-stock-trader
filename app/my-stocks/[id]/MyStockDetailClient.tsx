@@ -82,6 +82,8 @@ interface Stock {
     latestNetIncome?: number | null;
     fetchFailCount?: number;
     isDelisted?: boolean;
+    delistingNewsDetectedAt?: string | null;
+    delistingNewsReason?: string | null;
   };
 }
 
@@ -285,6 +287,8 @@ export default function MyStockDetailClient({
       <DelistedWarning
         isDelisted={stock.stock.isDelisted ?? false}
         fetchFailCount={stock.stock.fetchFailCount ?? 0}
+        delistingNewsDetectedAt={stock.stock.delistingNewsDetectedAt}
+        delistingNewsReason={stock.stock.delistingNewsReason}
       />
 
       {/* Stale Analysis Banner */}

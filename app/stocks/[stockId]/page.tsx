@@ -157,6 +157,8 @@ async function StockDetailContent({
     fetchFailCount: stock.fetchFailCount,
     isDelisted: stock.isDelisted,
     nextEarningsDate: stock.nextEarningsDate?.toISOString() ?? null,
+    delistingNewsDetectedAt: stock.delistingNewsDetectedAt?.toISOString() ?? null,
+    delistingNewsReason: stock.delistingNewsReason ?? null,
   };
 
   // 売却済み情報を計算

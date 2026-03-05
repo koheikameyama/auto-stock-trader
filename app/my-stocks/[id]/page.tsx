@@ -295,6 +295,8 @@ async function StockDetailContent({
         : null,
       fetchFailCount: userStock.stock.fetchFailCount,
       isDelisted: userStock.stock.isDelisted,
+      delistingNewsDetectedAt: userStock.stock.delistingNewsDetectedAt?.toISOString() ?? null,
+      delistingNewsReason: userStock.stock.delistingNewsReason ?? null,
     },
   };
 

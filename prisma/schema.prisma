@@ -175,6 +175,10 @@ model Stock {
   isDelisted        Boolean   @default(false) // 上場廃止フラグ
   hasChartData      Boolean   @default(true) // チャートデータが利用可能か（バッチ更新時に判定）
 
+  // 上場廃止ニュース検出
+  delistingNewsDetectedAt DateTime? // 上場廃止関連ニュースが検出された日時
+  delistingNewsReason     String?   @db.Text // 上場廃止関連と判断された理由
+
   analyses                 StockAnalysis[]
   featuredStocks           DailyFeaturedStock[]
   watchlistStocks          WatchlistStock[]

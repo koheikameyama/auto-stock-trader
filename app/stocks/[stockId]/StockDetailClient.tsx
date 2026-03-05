@@ -61,6 +61,8 @@ interface StockData {
   fetchFailCount: number;
   isDelisted: boolean;
   nextEarningsDate: string | null;
+  delistingNewsDetectedAt: string | null;
+  delistingNewsReason: string | null;
 }
 
 interface RecommendationData {
@@ -301,6 +303,8 @@ export default function StockDetailClient({
       <DelistedWarning
         isDelisted={stock.isDelisted}
         fetchFailCount={stock.fetchFailCount}
+        delistingNewsDetectedAt={stock.delistingNewsDetectedAt}
+        delistingNewsReason={stock.delistingNewsReason}
       />
 
       {/* 決算発表日バッジ */}

@@ -61,7 +61,6 @@ SESSION (08:00 / 09:30 / 11:40 / 13:00 / 15:40 / 17:00 JST) ── session-batch
 独立バッチ（セッション外）
 ├─ 06:00: 業績データ取得（7日ローテーション）
 ├─ 07:00: 事業内容取得（30日ローテーション）
-├─ 07:30: 上場廃止ニュースチェック（ポートフォリオ・ウォッチリスト）
 ├─ 09:00/15:30: 取引時間通知
 └─ 10:00: OpenAI使用量チェック
 
@@ -199,15 +198,7 @@ fetch-news + fetch-stock-prices（並列）
 | `0 0 * * 1-5` | 09:00（開場通知） |
 | `30 6 * * 1-5` | 15:30（引け通知） |
 
-### 10. 上場廃止ニュースチェック（check-delisted-stocks.yml）
-
-| スケジュール | JST |
-|-------------|-----|
-| `30 22 * * 0-4` | 毎朝 07:30（平日） |
-
-**内容**: ポートフォリオ・ウォッチリストに登録されている銘柄のニュースをyfinanceで取得し、OpenAI gpt-4o-miniで上場廃止関連ニュースかを判定。該当銘柄のユーザーに `delisting_warning` 通知を送信。
-
-### 11. CI/CD（ci.yml）
+### 10. CI/CD（ci.yml）
 
 **トリガー**: main/develop ブランチへのプッシュ
 
@@ -230,7 +221,6 @@ fetch-news + fetch-stock-prices（並列）
 | `fetch_business_descriptions.py` | 事業内容取得+翻訳 | Producer-Consumer（5スレッド） |
 | `cleanup_old_data.py` | 古いデータ削除 | 単一トランザクション |
 | `check_price_alerts.py` | 株価アラート監視 | DBクエリ |
-| `check_delisted_stocks.py` | 上場廃止ニュースチェック | yfinance並列取得 + OpenAI判定 |
 | `check_openai_usage.py` | API使用量チェック | HTTP呼び出し |
 
 

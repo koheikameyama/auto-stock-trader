@@ -91,6 +91,14 @@
     "warning": "この銘柄はデータを正常に取得できません",
     "date": "データ取得不可日"
   },
+  "delistedWarning": {
+    "delistingNewsTitle": "この銘柄に上場廃止に関連するニュースが検出されました",
+    "delistingNewsCompact": "上場廃止関連ニュースあり",
+    "dataUnavailable": "この銘柄はデータを正常に取得できません。最新の情報をご確認ください。",
+    "dataUnavailableCompact": "この銘柄はデータを正常に取得できません",
+    "fetchFail": "この銘柄は株価データの取得に連続して失敗しています。データ取得不可の可能性があります。",
+    "fetchFailCompact": "データ取得不可の可能性があります"
+  },
   "priceUnavailable": "価格情報を取得できません",
   "styleAnalysis": {
     "tabs": {

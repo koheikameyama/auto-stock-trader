@@ -143,11 +143,13 @@ export default function TrackedStockCard({ trackedStock, isStale = false, priceL
       </div>
 
       {/* Delisted Warning */}
-      {(stock.isDelisted || (stock.fetchFailCount ?? 0) >= FETCH_FAIL_WARNING_THRESHOLD) && (
+      {(stock.isDelisted || stock.delistingNewsDetectedAt || (stock.fetchFailCount ?? 0) >= FETCH_FAIL_WARNING_THRESHOLD) && (
         <div className="mb-3">
           <DelistedWarning
             isDelisted={stock.isDelisted ?? false}
             fetchFailCount={stock.fetchFailCount ?? 0}
+            delistingNewsDetectedAt={stock.delistingNewsDetectedAt}
+            delistingNewsReason={stock.delistingNewsReason}
             compact
           />
         </div>
