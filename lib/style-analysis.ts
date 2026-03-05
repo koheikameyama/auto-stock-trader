@@ -10,7 +10,8 @@ import {
   isOverheated,
   isInDecline,
 } from "@/lib/stock-safety-rules";
-import { MA_DEVIATION, MOMENTUM, MARKET_DEFENSIVE_MODE } from "@/lib/constants";
+import { MA_DEVIATION, MOMENTUM, MARKET_DEFENSIVE_MODE, GEOPOLITICAL_DEFENSIVE_MODE } from "@/lib/constants";
+import type { GeopoliticalRiskLevel } from "@/lib/stock-safety-rules";
 import { generateCorrectionExplanation, getStyleNameJa } from "@/lib/correction-explanation";
 
 /** 投資スタイル別の購入判断結果 */
@@ -137,8 +138,9 @@ export function applyPurchaseStyleSafetyRules(params: {
   technicalSignal?: { signal: string; strength: number };
   skipSafetyRules: boolean;
   isMarketPanic?: boolean;
+  geopoliticalRiskLevel?: GeopoliticalRiskLevel;
 }): StyleAnalysesMap<PurchaseStyleAnalysis> {
-  const { styleAnalyses, weekChangeRate, deviationRate, buyTimingParams, sellTimingParams, technicalSignal, skipSafetyRules, isMarketPanic = false } = params;
+  const { styleAnalyses, weekChangeRate, deviationRate, buyTimingParams, sellTimingParams, technicalSignal, skipSafetyRules, isMarketPanic = false, geopoliticalRiskLevel = "stable" } = params;
 
   const result = {} as StyleAnalysesMap<PurchaseStyleAnalysis>;
 
@@ -285,6 +287,19 @@ export function applyPurchaseStyleSafetyRules(params: {
       }
     }
 
+    // 地政学リスク時のconfidence低下（全スタイル共通）
+    if (geopoliticalRiskLevel === "alert" && styleResult.recommendation === "buy") {
+      styleResult.confidence = Math.max(
+        0,
+        styleResult.confidence - GEOPOLITICAL_DEFENSIVE_MODE.ALERT.CONFIDENCE_REDUCTION,
+      );
+    } else if (geopoliticalRiskLevel === "caution" && styleResult.recommendation === "buy") {
+      styleResult.confidence = Math.max(
+        0,
+        styleResult.confidence - GEOPOLITICAL_DEFENSIVE_MODE.CAUTION.CONFIDENCE_REDUCTION,
+      );
+    }
+
     // 購入タイミング判断
     if (styleResult.recommendation === "buy") {
       const { deviationRate: devRate, rsi, sma25, currentPrice } = buyTimingParams;
@@ -340,8 +355,9 @@ export function applyPortfolioStyleSafetyRules(params: {
   sellTimingBase: string | null;
   sellTargetPriceBase: number | null;
   isMarketPanic?: boolean;
+  geopoliticalRiskLevel?: GeopoliticalRiskLevel;
 }): StyleAnalysesMap<PortfolioStyleAnalysis> {
-  const { styleAnalyses, weekChangeRate, sma25, sellTimingBase, sellTargetPriceBase, isMarketPanic = false } = params;
+  const { styleAnalyses, weekChangeRate, sma25, sellTimingBase, sellTargetPriceBase, isMarketPanic = false, geopoliticalRiskLevel = "stable" } = params;
 
   const result = {} as StyleAnalysesMap<PortfolioStyleAnalysis>;
 
@@ -393,6 +409,19 @@ export function applyPortfolioStyleSafetyRules(params: {
           actualValue: `${weekChangeRate?.toFixed(0) ?? "N/A"}%`,
         });
       }
+    }
+
+    // 地政学リスク時のconfidence低下（買い増し推奨時）
+    if (geopoliticalRiskLevel === "alert" && styleResult.recommendation === "buy") {
+      styleResult.confidence = Math.max(
+        0,
+        styleResult.confidence - GEOPOLITICAL_DEFENSIVE_MODE.ALERT.CONFIDENCE_REDUCTION,
+      );
+    } else if (geopoliticalRiskLevel === "caution" && styleResult.recommendation === "buy") {
+      styleResult.confidence = Math.max(
+        0,
+        styleResult.confidence - GEOPOLITICAL_DEFENSIVE_MODE.CAUTION.CONFIDENCE_REDUCTION,
+      );
     }
 
     result[style] = styleResult;

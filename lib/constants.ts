@@ -341,6 +341,36 @@ export const MARKET_DEFENSIVE_MODE = {
   SCORE_PENALTY: -10, // おすすめスコアリングの一律ペナルティ
 } as const;
 
+// 地政学リスク時の防御モード
+// VIX・WTI・地政学ニュースから算出したリスクスコアに基づき、
+// caution/alertレベルで購入閾値・損切りラインを引き締める
+export const GEOPOLITICAL_DEFENSIVE_MODE = {
+  // リスクスコア閾値
+  CAUTION_SCORE: 25,
+  ALERT_SCORE: 50,
+  // スコアリング配点
+  VIX_HIGH_POINTS: 40, // VIX >= VIX_HIGH(30)
+  VIX_ELEVATED_POINTS: 20, // VIX >= VIX_ELEVATED(25)
+  VIX_NORMAL_POINTS: 10, // VIX >= VIX_NORMAL(20)
+  VIX_SPIKE_POINTS: 20, // 前日比 >= VIX_SPIKE_THRESHOLD(20%)
+  WTI_SPIKE_POINTS: 15, // |前日比| >= WTI_SPIKE_THRESHOLD(5%)
+  NEWS_NEGATIVE_POINTS: 5, // ネガティブニュース1件あたり
+  NEWS_MAX_COUNT: 3, // カウント上限
+  // cautionレベル調整値
+  CAUTION: {
+    STOP_LOSS_TIGHTENING: 0.85, // ATR乗数を85%に（15%引き締め）
+    CONFIDENCE_REDUCTION: 0.05,
+    SCORE_PENALTY: -5,
+  },
+  // alertレベル調整値
+  ALERT: {
+    STOP_LOSS_TIGHTENING: 0.65, // ATR乗数を65%に（35%引き締め）
+    CONFIDENCE_REDUCTION: 0.15,
+    SCORE_PENALTY: -15,
+    SURGE_TIGHTENING_FACTOR: 0.6, // 急騰閾値を60%に
+  },
+} as const;
+
 // バッジ表示設定
 // 各種ステータスの英語キーから表示テキスト・色を一元管理
 

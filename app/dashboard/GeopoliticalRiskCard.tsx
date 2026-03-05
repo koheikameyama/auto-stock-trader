@@ -18,25 +18,25 @@ interface GeopoliticalNewsItem {
 
 type RiskLevel = "stable" | "caution" | "alert"
 
-function getRiskLevel(news: GeopoliticalNewsItem[]): RiskLevel {
-  if (news.length === 0) return "stable"
-  const negativeCount = news.filter(
-    (n) => n.sentiment === "negative" || n.impactDirection === "negative"
-  ).length
-  if (news.length >= 3 || negativeCount >= 2) return "alert"
-  return "caution"
-}
-
 const RISK_COLORS: Record<RiskLevel, string> = {
   stable: "bg-green-100 text-green-800",
   caution: "bg-amber-100 text-amber-800",
   alert: "bg-red-100 text-red-800",
 }
 
+const RISK_BORDER_COLORS: Record<RiskLevel, string> = {
+  stable: "border-gray-200",
+  caution: "border-amber-300",
+  alert: "border-red-300",
+}
+
 export default function GeopoliticalRiskCard() {
   const t = useTranslations("dashboard.geopoliticalRisk")
   const router = useRouter()
   const [news, setNews] = useState<GeopoliticalNewsItem[]>([])
+  const [riskLevel, setRiskLevel] = useState<RiskLevel>("stable")
+  const [riskScore, setRiskScore] = useState<number>(0)
+  const [riskFactors, setRiskFactors] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -46,6 +46,9 @@ export default function GeopoliticalRiskCard() {
         if (!res.ok) return
         const data = await res.json()
         setNews(data.news ?? [])
+        setRiskLevel(data.riskLevel ?? "stable")
+        setRiskScore(data.riskScore ?? 0)
+        setRiskFactors(data.riskFactors ?? [])
       } catch {
         // エラー時は空表示
       } finally {
@@ -57,11 +60,11 @@ export default function GeopoliticalRiskCard() {
 
   if (loading) return null
 
-  const riskLevel = getRiskLevel(news)
   const displayNews = news.slice(0, 3)
+  const isDefenseActive = riskLevel !== "stable"
 
   return (
-    <div className="mt-4 sm:mt-6 bg-white rounded-xl p-4 shadow-sm border border-gray-200">
+    <div className={`mt-4 sm:mt-6 bg-white rounded-xl p-4 shadow-sm border ${RISK_BORDER_COLORS[riskLevel]}`}>
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
           <span>🌍</span> {t("title")}
@@ -72,7 +75,29 @@ export default function GeopoliticalRiskCard() {
           {t(`riskLevel.${riskLevel}`)}
         </span>
       </div>
-      {displayNews.length === 0 ? (
+
+      {isDefenseActive && (
+        <div className={`mb-3 p-3 rounded-lg ${riskLevel === "alert" ? "bg-red-50" : "bg-amber-50"}`}>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-bold text-gray-700">
+              {t("defenseModeActive")}
+            </span>
+            <span className="text-xs text-gray-500">
+              {t("riskScore")}: {riskScore}
+            </span>
+          </div>
+          <p className={`text-xs ${riskLevel === "alert" ? "text-red-700" : "text-amber-700"}`}>
+            {t(`actionAdvice.${riskLevel}`)}
+          </p>
+          {riskFactors.length > 0 && (
+            <p className="text-xs text-gray-500 mt-1">
+              {t("factors")}: {riskFactors.join("、")}
+            </p>
+          )}
+        </div>
+      )}
+
+      {displayNews.length === 0 && !isDefenseActive ? (
         <p className="text-sm text-gray-500">{t("noRisk")}</p>
       ) : (
         <div className="space-y-2">

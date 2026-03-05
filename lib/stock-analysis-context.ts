@@ -594,7 +594,7 @@ export interface GeopoliticalRiskData {
 /**
  * 地政学リスクコンテキスト文字列を生成する（両ルート共通）
  */
-export function buildGeopoliticalRiskContext(data: GeopoliticalRiskData): string {
+export function buildGeopoliticalRiskContext(data: GeopoliticalRiskData, riskAssessment?: { level: string; score: number; factors: string[] }): string {
   const parts: string[] = [];
 
   if (data.vixClose != null) {
@@ -634,6 +634,25 @@ export function buildGeopoliticalRiskContext(data: GeopoliticalRiskData): string
       } else if (data.wtiChangeRate <= GEOPOLITICAL_RISK.WTI_CRASH_THRESHOLD) {
         parts.push(`  ⚠️ 原油価格が急落しています。景気後退懸念またはOPEC動向の影響の可能性。エネルギーセクターは逆風`);
       }
+    }
+  }
+
+  if (parts.length === 0 && !riskAssessment) return "";
+
+  // 地政学リスクモード発動時の追加コンテキスト
+  if (riskAssessment && riskAssessment.level !== "stable") {
+    const levelLabel = riskAssessment.level === "alert" ? "警戒" : "注意";
+    parts.push(`\n⚠️ 地政学リスクモード: ${levelLabel}（スコア: ${riskAssessment.score}）`);
+    if (riskAssessment.factors.length > 0) {
+      parts.push(`  要因: ${riskAssessment.factors.join("、")}`);
+    }
+    if (riskAssessment.level === "alert") {
+      parts.push(`  - 新規購入は原則見送りを推奨`);
+      parts.push(`  - 損切りラインを通常より引き締めています`);
+      parts.push(`  - キャッシュポジションの引き上げを検討してください`);
+    } else {
+      parts.push(`  - 新規購入は慎重に判断してください`);
+      parts.push(`  - 損切りラインがやや引き締められています`);
     }
   }
 

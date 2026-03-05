@@ -271,6 +271,14 @@
     },
     "impactPositive": "に追い風",
     "impactNegative": "に逆風",
-    "impactMixed": "に影響"
+    "impactMixed": "に影響",
+    "riskScore": "リスクスコア",
+    "defenseModeActive": "地政学リスクモード発動中",
+    "actionAdvice": {
+      "caution": "新規購入は慎重に。損切りラインが通常より引き締められています。",
+      "alert": "新規購入は原則見送り推奨。キャッシュポジションの引き上げを検討してください。"
+    },
+    "stopLossTightened": "損切りライン引き締め中",
+    "factors": "要因"
   }
 }

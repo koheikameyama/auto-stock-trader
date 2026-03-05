@@ -34,7 +34,8 @@ export type CorrectionRuleId =
   | "prolonged_decline_avoid"
   | "short_term_downtrend"
   | "all_trends_down_loss"
-  | "market_shield";
+  | "market_shield"
+  | "geopolitical_risk_block";
 
 /** 補正コンテキスト */
 export interface CorrectionContext {
@@ -83,6 +84,7 @@ const RULE_NAMES: Record<CorrectionRuleId, string> = {
   short_term_downtrend: "短期下降トレンドブロック",
   all_trends_down_loss: "全面下降トレンド損切り促進",
   market_shield: "マーケットシールド（市場急変防御）",
+  geopolitical_risk_block: "地政学リスクルール",
 };
 
 /** 投資スタイルキー→日本語名 */

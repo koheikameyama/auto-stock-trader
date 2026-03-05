@@ -4,7 +4,7 @@
  * おすすめ分析・購入判断の両方で共通して使う。
  * 条件判定のみを提供し、アクション（除外 or stay変更）は呼び出し側に委ねる。
  */
-import { MA_DEVIATION, MOMENTUM, TIMING_INDICATORS, TECHNICAL_BRAKE, GAP_UP_MOMENTUM, MARKET_DEFENSIVE_MODE, EARNINGS_SAFETY, AVOID_ESCALATION } from "@/lib/constants";
+import { MA_DEVIATION, MOMENTUM, TIMING_INDICATORS, TECHNICAL_BRAKE, GAP_UP_MOMENTUM, MARKET_DEFENSIVE_MODE, EARNINGS_SAFETY, AVOID_ESCALATION, GEOPOLITICAL_RISK, GEOPOLITICAL_DEFENSIVE_MODE } from "@/lib/constants";
 
 /** 高ボラティリティの閾値（%） */
 const HIGH_VOLATILITY_THRESHOLD = 50;
@@ -340,6 +340,73 @@ export function shouldAvoidTechnicalNegative(
   if (midTermTrend !== "down") return false;
   const threshold = AVOID_ESCALATION.TECHNICAL_FULL_NEGATIVE[investmentStyle] ?? AVOID_ESCALATION.TECHNICAL_FULL_NEGATIVE.BALANCED;
   return technicalStrength >= threshold;
+}
+
+// --- 地政学リスク評価 ---
+
+export type GeopoliticalRiskLevel = "stable" | "caution" | "alert";
+
+export interface GeopoliticalRiskAssessment {
+  level: GeopoliticalRiskLevel;
+  score: number;
+  factors: string[];
+}
+
+/**
+ * VIX・WTI・地政学ニュース数から地政学リスクレベルを算出する
+ * 既存の PreMarketData + MarketNews から計算（新規DBフィールド不要）
+ */
+export function assessGeopoliticalRisk(params: {
+  vixClose: number | null;
+  vixChangeRate: number | null;
+  wtiChangeRate: number | null;
+  negativeGeoNewsCount: number;
+}): GeopoliticalRiskAssessment {
+  const { vixClose, vixChangeRate, wtiChangeRate, negativeGeoNewsCount } = params;
+  let score = 0;
+  const factors: string[] = [];
+
+  // VIXレベル（排他的 — 最も高い条件のみ加点）
+  if (vixClose != null) {
+    if (vixClose >= GEOPOLITICAL_RISK.VIX_HIGH) {
+      score += GEOPOLITICAL_DEFENSIVE_MODE.VIX_HIGH_POINTS;
+      factors.push(`VIX ${vixClose.toFixed(1)} (高リスク)`);
+    } else if (vixClose >= GEOPOLITICAL_RISK.VIX_ELEVATED) {
+      score += GEOPOLITICAL_DEFENSIVE_MODE.VIX_ELEVATED_POINTS;
+      factors.push(`VIX ${vixClose.toFixed(1)} (やや高リスク)`);
+    } else if (vixClose >= GEOPOLITICAL_RISK.VIX_NORMAL) {
+      score += GEOPOLITICAL_DEFENSIVE_MODE.VIX_NORMAL_POINTS;
+    }
+  }
+
+  // VIX急変動
+  if (vixChangeRate != null && vixChangeRate >= GEOPOLITICAL_RISK.VIX_SPIKE_THRESHOLD) {
+    score += GEOPOLITICAL_DEFENSIVE_MODE.VIX_SPIKE_POINTS;
+    factors.push(`VIX急変動 +${vixChangeRate.toFixed(1)}%`);
+  }
+
+  // WTI急変動
+  if (wtiChangeRate != null && Math.abs(wtiChangeRate) >= GEOPOLITICAL_RISK.WTI_SPIKE_THRESHOLD) {
+    score += GEOPOLITICAL_DEFENSIVE_MODE.WTI_SPIKE_POINTS;
+    factors.push(`原油急変動 ${wtiChangeRate >= 0 ? "+" : ""}${wtiChangeRate.toFixed(1)}%`);
+  }
+
+  // 地政学ネガティブニュース
+  const newsCount = Math.min(negativeGeoNewsCount, GEOPOLITICAL_DEFENSIVE_MODE.NEWS_MAX_COUNT);
+  if (newsCount > 0) {
+    score += newsCount * GEOPOLITICAL_DEFENSIVE_MODE.NEWS_NEGATIVE_POINTS;
+    factors.push(`地政学ネガティブニュース ${negativeGeoNewsCount}件`);
+  }
+
+  // レベル判定
+  let level: GeopoliticalRiskLevel = "stable";
+  if (score >= GEOPOLITICAL_DEFENSIVE_MODE.ALERT_SCORE) {
+    level = "alert";
+  } else if (score >= GEOPOLITICAL_DEFENSIVE_MODE.CAUTION_SCORE) {
+    level = "caution";
+  }
+
+  return { level, score, factors };
 }
 
 /**

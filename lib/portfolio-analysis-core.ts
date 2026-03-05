@@ -44,11 +44,12 @@ import {
   PROFIT_TAKING_PROMOTION,
   UNIT_SHARES,
   GEOPOLITICAL_RISK,
+  GEOPOLITICAL_DEFENSIVE_MODE,
   MARKET_SHIELD,
   getSectorGroup,
 } from "@/lib/constants";
 import { getDaysAgoForDB, getTodayForDB } from "@/lib/date-utils";
-import { isDangerousStock, isPostExDividend } from "@/lib/stock-safety-rules";
+import { isDangerousStock, isPostExDividend, assessGeopoliticalRisk, type GeopoliticalRiskLevel } from "@/lib/stock-safety-rules";
 import { insertRecommendationOutcome, Prediction } from "@/lib/outcome-utils";
 import { applyPortfolioStyleSafetyRules, type StyleAnalysesMap, type PortfolioStyleAnalysis } from "@/lib/style-analysis";
 import { generateCorrectionExplanation, getStyleNameJa } from "@/lib/correction-explanation";
@@ -114,6 +115,15 @@ function postProcessPortfolioAnalysis(params: {
   deviationRate: number | null;
 } {
   const { result, prices, stock, weekChangeRate, marketData, geopoliticalRiskData, profitPercent, currentPrice, averagePrice, quantity, userSettings, isShieldActive } = params;
+
+  // 地政学リスクレベルの算出（既存データから計算、DB不要）
+  const geoRiskAssessment = assessGeopoliticalRisk({
+    vixClose: geopoliticalRiskData?.vixClose ?? null,
+    vixChangeRate: geopoliticalRiskData?.vixChangeRate ?? null,
+    wtiChangeRate: geopoliticalRiskData?.wtiChangeRate ?? null,
+    negativeGeoNewsCount: 0, // ポートフォリオ分析時点ではニュース数は別途取得不要（VIX/WTIで十分）
+  });
+  const geoRiskLevel = geoRiskAssessment.level;
 
   // テクニカル指標の計算
   const pricesNewestFirst = [...prices].reverse().map((p) => ({ close: p.close }));
@@ -422,6 +432,7 @@ function postProcessPortfolioAnalysis(params: {
           exitRate: predictionExitRate ?? sa.suggestedExitRate,
           atr14: stock.atr14 ? Number(stock.atr14) : null,
           investmentStyle: styleKey,
+          geopoliticalRiskLevel: geoRiskLevel,
         });
       sa.suggestedSellPrice = suggestedSellPrice;
       sa.suggestedStopLossPrice = suggestedStopLossPrice;
@@ -543,6 +554,7 @@ function postProcessPortfolioAnalysis(params: {
     sellTimingBase: sellTiming,
     sellTargetPriceBase: sellTargetPrice,
     isMarketPanic: marketData?.isMarketPanic === true,
+    geopoliticalRiskLevel: geoRiskLevel,
   });
 
   // --- マーケットシールド: 撤退ラインの引き上げ ---
@@ -605,12 +617,13 @@ function calculatePricesFromRates(params: {
   exitRate: number | null;
   atr14?: number | null;
   investmentStyle?: string;
+  geopoliticalRiskLevel?: GeopoliticalRiskLevel;
 }): {
   suggestedSellPrice: number | null;
   suggestedStopLossPrice: number | null;
   effectiveExitRate: number | null;
 } {
-  const { currentPrice, averagePrice, sellTargetRate, exitRate, atr14, investmentStyle } = params;
+  const { currentPrice, averagePrice, sellTargetRate, exitRate, atr14, investmentStyle, geopoliticalRiskLevel } = params;
 
   const suggestedSellPrice =
     sellTargetRate != null
@@ -623,7 +636,14 @@ function calculatePricesFromRates(params: {
 
     // ATRベース損切りフロア: ボラティリティに応じた最低限の損切り幅を保証
     const style = (investmentStyle || "BALANCED") as keyof typeof INVESTMENT_STYLE_COEFFICIENTS.STOP_LOSS;
-    const multiplier = INVESTMENT_STYLE_COEFFICIENTS.STOP_LOSS[style] ?? 2.5;
+    let multiplier = INVESTMENT_STYLE_COEFFICIENTS.STOP_LOSS[style] ?? 2.5;
+
+    // 地政学リスクモード: ATR乗数を引き締め（損切りラインを現在価格に近づける）
+    if (geopoliticalRiskLevel === "alert") {
+      multiplier *= GEOPOLITICAL_DEFENSIVE_MODE.ALERT.STOP_LOSS_TIGHTENING;
+    } else if (geopoliticalRiskLevel === "caution") {
+      multiplier *= GEOPOLITICAL_DEFENSIVE_MODE.CAUTION.STOP_LOSS_TIGHTENING;
+    }
 
     if (atr14 != null && atr14 > 0 && currentPrice > 0) {
       const atrBasedRate = (atr14 * multiplier) / currentPrice;
@@ -852,8 +872,14 @@ export async function executePortfolioAnalysis(
     wtiClose: preMarketData?.wtiClose ? Number(preMarketData.wtiClose) : null,
     wtiChangeRate: preMarketData?.wtiChangeRate ? Number(preMarketData.wtiChangeRate) : null,
   };
+  const execGeoRiskAssessment = assessGeopoliticalRisk({
+    vixClose: geopoliticalRiskData.vixClose,
+    vixChangeRate: geopoliticalRiskData.vixChangeRate,
+    wtiChangeRate: geopoliticalRiskData.wtiChangeRate,
+    negativeGeoNewsCount: 0,
+  });
 
-  const marketContext = buildMarketContext(marketData) + buildDefensiveModeContext(marketData) + buildGeopoliticalRiskContext(geopoliticalRiskData) + earningsContext + exDividendContext;
+  const marketContext = buildMarketContext(marketData) + buildDefensiveModeContext(marketData) + buildGeopoliticalRiskContext(geopoliticalRiskData, execGeoRiskAssessment) + earningsContext + exDividendContext;
 
   // セクタートレンド
   let sectorTrendContext = "";

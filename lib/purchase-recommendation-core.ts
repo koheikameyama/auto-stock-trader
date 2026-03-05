@@ -29,7 +29,7 @@ import {
   type FuturesContextData,
 } from "@/lib/stock-analysis-context";
 import { buildPurchaseRecommendationPrompt } from "@/lib/prompts/purchase-recommendation-prompt";
-import { MA_DEVIATION, SELL_TIMING, TIMING_INDICATORS, AGGRESSIVE_REBOUND, GAP_UP_MOMENTUM, EARNINGS_SAFETY, CROSS_STYLE_CONSENSUS, GEOPOLITICAL_RISK, AVOID_CONFIDENCE_THRESHOLD, AVOID_ESCALATION, INVESTMENT_STYLE_COEFFICIENTS, ATR_EXIT_STRATEGY, getSectorGroup } from "@/lib/constants";
+import { MA_DEVIATION, SELL_TIMING, TIMING_INDICATORS, AGGRESSIVE_REBOUND, GAP_UP_MOMENTUM, EARNINGS_SAFETY, CROSS_STYLE_CONSENSUS, GEOPOLITICAL_RISK, GEOPOLITICAL_DEFENSIVE_MODE, AVOID_CONFIDENCE_THRESHOLD, AVOID_ESCALATION, INVESTMENT_STYLE_COEFFICIENTS, ATR_EXIT_STRATEGY, getSectorGroup } from "@/lib/constants";
 import {
   calculateDeviationRate,
   calculateSMA,
@@ -53,6 +53,7 @@ import {
   shouldAvoidUnprofitableDecline,
   shouldAvoidTechnicalNegative,
   shouldAvoidProlongedDecline,
+  assessGeopoliticalRisk,
 } from "@/lib/stock-safety-rules";
 import { generateCorrectionExplanation, getStyleNameJa } from "@/lib/correction-explanation";
 import { detectTrendDivergence, generateDivergenceExplanation } from "@/lib/trend-divergence";
@@ -320,8 +321,24 @@ export async function executePurchaseRecommendation(
     sp500ChangeRate: preMarketData?.sp500ChangeRate ? Number(preMarketData.sp500ChangeRate) : null,
   };
 
+  // 地政学リスクレベルの算出
+  const negativeGeoNewsCount = await prisma.marketNews.count({
+    where: {
+      category: "geopolitical",
+      sentiment: "negative",
+      publishedAt: { gte: todayForDB },
+    },
+  });
+  const geoRiskAssessment = assessGeopoliticalRisk({
+    vixClose: geopoliticalRiskData.vixClose,
+    vixChangeRate: geopoliticalRiskData.vixChangeRate,
+    wtiChangeRate: geopoliticalRiskData.wtiChangeRate,
+    negativeGeoNewsCount,
+  });
+  const geoRiskLevel = geoRiskAssessment.level;
+
   // 市場全体の状況コンテキスト
-  const marketContext = buildMarketContext(marketData) + buildGeopoliticalRiskContext(geopoliticalRiskData) + buildFuturesContext(futuresData);
+  const marketContext = buildMarketContext(marketData) + buildGeopoliticalRiskContext(geopoliticalRiskData, geoRiskAssessment) + buildFuturesContext(futuresData);
   const defensiveModeContext = buildDefensiveModeContext(marketData);
 
   // セクタートレンド
@@ -783,6 +800,31 @@ export async function executePurchaseRecommendation(
       });
     }
 
+    // 地政学リスク警戒時の強制補正
+    if (geoRiskLevel === "alert" && sa.recommendation === "buy") {
+      sa.recommendation = "stay";
+      sa.reason = `地政学リスクが警戒レベルのため、新規購入は様子見を推奨します。${sa.reason}`;
+      sa.buyCondition = sa.buyCondition || "地政学リスクが落ち着いてから検討してください";
+      if (styleKey === "CONSERVATIVE") {
+        sa.advice = `地政学リスクが高まっています。リスクが落ち着くまで購入を見送りましょう。`;
+      }
+      sa.correctionExplanation = generateCorrectionExplanation({
+        ruleId: "geopolitical_risk_block",
+        styleName,
+        originalRecommendation: "buy",
+        correctedRecommendation: "stay",
+        actualValue: `リスクスコア ${geoRiskAssessment.score}`,
+      });
+    }
+
+    // 地政学リスク注意時のconfidence低下
+    if (geoRiskLevel === "caution" && sa.recommendation === "buy") {
+      sa.confidence = Math.max(
+        0,
+        sa.confidence - GEOPOLITICAL_DEFENSIVE_MODE.CAUTION.CONFIDENCE_REDUCTION,
+      );
+    }
+
     // 決算直前ブロック（3日前以内: buy→stay強制）
     if (isPreEarningsBlock(stock.nextEarningsDate) && sa.recommendation === "buy") {
       const daysUntil = getDaysUntilEarnings(stock.nextEarningsDate);
@@ -929,6 +971,7 @@ export async function executePurchaseRecommendation(
     technicalSignal: combinedTechnical,
     skipSafetyRules,
     isMarketPanic: marketData?.isMarketPanic === true,
+    geopoliticalRiskLevel: geoRiskLevel,
   });
 
   // --- アクティブ型リバウンド狙い逆転ロジック ---
