@@ -471,6 +471,19 @@ export async function executePurchaseRecommendation(
             longTermPriceLow: { type: "number" },
             longTermPriceHigh: { type: "number" },
             longTermText: { type: "string" },
+            trendConvergence: {
+              type: "object",
+              properties: {
+                divergenceType: { type: "string", enum: ["short_down_long_up", "short_up_long_down", "aligned"] },
+                estimatedConvergenceDays: { type: ["integer", "null"] },
+                confidence: { type: "string", enum: ["high", "medium", "low"] },
+                waitSuggestion: { type: "string" },
+                keyLevelToWatch: { type: ["number", "null"] },
+                triggerCondition: { type: "string" },
+              },
+              required: ["divergenceType", "estimatedConvergenceDays", "confidence", "waitSuggestion", "keyLevelToWatch", "triggerCondition"],
+              additionalProperties: false,
+            },
             positives: { type: ["string", "null"] },
             concerns: { type: ["string", "null"] },
             suitableFor: { type: ["string", "null"] },
@@ -549,6 +562,7 @@ export async function executePurchaseRecommendation(
             "longTermPriceLow",
             "longTermPriceHigh",
             "longTermText",
+            "trendConvergence",
             "positives",
             "concerns",
             "suitableFor",
@@ -1113,6 +1127,27 @@ export async function executePurchaseRecommendation(
     }
   }
 
+  // --- マーケットシールド: 市場急変時の全buy凍結 ---
+  const { isMarketShieldActive } = await import("@/lib/market-shield");
+  const shieldActive = await isMarketShieldActive();
+  if (shieldActive) {
+    for (const styleKey of ALL_STYLE_KEYS) {
+      const sa = styleAnalyses[styleKey];
+      if (sa.recommendation === "buy") {
+        sa.recommendation = "stay";
+        sa.buyTiming = null;
+        sa.dipTargetPrice = null;
+        sa.buyCondition = "市場急変防御モード中のため、新規購入推奨を一時停止しています。市場が安定したら再評価します。";
+        sa.correctionExplanation = generateCorrectionExplanation({
+          ruleId: "market_shield",
+          styleName: getStyleNameJa(styleKey),
+          originalRecommendation: "buy",
+          correctedRecommendation: "stay",
+        });
+      }
+    }
+  }
+
   // ユーザーの選択スタイルの結果を取得
   const userStyle = (investmentStyle || "BALANCED") as "CONSERVATIVE" | "BALANCED" | "AGGRESSIVE";
   const userStyleResult = styleAnalyses[userStyle];
@@ -1199,6 +1234,7 @@ export async function executePurchaseRecommendation(
       longTermPriceLow: result.longTermPriceLow || currentPrice || 0,
       longTermPriceHigh: result.longTermPriceHigh || currentPrice || 0,
       longTermText: result.longTermText || "",
+      trendConvergence: result.trendConvergence ?? undefined,
       recommendation:
         userStyleResult.recommendation === "buy"
           ? "buy"

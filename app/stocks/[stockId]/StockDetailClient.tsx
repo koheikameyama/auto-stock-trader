@@ -20,6 +20,7 @@ import TechnicalAnalysis from "@/app/components/TechnicalAnalysis";
 import { useStockPrice } from "@/app/hooks/useStockPrice";
 import { useChatContext } from "@/app/contexts/ChatContext";
 import { EARNINGS_DATE_BADGE } from "@/lib/constants";
+import TrendConvergenceBadge from "./TrendConvergenceBadge";
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
@@ -103,6 +104,8 @@ interface Props {
     trendDirection: string;
   } | null;
   marketSignal?: string | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  trendConvergence?: Record<string, any> | null;
 }
 
 export default function StockDetailClient({
@@ -116,6 +119,7 @@ export default function StockDetailClient({
   soldStockInfo,
   sectorAvg,
   marketSignal,
+  trendConvergence,
 }: Props) {
   const router = useRouter();
   const t = useTranslations("stocks.detailClient");
@@ -320,6 +324,13 @@ export default function StockDetailClient({
           </div>
         );
       })()}
+
+      {/* Trend Convergence Badge */}
+      {trendConvergence && (
+        <div className="mb-3">
+          <TrendConvergenceBadge trendConvergence={trendConvergence as { divergenceType: string; estimatedConvergenceDays: number | null; confidence: string; waitSuggestion: string; keyLevelToWatch: number | null; triggerCondition: string }} />
+        </div>
+      )}
 
       {/* Current Price Section */}
       <CurrentPriceCard

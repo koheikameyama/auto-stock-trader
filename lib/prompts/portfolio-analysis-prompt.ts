@@ -181,6 +181,18 @@ ${newsContext}${marketContext}${sectorTrendContext}
   "longTermTrend": "up" | "neutral" | "down",
   "longTermPriceLow": 長期予測の下限価格（数値のみ）,
   "longTermPriceHigh": 長期予測の上限価格（数値のみ）,
+
+  // トレンド収束分析
+  // 短期・中期・長期のトレンドが異なる方向を示している場合に収束予測を生成
+  "trendConvergence": {
+    "divergenceType": "short_down_long_up" | "short_up_long_down" | "aligned",
+    "estimatedConvergenceDays": 収束までの推定営業日数（alignedの場合はnull）,
+    "confidence": "high" | "medium" | "low",
+    "waitSuggestion": "今は待つべきか、保有を続けるべきかの判断（1-2文）",
+    "keyLevelToWatch": 注目すべき価格水準（円。alignedの場合はnull）,
+    "triggerCondition": "収束を確認するための条件（例: 「5日移動平均線が25日線を上抜け」）"
+  },
+
   "styleAnalyses": {
     "CONSERVATIVE": {
       "recommendation": "buy" | "hold" | "sell",
@@ -222,6 +234,14 @@ ${newsContext}${marketContext}${sectorTrendContext}
 }
 
 ${PROMPT_MARKET_SIGNAL_DEFINITION}
+
+【トレンド収束分析】
+短期・中期・長期のトレンドが異なる方向を示している場合:
+1. 乖離のタイプを判定（short_down_long_up / short_up_long_down / aligned）
+2. 過去の類似パターンから収束までの日数を推定（営業日ベース）
+3. エントリー検討の条件（価格水準、テクニカル指標）を提示
+4. 「今は待つべき」なら、いつまで待つかの目安を提示
+トレンドがすべて同じ方向の場合は divergenceType: "aligned" とし、estimatedConvergenceDays: null、keyLevelToWatch: null、その他フィールドは適切なデフォルト値を設定
 
 【地政学リスク指標の活用】
 - VIX（恐怖指数）が30以上の場合: 市場全体が強い不安状態。安定型・バランス型はhold推奨を優先、積極型・成長株型はボラティリティをチャンスとしても評価しつつ慎重に判断

@@ -44,6 +44,7 @@ import {
   PROFIT_TAKING_PROMOTION,
   UNIT_SHARES,
   GEOPOLITICAL_RISK,
+  MARKET_SHIELD,
   getSectorGroup,
 } from "@/lib/constants";
 import { getDaysAgoForDB, getTodayForDB } from "@/lib/date-utils";
@@ -104,6 +105,7 @@ function postProcessPortfolioAnalysis(params: {
   averagePrice: number;
   quantity: number;
   userSettings: { investmentStyle: string | null } | null;
+  isShieldActive?: boolean;
 }): {
   styleAnalyses: StyleAnalysesMap<PortfolioStyleAnalysis>;
   userStyleResult: PortfolioStyleAnalysis;
@@ -111,7 +113,7 @@ function postProcessPortfolioAnalysis(params: {
   sellTargetPrice: number | null;
   deviationRate: number | null;
 } {
-  const { result, prices, stock, weekChangeRate, marketData, geopoliticalRiskData, profitPercent, currentPrice, averagePrice, quantity, userSettings } = params;
+  const { result, prices, stock, weekChangeRate, marketData, geopoliticalRiskData, profitPercent, currentPrice, averagePrice, quantity, userSettings, isShieldActive } = params;
 
   // テクニカル指標の計算
   const pricesNewestFirst = [...prices].reverse().map((p) => ({ close: p.close }));
@@ -542,6 +544,21 @@ function postProcessPortfolioAnalysis(params: {
     sellTargetPriceBase: sellTargetPrice,
     isMarketPanic: marketData?.isMarketPanic === true,
   });
+
+  // --- マーケットシールド: 撤退ラインの引き上げ ---
+  if (isShieldActive && currentPrice > 0) {
+    const atr14 = stock.atr14 ? Number(stock.atr14) : null;
+    if (atr14 && atr14 > 0) {
+      for (const styleKey of ALL_STYLE_KEYS_SHARED) {
+        const sa = styleAnalyses[styleKey];
+        // Shield中はATR乗数を1.0に引き締め（通常: 2.0〜3.0）
+        const shieldStopLoss = Math.round(currentPrice - atr14 * MARKET_SHIELD.SHIELD_ATR_MULTIPLIER);
+        if (sa.suggestedStopLossPrice == null || shieldStopLoss > sa.suggestedStopLossPrice) {
+          sa.suggestedStopLossPrice = shieldStopLoss;
+        }
+      }
+    }
+  }
 
   return {
     styleAnalyses,
@@ -1015,6 +1032,19 @@ export async function executePortfolioAnalysis(
             longTermTrend: { type: "string", enum: ["up", "neutral", "down"] },
             longTermPriceLow: { type: "number" },
             longTermPriceHigh: { type: "number" },
+            trendConvergence: {
+              type: "object",
+              properties: {
+                divergenceType: { type: "string", enum: ["short_down_long_up", "short_up_long_down", "aligned"] },
+                estimatedConvergenceDays: { type: ["integer", "null"] },
+                confidence: { type: "string", enum: ["high", "medium", "low"] },
+                waitSuggestion: { type: "string" },
+                keyLevelToWatch: { type: ["number", "null"] },
+                triggerCondition: { type: "string" },
+              },
+              required: ["divergenceType", "estimatedConvergenceDays", "confidence", "waitSuggestion", "keyLevelToWatch", "triggerCondition"],
+              additionalProperties: false,
+            },
             isCriticalChange: {
               type: "boolean",
               description:
@@ -1098,6 +1128,7 @@ export async function executePortfolioAnalysis(
             "longTermTrend",
             "longTermPriceLow",
             "longTermPriceHigh",
+            "trendConvergence",
             "isCriticalChange",
             "reconciliationMessage",
             "styleAnalyses",
@@ -1110,6 +1141,10 @@ export async function executePortfolioAnalysis(
 
   const content = response.choices[0].message.content?.trim() || "{}";
   const result = JSON.parse(content);
+
+  // マーケットシールド状態を取得
+  const { isMarketShieldActive } = await import("@/lib/market-shield");
+  const shieldActive = await isMarketShieldActive();
 
   // 共通ポストプロセス（安全補正・価格算出・売りタイミング判定・スタイルルール適用）
   const { styleAnalyses, userStyleResult, sellTiming, sellTargetPrice } =
@@ -1125,6 +1160,7 @@ export async function executePortfolioAnalysis(
       averagePrice,
       quantity,
       userSettings,
+      isShieldActive: shieldActive,
     });
 
   // 保存
@@ -1164,6 +1200,7 @@ export async function executePortfolioAnalysis(
         longTermPriceLow: result.longTermPriceLow || currentPrice || 0,
         longTermPriceHigh: result.longTermPriceHigh || currentPrice || 0,
         longTermText: result.longTerm || null,
+        trendConvergence: result.trendConvergence ?? undefined,
         recommendation: userStyleResult.recommendation,
         advice: userStyleResult.advice || userStyleResult.shortTerm || "",
         confidence: userStyleResult.confidence || 0.7,
@@ -1451,6 +1488,19 @@ export async function executeSimulatedPortfolioAnalysis(
             longTermTrend: { type: "string", enum: ["up", "neutral", "down"] },
             longTermPriceLow: { type: "number" },
             longTermPriceHigh: { type: "number" },
+            trendConvergence: {
+              type: "object",
+              properties: {
+                divergenceType: { type: "string", enum: ["short_down_long_up", "short_up_long_down", "aligned"] },
+                estimatedConvergenceDays: { type: ["integer", "null"] },
+                confidence: { type: "string", enum: ["high", "medium", "low"] },
+                waitSuggestion: { type: "string" },
+                keyLevelToWatch: { type: ["number", "null"] },
+                triggerCondition: { type: "string" },
+              },
+              required: ["divergenceType", "estimatedConvergenceDays", "confidence", "waitSuggestion", "keyLevelToWatch", "triggerCondition"],
+              additionalProperties: false,
+            },
             isCriticalChange: { type: "boolean" },
             reconciliationMessage: { type: ["string", "null"] },
             styleAnalyses: {
@@ -1526,6 +1576,7 @@ export async function executeSimulatedPortfolioAnalysis(
             "longTermTrend",
             "longTermPriceLow",
             "longTermPriceHigh",
+            "trendConvergence",
             "isCriticalChange",
             "reconciliationMessage",
             "styleAnalyses",
@@ -1538,6 +1589,10 @@ export async function executeSimulatedPortfolioAnalysis(
 
   const content = response.choices[0].message.content?.trim() || "{}";
   const result = JSON.parse(content);
+
+  // マーケットシールド状態を取得（シミュレーション分析でも共通）
+  const { isMarketShieldActive: isShieldActiveSim } = await import("@/lib/market-shield");
+  const shieldActiveSim = await isShieldActiveSim();
 
   // 共通ポストプロセス（安全補正・価格算出・売りタイミング判定・スタイルルール適用）
   const { styleAnalyses, userStyleResult, sellTiming, sellTargetPrice } =
@@ -1553,6 +1608,7 @@ export async function executeSimulatedPortfolioAnalysis(
       averagePrice,
       quantity,
       userSettings,
+      isShieldActive: shieldActiveSim,
     });
 
   const now = dayjs.utc().toDate();

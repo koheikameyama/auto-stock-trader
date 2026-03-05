@@ -57,6 +57,7 @@ async function StockDetailContent({
     trackedEntry,
     portfolioEntry,
     latestRecommendation,
+    latestAnalysis,
   ] = await Promise.all([
     prisma.stock.findUnique({
       where: { id: stockId },
@@ -91,6 +92,12 @@ async function StockDetailContent({
       where: { stockId },
       orderBy: { date: "desc" },
       select: { marketSignal: true },
+    }),
+    // Get latest stock analysis for trendConvergence
+    prisma.stockAnalysis.findFirst({
+      where: { stockId },
+      orderBy: { analyzedAt: "desc" },
+      select: { trendConvergence: true },
     }),
   ]);
 
@@ -276,6 +283,7 @@ async function StockDetailContent({
       soldStockInfo={soldStockInfo}
       sectorAvg={sectorAvg}
       marketSignal={portfolioEntry?.marketSignal ?? latestRecommendation?.marketSignal ?? null}
+      trendConvergence={latestAnalysis?.trendConvergence as Record<string, unknown> | null | undefined}
     />
   );
 }

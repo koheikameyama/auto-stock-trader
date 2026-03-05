@@ -115,6 +115,30 @@ AI生成後、非スタイル依存の安全補正（上記テーブルの大半
 | 急騰銘柄の買い増し抑制 | `isSurgeStock(weekChangeRate, style)` 安定配当+20%/成長+25%/アクティブ+50% | buy → hold に変更 |
 | 市場パニック | 市場パニック時のbuy推奨 | confidence低下 |
 
+**マーケットシールド: 撤退ライン引き上げ**:
+
+マーケットシールドがアクティブな場合、保有銘柄の撤退ライン（ストップロス）を引き締める。ATR乗数を通常の2.0〜3.0から1.0に短縮し、より早い損切りで資産を防御する。
+
+- 対象: 全スタイルの `suggestedStopLossPrice`
+- 動作: ATR14 × 1.0（`MARKET_SHIELD.SHIELD_ATR_MULTIPLIER`）で撤退ラインを再算出し、既存値より引き上がる場合に上書き
+
+**トレンド収束予測（Trend Convergence）**:
+
+AIが短期/中期/長期トレンドの乖離状態を分析し、収束予測を `trendConvergence` として出力する。結果は `StockAnalysis.trendConvergence` に JSON として保存。
+
+```json
+{
+  "trendConvergence": {
+    "divergenceType": "short_down_long_up | short_up_long_down | aligned",
+    "estimatedConvergenceDays": 14,
+    "confidence": "high | medium | low",
+    "waitSuggestion": "短期の押し目が一巡するまで待つのが安全です",
+    "keyLevelToWatch": 2350,
+    "triggerCondition": "RSIが40を回復し25日線を上抜けたら転換サイン"
+  }
+}
+```
+
 **トレンド乖離（ねじれ）検出**:
 
 短期トレンドと長期トレンドの方向が異なる場合（例: 短期上昇＋長期下落）、乖離の種類を検出してスタイル別の解説を付与。各スタイルの結果に `divergenceType`、`divergenceLabel`、`divergenceExplanation` が追加される。
@@ -240,6 +264,57 @@ UIはJST 15時を境にデフォルトセッションを自動切替。タブで
 | Section 4: 詳細（折りたたみ） | `stockHighlights`（銘柄ハイライト、銘柄名クリックで詳細ページへ遷移）+ `sectorHighlights`（セクターハイライト、気になるリスト銘柄バッジ付き） |
 | フッター | 分析日時 |
 
+### 3. スマートスイッチ（乗り換え提案）
+
+ポートフォリオ総評（Daily Market Navigator）の生成後に、含み損銘柄の乗り換え提案を自動生成する。含み損銘柄の「回復スコア」とウォッチリストのbuy判定銘柄の「チャンススコア」を比較し、乗り換えが有利な場合に提案を表示する。
+
+**生成タイミング**: ポートフォリオ総評の生成直後（`generatePortfolioOverallAnalysis` の末尾）
+
+**対象条件**:
+- 含み損が -5% 以下（`SMART_SWITCH.MIN_LOSS_RATE`）の保有銘柄
+- ウォッチリストに当日buy判定の銘柄が存在すること
+
+**スコア算出**:
+
+| スコア | 要素 | 重み |
+|--------|------|------|
+| 回復スコア（0-100） | 含み損の深さ | 30% |
+| | AI推奨（buy/hold/sell） | 30% |
+| | トレンド方向（短期/中期/長期） | 20% |
+| | セクタートレンド | 20% |
+| チャンススコア（0-100） | 購入判断結果 + 確信度 | 30% |
+| | 銘柄スコア（compositeScore） | 25% |
+| | トレンド方向 | 25% |
+| | セクタートレンド | 20% |
+
+**提案条件**:
+- 回復スコアが70未満（回復見込みが低い）
+- チャンススコア - 回復スコア >= 30（`SMART_SWITCH.MIN_SWITCH_BENEFIT`）
+- 1日1ユーザーあたり最大3件（`SMART_SWITCH.MAX_PROPOSALS_PER_DAY`）
+
+**理由テキスト**: テンプレートベースで生成（含み損の深さ、購入候補の魅力、セクター分散効果を考慮）
+
+**ユーザーアクション**:
+- 「詳細を見る」: 購入候補の銘柄詳細ページへ遷移
+- 「今は見送る」: 提案を非表示（`userAction = "rejected"`）
+
+**データモデル（SwitchProposal）**:
+
+| カラム | 型 | 説明 |
+|--------|-----|------|
+| userId | String | ユーザーID |
+| date | Date | 提案日 |
+| session | String | セッション |
+| sellStockId | String | 売却候補の銘柄ID |
+| sellRecoveryScore | Int | 回復スコア |
+| buyStockId | String | 購入候補の銘柄ID |
+| buyOpportunityScore | Int | チャンススコア |
+| switchBenefit | Int | 乗り換えメリット（チャンス - 回復） |
+| reason | Text | 乗り換え理由 |
+| userAction | String? | ユーザーの対応（accepted/rejected） |
+
+**ユニーク制約**: `userId` + `date` + `sellStockId`
+
 ## API仕様
 
 ### 個別銘柄分析
@@ -359,6 +434,33 @@ Daily Market Navigator の分析を再生成。
   "dataPoints": 15,
   "required": 30
 }
+```
+
+### マーケットシールド
+
+#### `GET /api/market-shield`
+
+マーケットシールドの現在の状態を取得。
+
+**レスポンス**:
+```json
+{
+  "active": true,
+  "triggerType": "vix_spike",
+  "triggerValue": 32.5,
+  "activatedAt": "2026-03-05T01:00:00.000Z"
+}
+```
+
+### 乗り換え提案
+
+#### `POST /api/switch-proposals/[id]/action`
+
+乗り換え提案に対するユーザーアクションを記録。
+
+**リクエストボディ**:
+```json
+{ "action": "accepted" | "rejected" }
 ```
 
 ### ポートフォリオサマリー
@@ -536,3 +638,7 @@ PortfolioSnapshot テーブルからの時系列データ。
 - `lib/prompts/portfolio-overall-analysis-prompt.ts` - Daily Market Navigator プロンプト
 - `lib/recommendation-buy-filter.ts` - 買いシグナル判定（チャート・ファンダメンタル）
 - `lib/stock-analysis-context.ts` - 分析コンテキスト生成（`buildBuySignalContext`含む）
+- `lib/market-shield.ts` - マーケットシールド（発動・解除・状態確認・自動解除）
+- `lib/smart-switch.ts` - スマートスイッチ（乗り換え提案生成・スコア算出）
+- `app/api/market-shield/route.ts` - マーケットシールド状態 API
+- `app/api/switch-proposals/[id]/action/route.ts` - 乗り換え提案アクション API

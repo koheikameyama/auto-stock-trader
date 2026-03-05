@@ -646,6 +646,16 @@ export async function getPortfolioOverallAnalysis(userId: string, session?: Navi
  * ポートフォリオ総評分析を生成
  */
 export async function generatePortfolioOverallAnalysis(userId: string, session: NavigatorSession = "morning"): Promise<MarketNavigatorResult> {
+  // morningセッション開始時にマーケットシールドの期限切れを自動解除
+  if (session === "morning") {
+    try {
+      const { autoDeactivateExpiredShields } = await import("@/lib/market-shield")
+      await autoDeactivateExpiredShields()
+    } catch (e) {
+      console.error("マーケットシールド自動解除エラー:", e)
+    }
+  }
+
   // ポートフォリオ、ウォッチリスト、ユーザー設定を取得
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -1122,6 +1132,23 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
     userStockId: tickerToUserStockId.get(sh.tickerCode),
   }))
 
+  // マーケットシールド: トリガーチェック＆発動
+  try {
+    const { checkMarketShieldTriggers, activateMarketShield, isMarketShieldActive } = await import("@/lib/market-shield")
+    const trigger = await checkMarketShieldTriggers()
+    if (trigger) {
+      await activateMarketShield(trigger.type, trigger.value)
+      console.log(`⚠️ マーケットシールド発動: ${trigger.description}`)
+    }
+    // Shield発動中はmarketToneをbearishに強制、actionPlanに防御メッセージを追加
+    if (await isMarketShieldActive()) {
+      aiResult.marketTone = "bearish"
+      aiResult.actionPlan = `⚠️ マーケットシールド発動中: 市場急変が検知されました。新規購入推奨は一時停止し、撤退ラインを引き上げています。\n\n${aiResult.actionPlan}`
+    }
+  } catch (e) {
+    console.error("マーケットシールドチェックエラー:", e)
+  }
+
   // DBに保存
   const now = dayjs().toDate()
   const upsertData = {
@@ -1151,6 +1178,14 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
     create: { userId, session, ...upsertData },
     update: upsertData,
   })
+
+  // スマートスイッチ: 乗り換え提案を生成
+  try {
+    const { generateSwitchProposals } = await import("@/lib/smart-switch")
+    await generateSwitchProposals(userId, session)
+  } catch (e) {
+    console.error("スマートスイッチ生成エラー:", e)
+  }
 
   return {
     hasAnalysis: true,

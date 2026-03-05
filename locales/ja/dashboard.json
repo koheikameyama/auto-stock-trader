@@ -52,6 +52,18 @@
       },
       "sourceWatchlist": "気になるリスト",
       "sourceRecommendation": "AI推奨"
+    },
+    "switchProposal": {
+      "title": "乗り換え提案",
+      "benefitLabel": "改善スコア: +{value}pt",
+      "recoveryScore": "回復期待: {value}",
+      "opportunityScore": "チャンス: {value}",
+      "dismiss": "今回は見送る",
+      "viewDetail": "詳しく見る"
+    },
+    "marketShield": {
+      "title": "マーケットシールド発動中",
+      "description": "新規購入推奨は一時停止中"
     }
   },
   "investmentStyle": {

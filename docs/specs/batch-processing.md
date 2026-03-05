@@ -53,6 +53,9 @@ SESSION (08:00 / 09:30 / 11:40 / 13:00 / 15:40 / 17:00 JST) ── session-batch
   ├─ gainers-losers（引けのみ）
   ├─ portfolio-snapshots（引けのみ）
   └─ daily-market-navigator（朝・引けのみ）
+      ├─ morningセッション: 期限切れマーケットシールドの自動解除
+      ├─ マーケットシールド トリガーチェック（PreMarketData基準）
+      └─ スマートスイッチ: 乗り換え提案生成（総評生成後）
 
   Phase 4: 通知
   └─ notify（プッシュ通知 + Slack）
@@ -113,6 +116,14 @@ fetch-news + fetch-stock-prices（並列）
 | `session-gainers-losers.yml` | 市場ランキング生成 | close のみ |
 | `session-portfolio-snapshots.yml` | 資産スナップショット | close のみ |
 | `session-daily-market-navigator.yml` | ポートフォリオ総評 | morning + close |
+
+**ポートフォリオ総評（daily-market-navigator）に含まれるサブ処理**:
+
+| 処理 | タイミング | 説明 |
+|------|-----------|------|
+| マーケットシールド自動解除 | morningセッション開始時 | 前日以前に発動されたShieldを自動解除（`autoDeactivateExpiredShields`） |
+| マーケットシールド トリガーチェック | 総評生成中 | PreMarketData（VIX/WTI/為替/日経先物）の急変を検知し、閾値超過でShield発動（`checkMarketShieldTriggers` → `activateMarketShield`） |
+| スマートスイッチ 乗り換え提案 | 総評生成後 | 含み損銘柄とウォッチリストのbuy判定銘柄を比較し、乗り換え提案を生成（`generateSwitchProposals`） |
 
 各ワークフローは `workflow_dispatch` で単独実行も可能。
 
@@ -276,7 +287,7 @@ fetch-news + fetch-stock-prices（並列）
 
 | ワークフロー | 操作テーブル |
 |-------------|-------------|
-| session-batch（統合） | Stock（価格）, MarketNews, SectorTrend, PurchaseRecommendation, StockAnalysis, UserDailyRecommendation, DailyMarketMover, PortfolioSnapshot, PortfolioOverallAnalysis, PreMarketData |
+| session-batch（統合） | Stock（価格）, MarketNews, SectorTrend, PurchaseRecommendation, StockAnalysis, UserDailyRecommendation, DailyMarketMover, PortfolioSnapshot, PortfolioOverallAnalysis, PreMarketData, MarketShield, SwitchProposal |
 | 業績データ | Stock（業績カラム群） |
 | 事業内容 | Stock.businessDescription |
 | クリーンアップ | StockAnalysis, PurchaseRecommendation, UserDailyRecommendation, MarketNews, SectorTrend |

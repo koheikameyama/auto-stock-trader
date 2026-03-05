@@ -150,6 +150,17 @@ ${delistingContext}${weekChangeContext}${marketContext}${sectorTrendContext}${pa
   "longTermPriceHigh": "長期（今後3ヶ月）の予測高値",
   "longTermText": "長期予測の根拠・解説（事業展望・財務状況の根拠を2-3文で。200文字以内。短期・中期予測と矛盾する場合はその理由を明示）",
 
+  // A-2. トレンド収束分析
+  // 短期・中期・長期のトレンドが異なる方向を示している場合に収束予測を生成
+  "trendConvergence": {
+    "divergenceType": "short_down_long_up" | "short_up_long_down" | "aligned",
+    "estimatedConvergenceDays": 収束までの推定営業日数（alignedの場合はnull）,
+    "confidence": "high" | "medium" | "low",
+    "waitSuggestion": "今は待つべきか、エントリーしてよいかの判断（1-2文）",
+    "keyLevelToWatch": 注目すべき価格水準（円。alignedの場合はnull）,
+    "triggerCondition": "収束を確認するための条件（例: 「5日移動平均線が25日線を上抜け」）"
+  },
+
   // B. 深掘り評価（文字列で返す。配列ではない）
   "positives": "・良い点1\n・良い点2\n・良い点3",
   "concerns": "・不安な点1\n・不安な点2\n・不安な点3",
@@ -180,6 +191,14 @@ ${delistingContext}${weekChangeContext}${marketContext}${sectorTrendContext}${pa
 }
 
 ${PROMPT_MARKET_SIGNAL_DEFINITION}
+
+【トレンド収束分析】
+短期・中期・長期のトレンドが異なる方向を示している場合:
+1. 乖離のタイプを判定（short_down_long_up / short_up_long_down / aligned）
+2. 過去の類似パターンから収束までの日数を推定（営業日ベース）
+3. エントリー検討の条件（価格水準、テクニカル指標）を提示
+4. 「今は待つべき」なら、いつまで待つかの目安を提示
+トレンドがすべて同じ方向の場合は divergenceType: "aligned" とし、estimatedConvergenceDays: null、keyLevelToWatch: null、その他フィールドは適切なデフォルト値を設定
 
 【価格帯予測の指針】
 ${

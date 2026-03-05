@@ -850,3 +850,56 @@ export const GEOPOLITICAL_RISK = {
   WTI_SPIKE_THRESHOLD: 5,
   WTI_CRASH_THRESHOLD: -5,
 } as const;
+
+// スマートスイッチ（乗り換え提案）
+export const SMART_SWITCH = {
+  // 含み損閾値（%）: この率以下の銘柄が対象
+  MIN_LOSS_RATE: -5,
+  // 乗り換えメリット閾値: この値以上で提案
+  MIN_SWITCH_BENEFIT: 30,
+  // 通知閾値: この値以上でプッシュ通知
+  NOTIFICATION_THRESHOLD: 40,
+  // 1日1ユーザーあたりの最大提案数
+  MAX_PROPOSALS_PER_DAY: 3,
+  // 回復スコアの重み
+  RECOVERY_WEIGHTS: {
+    LOSS_DEPTH: 0.30,
+    AI_RECOMMENDATION: 0.30,
+    TREND_DIRECTION: 0.20,
+    SECTOR_TREND: 0.20,
+  },
+  // チャンススコアの重み
+  OPPORTUNITY_WEIGHTS: {
+    PURCHASE_JUDGMENT: 0.30,
+    COMPOSITE_SCORE: 0.25,
+    TREND_DIRECTION: 0.25,
+    SECTOR_TREND: 0.20,
+  },
+} as const;
+
+// トレンド収束予測
+export const TREND_CONVERGENCE = {
+  DIVERGENCE_TYPES: {
+    SHORT_DOWN_LONG_UP: "short_down_long_up",
+    SHORT_UP_LONG_DOWN: "short_up_long_down",
+    ALIGNED: "aligned",
+  },
+  HIGH_CONFIDENCE_THRESHOLD: 0.7,
+  MEDIUM_CONFIDENCE_THRESHOLD: 0.4,
+} as const;
+
+// マーケットシールド（市場急変時の緊急防御モード）
+export const MARKET_SHIELD = {
+  // 発動トリガー
+  TRIGGERS: {
+    NIKKEI_CRASH_RATE: -3,   // 日経225 日中変動率 ≤ -3%
+    VIX_ABSOLUTE: 30,        // VIX絶対値 > 30
+    VIX_SPIKE_RATE: 20,      // VIX 前日比 +20%以上
+    WTI_SHOCK_RATE: 10,      // WTI 前日比 ±10%以上
+    FX_SHOCK_RATE: 3,        // USD/JPY 前日比 ±3%以上
+  },
+  // Shield中の撤退ライン引き上げ（ATR乗数を短縮）
+  SHIELD_ATR_MULTIPLIER: 1.0,
+  // 自動解除セッション
+  AUTO_DEACTIVATE_SESSION: "morning",
+} as const;

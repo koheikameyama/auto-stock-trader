@@ -311,12 +311,59 @@ model StockAnalysis {
   // 投資スタイル別分析 { CONSERVATIVE: {...}, BALANCED: {...}, AGGRESSIVE: {...} }
   styleAnalyses Json?
 
+  // トレンド収束予測（短期/中期/長期の乖離がある場合に生成）
+  // { divergenceType, estimatedConvergenceDays, confidence, waitSuggestion, keyLevelToWatch, triggerCondition }
+  trendConvergence Json?
+
   analyzedAt DateTime @default(now())
   createdAt  DateTime @default(now())
 
   @@unique([stockId, analyzedAt])
   @@index([stockId, analyzedAt(sort: Desc)])
   @@index([analyzedAt(sort: Desc)])
+}
+
+// 乗り換え提案（スマートスイッチ）
+model SwitchProposal {
+  id      String   @id @default(cuid())
+  userId  String
+  date    DateTime @db.Date
+  session String // "morning" | "pre-afternoon" | "evening"
+
+  // 売却候補（含み損の保有銘柄）
+  sellStockId       String
+  sellRecoveryScore Float // 回復スコア 0-100
+
+  // 購入候補（ウォッチリスト/おすすめ銘柄）
+  buyStockId          String
+  buyOpportunityScore Float // チャンススコア 0-100
+
+  // メリット
+  switchBenefit Float // opportunityScore - recoveryScore
+  reason        String @db.Text // テンプレート生成の理由（初心者向け）
+
+  // ユーザーアクション
+  userAction String? // "accepted" | "rejected" | "ignored"
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, date, sellStockId])
+  @@index([userId, date(sort: Desc)])
+}
+
+// マーケットシールド（市場急変時の緊急防御モード）
+model MarketShield {
+  id            String    @id @default(cuid())
+  activatedAt   DateTime
+  deactivatedAt DateTime?
+  triggerType   String // "nikkei_crash" | "vix_spike" | "wti_shock" | "fx_shock"
+  triggerValue  Float // トリガー時の値
+  affectedUsers Int // 影響を受けたユーザー数
+  actionsApplied Json // 適用した防御アクションのリスト
+
+  createdAt DateTime @default(now())
+
+  @@index([activatedAt(sort: Desc)])
 }
 
 // プッシュ通知購読

@@ -26,6 +26,20 @@
 - カテゴリバッジ: 急騰 / 安定 / 話題
 - 推奨理由テキスト
 
+### トレンド収束バッジ（Trend Convergence Badge）
+
+短期トレンドと長期トレンドが乖離している場合に表示されるバッジ。直近の購入判断またはポートフォリオ分析の `trendConvergence` データを参照する。
+
+| 項目 | 説明 |
+|------|------|
+| 表示条件 | `trendConvergence` が存在し、`divergenceType != "aligned"` |
+| 乖離タイプ | 「短期下落 x 長期上昇」（黄色）/ 「短期上昇 x 長期下落」（オレンジ） |
+| 収束予測日数 | `estimatedConvergenceDays` を表示（null の場合は非表示） |
+| 注目価格水準 | `keyLevelToWatch` を表示（null の場合は非表示） |
+| 待機アドバイス | `waitSuggestion` テキストを表示 |
+| トリガー条件 | `triggerCondition` を小さめのテキストで表示 |
+| UI | 青色ボーダーのカード（`TrendConvergenceBadge` コンポーネント） |
+
 ### タブ
 
 #### チャートタブ
@@ -252,3 +266,4 @@ OHLCV + RSI + MACD データ。
 - `lib/recommendation-scoring.ts` - スコアリングロジック
 - `lib/chart-patterns.ts` - チャートパターン検出
 - `lib/stock-safety-rules.ts` - 安全ルール
+- `app/stocks/[stockId]/TrendConvergenceBadge.tsx` - トレンド収束バッジコンポーネント

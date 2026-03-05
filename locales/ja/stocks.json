@@ -289,6 +289,14 @@
     "bullish": "買い傾向",
     "bearish": "売り傾向"
   },
+  "trendConvergence": {
+    "title": "トレンド収束予測",
+    "shortDownLongUp": "短期↓ 長期↑",
+    "shortUpLongDown": "短期↑ 長期↓",
+    "convergenceDays": "反発目安: {days}営業日後",
+    "keyLevel": "注目価格: ¥{price}",
+    "triggerLabel": "確認条件"
+  },
   "sectorComparison": {
     "title": "セクター内の位置づけ",
     "subtitle": "同じセクターの平均と比較",

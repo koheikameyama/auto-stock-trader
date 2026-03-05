@@ -5,6 +5,8 @@ import { useTranslations } from "next-intl"
 import Link from "next/link"
 import type { MarketNavigatorResult, MarketTone, PortfolioStatus, EveningReview } from "@/lib/portfolio-overall-analysis"
 import CopyableTicker from "@/app/components/CopyableTicker"
+import MarketShieldBanner from "./MarketShieldBanner"
+import SwitchProposalCard from "./SwitchProposalCard"
 
 interface Props {
   portfolioCount: number
@@ -154,14 +156,30 @@ export default function DailyMarketNavigator({
   const [data, setData] = useState<MarketNavigatorResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [showDetails, setShowDetails] = useState(false)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [shieldData, setShieldData] = useState<{ active: boolean; shield: any } | null>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [switchProposals, setSwitchProposals] = useState<any[]>([])
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true)
       try {
-        const res = await fetch("/api/portfolio/overall-analysis")
-        const result = await res.json()
+        const [analysisRes, shieldRes, switchRes] = await Promise.all([
+          fetch("/api/portfolio/overall-analysis"),
+          fetch("/api/market-shield"),
+          fetch("/api/switch-proposals"),
+        ])
+        const result = await analysisRes.json()
         setData(result)
+        if (shieldRes.ok) {
+          const shield = await shieldRes.json()
+          setShieldData(shield)
+        }
+        if (switchRes.ok) {
+          const sw = await switchRes.json()
+          setSwitchProposals(sw.proposals || [])
+        }
       } catch (error) {
         console.error("Error fetching market navigator data:", error)
       } finally {
@@ -214,6 +232,16 @@ export default function DailyMarketNavigator({
 
   return (
     <div className="mb-6 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      {/* Market Shield Banner */}
+      {shieldData?.active && shieldData.shield && (
+        <div className="p-3 pb-0">
+          <MarketShieldBanner
+            triggerType={shieldData.shield.triggerType}
+            triggerValue={shieldData.shield.triggerValue}
+          />
+        </div>
+      )}
+
       {/* Section 1: Market */}
       <div className={`p-4 pt-0 ${toneStyle.bg} border-b ${toneStyle.border}`}>
         <div className="flex items-center gap-2 mb-2">
@@ -269,6 +297,13 @@ export default function DailyMarketNavigator({
               </p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Switch Proposals */}
+      {switchProposals.length > 0 && (
+        <div className="px-4 pb-3">
+          <SwitchProposalCard proposals={switchProposals} />
         </div>
       )}
 

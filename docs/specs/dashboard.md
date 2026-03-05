@@ -32,6 +32,33 @@
 
 詳細仕様は [portfolio-analysis.md](portfolio-analysis.md) を参照。
 
+#### マーケットシールドバナー
+
+マーケットシールドがアクティブな場合、Daily Market Navigator 内に赤色の警告バナーを表示する。
+
+| 項目 | 説明 |
+|------|------|
+| 表示条件 | マーケットシールドがアクティブ（`deactivatedAt == null`） |
+| トリガー種別 | 日経225急落 / VIX急騰 / WTI原油急変動 / 為替急変動 |
+| トリガー値 | VIX絶対値またはパーセント変動率を表示 |
+| UI | 赤色ボーダーの警告カード（`MarketShieldBanner` コンポーネント） |
+
+**API**: `GET /api/market-shield`
+
+#### 乗り換え提案カード（Switch Proposal）
+
+Daily Market Navigator の詳細セクション内に、スマートスイッチによる乗り換え提案を表示する。
+
+| 項目 | 説明 |
+|------|------|
+| 表示条件 | 当日の乗り換え提案が存在し、ユーザーが未対応のもの |
+| 売却候補 | 含み損銘柄の名前 + 回復スコア（銘柄詳細へリンク） |
+| 購入候補 | buy判定銘柄の名前 + チャンススコア（銘柄詳細へリンク） |
+| 乗り換えメリット | switchBenefit の値を表示 |
+| 理由テキスト | テンプレート生成の乗り換え理由 |
+| アクション | 「今は見送る」（rejected）/ 「詳細を見る」（銘柄詳細へ遷移） |
+| UI | 琥珀色ボーダーのカード（`SwitchProposalCard` コンポーネント） |
+
 #### イブニングレビュー（eveningセッション追加機能）
 
 夜セッション（結果診断）に追加される振り返り機能。今日の売買判断・機会損失・行動パターンを分析し、投資スキルの向上を支援する。
@@ -366,6 +393,8 @@ page.tsx（Server Component）
 | SectorTrendHeatmap | `SectorTrendHeatmap.tsx` | セクタートレンドヒートマップ |
 | FeaturedStocksByCategory | `FeaturedStocksByCategory.tsx` | おすすめ銘柄カード群 |
 | TopStocksByStyle | `TopStocksByStyle.tsx` | 投資スタイル別高評価銘柄 |
+| MarketShieldBanner | `MarketShieldBanner.tsx` | マーケットシールド警告バナー |
+| SwitchProposalCard | `SwitchProposalCard.tsx` | 乗り換え提案カード |
 
 ## 関連ファイル
 
@@ -385,3 +414,7 @@ page.tsx（Server Component）
 - `app/dashboard/TopStocksByStyle.tsx` - 投資スタイル別高評価銘柄コンポーネント
 - `app/api/top-stocks/route.ts` - 高評価銘柄 API
 - `app/api/market-analysis/gainers-losers/route.ts` - 市場ランキング API
+- `app/dashboard/MarketShieldBanner.tsx` - マーケットシールドバナー
+- `app/dashboard/SwitchProposalCard.tsx` - 乗り換え提案カード
+- `app/api/market-shield/route.ts` - マーケットシールド状態 API
+- `app/api/switch-proposals/[id]/action/route.ts` - 乗り換え提案アクション API
