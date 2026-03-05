@@ -34,6 +34,9 @@ from lib.constants import (
     YFINANCE_BATCH_SLEEP_SECONDS,
 )
 
+# 異常値検出: 前日比でこの倍率を超えたらデータ破損とみなす
+PRICE_ANOMALY_THRESHOLD = 5.0
+
 
 def get_database_url() -> str:
     """データベースURLを取得"""
@@ -178,6 +181,20 @@ def _compute_price_data(hist) -> dict | None:
     if len(hist) < 2:
         return None
 
+    # 異常値検出: 最終行が前日比で極端な変動ならデータ破損とみなし除外
+    anomaly = False
+    if len(hist) >= 3:
+        latest_close = float(hist.iloc[-1]["Close"])
+        prev_close = float(hist.iloc[-2]["Close"])
+        if prev_close > 0:
+            ratio = latest_close / prev_close
+            if ratio > PRICE_ANOMALY_THRESHOLD or ratio < (1 / PRICE_ANOMALY_THRESHOLD):
+                print(f"  Anomaly detected: close={latest_close}, prev={prev_close}, ratio={ratio:.1f}. Dropping corrupted row.")
+                anomaly = True
+                hist = hist.iloc[:-1]
+                if len(hist) < 2:
+                    return None
+
     # 最新データが古すぎる場合は無視
     latest_date = hist.index[-1].to_pydatetime()
     if latest_date.tzinfo is None:
@@ -303,7 +320,7 @@ def _compute_price_data(hist) -> dict | None:
     # ゾンビデータ検出（出来高0 = 実質取引なし）
     is_zombie = _is_zombie_data(hist)
 
-    return {
+    result = {
         "latestPrice": latest_price,
         "latestPriceDate": latest_date.date(),  # yfinance株価データの実際の日付
         "latestVolume": volume,
@@ -320,6 +337,9 @@ def _compute_price_data(hist) -> dict | None:
         "hasChartData": has_chart_data,
         "isZombie": is_zombie,
     }
+    if anomaly:
+        result["_anomaly"] = True
+    return result
 
 
 def update_stock_prices(conn, updates: list[dict]) -> int:
@@ -568,6 +588,22 @@ def main():
                 stock = symbol_to_stock.get(symbol)
                 if not stock:
                     continue
+
+                # 異常値フォールバック: ticker.info から正しい最新価格を取得
+                if price_data.pop("_anomaly", False):
+                    try:
+                        info = yf.Ticker(symbol).info
+                        fb_price = info.get("currentPrice") or info.get("regularMarketPrice")
+                        fb_prev = info.get("previousClose")
+                        if fb_price and fb_price > 0:
+                            price_data["latestPrice"] = float(fb_price)
+                            if fb_prev and fb_prev > 0:
+                                price_data["dailyChangeRate"] = round(((fb_price - fb_prev) / fb_prev) * 100, 2)
+                            print(f"  Fallback success for {symbol}: latestPrice={fb_price}")
+                        else:
+                            print(f"  Fallback: no valid price in ticker.info for {symbol}")
+                    except Exception as e:
+                        print(f"  Fallback failed for {symbol}: {e}")
 
                 is_zombie = price_data.pop("isZombie", False)
                 if is_zombie:

@@ -18,6 +18,9 @@ import yfinance as yf
 # 株価データの鮮度チェック（日数）
 STALE_DATA_DAYS = 14
 
+# 異常値検出: 前日比でこの倍率を超えたらデータ破損とみなす
+PRICE_ANOMALY_THRESHOLD = 5.0
+
 # Yahoo Finance レート制限リトライ設定
 YFINANCE_RATE_LIMIT_MAX_RETRIES = 5
 YFINANCE_RATE_LIMIT_WAIT_SECONDS = [30, 60, 120, 240, 480]  # 指数バックオフ（秒）
@@ -120,6 +123,38 @@ def fetch_prices_bulk(ticker_inputs: list[str]) -> dict:
 
                 current_price = float(current_row['Close'])
                 prev_close = float(prev_row['Close'])
+
+                # 異常値検出: 前日比で極端な変動はyfinanceのデータ破損とみなす
+                # ticker.info にフォールバックして正しい価格を取得する
+                if prev_close > 0 and len(rows) > 1:
+                    ratio = current_price / prev_close
+                    if ratio > PRICE_ANOMALY_THRESHOLD or ratio < (1 / PRICE_ANOMALY_THRESHOLD):
+                        print(f"Anomaly detected for {original}: price={current_price}, prevClose={prev_close}, ratio={ratio:.1f}. Falling back to ticker.info", file=sys.stderr)
+                        try:
+                            info = yf.Ticker(cand).info
+                            fb_price = info.get("currentPrice") or info.get("regularMarketPrice")
+                            fb_prev = info.get("previousClose")
+                            if fb_price and fb_prev and fb_prev > 0:
+                                fb_change = fb_price - fb_prev
+                                fb_pct = (fb_change / fb_prev * 100)
+                                results.append({
+                                    "tickerCode": original,
+                                    "actualTicker": hit_ticker,
+                                    "currentPrice": round(float(fb_price), 2),
+                                    "previousClose": round(float(fb_prev), 2),
+                                    "change": round(fb_change, 2),
+                                    "changePercent": round(fb_pct, 2),
+                                    "volume": int(info.get("volume") or 0),
+                                    "high": round(float(info.get("dayHigh") or fb_price), 2),
+                                    "low": round(float(info.get("dayLow") or fb_price), 2),
+                                    "marketTime": int(rows.index[-1].timestamp()),
+                                })
+                                print(f"Fallback success for {original}: price={fb_price}", file=sys.stderr)
+                                continue
+                        except Exception as fb_err:
+                            print(f"Fallback failed for {original}: {fb_err}", file=sys.stderr)
+                        stale_tickers.append(original)
+                        continue
 
                 high = float(current_row['High'])
                 low = float(current_row['Low'])
