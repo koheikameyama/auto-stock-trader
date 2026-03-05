@@ -25,7 +25,13 @@ import { useChatContext } from "@/app/contexts/ChatContext";
 import { useStockPrice } from "@/app/hooks/useStockPrice";
 import IndividualSettingsModal from "../IndividualSettingsModal";
 import PurchaseSimulation from "@/app/components/PurchaseSimulation";
-import { getSectorGroup } from "@/lib/constants";
+import { getSectorGroup, GAP_PREDICTION_DISPLAY } from "@/lib/constants";
+import dayjs from "dayjs";
+import utcPlugin from "dayjs/plugin/utc";
+import timezonePlugin from "dayjs/plugin/timezone";
+
+dayjs.extend(utcPlugin);
+dayjs.extend(timezonePlugin);
 
 interface Transaction {
   id: string;
@@ -96,6 +102,15 @@ interface PurchaseSimulationData {
   remainingBudget: number | null;
 }
 
+interface GapPredictionData {
+  estimatedGapRate: number;
+  gapDirection: "up" | "down" | "flat";
+  previousClose: number | null;
+  predictedOpenPrice: number | null;
+  actualOpenPrice: number | null;
+  actualGapRate: number | null;
+}
+
 interface Props {
   stock: Stock;
   portfolioDetails?: {
@@ -142,6 +157,7 @@ export default function MyStockDetailClient({
   const [analysisDate, setAnalysisDate] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
   const [watchlistTab, setWatchlistTab] = useState("ai-judgment");
+  const [gapPrediction, setGapPrediction] = useState<GapPredictionData | null>(null);
 
   // Individual TP/SL state (rates in %)
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -195,6 +211,23 @@ export default function MyStockDetailClient({
     isPortfolio,
     setStockContext,
   ]);
+
+  // ギャップ予測データ取得（JST 7:00〜15:00のみ）
+  useEffect(() => {
+    const jstHour = dayjs().tz("Asia/Tokyo").hour();
+    if (jstHour < GAP_PREDICTION_DISPLAY.START_HOUR || jstHour >= GAP_PREDICTION_DISPLAY.END_HOUR) return;
+
+    fetch("/api/gap-prediction?scope=all")
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data.stocks) return;
+        const match = data.stocks.find(
+          (s: { stockId: string }) => s.stockId === stock.stockId,
+        );
+        if (match) setGapPrediction(match);
+      })
+      .catch(() => {});
+  }, [stock.stockId]);
 
   const handleDelete = async () => {
     if (!confirm(t("confirmDelete", { name: stock.stock.name }))) {
@@ -363,6 +396,54 @@ export default function MyStockDetailClient({
                   </span>
                 )}
               </div>
+
+              {/* Gap Prediction - 予測/実績寄り付き */}
+              {gapPrediction && !stock.stock.isDelisted && (gapPrediction.predictedOpenPrice || gapPrediction.actualOpenPrice) && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">
+                    {gapPrediction.actualOpenPrice ? "寄り付き" : "予測寄り付き"}
+                  </span>
+                  <div className="text-right flex items-center gap-1.5">
+                    {gapPrediction.actualOpenPrice ? (
+                      <>
+                        <span className="font-semibold text-gray-900">
+                          ¥{gapPrediction.actualOpenPrice.toLocaleString()}
+                        </span>
+                        <span
+                          className={`text-xs font-semibold ${
+                            (gapPrediction.actualGapRate ?? 0) >= 0
+                              ? "text-green-600"
+                              : "text-red-600"
+                          }`}
+                        >
+                          {(gapPrediction.actualGapRate ?? 0) >= 0 ? "+" : ""}
+                          {gapPrediction.actualGapRate?.toFixed(2)}%
+                        </span>
+                        <span className="text-[10px] text-gray-400">
+                          (予測: {gapPrediction.estimatedGapRate >= 0 ? "+" : ""}
+                          {gapPrediction.estimatedGapRate.toFixed(2)}%)
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-semibold text-gray-900">
+                          ¥{gapPrediction.predictedOpenPrice!.toLocaleString()}
+                        </span>
+                        <span
+                          className={`text-xs font-semibold ${
+                            gapPrediction.estimatedGapRate >= 0
+                              ? "text-green-600"
+                              : "text-red-600"
+                          }`}
+                        >
+                          {gapPrediction.estimatedGapRate >= 0 ? "+" : ""}
+                          {gapPrediction.estimatedGapRate.toFixed(2)}%
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Holdings Info */}
               <div className="flex items-center justify-between text-sm">
@@ -705,6 +786,56 @@ export default function MyStockDetailClient({
               </button>
             }
           />
+
+          {/* Gap Prediction - 予測/実績寄り付き (Watchlist) */}
+          {gapPrediction && !(stock.stock.isDelisted) && (gapPrediction.predictedOpenPrice || gapPrediction.actualOpenPrice) && (
+            <div className="bg-white rounded-xl shadow-md p-4 sm:p-6 mb-6 -mt-4">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-600">
+                  {gapPrediction.actualOpenPrice ? "寄り付き" : "予測寄り付き"}
+                </span>
+                <div className="text-right flex items-center gap-1.5">
+                  {gapPrediction.actualOpenPrice ? (
+                    <>
+                      <span className="font-semibold text-gray-900">
+                        ¥{gapPrediction.actualOpenPrice.toLocaleString()}
+                      </span>
+                      <span
+                        className={`text-xs font-semibold ${
+                          (gapPrediction.actualGapRate ?? 0) >= 0
+                            ? "text-green-600"
+                            : "text-red-600"
+                        }`}
+                      >
+                        {(gapPrediction.actualGapRate ?? 0) >= 0 ? "+" : ""}
+                        {gapPrediction.actualGapRate?.toFixed(2)}%
+                      </span>
+                      <span className="text-[10px] text-gray-400">
+                        (予測: {gapPrediction.estimatedGapRate >= 0 ? "+" : ""}
+                        {gapPrediction.estimatedGapRate.toFixed(2)}%)
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-semibold text-gray-900">
+                        ¥{gapPrediction.predictedOpenPrice!.toLocaleString()}
+                      </span>
+                      <span
+                        className={`text-xs font-semibold ${
+                          gapPrediction.estimatedGapRate >= 0
+                            ? "text-green-600"
+                            : "text-red-600"
+                        }`}
+                      >
+                        {gapPrediction.estimatedGapRate >= 0 ? "+" : ""}
+                        {gapPrediction.estimatedGapRate.toFixed(2)}%
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="flex justify-end mb-2">
             <button
