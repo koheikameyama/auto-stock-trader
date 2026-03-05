@@ -752,5 +752,15 @@
     "statusPortfolio": "保有中",
     "statusWatchlist": "気になる",
     "statusTracked": "追跡中"
+  },
+  "stockReport": {
+    "healthRank": {
+      "descA": "両スコアとも高く、懸念材料が少ない",
+      "descB": "全体的にポジティブだが一部課題あり",
+      "descC": "ポジティブ・ネガティブが混在",
+      "descD": "課題が多く改善が必要",
+      "descE": "深刻な懸念あり（赤字+高ボラティリティ+下落トレンド等）",
+      "legendTitle": "健全性ランクとは？"
+    }
   }
 }

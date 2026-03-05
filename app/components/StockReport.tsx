@@ -309,7 +309,7 @@ export default function StockReport({
       </div>
 
       {/* Health Rank Badge */}
-      <div className="flex justify-center mb-4">
+      <div className="flex flex-col items-center mb-4">
         <span
           className={`inline-flex items-center px-4 py-2 rounded-full text-lg font-bold ${healthConfig.color} ${healthConfig.bg}`}
         >
@@ -320,6 +320,25 @@ export default function StockReport({
             </span>
           )}
         </span>
+        <p className="mt-2 text-sm text-gray-600">
+          {t(`healthRank.desc${data.healthRank}`)}
+        </p>
+        <details className="mt-2 w-full max-w-sm">
+          <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600 text-center">
+            {t("healthRank.legendTitle")}
+          </summary>
+          <ul className="mt-2 space-y-1 text-xs text-gray-500">
+            {(["A", "B", "C", "D", "E"] as const).map((rank) => {
+              const cfg = HEALTH_RANK_CONFIG[rank];
+              return (
+                <li key={rank} className={`flex gap-2 ${rank === data.healthRank ? "font-semibold text-gray-700" : ""}`}>
+                  <span className={`${cfg.color} font-bold w-8 shrink-0`}>{rank}</span>
+                  <span>{t(`healthRank.desc${rank}`)}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </details>
       </div>
 
       {/* Score Bars */}
