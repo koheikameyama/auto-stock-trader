@@ -63,7 +63,9 @@
     "predictedOpen": "予測寄り付き",
     "actualOpen": "寄り付き",
     "predicted": "予測",
-    "asOf": "時点"
+    "asOf": "時点",
+    "expectedRange": "想定変動幅",
+    "expectedRangeValue": "±{yen}円（±{percent}%）"
   },
   "deleteConfirm": {
     "title": "銘柄を削除しますか？",

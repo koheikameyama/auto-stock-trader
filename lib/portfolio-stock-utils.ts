@@ -41,6 +41,7 @@ export interface CreatePortfolioStockResult {
       name: string;
       sector: string | null;
       market: string;
+      atr14: Decimal | null;
     };
   };
   transaction: {
@@ -141,6 +142,7 @@ export async function createPortfolioStockWithTransaction(
           name: true,
           sector: true,
           market: true,
+          atr14: true,
         },
       },
     },
@@ -235,6 +237,7 @@ export function buildPortfolioStockResponse(params: {
       sector: portfolioStock.stock.sector,
       market: portfolioStock.stock.market,
       currentPrice,
+      atr14: portfolioStock.stock.atr14 ? Number(portfolioStock.stock.atr14) : null,
     },
     createdAt: portfolioStock.createdAt.toISOString(),
     updatedAt: portfolioStock.updatedAt.toISOString(),

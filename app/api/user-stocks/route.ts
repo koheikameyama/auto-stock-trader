@@ -55,6 +55,7 @@ export interface UserStockResponse {
     sector: string | null;
     market: string;
     currentPrice: number | null;
+    atr14?: number | null;
     fetchFailCount?: number;
     isDelisted?: boolean;
     nextEarningsDate?: string | null;
@@ -105,6 +106,7 @@ export async function GET(request: NextRequest) {
                 name: true;
                 sector: true;
                 market: true;
+                atr14: true;
                 fetchFailCount: true;
                 isDelisted: true;
                 nextEarningsDate: true;
@@ -128,6 +130,7 @@ export async function GET(request: NextRequest) {
                 name: true;
                 sector: true;
                 market: true;
+                atr14: true;
                 fetchFailCount: true;
                 isDelisted: true;
                 delistingNewsDetectedAt: true;
@@ -152,6 +155,7 @@ export async function GET(request: NextRequest) {
               name: true,
               sector: true,
               market: true,
+              atr14: true,
               fetchFailCount: true,
               isDelisted: true,
               nextEarningsDate: true,
@@ -175,6 +179,7 @@ export async function GET(request: NextRequest) {
               name: true,
               sector: true,
               market: true,
+              atr14: true,
               fetchFailCount: true,
               isDelisted: true,
               delistingNewsDetectedAt: true,
@@ -211,6 +216,7 @@ export async function GET(request: NextRequest) {
           sector: ws.stock.sector,
           market: ws.stock.market,
           currentPrice: null, // クライアント側で非同期取得
+          atr14: ws.stock.atr14 ? Number(ws.stock.atr14) : null,
           fetchFailCount: ws.stock.fetchFailCount,
           isDelisted: ws.stock.isDelisted,
           nextEarningsDate: ws.stock.nextEarningsDate?.toISOString() ?? null,
@@ -260,6 +266,7 @@ export async function GET(request: NextRequest) {
           sector: ps.stock.sector,
           market: ps.stock.market,
           currentPrice: null, // クライアント側で非同期取得
+          atr14: ps.stock.atr14 ? Number(ps.stock.atr14) : null,
           fetchFailCount: ps.stock.fetchFailCount,
           isDelisted: ps.stock.isDelisted,
           delistingNewsDetectedAt: ps.stock.delistingNewsDetectedAt?.toISOString() ?? null,
@@ -489,6 +496,7 @@ export async function POST(request: NextRequest) {
               name: true,
               sector: true,
               market: true,
+              atr14: true,
             },
           },
         },
@@ -517,6 +525,7 @@ export async function POST(request: NextRequest) {
           sector: watchlistStock.stock.sector,
           market: watchlistStock.stock.market,
           currentPrice,
+          atr14: watchlistStock.stock.atr14 ? Number(watchlistStock.stock.atr14) : null,
         },
         createdAt: watchlistStock.createdAt.toISOString(),
         updatedAt: watchlistStock.updatedAt.toISOString(),
@@ -611,6 +620,7 @@ export async function POST(request: NextRequest) {
                 name: true,
                 sector: true,
                 market: true,
+                atr14: true,
               },
             },
             transactions: {

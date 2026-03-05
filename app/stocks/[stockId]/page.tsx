@@ -154,6 +154,7 @@ async function StockDetailContent({
     gapUpRate: stock.gapUpRate ? Number(stock.gapUpRate) : null,
     volumeSpikeRate: stock.volumeSpikeRate ? Number(stock.volumeSpikeRate) : null,
     turnoverValue: stock.turnoverValue ? Number(stock.turnoverValue) : null,
+    atr14: stock.atr14 ? Number(stock.atr14) : null,
     fetchFailCount: stock.fetchFailCount,
     isDelisted: stock.isDelisted,
     nextEarningsDate: stock.nextEarningsDate?.toISOString() ?? null,

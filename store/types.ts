@@ -39,6 +39,7 @@ export interface UserStock {
     sector: string | null;
     market: string;
     currentPrice: number | null;
+    atr14?: number | null;
     fetchFailCount?: number;
     isDelisted?: boolean;
   };

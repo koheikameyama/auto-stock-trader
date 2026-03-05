@@ -61,6 +61,7 @@ interface UserStock {
     sector: string | null;
     market: string;
     currentPrice: number | null;
+    atr14?: number | null;
     fetchFailCount?: number;
     isDelisted?: boolean;
     nextEarningsDate?: string | null;
@@ -300,6 +301,23 @@ export default function StockCard({
               <p className="text-sm text-gray-400">読み込み中...</p>
             )}
           </div>
+
+          {/* 想定変動幅 */}
+          {stock.stock.atr14 && currentPrice > 0 && !isDisabled && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-600">
+                {t("expectedRange")}
+              </span>
+              <span className="font-semibold text-gray-700">
+                {t("expectedRangeValue", {
+                  yen: currentPrice >= 1
+                    ? Math.round(stock.stock.atr14).toLocaleString()
+                    : stock.stock.atr14.toFixed(2),
+                  percent: ((stock.stock.atr14 / currentPrice) * 100).toFixed(1),
+                })}
+              </span>
+            </div>
+          )}
 
           {/* Portfolio Specific Info */}
           {isHolding && (

@@ -31,6 +31,8 @@ interface Props {
   gapUpRate?: number | null
   volumeSpikeRate?: number | null
   turnoverValue?: number | null
+  atr14?: number | null
+  currentPrice?: number | null
 }
 
 function SignalBadge({ signal, size = "sm", t }: { signal: SignalType; size?: "sm" | "md"; t: (key: string) => string }) {
@@ -73,7 +75,7 @@ function StrengthBar({ value, max = 100 }: { value: number; max?: number }) {
   )
 }
 
-export default function TechnicalAnalysis({ stockId, embedded = false, gapUpRate, volumeSpikeRate, turnoverValue }: Props) {
+export default function TechnicalAnalysis({ stockId, embedded = false, gapUpRate, volumeSpikeRate, turnoverValue, atr14, currentPrice }: Props) {
   const tTooltip = useTranslations('stocks.tooltips')
   const t = useTranslations('stocks.technicalAnalysis')
   const [data, setData] = useState<TechnicalAnalysisData | null>(null)
@@ -488,6 +490,32 @@ export default function TechnicalAnalysis({ stockId, embedded = false, gapUpRate
             </div>
           </div>
         ) : null}
+
+        {/* 想定変動幅 */}
+        {atr14 && currentPrice && currentPrice > 0 && (
+          <div className="border-b border-gray-100 pb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-sm font-semibold text-gray-900">
+                {t('expectedRange.labelDaily')}
+              </span>
+              <TermTooltip id="ta-expected-range" text={tTooltip('expectedRange')} />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-2xl font-bold text-gray-900">
+                {t('expectedRange.value', {
+                  yen: currentPrice >= 1
+                    ? Math.round(atr14).toLocaleString()
+                    : atr14.toFixed(2),
+                  percent: ((atr14 / currentPrice) * 100).toFixed(1),
+                })}
+              </span>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">
+              {t('expectedRange.disclaimer')}
+            </p>
+          </div>
+        )}
+
         {/* データがない場合 */}
         {!technicalIndicators.rsi && !technicalIndicators.macd && !candlestickPattern && chartPatterns.length === 0 && (
           <p className="text-sm text-gray-500">{t('insufficientData')}</p>
