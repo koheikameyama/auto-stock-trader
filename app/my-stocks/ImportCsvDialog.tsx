@@ -50,9 +50,9 @@ function parseRakutenCsv(text: string): ParsedTransaction[] {
     const cols = parseCSVLine(line);
     if (cols.length < 12) continue;
 
-    // 取引区分（col[6]）が「現物」のみ対象
+    // 取引区分（col[6]）が「現物」で始まるもののみ対象（現物、現物(単元未満)等）
     const tradeCategory = cols[6]?.trim();
-    if (tradeCategory !== "現物") continue;
+    if (!tradeCategory?.startsWith("現物")) continue;
 
     // 売買区分（col[7]）: 買付 or 売付
     const buySell = cols[7]?.trim();
