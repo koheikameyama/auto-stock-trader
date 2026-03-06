@@ -376,7 +376,7 @@ export default function StockReport({
               </span>
               <div>
                 <p className="text-xs font-semibold text-orange-700">
-                  {alert.type}
+                  {t(`alertType.${alert.type}`)}
                 </p>
                 <p className="text-sm text-orange-800">{alert.message}</p>
               </div>

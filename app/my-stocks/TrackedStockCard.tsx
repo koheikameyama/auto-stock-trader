@@ -13,6 +13,9 @@ dayjs.extend(utc)
 dayjs.extend(timezone)
 import DelistedWarning from "@/app/components/DelistedWarning"
 import CopyableTicker from "@/app/components/CopyableTicker"
+import SectorTrendBadge from "@/app/components/SectorTrendBadge"
+import TechnicalSignalBadge from "@/app/components/TechnicalSignalBadge"
+import { HEALTH_RANK_CONFIG } from "@/lib/constants"
 
 interface TrackedStock {
   id: string
@@ -23,6 +26,7 @@ interface TrackedStock {
     name: string
     sector: string | null
     market: string
+    atr14?: number | null
     fetchFailCount?: number
     isDelisted?: boolean
     nextEarningsDate?: string | null
@@ -41,16 +45,25 @@ interface Signal {
   strength: number
 }
 
+interface TrackedStockReportData {
+  healthRank: string
+  marketSignal?: string | null
+  supportLevel?: number | null
+  resistanceLevel?: number | null
+}
+
 interface TrackedStockCardProps {
   trackedStock: TrackedStock
   isStale?: boolean
   priceLoaded?: boolean
+  recommendation?: TrackedStockReportData | null
+  sectorTrend?: { compositeScore: number; trendDirection: string }
   onMoveToWatchlist: (stockId: string, tickerCode: string, name: string) => void
   onPurchase: (stockId: string, tickerCode: string, name: string, market: string, sector: string | null) => void
   onDelete?: (trackedStockId: string) => void
 }
 
-export default function TrackedStockCard({ trackedStock, isStale = false, priceLoaded = false, onMoveToWatchlist, onPurchase, onDelete }: TrackedStockCardProps) {
+export default function TrackedStockCard({ trackedStock, isStale = false, priceLoaded = false, recommendation, sectorTrend, onMoveToWatchlist, onPurchase, onDelete }: TrackedStockCardProps) {
   const { stock, currentPrice, changePercent } = trackedStock
   const t = useTranslations("portfolio.trackedStockCard")
   const [signal, setSignal] = useState<Signal | null>(null)
@@ -101,8 +114,22 @@ export default function TrackedStockCard({ trackedStock, isStale = false, priceL
     <div
       className={`relative bg-white rounded-xl shadow-md transition-all p-4 sm:p-6 ${isDisabled ? "opacity-60" : "hover:shadow-lg hover:bg-gray-50"}`}
     >
-      {/* シグナルバッジ - 右上（無効化時は非表示） */}
-      {signal && !isDisabled && (
+      {/* 健全性ランク + シグナルバッジ - 右上（無効化時は非表示） */}
+      {recommendation && !isDisabled && (() => {
+        const healthConfig = HEALTH_RANK_CONFIG[recommendation.healthRank]
+        return healthConfig ? (
+          <div className="absolute top-3 right-3 sm:top-4 sm:right-4 flex flex-col items-end gap-1">
+            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${healthConfig.bg} ${healthConfig.color}`}>
+              {healthConfig.text}
+            </span>
+            {recommendation.marketSignal && recommendation.marketSignal !== "neutral" && (
+              <TechnicalSignalBadge marketSignal={recommendation.marketSignal} />
+            )}
+          </div>
+        ) : null
+      })()}
+      {/* フォールバック: レポートがない場合は既存シグナル表示 */}
+      {!recommendation && signal && !isDisabled && (
         <span
           className={`absolute top-3 right-3 sm:top-4 sm:right-4 px-2 py-0.5 rounded-full text-xs font-semibold ${
             signal.signal === "buy"
@@ -137,9 +164,12 @@ export default function TrackedStockCard({ trackedStock, isStale = false, priceL
           <h3 className="text-lg sm:text-xl font-bold text-gray-900">
             {stock.name}
           </h3>
-          <p className="text-xs sm:text-sm text-gray-500">
-            <CopyableTicker tickerCode={stock.tickerCode} />
-            {stock.sector && ` • ${stock.sector}`}
+          <p className="text-xs sm:text-sm text-gray-500 flex items-center flex-wrap gap-y-0.5">
+            <span>
+              <CopyableTicker tickerCode={stock.tickerCode} />
+              {stock.sector && ` • ${stock.sector}`}
+            </span>
+            {sectorTrend && <SectorTrendBadge compositeScore={sectorTrend.compositeScore} trendDirection={sectorTrend.trendDirection} />}
           </p>
         </div>
       </div>
@@ -190,6 +220,41 @@ export default function TrackedStockCard({ trackedStock, isStale = false, priceL
           <span className="text-sm text-gray-400">{t("loadingPrice")}</span>
         )}
       </div>
+
+      {/* 想定変動幅 + サポート/レジスタンス */}
+      {!isDisabled && (
+        <div className="space-y-2 mb-4">
+          {/* ATR */}
+          {stock.atr14 && currentPrice && currentPrice > 0 && (() => {
+            const atrPercent = (stock.atr14 / currentPrice) * 100
+            const atrColorClass = atrPercent >= 3 ? "text-red-600" : atrPercent >= 1 ? "text-yellow-600" : "text-green-600"
+            return (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-600">{t("expectedRange")}</span>
+                <span className={`font-semibold ${atrColorClass}`}>
+                  {t("expectedRangeValue", {
+                    yen: currentPrice >= 1
+                      ? Math.round(stock.atr14).toLocaleString()
+                      : stock.atr14.toFixed(2),
+                    percent: atrPercent.toFixed(1),
+                  })}
+                </span>
+              </div>
+            )
+          })()}
+          {/* サポート/レジスタンス */}
+          {recommendation && (recommendation.supportLevel || recommendation.resistanceLevel) && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-600">{t("supportResistance")}</span>
+              <span className="font-semibold text-gray-700">
+                {recommendation.supportLevel && t("supportLevel", { price: Math.round(recommendation.supportLevel).toLocaleString() })}
+                {recommendation.supportLevel && recommendation.resistanceLevel && " / "}
+                {recommendation.resistanceLevel && t("resistanceLevel", { price: Math.round(recommendation.resistanceLevel).toLocaleString() })}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Footer: Actions + Detail Link */}
       <div className={CARD_FOOTER_STYLES.containerLarge}>

@@ -674,11 +674,18 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
     return { hasAnalysis: false }
   }
 
-  const portfolioCount = user.portfolioStocks.filter((ps) => {
+  // 上場廃止・上場廃止予定の銘柄を除外
+  const isDelistedOrPending = (stock: { isDelisted: boolean; delistingNewsDetectedAt: Date | null }) =>
+    stock.isDelisted || stock.delistingNewsDetectedAt !== null
+
+  const activePortfolioStocks = user.portfolioStocks.filter(ps => !isDelistedOrPending(ps.stock))
+  const activeWatchlistStocks = user.watchlistStocks.filter(ws => !isDelistedOrPending(ws.stock))
+
+  const portfolioCount = activePortfolioStocks.filter((ps) => {
     const { quantity } = calculatePortfolioFromTransactions(ps.transactions)
     return quantity > 0
   }).length
-  const watchlistCount = user.watchlistStocks.length
+  const watchlistCount = activeWatchlistStocks.length
   const hasPortfolio = portfolioCount > 0
 
   // 投資スタイルのラベルを取得
@@ -686,8 +693,8 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
 
   // 株価を取得（銘柄がある場合のみ）
   const allTickerCodes = [
-    ...user.portfolioStocks.map(ps => ps.stock.tickerCode),
-    ...user.watchlistStocks.map(ws => ws.stock.tickerCode),
+    ...activePortfolioStocks.map(ps => ps.stock.tickerCode),
+    ...activeWatchlistStocks.map(ws => ws.stock.tickerCode),
   ]
   const prices = allTickerCodes.length > 0 ? (await fetchStockPrices(allTickerCodes)).prices : []
   const priceMap = new Map(prices.map(p => [p.tickerCode, p.currentPrice]))
@@ -697,7 +704,7 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
   let totalValue = 0
   let totalCost = 0
 
-  for (const ps of user.portfolioStocks) {
+  for (const ps of activePortfolioStocks) {
     const { quantity, averagePurchasePrice } = calculatePortfolioFromTransactions(ps.transactions)
     if (quantity <= 0) continue
 
@@ -812,7 +819,7 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
 
     // 機会損失データ: 気になるリストの急騰銘柄
     const portfolioStockIds = new Set(user.portfolioStocks.map(ps => ps.stockId))
-    const watchlistMoves = user.watchlistStocks
+    const watchlistMoves = activeWatchlistStocks
       .filter(ws => {
         const dailyChange = ws.stock.dailyChangeRate ? Number(ws.stock.dailyChangeRate) : 0
         return dailyChange >= DAILY_MARKET_NAVIGATOR.MISSED_OPPORTUNITY_DAILY_CHANGE_THRESHOLD
@@ -909,15 +916,15 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
 
   // 気になるリストをセクター別にグルーピング
   const watchlistBySector = new Map<string, { name: string; tickerCode: string }[]>()
-  for (const ws of user.watchlistStocks) {
+  for (const ws of activeWatchlistStocks) {
     const sector = getSectorGroup(ws.stock.sector) || ws.stock.sector || "その他"
     if (!watchlistBySector.has(sector)) watchlistBySector.set(sector, [])
     watchlistBySector.get(sector)!.push({ name: ws.stock.name, tickerCode: ws.stock.tickerCode })
   }
 
   // 気になるリスト銘柄のテキスト
-  const watchlistStocksText = user.watchlistStocks.length > 0
-    ? user.watchlistStocks.map(ws => {
+  const watchlistStocksText = activeWatchlistStocks.length > 0
+    ? activeWatchlistStocks.map(ws => {
         const price = priceMap.get(ws.stock.tickerCode)
         const dailyChange = ws.stock.dailyChangeRate ? Number(ws.stock.dailyChangeRate) : null
         const weekChange = ws.stock.weekChangeRate ? Number(ws.stock.weekChangeRate) : null
@@ -952,7 +959,7 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
   const sevenDaysLater = new Date(todayForDB.getTime() + 7 * 86400000)
   const allStocksWithEarnings = [
     ...portfolioStocksData.map(s => ({ name: s.name, tickerCode: s.tickerCode, nextEarningsDate: s.nextEarningsDate })),
-    ...user.watchlistStocks
+    ...activeWatchlistStocks
       .filter(ws => ws.stock.nextEarningsDate != null)
       .map(ws => ({ name: ws.stock.name, tickerCode: ws.stock.tickerCode, nextEarningsDate: ws.stock.nextEarningsDate })),
   ]
@@ -1111,11 +1118,11 @@ export async function generatePortfolioOverallAnalysis(userId: string, session: 
   // stockHighlightsにstockId・userStockIdを付与
   const tickerToStockId = new Map<string, string>()
   const tickerToUserStockId = new Map<string, string>()
-  for (const ps of user.portfolioStocks) {
+  for (const ps of activePortfolioStocks) {
     tickerToStockId.set(ps.stock.tickerCode, ps.stockId)
     tickerToUserStockId.set(ps.stock.tickerCode, ps.id)
   }
-  for (const ws of user.watchlistStocks) {
+  for (const ws of activeWatchlistStocks) {
     tickerToStockId.set(ws.stock.tickerCode, ws.stockId)
     tickerToUserStockId.set(ws.stock.tickerCode, ws.id)
   }

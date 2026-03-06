@@ -767,6 +767,23 @@
       "descD": "課題が多く改善が必要",
       "descE": "深刻な懸念あり（赤字+高ボラティリティ+下落トレンド等）",
       "legendTitle": "健全性ランクとは？"
+    },
+    "alertType": {
+      "dangerous_stock": "危険銘柄",
+      "unprofitable_surge": "赤字急騰",
+      "extreme_surge": "異常急騰",
+      "surge": "急騰",
+      "overheat": "過熱圏",
+      "decline": "下落トレンド",
+      "deteriorating_performance": "業績悪化",
+      "pre_earnings": "決算直前",
+      "earnings_near": "決算接近",
+      "gap_up": "ギャップアップ",
+      "volume_manipulation": "異常出来高",
+      "technical_sell_signal": "テクニカル売りシグナル",
+      "market_crash": "市場急落",
+      "geopolitical_risk": "地政学リスク警戒",
+      "geopolitical_caution": "地政学リスク注意"
     }
   }
 }

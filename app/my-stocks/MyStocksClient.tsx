@@ -36,6 +36,8 @@ interface StockReportData {
   caution: string;
   analyzedAt?: string;
   marketSignal?: string | null;
+  supportLevel?: number | null;
+  resistanceLevel?: number | null;
 }
 
 type TabType = "portfolio" | "watchlist" | "tracked" | "sold";
@@ -246,14 +248,23 @@ export default function MyStocksClient() {
       const targetStocks = userStocks.filter(
         (s) => s.type === "watchlist" || (s.type === "portfolio" && (s.quantity ?? 0) > 0),
       );
-      if (targetStocks.length === 0) return;
+      // 追跡銘柄も対象に追加（重複排除）
+      const userStockIds = new Set(targetStocks.map((s) => s.stockId));
+      const trackedTargets = trackedStocks
+        .filter((ts) => !userStockIds.has(ts.stockId))
+        .map((ts) => ({ stockId: ts.stockId }));
+      const allTargets = [
+        ...targetStocks.map((s) => ({ stockId: s.stockId })),
+        ...trackedTargets,
+      ];
+      if (allTargets.length === 0) return;
 
       try {
         const results = await Promise.allSettled(
-          targetStocks.map((stock) =>
-            fetch(`/api/stocks/${stock.stockId}/report`)
+          allTargets.map((target) =>
+            fetch(`/api/stocks/${target.stockId}/report`)
               .then((res) => (res.ok ? res.json() : null))
-              .then((data) => ({ stockId: stock.stockId, data })),
+              .then((data) => ({ stockId: target.stockId, data })),
           ),
         );
 
@@ -269,6 +280,8 @@ export default function MyStocksClient() {
               caution: result.value.data.caution,
               analyzedAt: result.value.data.analyzedAt,
               marketSignal: result.value.data.marketSignal ?? null,
+              supportLevel: result.value.data.supportLevel ?? null,
+              resistanceLevel: result.value.data.resistanceLevel ?? null,
             };
           }
         });
@@ -278,10 +291,10 @@ export default function MyStocksClient() {
       }
     }
 
-    if (userStocks.length > 0) {
+    if (userStocks.length > 0 || trackedStocks.length > 0) {
       fetchRecommendations();
     }
-  }, [userStocks]);
+  }, [userStocks, trackedStocks]);
 
   // セクタートレンド取得（ウォッチリストのソート用 + カード表示用）
   useEffect(() => {
@@ -826,6 +839,11 @@ export default function MyStocksClient() {
                     trackedStock={ts}
                     isStale={trackedStaleTickers.has(ts.stock.tickerCode)}
                     priceLoaded={trackedPricesLoaded}
+                    recommendation={recommendations[ts.stockId] ?? null}
+                    sectorTrend={(() => {
+                      const group = getSectorGroup(ts.stock.sector);
+                      return group ? sectorTrends[group] : undefined;
+                    })()}
                     onMoveToWatchlist={handleTrackedToWatchlist}
                     onPurchase={handleTrackedToPurchase}
                     onDelete={handleDeleteTrackedStock}

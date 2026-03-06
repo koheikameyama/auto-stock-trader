@@ -145,6 +145,32 @@ export default function TechnicalAnalysis({ stockId, embedded = false, gapUpRate
       )}
 
       <div className="space-y-5">
+        {/* サポート / レジスタンス価格 */}
+        {trendlines && (trendlines.support || trendlines.resistance) && (
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            {trendlines.support && (
+              <span className="text-green-700">
+                {t('trendline.supportLine')} ¥{trendlines.support.currentProjectedPrice.toLocaleString()}
+                <span className="ml-1 text-xs">
+                  {trendlines.support.broken
+                    ? t('trendline.supportBroken')
+                    : t('trendline.supportHolding')}
+                </span>
+              </span>
+            )}
+            {trendlines.resistance && (
+              <span className="text-red-700">
+                {t('trendline.resistanceLine')} ¥{trendlines.resistance.currentProjectedPrice.toLocaleString()}
+                <span className="ml-1 text-xs">
+                  {trendlines.resistance.broken
+                    ? t('trendline.resistanceBroken')
+                    : t('trendline.resistanceHolding')}
+                </span>
+              </span>
+            )}
+          </div>
+        )}
+
         {/* RSI */}
         {technicalIndicators.rsi && (
           <div className="border-b border-gray-100 pb-4">

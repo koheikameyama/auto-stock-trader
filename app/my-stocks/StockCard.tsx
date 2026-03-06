@@ -90,6 +90,8 @@ interface StockReportData {
   caution: string;
   analyzedAt?: string;
   marketSignal?: string | null;
+  supportLevel?: number | null;
+  resistanceLevel?: number | null;
 }
 
 interface StockCardProps {
@@ -303,18 +305,34 @@ export default function StockCard({
           </div>
 
           {/* 想定変動幅 */}
-          {stock.stock.atr14 && currentPrice > 0 && !isDisabled && (
+          {stock.stock.atr14 && currentPrice > 0 && !isDisabled && (() => {
+            const atrPercent = (stock.stock.atr14 / currentPrice) * 100;
+            const atrColorClass = atrPercent >= 3 ? "text-red-600" : atrPercent >= 1 ? "text-yellow-600" : "text-green-600";
+            return (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-600">
+                  {t("expectedRange")}
+                </span>
+                <span className={`font-semibold ${atrColorClass}`}>
+                  {t("expectedRangeValue", {
+                    yen: currentPrice >= 1
+                      ? Math.round(stock.stock.atr14).toLocaleString()
+                      : stock.stock.atr14.toFixed(2),
+                    percent: atrPercent.toFixed(1),
+                  })}
+                </span>
+              </div>
+            );
+          })()}
+
+          {/* サポート/レジスタンス */}
+          {recommendation && (recommendation.supportLevel || recommendation.resistanceLevel) && !isDisabled && (
             <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-600">
-                {t("expectedRange")}
-              </span>
+              <span className="text-gray-600">{t("supportResistance")}</span>
               <span className="font-semibold text-gray-700">
-                {t("expectedRangeValue", {
-                  yen: currentPrice >= 1
-                    ? Math.round(stock.stock.atr14).toLocaleString()
-                    : stock.stock.atr14.toFixed(2),
-                  percent: ((stock.stock.atr14 / currentPrice) * 100).toFixed(1),
-                })}
+                {recommendation.supportLevel && t("supportLevel", { price: Math.round(recommendation.supportLevel).toLocaleString() })}
+                {recommendation.supportLevel && recommendation.resistanceLevel && " / "}
+                {recommendation.resistanceLevel && t("resistanceLevel", { price: Math.round(recommendation.resistanceLevel).toLocaleString() })}
               </span>
             </div>
           )}
