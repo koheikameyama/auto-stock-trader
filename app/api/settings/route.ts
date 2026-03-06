@@ -23,9 +23,9 @@ export async function GET() {
       // デフォルト設定を返す
       return NextResponse.json({
         settings: {
-          investmentStyle: "BALANCED",
+          investmentStyle: "CONSERVATIVE",
           investmentBudget: null,
-          targetReturnRate: 10,
+          targetReturnRate: 5,
           stopLossRate: -5,
         },
       });
