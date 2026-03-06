@@ -6,11 +6,9 @@ WORKDIR /app
 RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
-RUN npm ci --omit=dev
-
 COPY prisma ./prisma
-RUN npx prisma generate
+RUN npm ci --omit=dev
 
 COPY . .
 
-CMD ["npx", "tsx", "src/worker.ts"]
+CMD npx prisma migrate deploy && npx tsx src/worker.ts
