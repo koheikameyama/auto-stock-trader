@@ -23,6 +23,7 @@ import { main as runWeekly } from "./jobs/weekly-review";
 import { app } from "./web/app";
 import { setJobState } from "./web/routes/dashboard";
 import { prisma } from "./lib/prisma";
+import { notifySlack } from "./lib/slack";
 
 // ジョブ状態（ダッシュボードから参照可能）
 const jobState = {
@@ -58,6 +59,16 @@ async function runJob(name: string, job: () => Promise<void>) {
     const entry = jobState.lastRun.get(name);
     if (entry) entry.error = String(err);
     console.error(`[${nowJST()}] ${name} エラー:`, err);
+
+    const errorDetail = err instanceof Error
+      ? `${err.message}\n\n\`\`\`\n${err.stack?.split("\n").slice(1, 6).join("\n") ?? ""}\n\`\`\``
+      : String(err);
+
+    await notifySlack({
+      title: `❌ ${name} でエラーが発生しました`,
+      message: errorDetail,
+      color: "danger",
+    }).catch(() => {});
   } finally {
     jobState.running.delete(name);
   }

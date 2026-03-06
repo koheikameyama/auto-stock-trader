@@ -10,14 +10,14 @@
 
 import { prisma } from "../lib/prisma";
 import { getTodayForDB } from "../lib/date-utils";
-import { TRADING_SCHEDULE } from "../lib/constants";
+import { TRADING_SCHEDULE, ORDER_EXPIRY, TECHNICAL_MIN_DATA } from "../lib/constants";
 import { fetchStockQuote, fetchHistoricalData } from "../core/market-data";
 import { analyzeTechnicals, formatTechnicalForAI } from "../core/technical-analysis";
 import { decideTrade } from "../core/ai-decision";
 import type { MarketAssessmentResult, PositionInput } from "../core/ai-decision";
 import { canOpenPosition } from "../core/risk-manager";
 import { getOpenPositions, getCashBalance } from "../core/position-manager";
-import { notifyOrderPlaced, notifyRiskAlert } from "../lib/slack";
+import { notifyOrderPlaced, notifyRiskAlert, notifySlack } from "../lib/slack";
 import { getSectorGroup } from "../lib/constants";
 import dayjs from "dayjs";
 
@@ -93,7 +93,7 @@ export async function main() {
 
     // テクニカル分析
     const historical = await fetchHistoricalData(stock.tickerCode);
-    if (!historical || historical.length < 15) {
+    if (!historical || historical.length < TECHNICAL_MIN_DATA.SCANNER_MIN_BARS) {
       console.log(`    → ヒストリカルデータ不足: ${stock.tickerCode}`);
       continue;
     }
@@ -155,8 +155,8 @@ export async function main() {
         .second(0)
         .toDate();
     } else {
-      // スイング: 3営業日
-      expiresAt = now.add(3, "day").hour(15).minute(0).second(0).toDate();
+      // スイング: N営業日
+      expiresAt = now.add(ORDER_EXPIRY.SWING_DAYS, "day").hour(15).minute(0).second(0).toDate();
     }
 
     // TradingOrder作成
@@ -191,6 +191,20 @@ export async function main() {
   }
 
   console.log(`\n  注文作成数: ${ordersCreated}`);
+
+  // サマリー通知
+  await notifySlack({
+    title: `📋 注文マネージャー完了`,
+    message: ordersCreated > 0
+      ? `${selectedStocks.length}銘柄を分析し、${ordersCreated}件の注文を発行しました`
+      : `${selectedStocks.length}銘柄を分析しましたが、注文条件を満たす銘柄はありませんでした`,
+    color: ordersCreated > 0 ? "good" : "#808080",
+    fields: [
+      { title: "分析銘柄数", value: `${selectedStocks.length}件`, short: true },
+      { title: "注文作成数", value: `${ordersCreated}件`, short: true },
+    ],
+  });
+
   console.log("=== Order Manager 終了 ===");
 }
 
