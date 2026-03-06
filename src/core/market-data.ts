@@ -4,8 +4,12 @@
  * yahoo-finance2 を使用して株価・市場指標データを取得する
  */
 
-import yahooFinance from "yahoo-finance2";
+import YahooFinance from "yahoo-finance2";
 import pLimit from "p-limit";
+
+const yahooFinance = new YahooFinance({
+  suppressNotices: ["yahooSurvey"],
+});
 import { YAHOO_FINANCE } from "../lib/constants";
 import { normalizeTickerCode } from "../lib/ticker-utils";
 
@@ -144,19 +148,18 @@ export async function fetchHistoricalData(
     const period1 = new Date();
     period1.setDate(period1.getDate() - YAHOO_FINANCE.HISTORICAL_DAYS);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result: any[] = await yahooFinance.historical(symbol, {
+    const result = await yahooFinance.chart(symbol, {
       period1,
       period2: new Date(),
       interval: "1d",
     });
 
     // 新しい順にソート（テクニカル分析モジュールが期待する形式）
-    const sorted = result.sort(
-      (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+    const sorted = result.quotes.sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
     );
 
-    return sorted.map((bar: any) => ({
+    return sorted.map((bar) => ({
       date: new Date(bar.date).toISOString().split("T")[0],
       open: bar.open ?? 0,
       high: bar.high ?? 0,
