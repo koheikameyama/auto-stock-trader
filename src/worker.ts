@@ -22,6 +22,7 @@ import { main as runEod } from "./jobs/end-of-day";
 import { main as runWeekly } from "./jobs/weekly-review";
 import { app } from "./web/app";
 import { setJobState } from "./web/routes/dashboard";
+import { prisma } from "./lib/prisma";
 
 // ジョブ状態（ダッシュボードから参照可能）
 const jobState = {
@@ -98,3 +99,73 @@ serve({ fetch: app.fetch, port }, (info) => {
 });
 
 console.log(`\n=== Worker 起動完了 [${nowJST()}] ===\n`);
+
+// ========================================
+// 起動時キャッチアップ
+// デプロイや再起動で逃したジョブを検出・実行
+// ========================================
+
+async function catchUpMissedJobs() {
+  const now = dayjs().tz("Asia/Tokyo");
+  const day = now.day(); // 0=日, 6=土
+  const isWeekday = day >= 1 && day <= 5;
+
+  if (!isWeekday) {
+    console.log("[catch-up] 平日ではないのでスキップ");
+    return;
+  }
+
+  const todayStart = new Date(
+    Date.UTC(now.year(), now.month(), now.date()),
+  );
+
+  console.log("[catch-up] 逃したジョブを確認中...");
+
+  // market-scanner: 8:30以降で、今日のMarketAssessmentがなければ実行
+  if (now.hour() >= 9 || (now.hour() === 8 && now.minute() >= 30)) {
+    const assessment = await prisma.marketAssessment.findFirst({
+      where: { date: todayStart },
+    });
+    if (!assessment) {
+      console.log("[catch-up] market-scanner が未実行 → 実行します");
+      await runJob("market-scanner", runScan);
+    }
+  }
+
+  // order-manager: 9:20以降で、今日のpending注文がなければ実行
+  // (market-scannerのshouldTrade=falseの場合は注文なしが正常なのでassessmentも確認)
+  if (now.hour() >= 10 || (now.hour() === 9 && now.minute() >= 20)) {
+    const assessment = await prisma.marketAssessment.findFirst({
+      where: { date: todayStart },
+    });
+    if (assessment?.shouldTrade) {
+      const todayOrders = await prisma.tradingOrder.findFirst({
+        where: { createdAt: { gte: todayStart } },
+      });
+      if (!todayOrders) {
+        console.log("[catch-up] order-manager が未実行 → 実行します");
+        await runJob("order-manager", runOrder);
+      }
+    }
+  }
+
+  // end-of-day: 15:50以降で、今日のDailySummaryがなければ実行
+  if (now.hour() >= 16 || (now.hour() === 15 && now.minute() >= 50)) {
+    const summary = await prisma.tradingDailySummary.findFirst({
+      where: { date: todayStart },
+    });
+    if (!summary) {
+      console.log("[catch-up] end-of-day が未実行 → 実行します");
+      await runJob("end-of-day", runEod);
+    }
+  }
+
+  console.log("[catch-up] 完了");
+}
+
+// 起動後5秒待ってからキャッチアップ（DB接続の安定を待つ）
+setTimeout(() => {
+  catchUpMissedJobs().catch((err) => {
+    console.error("[catch-up] エラー:", err);
+  });
+}, 5000);
