@@ -68,7 +68,7 @@ const NIKKEI_TICKERS = [
   { ticker: "9022", name: "東海旅客鉄道", market: "東証プライム", sector: "陸運業" },
 ];
 
-async function main() {
+export async function main() {
   console.log("=== Backfill Prices 開始 ===");
 
   // 1. 銘柄マスタ登録
@@ -207,9 +207,12 @@ async function main() {
   console.log("=== Backfill Prices 終了 ===");
 }
 
-main()
-  .catch((error) => {
-    console.error("Backfill Prices エラー:", error);
-    process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());
+const isDirectRun = process.argv[1]?.includes("backfill-prices");
+if (isDirectRun) {
+  main()
+    .catch((error) => {
+      console.error("Backfill Prices エラー:", error);
+      process.exit(1);
+    })
+    .finally(() => prisma.$disconnect());
+}

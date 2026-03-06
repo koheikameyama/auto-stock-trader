@@ -21,7 +21,7 @@ import { notifyOrderPlaced, notifyRiskAlert } from "../lib/slack";
 import { getSectorGroup } from "../lib/constants";
 import dayjs from "dayjs";
 
-async function main() {
+export async function main() {
   console.log("=== Order Manager 開始 ===");
 
   // 1. 今日のMarketAssessmentを取得
@@ -194,9 +194,12 @@ async function main() {
   console.log("=== Order Manager 終了 ===");
 }
 
-main()
-  .catch((error) => {
-    console.error("Order Manager エラー:", error);
-    process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());
+const isDirectRun = process.argv[1]?.includes("order-manager");
+if (isDirectRun) {
+  main()
+    .catch((error) => {
+      console.error("Order Manager エラー:", error);
+      process.exit(1);
+    })
+    .finally(() => prisma.$disconnect());
+}

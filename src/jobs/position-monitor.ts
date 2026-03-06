@@ -26,7 +26,7 @@ import {
 import { notifyOrderFilled, notifyRiskAlert } from "../lib/slack";
 import dayjs from "dayjs";
 
-async function main() {
+export async function main() {
   console.log("=== Position Monitor 開始 ===");
 
   // 1. 期限切れ注文をキャンセル
@@ -238,9 +238,12 @@ async function calculatePnlForOrder(
   return (filledPrice - Number(position.entryPrice)) * position.quantity;
 }
 
-main()
-  .catch((error) => {
-    console.error("Position Monitor エラー:", error);
-    process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());
+const isDirectRun = process.argv[1]?.includes("position-monitor");
+if (isDirectRun) {
+  main()
+    .catch((error) => {
+      console.error("Position Monitor エラー:", error);
+      process.exit(1);
+    })
+    .finally(() => prisma.$disconnect());
+}

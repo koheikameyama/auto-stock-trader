@@ -15,10 +15,6 @@ on:
           - weekly
           - backfill
 
-  schedule:
-    # 週次レビュー（土曜10:00 JST = 金曜01:00 UTC）
-    - cron: "0 1 * * 6"
-
 env:
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -82,7 +78,7 @@ jobs:
       - run: npm run eod
 
   weekly:
-    if: github.event.inputs.job == 'weekly' || github.event_name == 'schedule'
+    if: github.event.inputs.job == 'weekly'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

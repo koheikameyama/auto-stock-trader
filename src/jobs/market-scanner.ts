@@ -34,7 +34,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function main() {
+export async function main() {
   console.log("=== Market Scanner 開始 ===");
 
   // 1. 市場指標データ取得
@@ -207,9 +207,12 @@ async function main() {
   console.log("=== Market Scanner 終了 ===");
 }
 
-main()
-  .catch((error) => {
-    console.error("Market Scanner エラー:", error);
-    process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());
+const isDirectRun = process.argv[1]?.includes("market-scanner");
+if (isDirectRun) {
+  main()
+    .catch((error) => {
+      console.error("Market Scanner エラー:", error);
+      process.exit(1);
+    })
+    .finally(() => prisma.$disconnect());
+}

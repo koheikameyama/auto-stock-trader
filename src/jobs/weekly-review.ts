@@ -12,7 +12,7 @@ import { getOpenAIClient } from "../lib/openai";
 import { notifySlack } from "../lib/slack";
 import dayjs from "dayjs";
 
-async function main() {
+export async function main() {
   console.log("=== Weekly Review 開始 ===");
 
   // 直近7日間のサマリーを取得
@@ -151,9 +151,12 @@ ${positionSummary || "なし"}
   console.log("=== Weekly Review 終了 ===");
 }
 
-main()
-  .catch((error) => {
-    console.error("Weekly Review エラー:", error);
-    process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());
+const isDirectRun = process.argv[1]?.includes("weekly-review");
+if (isDirectRun) {
+  main()
+    .catch((error) => {
+      console.error("Weekly Review エラー:", error);
+      process.exit(1);
+    })
+    .finally(() => prisma.$disconnect());
+}

@@ -8,6 +8,7 @@
     "npm": ">=10.0.0"
   },
   "scripts": {
+    "start": "tsx src/worker.ts",
     "scan": "tsx src/jobs/market-scanner.ts",
     "order": "tsx src/jobs/order-manager.ts",
     "monitor": "tsx src/jobs/position-monitor.ts",
@@ -23,6 +24,7 @@
   "dependencies": {
     "@prisma/client": "^6.19.2",
     "dayjs": "^1.11.19",
+    "node-cron": "^4.2.1",
     "openai": "^6.17.0",
     "p-limit": "^7.3.0",
     "technicalindicators": "^3.1.0",
@@ -31,8 +33,9 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/node": "^20",
+    "@types/node-cron": "^3.0.11",
     "prisma": "^6.19.2",
-    "tsx": "^4.21.0",
-    "@types/node": "^20"
+    "tsx": "^4.21.0"
   }
 }

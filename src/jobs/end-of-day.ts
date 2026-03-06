@@ -19,7 +19,7 @@ import { getDailyPnl } from "../core/risk-manager";
 import { notifyDailyReport, notifyOrderFilled } from "../lib/slack";
 import dayjs from "dayjs";
 
-async function main() {
+export async function main() {
   console.log("=== End of Day 開始 ===");
 
   // 1. デイトレ未決済ポジションの強制決済
@@ -180,9 +180,12 @@ async function main() {
   console.log("=== End of Day 終了 ===");
 }
 
-main()
-  .catch((error) => {
-    console.error("End of Day エラー:", error);
-    process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());
+const isDirectRun = process.argv[1]?.includes("end-of-day");
+if (isDirectRun) {
+  main()
+    .catch((error) => {
+      console.error("End of Day エラー:", error);
+      process.exit(1);
+    })
+    .finally(() => prisma.$disconnect());
+}
