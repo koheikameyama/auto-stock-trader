@@ -2,6 +2,12 @@
 
 import { useEffect, useState } from "react"
 import { useTranslations } from "next-intl"
+import dayjs from "dayjs"
+import timezone from "dayjs/plugin/timezone"
+import utc from "dayjs/plugin/utc"
+
+dayjs.extend(utc)
+dayjs.extend(timezone)
 import TermTooltip from "@/app/components/TermTooltip"
 import type {
   TechnicalIndicators,
@@ -81,6 +87,7 @@ export default function TechnicalAnalysis({ stockId, embedded = false, gapUpRate
   const [data, setData] = useState<TechnicalAnalysisData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isStaleData, setIsStaleData] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -92,6 +99,15 @@ export default function TechnicalAnalysis({ stockId, embedded = false, gapUpRate
         }
         const result = await response.json()
         setData(result.technicalAnalysis)
+
+        // 最新データ日付と今日(JST)を比較して前場分析前かどうか判定
+        const endDate = result.summary?.endDate
+        if (endDate) {
+          const todayJST = dayjs().tz("Asia/Tokyo").format("YYYY-MM-DD")
+          const dayOfWeek = dayjs().tz("Asia/Tokyo").day()
+          const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5
+          setIsStaleData(endDate < todayJST && isWeekday)
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : t('errorGeneral'))
       } finally {
@@ -141,6 +157,14 @@ export default function TechnicalAnalysis({ stockId, embedded = false, gapUpRate
           <h2 className="text-lg sm:text-xl font-bold text-gray-900 flex items-center">
             {t('title')}
           </h2>
+        </div>
+      )}
+
+      {/* 前場分析前の注意バナー */}
+      {isStaleData && (
+        <div className="mb-4 flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+          <span className="text-amber-500 mt-0.5 shrink-0">⚠️</span>
+          <p className="text-xs text-amber-700">{t('staleDataWarning')}</p>
         </div>
       )}
 
