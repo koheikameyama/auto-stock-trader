@@ -1,7 +1,8 @@
 /**
  * Railway Worker - 常駐プロセス
  *
- * node-cron でジョブをスケジュール実行する。
+ * node-cron でジョブをスケジュール実行し、
+ * Hono HTTP サーバーでダッシュボードを提供する。
  * Railway 上で `npm start` で起動。
  */
 
@@ -9,6 +10,7 @@ import cron from "node-cron";
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone.js";
 import utc from "dayjs/plugin/utc.js";
+import { serve } from "@hono/node-server";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -18,28 +20,45 @@ import { main as runOrder } from "./jobs/order-manager";
 import { main as runMonitor } from "./jobs/position-monitor";
 import { main as runEod } from "./jobs/end-of-day";
 import { main as runWeekly } from "./jobs/weekly-review";
+import { app } from "./web/app";
+import { setJobState } from "./web/routes/dashboard";
 
-// ジョブ実行中フラグ（同一ジョブの重複実行を防ぐ）
-const running = new Set<string>();
+// ジョブ状態（ダッシュボードから参照可能）
+const jobState = {
+  running: new Set<string>(),
+  lastRun: new Map<
+    string,
+    { startedAt: Date; completedAt?: Date; error?: string }
+  >(),
+  startedAt: new Date(),
+};
+
+// ダッシュボードに状態を共有
+setJobState(jobState);
 
 async function runJob(name: string, job: () => Promise<void>) {
-  if (running.has(name)) {
+  if (jobState.running.has(name)) {
     console.log(
       `[${nowJST()}] ${name} スキップ（前回の実行がまだ完了していません）`,
     );
     return;
   }
 
-  running.add(name);
+  jobState.running.add(name);
+  jobState.lastRun.set(name, { startedAt: new Date() });
   console.log(`[${nowJST()}] ${name} 開始`);
 
   try {
     await job();
+    const entry = jobState.lastRun.get(name);
+    if (entry) entry.completedAt = new Date();
     console.log(`[${nowJST()}] ${name} 完了`);
   } catch (err) {
+    const entry = jobState.lastRun.get(name);
+    if (entry) entry.error = String(err);
     console.error(`[${nowJST()}] ${name} エラー:`, err);
   } finally {
-    running.delete(name);
+    jobState.running.delete(name);
   }
 }
 
@@ -68,5 +87,11 @@ for (const s of schedules) {
   });
   console.log(`  スケジュール登録: ${s.name} → ${s.cron} (JST)`);
 }
+
+// HTTP サーバー起動（ダッシュボード）
+const port = parseInt(process.env.PORT || "3000", 10);
+serve({ fetch: app.fetch, port }, (info) => {
+  console.log(`  Dashboard: http://localhost:${info.port}`);
+});
 
 console.log(`\n=== Worker 起動完了 [${nowJST()}] ===\n`);

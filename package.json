@@ -22,8 +22,10 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@hono/node-server": "^1.19.11",
     "@prisma/client": "^6.19.2",
     "dayjs": "^1.11.19",
+    "hono": "^4.12.5",
     "node-cron": "^4.2.1",
     "openai": "^6.17.0",
     "p-limit": "^7.3.0",
