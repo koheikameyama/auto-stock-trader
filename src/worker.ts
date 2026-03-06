@@ -60,9 +60,10 @@ async function runJob(name: string, job: () => Promise<void>) {
     if (entry) entry.error = String(err);
     console.error(`[${nowJST()}] ${name} エラー:`, err);
 
-    const errorDetail = err instanceof Error
-      ? `${err.message}\n\n\`\`\`\n${err.stack?.split("\n").slice(1, 6).join("\n") ?? ""}\n\`\`\``
-      : String(err);
+    const errorDetail =
+      err instanceof Error
+        ? `${err.message}\n\n\`\`\`\n${err.stack?.split("\n").slice(1, 6).join("\n") ?? ""}\n\`\`\``
+        : String(err);
 
     await notifySlack({
       title: `❌ ${name} でエラーが発生しました`,
@@ -109,7 +110,10 @@ serve({ fetch: app.fetch, port }, (info) => {
   console.log(`  Dashboard: http://localhost:${info.port}`);
 });
 
-console.log(`\n=== Worker 起動完了 [${nowJST()}] ===\n`);
+console.log(`\n=== Worker 起動完了 ===`);
+console.log(`  JST時刻: [${nowJST()}]`);
+console.log(`  System時刻 (UTC): [${new Date().toISOString()}]`);
+console.log(`============================\n`);
 
 // ========================================
 // 起動時キャッチアップ
@@ -126,9 +130,7 @@ async function catchUpMissedJobs() {
     return;
   }
 
-  const todayStart = new Date(
-    Date.UTC(now.year(), now.month(), now.date()),
-  );
+  const todayStart = now.startOf("day").toDate();
 
   console.log("[catch-up] 逃したジョブを確認中...");
 

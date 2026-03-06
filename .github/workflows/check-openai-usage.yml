@@ -1,0 +1,35 @@
+name: Check OpenAI API Usage
+
+on:
+  # schedule:
+    # 毎日 10:00 JST (01:00 UTC)
+    # - cron: '0 1 * * *'
+  workflow_dispatch: # 手動実行も可能
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-usage:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Check OpenAI API usage and notify Slack
+        env:
+          OPENAI_ADMIN_KEY: ${{ secrets.OPENAI_ADMIN_KEY }}
+          OPENAI_PROJECT_ID: ${{ secrets.OPENAI_PROJECT_ID }}
+          OPENAI_SLACK_WEBHOOK_URL: ${{ secrets.OPENAI_SLACK_WEBHOOK_URL }}
+          MONTHLY_BUDGET_USD: ${{ secrets.MONTHLY_BUDGET_USD }}
+        run: python scripts/github-actions/check_openai_usage.py
