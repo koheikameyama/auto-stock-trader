@@ -88,8 +88,8 @@ export const TRADING_SCHEDULE = {
   MORNING_CLOSE: { hour: 11, minute: 30 },
   AFTERNOON_OPEN: { hour: 12, minute: 30 },
   MARKET_CLOSE: { hour: 15, minute: 0 },
-  // デイトレの強制決済時刻
-  DAY_TRADE_FORCE_EXIT: { hour: 14, minute: 30 },
+  // デイトレの強制決済時刻（Yahoo Finance約20分遅延を考慮し+20分）
+  DAY_TRADE_FORCE_EXIT: { hour: 14, minute: 50 },
 } as const;
 
 // ========================================

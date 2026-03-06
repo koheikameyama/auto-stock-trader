@@ -67,15 +67,18 @@ function nowJST(): string {
 }
 
 // スケジュール定義（全て JST）
+// ※ Yahoo Finance日本株データの約20分遅延を考慮し、各ジョブを+20分にオフセット
 const schedules = [
-  // 8:30 市場スキャン（平日）
+  // 8:30 市場スキャン（平日）— 海外指標は遅延影響なしのため据置
   { cron: "30 8 * * 1-5", job: runScan, name: "market-scanner" },
-  // 9:00 注文発行（平日）
-  { cron: "0 9 * * 1-5", job: runOrder, name: "order-manager" },
-  // 9:00-15:00 毎分 ポジション監視（平日）
-  { cron: "* 9-14 * * 1-5", job: runMonitor, name: "position-monitor" },
-  // 15:30 日次締め（平日）
-  { cron: "30 15 * * 1-5", job: runEod, name: "end-of-day" },
+  // 9:20 注文発行（平日）— 寄付き9:00のデータ反映後
+  { cron: "20 9 * * 1-5", job: runOrder, name: "order-manager" },
+  // 9:20-15:19 毎分 ポジション監視（平日）— 遅延考慮
+  { cron: "20-59 9 * * 1-5", job: runMonitor, name: "position-monitor" },
+  { cron: "* 10-14 * * 1-5", job: runMonitor, name: "position-monitor" },
+  { cron: "0-19 15 * * 1-5", job: runMonitor, name: "position-monitor" },
+  // 15:50 日次締め（平日）— 大引け15:30のデータ反映後
+  { cron: "50 15 * * 1-5", job: runEod, name: "end-of-day" },
   // 土曜 10:00 週次レビュー
   { cron: "0 10 * * 6", job: runWeekly, name: "weekly-review" },
 ];
