@@ -65,7 +65,10 @@
     "predicted": "予測",
     "asOf": "時点",
     "expectedRange": "想定変動幅",
-    "expectedRangeValue": "±{yen}円（±{percent}%）"
+    "expectedRangeValue": "±{yen}円（±{percent}%）",
+    "supportLevel": "S: ¥{price}",
+    "resistanceLevel": "R: ¥{price}",
+    "supportResistance": "注文水準"
   },
   "deleteConfirm": {
     "title": "銘柄を削除しますか？",
@@ -234,7 +237,12 @@
     "priceUnavailableDetail": "上場廃止、取引停止の銘柄の可能性があります。",
     "loadingPrice": "価格取得中...",
     "delete": "削除",
-    "viewDetails": "詳細を見る"
+    "viewDetails": "詳細を見る",
+    "expectedRange": "想定変動幅",
+    "expectedRangeValue": "±{yen}円（±{percent}%）",
+    "supportLevel": "S: ¥{price}",
+    "resistanceLevel": "R: ¥{price}",
+    "supportResistance": "注文水準"
   },
   "detailClient": {
     "deleteLabel": "削除",
