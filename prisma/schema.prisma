@@ -149,6 +149,7 @@ model TradingOrder {
   filledPrice Decimal? @db.Decimal(10, 2)
   filledAt    DateTime?
   reasoning   String @db.Text // 注文理由
+  entrySnapshot Json? // 注文作成時のスコア・テクニカル・AI判断
 
   positionId String?
   position   TradingPosition? @relation(fields: [positionId], references: [id])
@@ -177,6 +178,13 @@ model TradingPosition {
   exitPrice       Decimal? @db.Decimal(10, 2)
   exitedAt        DateTime?
   realizedPnl     Decimal? @db.Decimal(12, 2) // 確定損益
+
+  // スナップショット
+  entrySnapshot     Json?                       // 購入時のテクニカル・AI理由・市場環境
+  exitSnapshot      Json?                       // 売却時の理由・値動き・市場状況
+  maxHighDuringHold Decimal? @db.Decimal(10, 2) // 保有中の最高値
+  minLowDuringHold  Decimal? @db.Decimal(10, 2) // 保有中の最安値
+  reviewComments    String?  @db.Text           // AIによる振り返り分析
 
   orders TradingOrder[]
 

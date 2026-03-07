@@ -24,6 +24,7 @@ import {
   getUnrealizedPnl,
 } from "../core/position-manager";
 import { notifyOrderFilled, notifyRiskAlert } from "../lib/slack";
+import type { ExitSnapshot } from "../types/snapshots";
 import dayjs from "dayjs";
 
 export async function main() {
@@ -84,6 +85,12 @@ export async function main() {
           stopLossPrice = filledPrice * POSITION_DEFAULTS.STOP_LOSS_RATIO;
         }
 
+        // 約定した注文からエントリースナップショットを取得
+        const filledOrder = await prisma.tradingOrder.findUnique({
+          where: { id: order.id },
+          select: { entrySnapshot: true },
+        });
+
         const position = await openPosition(
           order.stockId,
           order.strategy,
@@ -91,6 +98,7 @@ export async function main() {
           order.quantity,
           takeProfitPrice,
           stopLossPrice,
+          filledOrder?.entrySnapshot as object | undefined,
         );
 
         // ポジションIDを注文に紐付け
@@ -160,7 +168,44 @@ export async function main() {
         `  → ${position.stock.tickerCode}: ${exitReason}! ¥${exitPrice.toLocaleString()}`,
       );
 
-      const closedPosition = await closePosition(position.id, exitPrice);
+      // exitSnapshot構築
+      const entryPriceNum = Number(position.entryPrice);
+      const maxHigh = position.maxHighDuringHold
+        ? Math.max(Number(position.maxHighDuringHold), quote.high)
+        : quote.high;
+      const minLow = position.minLowDuringHold
+        ? Math.min(Number(position.minLowDuringHold), quote.low)
+        : quote.low;
+
+      const latestAssessment = await prisma.marketAssessment.findFirst({
+        orderBy: { date: "desc" },
+        select: { sentiment: true, reasoning: true },
+      });
+
+      const exitSnapshot: ExitSnapshot = {
+        exitReason,
+        exitPrice,
+        priceJourney: {
+          maxHigh,
+          minLow,
+          maxFavorableExcursion:
+            ((maxHigh - entryPriceNum) / entryPriceNum) * 100,
+          maxAdverseExcursion:
+            ((entryPriceNum - minLow) / entryPriceNum) * 100,
+        },
+        marketContext: latestAssessment
+          ? {
+              sentiment: latestAssessment.sentiment,
+              reasoning: latestAssessment.reasoning.slice(0, 500),
+            }
+          : null,
+      };
+
+      const closedPosition = await closePosition(
+        position.id,
+        exitPrice,
+        exitSnapshot as object,
+      );
 
       await notifyOrderFilled({
         tickerCode: position.stock.tickerCode,
@@ -173,6 +218,27 @@ export async function main() {
           : 0,
       });
     } else {
+      // maxHigh/minLow を更新
+      const newMaxHigh = position.maxHighDuringHold
+        ? Math.max(Number(position.maxHighDuringHold), quote.high)
+        : quote.high;
+      const newMinLow = position.minLowDuringHold
+        ? Math.min(Number(position.minLowDuringHold), quote.low)
+        : quote.low;
+
+      if (
+        newMaxHigh !== Number(position.maxHighDuringHold) ||
+        newMinLow !== Number(position.minLowDuringHold)
+      ) {
+        await prisma.tradingPosition.update({
+          where: { id: position.id },
+          data: {
+            maxHighDuringHold: newMaxHigh,
+            minLowDuringHold: newMinLow,
+          },
+        });
+      }
+
       // 含み損益表示
       const unrealized = getUnrealizedPnl(position, quote.price);
       console.log(
@@ -203,7 +269,34 @@ export async function main() {
         `  → ${position.stock.tickerCode}: デイトレ強制決済 @ ¥${quote.price.toLocaleString()}`,
       );
 
-      const closed = await closePosition(position.id, quote.price);
+      // exitSnapshot構築
+      const entryPriceNum = Number(position.entryPrice);
+      const maxHigh = position.maxHighDuringHold
+        ? Math.max(Number(position.maxHighDuringHold), quote.high)
+        : quote.high;
+      const minLow = position.minLowDuringHold
+        ? Math.min(Number(position.minLowDuringHold), quote.low)
+        : quote.low;
+
+      const exitSnapshot: ExitSnapshot = {
+        exitReason: "デイトレ強制決済",
+        exitPrice: quote.price,
+        priceJourney: {
+          maxHigh,
+          minLow,
+          maxFavorableExcursion:
+            ((maxHigh - entryPriceNum) / entryPriceNum) * 100,
+          maxAdverseExcursion:
+            ((entryPriceNum - minLow) / entryPriceNum) * 100,
+        },
+        marketContext: null,
+      };
+
+      const closed = await closePosition(
+        position.id,
+        quote.price,
+        exitSnapshot as object,
+      );
 
       await notifyOrderFilled({
         tickerCode: position.stock.tickerCode,

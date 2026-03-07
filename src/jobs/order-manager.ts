@@ -34,6 +34,7 @@ import { canOpenPosition, validateStopLoss } from "../core/risk-manager";
 import { getCashBalance } from "../core/position-manager";
 import { notifyOrderPlaced, notifyRiskAlert, notifySlack } from "../lib/slack";
 import { getSectorGroup } from "../lib/constants";
+import type { EntrySnapshot } from "../types/snapshots";
 import dayjs from "dayjs";
 
 export async function main() {
@@ -301,6 +302,45 @@ export async function main() {
         .toDate();
     }
 
+    // エントリースナップショット構築
+    const entrySnapshot: EntrySnapshot = {
+      score: {
+        totalScore: score.totalScore,
+        rank: score.rank,
+        technical: score.technical,
+        pattern: score.pattern,
+        liquidity: score.liquidity,
+        topPattern: score.topPattern,
+        technicalSignal: score.technicalSignal,
+      },
+      technicals: {
+        rsi: techSummary.rsi,
+        sma5: techSummary.sma5,
+        sma25: techSummary.sma25,
+        sma75: techSummary.sma75,
+        macd: techSummary.macd,
+        bollingerBands: techSummary.bollingerBands,
+        atr14: techSummary.atr14,
+        volumeRatio: techSummary.volumeAnalysis.volumeRatio,
+        deviationRate25: techSummary.deviationRate25,
+        maAlignment: techSummary.maAlignment,
+        supports: techSummary.supports,
+        resistances: techSummary.resistances,
+      },
+      logicEntryCondition: entryCondition,
+      aiReview: {
+        decision: review.decision,
+        reasoning: review.reasoning,
+        modification: review.modification,
+        riskFlags: review.riskFlags,
+      },
+      marketContext: {
+        sentiment: assessment.sentiment,
+        reasoning: assessment.reasoning.slice(0, 500),
+      },
+      newsContext: newsContext ?? null,
+    };
+
     // TradingOrder作成
     await prisma.tradingOrder.create({
       data: {
@@ -313,6 +353,7 @@ export async function main() {
         status: "pending",
         reasoning: review.reasoning,
         expiresAt,
+        entrySnapshot: entrySnapshot as object,
       },
     });
 

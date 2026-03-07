@@ -14,6 +14,7 @@ import { OPENAI_CONFIG } from "../lib/constants";
 import { getOpenAIClient } from "../lib/openai";
 import { fetchStockQuote } from "../core/market-data";
 import { closePosition, getCashBalance, getTotalPortfolioValue } from "../core/position-manager";
+import type { ExitSnapshot } from "../types/snapshots";
 import { expireOrders } from "../core/order-executor";
 import { getDailyPnl } from "../core/risk-manager";
 import { notifyDailyReport, notifyOrderFilled } from "../lib/slack";
@@ -37,7 +38,34 @@ export async function main() {
       `  → ${position.stock.tickerCode}: 強制決済 @ ¥${exitPrice.toLocaleString()}`,
     );
 
-    const closed = await closePosition(position.id, exitPrice);
+    // exitSnapshot構築
+    const entryPriceNum = Number(position.entryPrice);
+    const maxHigh = position.maxHighDuringHold
+      ? Math.max(Number(position.maxHighDuringHold), quote?.high ?? exitPrice)
+      : exitPrice;
+    const minLow = position.minLowDuringHold
+      ? Math.min(Number(position.minLowDuringHold), quote?.low ?? exitPrice)
+      : exitPrice;
+
+    const exitSnapshot: ExitSnapshot = {
+      exitReason: "EOD強制決済",
+      exitPrice,
+      priceJourney: {
+        maxHigh,
+        minLow,
+        maxFavorableExcursion:
+          ((maxHigh - entryPriceNum) / entryPriceNum) * 100,
+        maxAdverseExcursion:
+          ((entryPriceNum - minLow) / entryPriceNum) * 100,
+      },
+      marketContext: null,
+    };
+
+    const closed = await closePosition(
+      position.id,
+      exitPrice,
+      exitSnapshot as object,
+    );
 
     await notifyOrderFilled({
       tickerCode: position.stock.tickerCode,
