@@ -41,23 +41,29 @@ export async function main() {
   const stockUniverse = loadStockUniverse();
   console.log(`[1/3] 銘柄マスタ登録... (${stockUniverse.length}銘柄)`);
 
-  for (const stock of stockUniverse) {
-    const tickerCode = normalizeTickerCode(stock.ticker);
-
-    await prisma.stock.upsert({
-      where: { tickerCode },
-      create: {
-        tickerCode,
-        name: stock.name,
-        market: stock.market,
-        sector: stock.sector,
-      },
-      update: {
-        name: stock.name,
-        market: stock.market,
-        sector: stock.sector,
-      },
-    });
+  const UPSERT_BATCH_SIZE = 100;
+  for (let i = 0; i < stockUniverse.length; i += UPSERT_BATCH_SIZE) {
+    const batch = stockUniverse.slice(i, i + UPSERT_BATCH_SIZE);
+    await prisma.$transaction(
+      batch.map((stock) => {
+        const tickerCode = normalizeTickerCode(stock.ticker);
+        return prisma.stock.upsert({
+          where: { tickerCode },
+          create: {
+            tickerCode,
+            name: stock.name,
+            market: stock.market,
+            sector: stock.sector,
+          },
+          update: {
+            name: stock.name,
+            market: stock.market,
+            sector: stock.sector,
+          },
+        });
+      }),
+    );
+    console.log(`  ${Math.min(i + UPSERT_BATCH_SIZE, stockUniverse.length)}/${stockUniverse.length} 登録`);
   }
   console.log("  銘柄マスタ登録完了");
 
