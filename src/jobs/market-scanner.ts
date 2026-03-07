@@ -444,25 +444,6 @@ ${sectorText || "  特になし"}`;
       entryPrice: findEntryPrice(c.tickerCode),
       rejectionReason: "below_threshold",
     })),
-    // 即死棄却
-    ...disqualified.map((c) => ({
-      date: today,
-      tickerCode: c.tickerCode,
-      totalScore: 0,
-      rank: "C",
-      technicalScore: 0,
-      patternScore: 0,
-      liquidityScore: 0,
-      technicalBreakdown: {},
-      patternBreakdown: {},
-      liquidityBreakdown: {},
-      isDisqualified: true,
-      disqualifyReason: c.score.disqualifyReason,
-      aiDecision: null,
-      aiReasoning: null,
-      entryPrice: findEntryPrice(c.tickerCode),
-      rejectionReason: "disqualified",
-    })),
   ];
 
   if (scoringRecords.length > 0) {

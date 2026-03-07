@@ -46,7 +46,6 @@ function buildGhostAnalysisPrompt(record: {
   const reasonLabel: Record<string, string> = {
     below_threshold: "スコアが閾値未達（AI審査に送られなかった）",
     ai_no_go: "AIが定性的リスクを理由に否決",
-    disqualified: "即死ルールで棄却",
   };
 
   return `以下の銘柄は自動売買システムが見送りましたが、実際には利益が出ていました。
