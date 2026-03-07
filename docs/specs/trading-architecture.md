@@ -1,0 +1,514 @@
+# トレーディングアーキテクチャ改善仕様
+
+## 概要
+
+**「ロジックが主役、AIが最終審判」**へアーキテクチャを移行する。
+
+現状はスクリーニング（DB条件フィルタ）→ AI銘柄選定 → AI売買判断という流れで、銘柄選定と売買判断をAIに大きく依存している。これを、ロジック（テクニカル分析・パターン検出）でスコアリング・絞り込みを行い、AIは最終的な Go/No-Go 判断のみに集中させる構成に変更する。
+
+### 設計思想
+
+- **攻め（銘柄選定）**: ロジックで機械的に絞り込み、AIが最終承認
+- **守り（リスク管理）**: ロジックで冷徹に実行、AIの判断を上書き可能
+
+### 目標
+
+- 勝率 70% 以上を維持
+- AIトークン消費の削減（候補数を10〜20銘柄に絞ってからAIに渡す）
+- AIの計算ミス・幻覚リスクの排除（数値計算はすべてロジック側で実行）
+
+---
+
+## 現状と課題
+
+### 現在のフロー
+
+```
+DB条件フィルタ（価格・出来高・時価総額）
+  ↓ 約90銘柄がそのまま通過
+テクニカル分析（全候補に対して実行）
+  ↓ 結果をテキスト形式でAIに渡す
+AI銘柄選定（selectStocks）
+  ↓ AIがスコアリング（score >= 50）
+AI売買判断（decideTrade）
+  ↓ AIが指値・利確・損切を決定
+注文生成
+```
+
+### 課題
+
+| # | 課題 | 影響 |
+|---|------|------|
+| 1 | スクリーニングがDB条件（3条件）だけで、テクニカル的に弱い銘柄もAIに渡される | AIトークン浪費、ノイズ増加 |
+| 2 | テクニカル分析結果がテキスト形式でAIに渡される | AIが数値を再解釈する必要あり、誤解リスク |
+| 3 | 銘柄選定をAIに丸投げ | ロジックで判断できる部分もAIに依存 |
+| 4 | 損切り価格がAI判断依存 | AIが楽観的な判断をするリスク |
+| 5 | AIへの指示が「分析して選んでください」型 | AIの役割が曖昧 |
+
+---
+
+## 改善後のフロー
+
+```
+第0関門: DB条件フィルタ（既存）
+  ↓ 約90銘柄
+第1関門: テクニカルスコアリング（新規）  ← ロジック
+  ↓ 上位10〜20銘柄に絞り込み
+第2関門: AI最終審判（変更）             ← AI
+  ↓ Go/No-Go + 戦略タイプ
+売買判断: ロジック主導 + AI補助（変更）
+  ↓ 指値・利確・損切はロジック算出、AIはレビュー
+注文生成
+```
+
+---
+
+## Phase 1: テクニカルスコアリングエンジン
+
+### 目的
+
+テクニカル分析の結果を統一スコア（0〜100）に変換し、ロジックだけで銘柄の優先順位を決定できるようにする。
+
+### 新規ファイル
+
+`src/core/technical-scorer.ts`
+
+### スコアリングロジック
+
+各テクニカル指標にウェイトを割り当て、加重平均でトータルスコアを算出する。
+
+#### 買いスコアの構成
+
+| カテゴリ | 指標 | ウェイト | スコア算出ルール |
+|----------|------|---------|----------------|
+| トレンド | 移動平均線の並び | 20% | パーフェクトオーダー（5>25>75）= 100、逆 = 0、それ以外 = 50 |
+| モメンタム | RSI | 15% | 30-40 = 100（反発ゾーン）、40-50 = 70、50-60 = 50、<30 = 30（売られすぎ）、>70 = 0 |
+| モメンタム | MACD | 10% | シグナル上抜け = 100、ヒストグラム正 = 70、負 = 30、シグナル下抜け = 0 |
+| ボラティリティ | ボリンジャーバンド位置 | 10% | 下限タッチ = 100、下限〜中央 = 70、中央〜上限 = 40、上限超え = 20 |
+| チャートパターン | 検出パターンの最高ランク | 20% | Sランク = 100、Aランク = 85、Bランク = 70、Cランク = 55、Dランク = 40、なし = 0 |
+| ローソク足 | 直近のパターン強度 | 10% | そのまま強度値（0-100）を使用 |
+| 出来高 | 出来高比率 | 10% | 平均比 2倍以上 = 100、1.5倍 = 80、1.0倍 = 50、0.5倍以下 = 20 |
+| サポート | サポートラインとの距離 | 5% | サポート付近（1%以内）= 100、2%以内 = 70、5%以内 = 50、遠い = 20 |
+
+#### スコアの閾値
+
+| スコア | 判定 | アクション |
+|--------|------|-----------|
+| 80〜100 | S（最有力） | AIに優先的に提示 |
+| 65〜79 | A（有力） | AIに提示 |
+| 50〜64 | B（候補） | 候補が少ない場合のみAIに提示 |
+| 0〜49 | C（見送り） | AIに渡さない |
+
+#### 出力インターフェース
+
+```typescript
+interface TechnicalScore {
+  totalScore: number;          // 0-100 の総合スコア
+  rank: "S" | "A" | "B" | "C";
+  breakdown: {
+    trend: number;             // 移動平均線スコア
+    rsiMomentum: number;       // RSIスコア
+    macdMomentum: number;      // MACDスコア
+    bollingerPosition: number; // ボリンジャーバンド位置スコア
+    chartPattern: number;      // チャートパターンスコア
+    candlestick: number;       // ローソク足スコア
+    volume: number;            // 出来高スコア
+    support: number;           // サポートライン距離スコア
+  };
+  topPattern: {
+    name: string;              // 例: "逆三尊"
+    rank: string;              // 例: "S"
+    winRate: number;           // 例: 89
+    signal: string;            // "buy" | "sell" | "neutral"
+  } | null;
+  technicalSignal: string;     // "strong_buy" | "buy" | "neutral" | "sell" | "strong_sell"
+}
+```
+
+### 定数定義
+
+`src/lib/constants/scoring.ts` に以下を定義:
+
+```typescript
+export const SCORING = {
+  WEIGHTS: {
+    TREND: 0.20,
+    RSI_MOMENTUM: 0.15,
+    MACD_MOMENTUM: 0.10,
+    BOLLINGER_POSITION: 0.10,
+    CHART_PATTERN: 0.20,
+    CANDLESTICK: 0.10,
+    VOLUME: 0.10,
+    SUPPORT: 0.05,
+  },
+  THRESHOLDS: {
+    S_RANK: 80,
+    A_RANK: 65,
+    B_RANK: 50,
+  },
+  // AIに渡す最大候補数
+  MAX_CANDIDATES_FOR_AI: 20,
+  // 最低候補数（B_RANKまで広げるトリガー）
+  MIN_CANDIDATES_FOR_AI: 5,
+} as const;
+```
+
+---
+
+## Phase 2: market-scanner のフロー変更
+
+### 変更箇所
+
+`src/jobs/market-scanner.ts`
+
+### 変更後フロー
+
+```
+1. 市場指標取得（既存）
+2. ニュース分析取得（既存）
+3. AI市場評価 assessMarket()（既存）
+   → shouldTrade = false → 保存して終了
+4. DB条件フィルタ（既存）
+   → 約90銘柄
+5. テクニカル分析（既存、並列実行）
+   → 全候補の TechnicalSummary を取得
+6. ★新規: テクニカルスコアリング
+   → scoreTechnicals(summary) で各銘柄に 0-100 スコア付与
+   → スコア降順でソート
+   → S・Aランク（+ 候補不足時はBランク）を抽出 → 上位10〜20銘柄
+7. ★変更: AI銘柄選定（レビュー型に変更）
+   → ロジックが選んだ銘柄リスト + スコア内訳をAIに提示
+   → AIは Go/No-Go のみ判断
+8. 結果保存 + Slack通知（既存）
+```
+
+### Slack通知の変更
+
+候補銘柄の通知にテクニカルスコアを追加:
+
+```
+📊 市場スキャン結果
+市場評価: 🟢 Bullish
+
+候補銘柄:
+1. 7203 トヨタ [S: 85点] 逆三尊(89%) / RSI:35
+2. 6758 ソニー [A: 72点] ダブルボトム(88%) / MACD上抜け
+3. 8306 三菱UFJ [A: 68点] 上昇トライアングル(83%) / 出来高2.1倍
+```
+
+---
+
+## Phase 3: AIプロンプトの「レビュー型」への変更
+
+### 変更箇所
+
+`src/prompts/stock-selection.ts`
+
+### 変更の方針
+
+AIの役割を「分析官」から「ベテラン投資家（上司）」に変更する。
+
+#### Before（現状）
+
+```
+あなたは経験豊富な日本株トレーダーです。
+以下の候補銘柄からトレードに適した銘柄を選定してください。
+[テクニカル指標のテキスト一覧]
+```
+
+#### After（変更後）
+
+```
+あなたはベテラン投資家です。
+ロジック（テクニカル分析エンジン）が以下の銘柄を推薦しました。
+各銘柄にはスコアとその内訳が付いています。
+あなたの役割は、ロジックが見落としがちな「定性的リスク」を判断し、
+各銘柄を承認（Go）または見送り（No-Go）してください。
+
+判断基準:
+- 地政学リスクとの関連
+- 市場の空気感（センチメント）
+- チャートパターンの「綺麗さ」（ダマシの可能性）
+- セクター全体の流れとの整合性
+- ニュースカタリストの信頼性
+
+重要: ロジックのスコアが高い銘柄を却下する場合は、
+明確な定性的理由を述べてください。
+数値的な判断（RSIが高い等）はロジックが既に行っています。
+```
+
+### AI出力スキーマの変更
+
+```typescript
+// Before
+interface StockSelectionResult {
+  tickerCode: string;
+  strategy: "day_trade" | "swing";
+  score: number;        // AIがスコアリング
+  reasoning: string;
+}
+
+// After
+interface StockReviewResult {
+  tickerCode: string;
+  decision: "go" | "no_go";
+  strategy: "day_trade" | "swing";
+  reasoning: string;    // 定性的な判断理由のみ
+  riskFlags: string[];  // ["地政学リスク", "セクター逆風"] 等
+}
+```
+
+### AIに渡す情報の変更
+
+`formatTechnicalForAI()` をスコア形式に変更する。
+
+#### Before（テキスト形式）
+
+```
+【価格】現在値: 3,515円（前日比 +1.2%）
+【RSI】52.3（中立圏）
+【移動平均線】SMA5: 3,480 / SMA25: 3,420 / SMA75: 3,350（上昇トレンド）
+【MACD】+15.2（シグナル上抜け）
+...
+```
+
+#### After（スコア形式）
+
+```
+【総合スコア】85/100（Sランク）
+【スコア内訳】
+  トレンド: 100/100（パーフェクトオーダー成立）
+  RSIモメンタム: 90/100（RSI=35、反発ゾーン）
+  MACDモメンタム: 100/100（シグナル上抜け）
+  ボリンジャー位置: 80/100（下限タッチ）
+  チャートパターン: 95/100（逆三尊 / Sランク / 勝率89%）
+  ローソク足: 75/100（大陽線）
+  出来高: 80/100（平均比1.8倍）
+  サポート距離: 70/100（サポートまで1.5%）
+【検出パターン】逆三尊（完成度: 高 / ブレイクアウト: 済）
+【ロジック判定】strong_buy
+```
+
+---
+
+## Phase 4: 損切りのロジック強制化
+
+### 変更箇所
+
+- `src/core/risk-manager.ts`（新規関数追加）
+- `src/jobs/order-manager.ts`（損切り検証ロジック追加）
+
+### 設計
+
+AIが決定した `stopLossPrice` をロジック側で検証し、必要に応じて上書きする。
+
+#### 検証ルール
+
+```typescript
+interface StopLossValidation {
+  originalPrice: number;   // AIが決定した損切り価格
+  validatedPrice: number;  // ロジックが検証後の損切り価格
+  wasOverridden: boolean;  // 上書きされたか
+  reason: string;          // 上書き理由
+}
+```
+
+| ルール | 条件 | アクション |
+|--------|------|-----------|
+| 最大損失制限 | 損切り幅 > エントリー価格の 3% | 3%に強制設定 |
+| ATRベース最低損切り | 損切り幅 < ATR × 0.5 | ATR × 1.0 に引き上げ（近すぎる損切りを防止） |
+| ATRベース最大損切り | 損切り幅 > ATR × 2.0 | ATR × 1.5 に引き下げ |
+| サポートライン考慮 | サポートラインが存在 | サポートライン - ATR × 0.3 に設定 |
+
+#### 損切り強制実行
+
+`position-monitor.ts` での損切り判定はAIを介さず、ロジックだけで実行する（現状もそうなっているが、明示的にルール化）。
+
+```
+損切り判定:
+  安値 <= stopLossPrice → 強制決済（AIの「まだ大丈夫」は無視）
+```
+
+### 定数定義
+
+`src/lib/constants/scoring.ts` に追加:
+
+```typescript
+export const STOP_LOSS = {
+  MAX_LOSS_PCT: 0.03,           // 最大損失率 3%
+  ATR_MIN_MULTIPLIER: 0.5,     // ATR最小倍率
+  ATR_MAX_MULTIPLIER: 2.0,     // ATR最大倍率
+  ATR_DEFAULT_MULTIPLIER: 1.0, // ATRデフォルト倍率
+  ATR_ADJUSTED_MULTIPLIER: 1.5,// ATR調整後倍率
+  SUPPORT_BUFFER_ATR: 0.3,     // サポートラインバッファ（ATR倍率）
+} as const;
+```
+
+---
+
+## Phase 5: trade-decision プロンプトの変更
+
+### 変更箇所
+
+`src/prompts/trade-decision.ts`
+
+### 変更の方針
+
+AIの役割を「指値・損切りを決定する」から「ロジックが算出したエントリー条件をレビューする」に変更する。
+
+#### ロジック側で算出する項目（新規）
+
+`src/core/entry-calculator.ts` を新規作成:
+
+```typescript
+interface EntryCondition {
+  limitPrice: number;        // 指値 = サポートライン or BB下限の近い方
+  takeProfitPrice: number;   // 利確 = レジスタンスライン or ATR×1.5
+  stopLossPrice: number;     // 損切り = ATR×1.0（Phase 4の検証済み）
+  quantity: number;           // 数量 = リスク管理ルールに基づく
+  riskRewardRatio: number;   // リスクリワード比
+  strategy: "day_trade" | "swing";
+}
+```
+
+#### AIの新しい役割
+
+```
+ロジックが以下のエントリー条件を算出しました:
+
+銘柄: 前田工繊（7821）
+テクニカルスコア: 85/100（Sランク）
+指値: 2,190円（サポートライン付近）
+利確: 2,280円（+4.1%, レジスタンスライン）
+損切: 2,150円（-1.8%, ATR×1.0）
+リスクリワード比: 1:2.3
+数量: 100株
+
+ニュースコンテキスト:
+- 今夜は米雇用統計の発表があります
+- セクター: 建設、直近は横ばい
+
+このトレードを承認しますか？
+承認する場合は "approve"、条件付き承認は "approve_with_modification"、
+見送りは "reject" でお答えください。
+```
+
+#### AI出力スキーマの変更
+
+```typescript
+// Before
+interface TradeDecisionResult {
+  action: "buy" | "skip";
+  limitPrice: number | null;
+  takeProfitPrice: number | null;
+  stopLossPrice: number | null;
+  quantity: number;
+  strategy: "day_trade" | "swing";
+  reasoning: string;
+}
+
+// After
+interface TradeReviewResult {
+  decision: "approve" | "approve_with_modification" | "reject";
+  reasoning: string;
+  modification: {
+    adjustLimitPrice: number | null;     // null = ロジックのまま
+    adjustTakeProfitPrice: number | null;
+    adjustStopLossPrice: number | null;  // ※ Phase 4 の検証で再チェック
+    adjustQuantity: number | null;
+  } | null;
+  riskFlags: string[];
+}
+```
+
+**重要**: AIが `adjustStopLossPrice` を変更した場合でも、Phase 4 の損切り検証ルールで再チェックする。ロジックの損切りルールはAIより優先。
+
+---
+
+## 実装順序と依存関係
+
+```
+Phase 1: テクニカルスコアリングエンジン
+  └─ 新規ファイル作成のみ、既存に影響なし
+  └─ src/core/technical-scorer.ts
+  └─ src/lib/constants/scoring.ts
+
+Phase 2: market-scanner のフロー変更
+  └─ Phase 1 に依存
+  └─ src/jobs/market-scanner.ts の変更
+
+Phase 3: AIプロンプトの「レビュー型」への変更
+  └─ Phase 1 に依存
+  └─ src/prompts/stock-selection.ts の変更
+  └─ src/core/ai-decision.ts の selectStocks() 変更
+
+Phase 4: 損切りのロジック強制化
+  └─ 独立して実装可能
+  └─ src/core/risk-manager.ts に関数追加
+  └─ src/lib/constants/scoring.ts に定数追加
+  └─ src/jobs/order-manager.ts の変更
+
+Phase 5: trade-decision プロンプトの変更
+  └─ Phase 1, 4 に依存
+  └─ src/core/entry-calculator.ts 新規作成
+  └─ src/prompts/trade-decision.ts の変更
+  └─ src/core/ai-decision.ts の decideTrade() 変更
+  └─ src/jobs/order-manager.ts の変更
+```
+
+---
+
+## 変更対象ファイル一覧
+
+### 新規作成
+
+| ファイル | 内容 |
+|----------|------|
+| `src/core/technical-scorer.ts` | テクニカルスコアリングエンジン |
+| `src/core/entry-calculator.ts` | エントリー条件算出（指値・利確・損切り） |
+| `src/lib/constants/scoring.ts` | スコアリング・損切り検証の定数 |
+
+### 変更
+
+| ファイル | 変更内容 |
+|----------|---------|
+| `src/jobs/market-scanner.ts` | スコアリング→絞り込み→AIレビューのフロー変更 |
+| `src/jobs/order-manager.ts` | エントリー条件算出→AIレビュー→損切り検証のフロー変更 |
+| `src/core/ai-decision.ts` | `selectStocks()` → `reviewStocks()`、`decideTrade()` → `reviewTrade()` に変更 |
+| `src/prompts/stock-selection.ts` | レビュー型プロンプト + 新スキーマ |
+| `src/prompts/trade-decision.ts` | レビュー型プロンプト + 新スキーマ |
+| `src/core/risk-manager.ts` | `validateStopLoss()` 関数追加 |
+| `src/core/technical-analysis.ts` | `formatScoreForAI()` 関数追加 |
+
+### 変更なし
+
+| ファイル | 理由 |
+|----------|------|
+| `src/lib/technical-indicators.ts` | 計算ロジック自体は変更不要 |
+| `src/lib/candlestick-patterns.ts` | パターン検出は変更不要（スコアはscorer側で変換） |
+| `src/lib/chart-patterns.ts` | パターン検出は変更不要（スコアはscorer側で変換） |
+| `src/core/order-executor.ts` | 約定ロジックは変更不要 |
+| `src/core/position-manager.ts` | ポジション管理は変更不要 |
+| `src/prompts/market-assessment.ts` | 市場評価のAI判断は現状のまま（ここはAIの仕事） |
+
+---
+
+## 将来のフェーズ（本仕様のスコープ外）
+
+### 板情報の統合（第2関門）
+
+立花証券API等から板データを取得し、ロジックで約定可能性を判定する。スコアリングに「板強度」を追加。
+
+```typescript
+// 将来実装
+interface OrderBookScore {
+  buyPressure: number;      // 買い板の厚さ
+  sellPressure: number;     // 売り板の厚さ
+  ratio: number;            // 買い/売り比率
+  score: number;            // 0-100
+}
+```
+
+### バックテスト機能
+
+スコアリングエンジンの精度を過去データで検証する機能。ウェイトの最適化に使用。
