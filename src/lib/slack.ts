@@ -253,6 +253,51 @@ export async function notifyRiskAlert(data: {
   });
 }
 
+/** 日次バックテスト結果通知 */
+export async function notifyBacktestResult(data: {
+  tickers: number;
+  period: string;
+  dataFetchTimeMs: number;
+  totalTimeMs: number;
+  tierResults: Array<{
+    label: string;
+    winRate: number;
+    profitFactor: number;
+    totalReturnPct: number;
+    totalPnl: number;
+    totalTrades: number;
+    maxDrawdown: number;
+  }>;
+}): Promise<void> {
+  const tierLines = data.tierResults
+    .map((t) => {
+      const pnlSign = t.totalPnl >= 0 ? "+" : "";
+      const pf =
+        t.profitFactor === Infinity ? "∞" : t.profitFactor.toFixed(2);
+      return `${t.label}: 勝率${t.winRate}% | PF ${pf} | ${pnlSign}${t.totalReturnPct}% (${pnlSign}¥${t.totalPnl.toLocaleString()}) | DD -${t.maxDrawdown}% | ${t.totalTrades}件`;
+    })
+    .join("\n");
+
+  await notifySlack({
+    title: "📊 日次バックテスト完了",
+    message: tierLines,
+    color: "#439FE0",
+    fields: [
+      {
+        title: "対象銘柄",
+        value: `${data.tickers}銘柄`,
+        short: true,
+      },
+      { title: "期間", value: data.period, short: true },
+      {
+        title: "実行時間",
+        value: `${(data.totalTimeMs / 1000).toFixed(1)}秒`,
+        short: true,
+      },
+    ],
+  });
+}
+
 /** ゴースト・トレーディング分析通知 */
 export async function notifyGhostReview(data: {
   totalRejected: number;

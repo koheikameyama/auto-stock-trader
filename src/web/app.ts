@@ -10,6 +10,7 @@ import positionsRoute from "./routes/positions";
 import ordersRoute from "./routes/orders";
 import historyRoute from "./routes/history";
 import riskRoute from "./routes/risk";
+import backtestRoute from "./routes/backtest";
 import apiRoute from "./routes/api";
 
 export const app = new Hono();
@@ -114,6 +115,7 @@ app.route("/positions", positionsRoute);
 app.route("/orders", ordersRoute);
 app.route("/history", historyRoute);
 app.route("/risk", riskRoute);
+app.route("/backtest", backtestRoute);
 
 // API routes (authenticated)
 app.route("/api", apiRoute);

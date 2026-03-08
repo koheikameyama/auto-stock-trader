@@ -20,6 +20,7 @@
     "jpx-sync": "tsx src/jobs/jpx-csv-sync.ts",
     "delisting-sync": "tsx src/jobs/jpx-delisting-sync.ts",
     "backtest": "tsx src/backtest/run.ts",
+    "daily-backtest": "tsx src/jobs/daily-backtest.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",

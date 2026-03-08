@@ -186,3 +186,89 @@ npm run backtest -- --help
 - **AIなし**: AI判断（Go/No-Go）はバイパス。スコアが閾値以上なら機械的にエントリー
 - **DBアクセスなし**: 全てインメモリで完結。本番DBへの影響なし
 - **Yahoo Finance制限**: 銘柄数が多いとレート制限に注意。同時3リクエスト、バッチ間2秒遅延で対処
+
+## 日次自動バックテスト
+
+### 概要
+
+毎日16:30 JST（平日）に自動実行され、4つの資金帯でバックテストを実施。戦略の有効性を日々トラッキングする。
+
+### ファイル構成
+
+```
+src/lib/constants/backtest.ts    -- 予算ティア・デフォルトパラメータ定数
+src/backtest/daily-runner.ts     -- 銘柄選定→データ取得→4ティア実行
+src/jobs/daily-backtest.ts       -- ジョブ: DB保存+Slack通知
+src/web/routes/backtest.ts       -- ダッシュボードページ
+```
+
+### 資金帯（ティア）
+
+| ティア | 初期資金 | 価格上限 | 最大ポジション |
+|--------|----------|----------|----------------|
+| 10万 | ¥100,000 | ¥1,000 | 3 |
+| 30万 | ¥300,000 | ¥3,000 | 3 |
+| 50万 | ¥500,000 | ¥5,000 | 5 |
+| 100万 | ¥1,000,000 | ¥10,000 | 5 |
+
+価格上限 = 初期資金 ÷ 100（日本株の最低売買単位=100株で1ロット買える価格上限）。
+
+### 銘柄選定ロジック
+
+1. ScoringRecordから直近30日のS/Aランク銘柄をdistinctで取得
+2. 5件未満ならBランクも含める
+3. ScoringRecordが空の場合、Stockテーブルから出来高上位50銘柄を取得
+
+### バックテスト期間
+
+ローリング6ヶ月。当日から6ヶ月前まで。
+
+### 実行フロー
+
+1. 銘柄選定（`selectTickers()`）
+2. Yahoo Financeからデータを**1回だけ**一括取得
+3. 4つの資金帯それぞれで`runBacktest()`を実行
+4. 結果をDB保存（`BacktestDailyResult`テーブルにupsert、`@@unique([date, budgetTier])`で冪等）
+5. Slack通知
+
+### スケジュール
+
+- **定時実行**: 16:30 JST / 平日（市場営業日のみ）
+- **catch-up**: 17:00以降で当日分のBacktestDailyResultが0件なら自動実行
+
+### DBモデル: BacktestDailyResult
+
+1日4レコード（ティアごと）。
+
+| カラム | 型 | 説明 |
+|--------|-----|------|
+| date | Date | 実行日 |
+| budgetTier | String | "10万" / "30万" / "50万" / "100万" |
+| initialBudget | Int | 初期資金 |
+| maxPrice / maxPositions | Int | ティア設定 |
+| tickerCount | Int | 対象銘柄数 |
+| totalTrades / wins / losses | Int | 取引結果 |
+| winRate | Decimal(5,2) | 勝率 |
+| profitFactor | Decimal(8,2) | PF（Infinityは999.99にキャップ） |
+| maxDrawdown | Decimal(5,2) | 最大DD |
+| sharpeRatio | Decimal(8,2)? | シャープレシオ |
+| totalPnl | Int | 累計損益 |
+| totalReturnPct | Decimal(8,2) | リターン率 |
+| avgHoldingDays | Decimal(5,2) | 平均保有日数 |
+| byRank | Json | ランク別集計 |
+| periodStart / periodEnd | String | バックテスト期間 |
+
+### ダッシュボード
+
+`/backtest` ページで確認可能:
+
+1. **最新結果テーブル** — 4ティア横並び（勝率/PF/リターン/DD/取引数）
+2. **ティア別詳細** — `<details>`展開で初期資金・価格上限・勝敗・シャープレシオ等
+3. **勝率トレンド** — ティアごとの30日sparklineチャート
+4. **履歴テーブル** — 日付×ティアの一覧
+
+### 手動実行
+
+```bash
+npm run daily-backtest
+```

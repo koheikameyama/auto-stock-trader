@@ -22,6 +22,7 @@ import { main as runMonitor } from "./jobs/position-monitor";
 import { main as runEod } from "./jobs/end-of-day";
 import { main as runWeekly } from "./jobs/weekly-review";
 import { main as runGhostReview } from "./jobs/ghost-review";
+import { main as runDailyBacktest } from "./jobs/daily-backtest";
 import { main as runDelistingSync } from "./jobs/jpx-delisting-sync";
 import { app } from "./web/app";
 import { setJobState } from "./web/routes/dashboard";
@@ -130,6 +131,8 @@ const schedules = [
   { cron: "50 15 * * 1-5", job: runEod, name: "end-of-day", requiresMarketDay: true },
   // 16:10 ゴースト・トレーディング分析（平日）— 終値取得のため大引け後に実行
   { cron: "10 16 * * 1-5", job: runGhostReview, name: "ghost-review", requiresMarketDay: true },
+  // 16:30 日次バックテスト（平日）— 終値確定後、資金帯別パフォーマンス追跡
+  { cron: "30 16 * * 1-5", job: runDailyBacktest, name: "daily-backtest", requiresMarketDay: true },
   // 土曜 9:00 JPX廃止予定同期（市場営業日に依存しない）
   { cron: "0 9 * * 6", job: runDelistingSync, name: "jpx-delisting-sync", requiresMarketDay: false },
   // 土曜 10:00 週次レビュー（市場営業日に依存しない）
@@ -249,6 +252,17 @@ async function catchUpMissedJobs() {
         console.log("[catch-up] ghost-review が未実行 → 実行します");
         await runJob("ghost-review", runGhostReview);
       }
+    }
+  }
+
+  // daily-backtest: 16:30以降で、今日のBacktestDailyResultがなければ実行
+  if (now.hour() >= 17 || (now.hour() === 16 && now.minute() >= 30)) {
+    const hasBacktest = await prisma.backtestDailyResult.findFirst({
+      where: { date: todayStart },
+    });
+    if (!hasBacktest) {
+      console.log("[catch-up] daily-backtest が未実行 → 実行します");
+      await runJob("daily-backtest", runDailyBacktest);
     }
   }
 

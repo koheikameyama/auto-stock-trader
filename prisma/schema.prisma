@@ -288,3 +288,34 @@ model StockStatusLog {
   @@index([tickerCode])
   @@index([createdAt(sort: Desc)])
 }
+
+// 日次バックテスト結果（資金帯別）
+model BacktestDailyResult {
+  id              String   @id @default(cuid())
+  date            DateTime @db.Date
+  budgetTier      String   // "10万" / "30万" / "50万" / "100万"
+  initialBudget   Int
+  maxPrice        Int
+  maxPositions    Int
+  tickerCount     Int
+  totalTrades     Int
+  wins            Int
+  losses          Int
+  winRate         Decimal  @db.Decimal(5, 2)
+  profitFactor    Decimal  @db.Decimal(8, 2)
+  maxDrawdown     Decimal  @db.Decimal(5, 2)
+  sharpeRatio     Decimal? @db.Decimal(8, 2)
+  totalPnl        Int
+  totalReturnPct  Decimal  @db.Decimal(8, 2)
+  avgHoldingDays  Decimal  @db.Decimal(5, 2)
+  byRank          Json
+  fullResult      Json?
+  periodStart     String
+  periodEnd       String
+  executionTimeMs Int
+
+  createdAt DateTime @default(now())
+
+  @@unique([date, budgetTier])
+  @@index([date(sort: Desc)])
+}
