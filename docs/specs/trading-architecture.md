@@ -520,7 +520,7 @@ Phase 5: trade-decision プロンプトの変更
 | `src/lib/candlestick-patterns.ts` | パターン検出は変更不要（スコアはscorer側で変換） |
 | `src/lib/chart-patterns.ts` | パターン検出は変更不要（スコアはscorer側で変換） |
 | `src/core/order-executor.ts` | 約定ロジックは変更不要 |
-| `src/core/position-manager.ts` | ポジション管理は変更不要 |
+| `src/core/position-manager.ts` | `closePosition()` で realizedPnl を totalBudget に加算（複利運用） |
 | `src/prompts/market-assessment.ts` | 市場評価のAI判断は現状のまま（ここはAIの仕事） |
 
 ---
@@ -597,3 +597,33 @@ async function marketScanner() {
 ### バックテスト機能
 
 スコアリングエンジンの精度を過去データで検証する機能。ウェイトの最適化に使用。
+
+---
+
+## 資金管理: 複利運用
+
+### 概要
+
+ポジション決済時に確定損益（realizedPnl）を `TradingConfig.totalBudget` に自動加算する。利益も損失もtotalBudgetに反映され、複利で資金が成長する。
+
+### 仕組み
+
+```
+ポジションクローズ
+  ↓
+realizedPnl = (exitPrice - entryPrice) × quantity
+  ↓
+totalBudget += realizedPnl（利益なら増加、損失なら減少）
+  ↓
+次回トレードはこの新しいtotalBudgetを基準に資金管理
+```
+
+### リスク抑制（既存の仕組みで対応済み）
+
+- 日次損失上限 3%: 1日の損失がtotalBudgetの3%に達したら新規トレード停止
+- 損切り 2%: ポジション単位のリスク制限
+- 最大3ポジション: 集中投資の抑制
+
+### 実装箇所
+
+- `src/core/position-manager.ts` の `closePosition()` 内トランザクション

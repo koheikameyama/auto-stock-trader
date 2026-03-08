@@ -104,6 +104,19 @@ export async function closePosition(
       },
     });
 
+    // 利益（損失含む）をtotalBudgetに反映して複利運用
+    const config = await tx.tradingConfig.findFirst({
+      orderBy: { createdAt: "desc" },
+    });
+    if (config) {
+      await tx.tradingConfig.update({
+        where: { id: config.id },
+        data: {
+          totalBudget: Number(config.totalBudget) + realizedPnl,
+        },
+      });
+    }
+
     return closedPosition;
   });
 }
