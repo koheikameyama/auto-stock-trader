@@ -110,6 +110,7 @@
 | [trading-architecture.md](docs/specs/trading-architecture.md) | トレーディングアーキテクチャ改善（ロジック主導+AI最終審判） |
 | [scoring-system.md](docs/specs/scoring-system.md) | スコアリングシステム（3カテゴリ100点満点・即死ルール・DB保存） |
 | [admin.md](docs/specs/admin.md) | 管理画面 |
+| [backtest.md](docs/specs/backtest.md) | バックテスト（ロジック層シミュレーション・感度分析） |
 
 詳細は `.claude/rules/` 配下を参照してください。
 
