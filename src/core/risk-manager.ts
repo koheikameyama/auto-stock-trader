@@ -7,6 +7,8 @@
 import { prisma } from "../lib/prisma";
 import { getStartOfDayJST, getEndOfDayJST } from "../lib/date-utils";
 import { UNIT_SHARES, STOP_LOSS } from "../lib/constants";
+import { canAddToSector } from "./sector-analyzer";
+import { calculateDrawdownStatus } from "./drawdown-manager";
 
 /**
  * 新規ポジションを建てられるかチェックする
@@ -91,6 +93,31 @@ export async function canOpenPosition(
       allowed: false,
       reason: "日次損失制限に達しています。本日の新規取引は停止中です",
     };
+  }
+
+  // 5. セクター集中チェック
+  const sectorCheck = await canAddToSector(stockId);
+  if (!sectorCheck.allowed) {
+    return { allowed: false, reason: sectorCheck.reason };
+  }
+
+  // 6. ドローダウンチェック
+  const drawdown = await calculateDrawdownStatus();
+  if (drawdown.shouldHaltTrading) {
+    return {
+      allowed: false,
+      reason: `ドローダウン停止: ${drawdown.reason}`,
+    };
+  }
+
+  // 7. クールダウンによるポジション数制限
+  if (drawdown.maxPositionsOverride !== null) {
+    if (openPositionCount >= drawdown.maxPositionsOverride) {
+      return {
+        allowed: false,
+        reason: `クールダウン中: 最大${drawdown.maxPositionsOverride}ポジションに制限（${drawdown.reason}）`,
+      };
+    }
   }
 
   return { allowed: true, reason: "OK" };

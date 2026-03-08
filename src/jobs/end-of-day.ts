@@ -17,6 +17,7 @@ import { closePosition, getCashBalance, getTotalPortfolioValue } from "../core/p
 import type { ExitSnapshot } from "../types/snapshots";
 import { expireOrders } from "../core/order-executor";
 import { getDailyPnl } from "../core/risk-manager";
+import { updatePeakEquity } from "../core/drawdown-manager";
 import { notifyDailyReport, notifyOrderFilled } from "../lib/slack";
 import dayjs from "dayjs";
 
@@ -189,6 +190,10 @@ export async function main() {
       aiReview,
     },
   });
+
+  // ピークエクイティ更新
+  const totalEquity = portfolioValue + cashBalance;
+  await updatePeakEquity(totalEquity);
 
   // Slack通知
   await notifyDailyReport({

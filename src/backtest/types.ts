@@ -12,6 +12,7 @@ export interface BacktestConfig {
   takeProfitRatio: number;
   stopLossRatio: number;
   atrMultiplier: number;
+  maxPrice: number;
   strategy: "day_trade" | "swing";
   outputFile?: string;
   verbose: boolean;

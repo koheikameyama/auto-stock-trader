@@ -12,7 +12,7 @@ import type { LogicScore } from "../core/technical-scorer";
 import { calculateEntryCondition } from "../core/entry-calculator";
 import { detectChartPatterns } from "../lib/chart-patterns";
 import { analyzeSingleCandle } from "../lib/candlestick-patterns";
-import { TECHNICAL_MIN_DATA } from "../lib/constants";
+import { TECHNICAL_MIN_DATA, SCORING } from "../lib/constants";
 import { calculateMetrics } from "./metrics";
 import type {
   BacktestConfig,
@@ -321,7 +321,7 @@ function evaluateTickers(
     const weeklyVolatility = computeWeeklyVolatility(window);
 
     // スコアリング
-    const score = scoreTechnicals({
+    let score = scoreTechnicals({
       summary,
       chartPatterns,
       candlestickPattern,
@@ -331,7 +331,23 @@ function evaluateTickers(
       weeklyVolatility,
     });
 
-    // 即死ルールまたはスコア不足はスキップ
+    // 即死ルール判定（価格上限は config.maxPrice で上書き）
+    if (
+      score.isDisqualified &&
+      score.disqualifyReason === "price_too_high" &&
+      latest.close <= config.maxPrice
+    ) {
+      // maxPrice 以内 → latestPrice を即死回避値にして再スコアリング
+      score = scoreTechnicals({
+        summary,
+        chartPatterns,
+        candlestickPattern,
+        historicalData: newestFirst,
+        latestPrice: SCORING.DISQUALIFY.MAX_PRICE,
+        latestVolume: latest.volume,
+        weeklyVolatility,
+      });
+    }
     if (score.isDisqualified) continue;
     if (score.totalScore < config.scoreThreshold) continue;
 

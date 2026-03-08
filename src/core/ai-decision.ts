@@ -44,6 +44,7 @@ export interface StockReviewCandidateInput {
   name: string;
   scoreFormatted: string; // formatScoreForAI の出力
   newsContext?: string;
+  riskContext?: string; // セクター・レジーム・ドローダウンコンテキスト
 }
 
 export interface TradeReviewInput {
@@ -149,7 +150,7 @@ export async function reviewStocks(
     .map(
       (c) => `
 【${c.tickerCode} ${c.name}】
-${c.scoreFormatted}${c.newsContext ? `\n【ニュース】\n${c.newsContext}` : ""}`,
+${c.scoreFormatted}${c.newsContext ? `\n【ニュース】\n${c.newsContext}` : ""}${c.riskContext ? `\n【リスクコンテキスト】\n${c.riskContext}` : ""}`,
     )
     .join("\n---\n");
 

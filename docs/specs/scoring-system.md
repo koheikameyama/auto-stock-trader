@@ -416,6 +416,42 @@ export const GHOST_TRADING = {
 
 ---
 
+## セクターモメンタムフィルタ
+
+スコアリングシステムとは別軸で、market-scanner内で弱セクター銘柄を除外するフィルタ。
+
+### 仕組み
+
+StockテーブルのweekChangeRateをセクターグループ別（SECTOR_MASTERの11グループ）に平均し、日経225の週間変化率との差（相対パフォーマンス）を算出する。
+
+```
+relativeStrength = セクター平均weekChangeRate - 日経weekChangeRate
+```
+
+- `relativeStrength < -2.0%` → 弱セクター → 該当銘柄をAIレビュー候補から除外
+- `relativeStrength > +2.0%` → 強セクター（情報としてAIに提供）
+
+### スコアリングとの関係
+
+セクターモメンタムは100点満点のスコアには影響しない。個別銘柄のテクニカル品質とは独立した「環境フィルタ」として機能する。
+
+```
+スコアリング（個別銘柄の品質評価）
+  ↓ S/A/Bランク抽出
+レジームフィルタ（VIX水準によるランク制限）
+  ↓
+セクターモメンタムフィルタ（弱セクター除外） ← ここ
+  ↓
+AIレビュー（Go/No-Go）
+```
+
+### 実装ファイル
+
+- `src/core/sector-analyzer.ts` の `calculateSectorMomentum()`
+- 閾値: `SECTOR_RISK.WEAK_SECTOR_THRESHOLD` (-2.0%)
+
+---
+
 ## 将来の拡張
 
 ### 板情報スコアリング（立花API導入後）

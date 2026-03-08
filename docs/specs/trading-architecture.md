@@ -600,6 +600,93 @@ async function marketScanner() {
 
 ---
 
+## リスク管理: マーケットレジーム
+
+### VIXベース機械的レジーム判定
+
+VIX水準に応じてAI判断の前段で取引制限を自動適用する。AIは暴落局面で楽観的な判断をするリスクがあるため、VIX > 30 ではAI判断を待たず機械的に取引停止する。
+
+| VIX | レジーム | 最大ポジション | 最低ランク | 動作 |
+|-----|---------|--------------|-----------|------|
+| < 20 | normal | 3（制限なし） | B | 通常取引 |
+| 20-25 | elevated | 2 | A | S/Aランクのみ |
+| 25-30 | high | 1 | S | Sランクのみ |
+| > 30 | crisis | 0 | - | 取引停止（AI不要） |
+
+### 実装ファイル
+
+- `src/core/market-regime.ts`: `determineMarketRegime(vix)`
+- `src/lib/constants/trading.ts`: `VIX_THRESHOLDS`, `MARKET_REGIME`
+
+### market-scannerフロー内の位置
+
+```
+市場データ取得（VIX含む）
+  ↓
+★ VIXレジーム判定（機械的）
+  └─ crisis → 即停止、MarketAssessment保存して終了
+  ↓
+★ ドローダウンチェック（機械的）
+  └─ 停止条件該当 → 即停止
+  ↓
+AI市場評価（shouldTrade判定）
+  ↓
+テクニカル分析 + スコアリング
+```
+
+---
+
+## リスク管理: ドローダウン管理
+
+### 週次・月次ドローダウン上限
+
+TradingDailySummaryの確定損益を集計し、週次・月次の累積損失が閾値を超えた場合に取引停止する。
+
+| 期間 | 停止閾値 | 計算方法 |
+|------|---------|---------|
+| 週次 | 5% | 今週月曜以降のTradingDailySummary.totalPnlを合算 |
+| 月次 | 10% | 今月1日以降のTradingDailySummary.totalPnlを合算 |
+
+### 連敗クールダウン
+
+直近のクローズ済みポジションのrealizedPnlから連敗数を動的計算する。
+
+| 連敗数 | アクション |
+|--------|-----------|
+| 0-2 | 制限なし |
+| 3-4 | 最大1ポジションに制限（クールダウン） |
+| 5+ | 取引停止 |
+
+**解除条件**: 連敗カウントは動的計算のため、次のトレードで勝てば自動リセット。週次/月次は期間経過で自動リセット。
+
+### ピークエクイティ（ハイウォーターマーク）
+
+`TradingConfig.peakEquity` に資産の最高値を記録。end-of-dayで現在の資産が過去最高を超えていれば更新。
+
+### 実装ファイル
+
+- `src/core/drawdown-manager.ts`: `calculateDrawdownStatus()`, `updatePeakEquity()`
+- `src/lib/constants/trading.ts`: `DRAWDOWN`
+
+---
+
+## リスク管理: セクター集中制限
+
+### 同一セクター保有制限
+
+同一セクターグループ（SECTOR_MASTERの11グループ）に最大1ポジションまで。3ポジション中2ポジションが同セクターだと、セクター固有リスク（業界ニュース等）で同時に損失を被るリスクが高い。
+
+### チェックポイント
+
+`canOpenPosition()` 内でセクター集中チェックを実行。新規銘柄のセクターグループが既存オープンポジションと重複する場合は不許可。
+
+### 実装ファイル
+
+- `src/core/sector-analyzer.ts`: `canAddToSector()`
+- `src/lib/constants/trading.ts`: `SECTOR_RISK.MAX_SAME_SECTOR_POSITIONS`
+
+---
+
 ## 資金管理: 複利運用
 
 ### 概要

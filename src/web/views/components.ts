@@ -44,6 +44,26 @@ export function sentimentBadge(sentiment: string | null): HtmlContent {
   >`;
 }
 
+/** Regime バッジ */
+export function regimeBadge(level: string): HtmlContent {
+  const labels: Record<string, string> = {
+    normal: "通常",
+    elevated: "注意",
+    high: "警戒",
+    crisis: "危機",
+  };
+  const colorMap: Record<string, string> = {
+    normal: COLORS.profit,
+    elevated: COLORS.warning,
+    high: "#f97316",
+    crisis: COLORS.crisis,
+  };
+  const color = colorMap[level] ?? COLORS.textMuted;
+  return html`<span class="badge" style="background:${color}20;color:${color}"
+    >${labels[level] ?? level}</span
+  >`;
+}
+
 /** Strategy バッジ */
 export function strategyBadge(strategy: string): HtmlContent {
   const labels: Record<string, string> = {

@@ -150,6 +150,54 @@ export function getSectorGroup(tseSector: string | null): string | null {
 }
 
 // ========================================
+// セクターリスク管理
+// ========================================
+
+export const SECTOR_RISK = {
+  MAX_SAME_SECTOR_POSITIONS: 1, // 同一セクター最大保有数
+  WEAK_SECTOR_THRESHOLD: -2.0, // 弱セクター判定（日経比 相対パフォーマンス%）
+} as const;
+
+// ========================================
+// ドローダウン管理
+// ========================================
+
+export const DRAWDOWN = {
+  WEEKLY_HALT_PCT: 5, // 週次5%で取引停止
+  MONTHLY_HALT_PCT: 10, // 月次10%で取引停止
+  COOLDOWN_TRIGGER: 3, // 3連敗でクールダウン発動
+  COOLDOWN_HALT_TRIGGER: 5, // 5連敗で取引停止
+  COOLDOWN_MAX_POSITIONS: 1, // クールダウン中の最大ポジション数
+} as const;
+
+// ========================================
+// マーケットレジーム（VIXベース）
+// ========================================
+
+export const MARKET_REGIME = {
+  CRISIS: {
+    // VIX > 30
+    maxPositions: 0, // 取引停止
+    minRank: null as null, // N/A
+  },
+  HIGH: {
+    // VIX 25-30
+    maxPositions: 1,
+    minRank: "S" as const, // Sランクのみ
+  },
+  ELEVATED: {
+    // VIX 20-25
+    maxPositions: 2,
+    minRank: "A" as const, // S/Aランク
+  },
+  NORMAL: {
+    // VIX < 20
+    maxPositions: 3, // 制限なし（TradingConfig準拠）
+    minRank: "B" as const, // S/A/Bランク（通常通り）
+  },
+} as const;
+
+// ========================================
 // 銘柄スクリーニング対象
 // ========================================
 

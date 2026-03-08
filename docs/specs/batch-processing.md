@@ -86,15 +86,19 @@ Railway上で常駐する node-cron ベースのジョブスケジューラ。
 ### 処理フロー
 
 1. **市場指標取得**: 日経225, S&P500, VIX, USD/JPY, CME先物
-2. **AI市場評価**: `assessMarket()` で取引判断（shouldTrade boolean）
-3. shouldTrade = false → 評価保存して終了
-4. shouldTrade = true:
+2. **★ VIXレジーム判定**（機械的）: VIX > 30 → 取引停止、保存して終了
+3. **★ ドローダウンチェック**（機械的）: 週次5%/月次10%/5連敗 → 取引停止
+4. **AI市場評価**: `assessMarket()` で取引判断（shouldTrade boolean）
+5. shouldTrade = false → 評価保存して終了
+6. shouldTrade = true:
    - 全銘柄をスクリーニング条件でフィルタ
    - 候補銘柄のヒストリカルデータ取得（60日分）
-   - テクニカル分析（並列、p-limit=5）
-   - AI銘柄選定 `selectStocks()` → score >= 50 の銘柄を選出
-5. **MarketAssessment 保存**: 日次の市場評価と選定銘柄を記録
-6. **Slack通知**: 候補銘柄一覧を通知
+   - テクニカル分析 + スコアリング（並列、p-limit=5）
+   - **★ レジームによるランク制限**（VIX 25-30→Sのみ、20-25→S/Aのみ）
+   - **★ 弱セクター銘柄除外**（日経比-2%以下のセクター）
+   - AI銘柄選定 `reviewStocks()` → Go/No-Go判断（リスクコンテキスト付き）
+7. **MarketAssessment 保存**: 日次の市場評価と選定銘柄を記録
+8. **Slack通知**: 候補銘柄一覧を通知
 
 ### スクリーニング条件
 
@@ -222,6 +226,10 @@ checkOrderFill(order, currentHigh, currentLow):
 | portfolioValue | ポートフォリオ時価総額 |
 | cashBalance | キャッシュ残高 |
 | aiReview | AI生成の日次レビュー |
+
+### ★ ピークエクイティ更新
+
+日次サマリー保存後、`updatePeakEquity(portfolioValue + cashBalance)` を実行。現在の資産がハイウォーターマーク（TradingConfig.peakEquity）を超えていれば更新する。
 
 ### DB操作
 

@@ -30,6 +30,7 @@ const { values } = parseArgs({
     "tp-ratio": { type: "string", default: "1.03" },
     "sl-ratio": { type: "string", default: "0.98" },
     "atr-multiplier": { type: "string", default: "1.0" },
+    "max-price": { type: "string", default: "1000" },
     strategy: { type: "string", default: "swing" },
     sensitivity: { type: "boolean", default: false },
     output: { type: "string" },
@@ -55,6 +56,7 @@ function printHelp(): void {
   --tp-ratio <n>          利確比率                   デフォルト: 1.03
   --sl-ratio <n>          損切比率                   デフォルト: 0.98
   --atr-multiplier <n>    ATR倍率                    デフォルト: 1.0
+  --max-price <yen>       即死ルール価格上限         デフォルト: 1000
   --strategy <type>       day_trade | swing          デフォルト: swing
   --sensitivity           パラメータ感度分析を実行
   --output <path>         JSON結果を出力
@@ -89,6 +91,7 @@ async function main(): Promise<void> {
     takeProfitRatio: Number(values["tp-ratio"]),
     stopLossRatio: Number(values["sl-ratio"]),
     atrMultiplier: Number(values["atr-multiplier"]),
+    maxPrice: Number(values["max-price"]),
     strategy: values.strategy === "day_trade" ? "day_trade" : "swing",
     outputFile: values.output,
     verbose: values.verbose ?? false,

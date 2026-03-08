@@ -26,6 +26,7 @@ import {
   GHOST_TRADING,
   UNIT_SHARES,
   TRADING_DEFAULTS,
+  getSectorGroup,
 } from "../lib/constants";
 import {
   fetchMarketData,
@@ -50,6 +51,12 @@ import {
   notifyRiskAlert,
 } from "../lib/slack";
 import pLimit from "p-limit";
+import { determineMarketRegime } from "../core/market-regime";
+import type { MarketRegime } from "../core/market-regime";
+import { calculateDrawdownStatus } from "../core/drawdown-manager";
+import type { DrawdownStatus } from "../core/drawdown-manager";
+import { calculateSectorMomentum } from "../core/sector-analyzer";
+import type { SectorMomentum } from "../core/sector-analyzer";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -114,6 +121,68 @@ ${sectorText || "  特になし"}`;
     );
   } else {
     console.log("  ニュース分析なし（news-collector未実行）");
+  }
+
+  // 1.8. VIXレジーム判定（機械的 — AI判断の前に実行）
+  console.log("[1.8/5] VIXレジーム判定...");
+  const regime = determineMarketRegime(marketData.vix.price);
+  console.log(`  → レジーム: ${regime.level}（${regime.reason}）`);
+
+  if (regime.shouldHaltTrading) {
+    console.log("VIXレジームにより取引停止。MarketAssessment を保存して終了");
+    await notifyRiskAlert({
+      type: "VIXレジーム停止",
+      message: regime.reason,
+    });
+    await prisma.marketAssessment.create({
+      data: {
+        date: getTodayForDB(),
+        nikkeiPrice: marketData.nikkei.price,
+        nikkeiChange: marketData.nikkei.changePercent,
+        sp500Change: marketData.sp500?.changePercent,
+        vix: marketData.vix.price,
+        usdjpy: marketData.usdjpy?.price,
+        cmeFuturesPrice: marketData.cmeFutures?.price,
+        sentiment: "crisis",
+        shouldTrade: false,
+        reasoning: `[VIXレジーム自動停止] ${regime.reason}`,
+        selectedStocks: [],
+      },
+    });
+    console.log("=== Market Scanner 終了 ===");
+    return;
+  }
+
+  // 1.9. ドローダウンチェック（機械的 — AI判断の前に実行）
+  console.log("[1.9/5] ドローダウンチェック...");
+  const drawdown = await calculateDrawdownStatus();
+  console.log(
+    `  → 週次損益: ¥${drawdown.weeklyPnl.toLocaleString()}, 月次損益: ¥${drawdown.monthlyPnl.toLocaleString()}, 連敗: ${drawdown.consecutiveLosses}`,
+  );
+
+  if (drawdown.shouldHaltTrading) {
+    console.log(`ドローダウンにより取引停止: ${drawdown.reason}`);
+    await notifyRiskAlert({
+      type: "ドローダウン停止",
+      message: drawdown.reason,
+    });
+    await prisma.marketAssessment.create({
+      data: {
+        date: getTodayForDB(),
+        nikkeiPrice: marketData.nikkei.price,
+        nikkeiChange: marketData.nikkei.changePercent,
+        sp500Change: marketData.sp500?.changePercent,
+        vix: marketData.vix.price,
+        usdjpy: marketData.usdjpy?.price,
+        cmeFuturesPrice: marketData.cmeFutures?.price,
+        sentiment: "bearish",
+        shouldTrade: false,
+        reasoning: `[ドローダウン自動停止] ${drawdown.reason}`,
+        selectedStocks: [],
+      },
+    });
+    console.log("=== Market Scanner 終了 ===");
+    return;
   }
 
   // 2. AI市場評価
@@ -316,6 +385,45 @@ ${sectorText || "  特になし"}`;
   }
   filtered = filtered.slice(0, SCORING.MAX_CANDIDATES_FOR_AI);
 
+  // レジームによるランク制限
+  if (regime.minRank) {
+    const rankOrder: Record<string, number> = { S: 0, A: 1, B: 2, C: 3 };
+    const minRankOrder = rankOrder[regime.minRank];
+    const beforeCount = filtered.length;
+    filtered = filtered.filter((c) => rankOrder[c.score.rank] <= minRankOrder);
+    if (filtered.length < beforeCount) {
+      console.log(
+        `  レジーム制限: ${regime.minRank}ランク以上に絞り込み（${beforeCount} → ${filtered.length}銘柄）`,
+      );
+    }
+  }
+
+  // セクターモメンタムフィルタ（弱セクター銘柄を除外）
+  const nikkeiWeekChange = marketData.nikkei.changePercent;
+  const sectorMomentum = await calculateSectorMomentum(nikkeiWeekChange);
+  const weakSectors = new Set(
+    sectorMomentum.filter((s) => s.isWeak).map((s) => s.sectorGroup),
+  );
+
+  if (weakSectors.size > 0) {
+    console.log(`  弱セクター: ${[...weakSectors].join(", ")}`);
+    const beforeCount = filtered.length;
+    filtered = filtered.filter((c) => {
+      const stock = candidates.find((s) => s.tickerCode === c.tickerCode);
+      const sectorGroup = getSectorGroup(stock?.jpxSectorName ?? null);
+      if (sectorGroup && weakSectors.has(sectorGroup)) {
+        console.log(`  弱セクター除外: ${c.tickerCode}（${sectorGroup}）`);
+        return false;
+      }
+      return true;
+    });
+    if (filtered.length < beforeCount) {
+      console.log(
+        `  セクターフィルタ: ${beforeCount} → ${filtered.length}銘柄`,
+      );
+    }
+  }
+
   // Ghost追跡: filteredに入らなかったスコア60+の銘柄
   const filteredTickerSet = new Set(filtered.map((c) => c.tickerCode));
   const ghostCandidates = qualified.filter(
@@ -357,12 +465,32 @@ ${sectorText || "  特になし"}`;
 
   // 5. AIレビュー（Go/No-Go）
   console.log("[4/5] AIレビュー中...");
-  const reviewCandidates: StockReviewCandidateInput[] = filtered.map((c) => ({
-    tickerCode: c.tickerCode,
-    name: c.name,
-    scoreFormatted: formatScoreForAI(c.score, c.summary),
-    newsContext: c.newsContext,
-  }));
+  const reviewCandidates: StockReviewCandidateInput[] = filtered.map((c) => {
+    const stock = candidates.find((s) => s.tickerCode === c.tickerCode);
+    const sectorGroup = getSectorGroup(stock?.jpxSectorName ?? null);
+    const sectorInfo = sectorGroup
+      ? sectorMomentum.find((s) => s.sectorGroup === sectorGroup)
+      : null;
+
+    const riskParts: string[] = [];
+    riskParts.push(`レジーム: ${regime.level}（VIX ${regime.vix.toFixed(1)}）`);
+    if (drawdown.consecutiveLosses > 0) {
+      riskParts.push(`連敗: ${drawdown.consecutiveLosses}`);
+    }
+    if (sectorInfo) {
+      riskParts.push(
+        `セクター(${sectorGroup}): 相対強度 ${sectorInfo.relativeStrength >= 0 ? "+" : ""}${sectorInfo.relativeStrength.toFixed(1)}%`,
+      );
+    }
+
+    return {
+      tickerCode: c.tickerCode,
+      name: c.name,
+      scoreFormatted: formatScoreForAI(c.score, c.summary),
+      newsContext: c.newsContext,
+      riskContext: riskParts.join(" / "),
+    };
+  });
 
   const reviews = await reviewStocks(assessment, reviewCandidates);
   const goStocks = reviews.filter((r) => r.decision === "go");
