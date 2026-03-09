@@ -25,32 +25,30 @@ app.get("/", async (c) => {
   const today = getTodayForDB();
   const since90 = getDaysAgoForDB(CONTRARIAN.LOOKBACK_DAYS);
 
-  const [todayAssessment, todayWinners, recentBonusRecords, allHaltedRecords] =
+  const [todayAssessment, todayCandidates, recentBonusRecords, allHaltedRecords] =
     await Promise.all([
       prisma.marketAssessment.findUnique({ where: { date: today } }),
+      // 今日の逆行候補: Ghost Review 不要（スコア・ランクだけで表示）
       prisma.scoringRecord.findMany({
         where: {
           date: today,
           rejectionReason: "market_halted",
-          ghostProfitPct: { gt: 0 },
-          closingPrice: { not: null },
           entryPrice: { not: null },
         },
-        orderBy: { ghostProfitPct: "desc" },
+        orderBy: { totalScore: "desc" },
       }),
       prisma.scoringRecord.findMany({
         where: { contrarianBonus: { gt: 0 } },
         orderBy: { date: "desc" },
         take: 50,
       }),
+      // ランキング: closingPrice 不要（halt日にスコアされた回数も集計）
       prisma.scoringRecord.findMany({
         where: {
           rejectionReason: "market_halted",
           date: { gte: since90 },
-          ghostProfitPct: { not: null },
-          closingPrice: { not: null },
         },
-        select: { tickerCode: true, ghostProfitPct: true },
+        select: { tickerCode: true, ghostProfitPct: true, totalScore: true },
       }),
     ]);
 
@@ -59,43 +57,49 @@ app.get("/", async (c) => {
   // --- セクション2: 逆行実績ランキング集計 ---
   const buckets = new Map<
     string,
-    { wins: number; totalDays: number; profitSum: number }
+    { wins: number; totalDays: number; profitSum: number; scoreSum: number }
   >();
 
   for (const r of allHaltedRecords) {
-    const pct = Number(r.ghostProfitPct);
+    const pct = r.ghostProfitPct != null ? Number(r.ghostProfitPct) : null;
     let bucket = buckets.get(r.tickerCode);
     if (!bucket) {
-      bucket = { wins: 0, totalDays: 0, profitSum: 0 };
+      bucket = { wins: 0, totalDays: 0, profitSum: 0, scoreSum: 0 };
       buckets.set(r.tickerCode, bucket);
     }
     bucket.totalDays++;
-    if (pct >= CONTRARIAN.MIN_PROFIT_PCT) {
+    bucket.scoreSum += r.totalScore;
+    if (pct != null && pct >= CONTRARIAN.MIN_PROFIT_PCT) {
       bucket.wins++;
       bucket.profitSum += pct;
     }
   }
 
   const ranking = [...buckets.entries()]
-    .filter(([, b]) => b.wins > 0)
     .map(([ticker, b]) => ({
       tickerCode: ticker,
       wins: b.wins,
       totalDays: b.totalDays,
-      winRate: Math.round((b.wins / b.totalDays) * 100),
-      avgProfitPct: b.profitSum / b.wins,
+      winRate: b.wins > 0 ? Math.round((b.wins / b.totalDays) * 100) : null,
+      avgProfitPct: b.wins > 0 ? b.profitSum / b.wins : null,
+      avgScore: Math.round(b.scoreSum / b.totalDays),
       bonus: calculateContrarianBonus(b.wins),
     }))
-    .sort((a, b) => b.wins - a.wins || b.avgProfitPct - a.avgProfitPct)
+    .sort(
+      (a, b) =>
+        b.wins - a.wins ||
+        (b.avgProfitPct ?? 0) - (a.avgProfitPct ?? 0) ||
+        b.avgScore - a.avgScore,
+    )
     .slice(0, 30);
 
   const content = html`
-    <!-- セクション1: 今日の逆行ウィナー -->
+    <!-- セクション1: 今日の逆行候補 -->
     <p class="section-title">
-      今日の逆行ウィナー${isNoTradeDay ? "" : "（取引実行日）"}
+      今日の逆行候補${isNoTradeDay ? "" : "（取引実行日）"}
     </p>
     ${isNoTradeDay
-      ? todayWinners.length > 0
+      ? todayCandidates.length > 0
         ? html`
             <div class="card table-wrap">
               <table>
@@ -104,24 +108,28 @@ app.get("/", async (c) => {
                     <th>銘柄</th>
                     <th>スコア</th>
                     <th>ランク</th>
-                    <th>騰落率</th>
                     <th>エントリー</th>
                     <th>終値</th>
+                    <th>騰落率</th>
                   </tr>
                 </thead>
                 <tbody>
-                  ${todayWinners.map(
+                  ${todayCandidates.map(
                     (r) => html`
                       <tr>
                         <td style="font-weight:600">${r.tickerCode}</td>
                         <td>${r.totalScore}</td>
                         <td>${rankBadge(r.rank)}</td>
-                        <td>${pnlPercent(Number(r.ghostProfitPct))}</td>
+                        <td>¥${formatYen(Number(r.entryPrice))}</td>
                         <td>
-                          ¥${formatYen(Number(r.entryPrice))}
+                          ${r.closingPrice != null
+                            ? html`¥${formatYen(Number(r.closingPrice))}`
+                            : html`<span style="color:#64748b">-</span>`}
                         </td>
                         <td>
-                          ¥${formatYen(Number(r.closingPrice))}
+                          ${r.ghostProfitPct != null
+                            ? pnlPercent(Number(r.ghostProfitPct))
+                            : html`<span style="color:#64748b">未確定</span>`}
                         </td>
                       </tr>
                     `,
@@ -131,12 +139,12 @@ app.get("/", async (c) => {
             </div>
           `
         : html`<div class="card">
-            ${emptyState("市場停止日ですが、上昇銘柄はありませんでした")}
+            ${emptyState("市場停止日ですが、スコアリングされた銘柄はありません")}
           </div>`
       : html`<div class="card">
           ${emptyState(
             todayAssessment
-              ? "本日は取引実行日です（逆行ウィナーは市場停止日のみ）"
+              ? "本日は取引実行日です（逆行候補は市場停止日のみ）"
               : "本日の市場評価はまだ実行されていません",
           )}
         </div>`}
@@ -152,8 +160,9 @@ app.get("/", async (c) => {
               <thead>
                 <tr>
                   <th>銘柄</th>
+                  <th>出現</th>
+                  <th>平均スコア</th>
                   <th>逆行勝ち</th>
-                  <th>停止日数</th>
                   <th>勝率</th>
                   <th>平均利益率</th>
                   <th>ボーナス</th>
@@ -164,10 +173,19 @@ app.get("/", async (c) => {
                   (r) => html`
                     <tr>
                       <td style="font-weight:600">${r.tickerCode}</td>
-                      <td>${r.wins}回</td>
-                      <td>${r.totalDays}日</td>
-                      <td>${r.winRate}%</td>
-                      <td>${pnlPercent(r.avgProfitPct)}</td>
+                      <td>${r.totalDays}回</td>
+                      <td>${r.avgScore}</td>
+                      <td>${r.wins > 0 ? `${r.wins}回` : "-"}</td>
+                      <td>
+                        ${r.winRate != null
+                          ? `${r.winRate}%`
+                          : html`<span style="color:#64748b">未確定</span>`}
+                      </td>
+                      <td>
+                        ${r.avgProfitPct != null
+                          ? pnlPercent(r.avgProfitPct)
+                          : html`<span style="color:#64748b">-</span>`}
+                      </td>
                       <td>
                         ${r.bonus > 0
                           ? html`<span class="pnl-positive"
