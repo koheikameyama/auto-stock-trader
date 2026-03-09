@@ -140,6 +140,53 @@ export async function main() {
   console.log("[4/5] AI日次レビュー生成...");
   let aiReview = "";
 
+  // 取引0件の場合、見送り理由のコンテキストを収集
+  let noTradeContext = "";
+  if (totalTrades === 0) {
+    const todayAssessment = await prisma.marketAssessment.findUnique({
+      where: { date: getTodayForDB() },
+    });
+
+    const scoringRecords = await prisma.scoringRecord.findMany({
+      where: { date: getTodayForDB() },
+    });
+
+    if (todayAssessment) {
+      noTradeContext += `\n【市場判断】\n`;
+      noTradeContext += `- 判定: ${todayAssessment.shouldTrade ? "取引可" : "取引見送り"}\n`;
+      noTradeContext += `- センチメント: ${todayAssessment.sentiment}\n`;
+      noTradeContext += `- 判断理由: ${todayAssessment.reasoning}\n`;
+      if (todayAssessment.nikkeiChange) {
+        noTradeContext += `- 日経変化率: ${Number(todayAssessment.nikkeiChange).toFixed(2)}%\n`;
+      }
+      if (todayAssessment.vix) {
+        noTradeContext += `- VIX: ${Number(todayAssessment.vix).toFixed(1)}\n`;
+      }
+    }
+
+    if (scoringRecords.length > 0) {
+      const disqualified = scoringRecords.filter((r) => r.isDisqualified).length;
+      const belowThreshold = scoringRecords.filter((r) => r.rejectionReason === "below_threshold").length;
+      const aiNoGo = scoringRecords.filter((r) => r.rejectionReason === "ai_no_go").length;
+      const marketHalted = scoringRecords.filter((r) => r.rejectionReason === "market_halted").length;
+
+      noTradeContext += `\n【スコアリング結果】\n`;
+      noTradeContext += `- 分析銘柄数: ${scoringRecords.length}件\n`;
+      if (disqualified > 0) noTradeContext += `- 即死ルール棄却: ${disqualified}件\n`;
+      if (belowThreshold > 0) noTradeContext += `- スコア閾値未達: ${belowThreshold}件\n`;
+      if (aiNoGo > 0) noTradeContext += `- AI却下: ${aiNoGo}件\n`;
+      if (marketHalted > 0) noTradeContext += `- 市場停止(シャドウ): ${marketHalted}件\n`;
+
+      // 上位銘柄のスコアを表示（最大3件）
+      const topRecords = [...scoringRecords]
+        .sort((a, b) => b.totalScore - a.totalScore)
+        .slice(0, 3);
+      if (topRecords.length > 0) {
+        noTradeContext += `- 上位銘柄: ${topRecords.map((r) => `${r.tickerCode}(${r.totalScore}点/${r.rank})`).join(", ")}\n`;
+      }
+    }
+  }
+
   try {
     const openai = getOpenAIClient();
     const reviewPrompt = `本日の日本株自動売買シミュレーションの日次レビューを簡潔に生成してください。
@@ -151,8 +198,9 @@ export async function main() {
 - ポートフォリオ時価: ¥${portfolioValue.toLocaleString()}
 - 現金残高: ¥${cashBalance.toLocaleString()}
 - 残ポジション数: ${openPositions.length}件
-
-100文字以内で、今日の結果の要約と明日への改善ポイントを述べてください。`;
+${noTradeContext}
+${totalTrades === 0 ? "取引が行われなかった理由を具体的に説明し、明日への改善ポイントを述べてください。" : "今日の結果の要約と明日への改善ポイントを述べてください。"}
+150文字以内で回答してください。`;
 
     const response = await openai.chat.completions.create({
       model: OPENAI_CONFIG.MODEL,
