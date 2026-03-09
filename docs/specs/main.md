@@ -112,3 +112,4 @@ Dockerfile               # Railwayデプロイ用
 | [core-modules.md](core-modules.md) | コアモジュール（市場データ、テクニカル分析、AI判断、注文、ポジション、リスク管理） |
 | [trading-architecture.md](trading-architecture.md) | トレーディングアーキテクチャ改善（ロジック主導+AI最終審判） |
 | [backtest.md](backtest.md) | バックテスト（ロジック層シミュレーション・感度分析） |
+| [broker-api-migration.md](broker-api-migration.md) | 立花証券API移行ガイド（シミュレーション → リアル取引） |
