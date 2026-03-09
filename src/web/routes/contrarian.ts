@@ -62,7 +62,7 @@ app.get("/", async (c) => {
       orderBy: { date: "desc" },
       take: 50,
     }),
-    // ランキング + 傾向分析用: closingPrice込みで90日分取得
+    // ランキング用: market_halted 銘柄のみ（逆行実績ランキング）
     prisma.scoringRecord.findMany({
       where: {
         rejectionReason: "market_halted",
@@ -81,10 +81,31 @@ app.get("/", async (c) => {
     }),
   ]);
 
+  // 傾向分析用: スコア80点以上で購入しなかった全銘柄（market_halted + ai_no_go + below_threshold）
+  const highScoreTrendRecords = await prisma.scoringRecord.findMany({
+    where: {
+      rejectionReason: { not: null },
+      totalScore: { gte: 80 },
+      closingPrice: { not: null },
+      date: { gte: since90 },
+    },
+    select: {
+      tickerCode: true,
+      ghostProfitPct: true,
+      totalScore: true,
+      technicalScore: true,
+      patternScore: true,
+      liquidityScore: true,
+      rank: true,
+      closingPrice: true,
+      rejectionReason: true,
+    },
+  });
+
   // 傾向分析用: Stock テーブルからセクター情報を一括取得（N+1 回避）
-  const haltedTickers = [...new Set(allHaltedRecords.map((r) => r.tickerCode))];
+  const trendTickers = [...new Set(highScoreTrendRecords.map((r) => r.tickerCode))];
   const stocksForTrend = await prisma.stock.findMany({
-    where: { tickerCode: { in: haltedTickers } },
+    where: { tickerCode: { in: trendTickers } },
     select: { tickerCode: true, jpxSectorName: true },
   });
   const sectorMap = new Map(stocksForTrend.map((s) => [s.tickerCode, s.jpxSectorName]));
@@ -131,10 +152,8 @@ app.get("/", async (c) => {
     .slice(0, 30);
 
   // --- セクション5: 傾向分析 ---
-  // ghost-review 済み（closingPrice あり）のレコードのみ対象
-  const analyzedRecords = allHaltedRecords.filter(
-    (r) => r.closingPrice != null,
-  );
+  // スコア80点以上・購入しなかった全銘柄（closingPrice は既にフィルタ済み）
+  const analyzedRecords = highScoreTrendRecords;
   const winners = analyzedRecords.filter(
     (r) => r.ghostProfitPct != null && Number(r.ghostProfitPct) > 0,
   );
@@ -417,7 +436,7 @@ app.get("/", async (c) => {
 
     <!-- セクション5: 傾向分析 -->
     <p class="section-title">
-      傾向分析（過去${CONTRARIAN.LOOKBACK_DAYS}日 / 市場停止日）
+      傾向分析（過去${CONTRARIAN.LOOKBACK_DAYS}日 / スコア80点以上・未購入）
     </p>
     ${trendSummary.analyzed === 0
       ? html`<div class="card">
