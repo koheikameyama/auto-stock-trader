@@ -324,6 +324,11 @@ export function formatScoreForAI(
     `    RSI: ${score.technical.rsi}/15${summary.rsi != null ? `（RSI=${summary.rsi}）` : ""}`,
   );
   lines.push(`    移動平均: ${score.technical.ma}/15`);
+  if (score.weeklyTrendPenalty < 0) {
+    lines.push(
+      `      ※週足トレンドペナルティ: ${score.weeklyTrendPenalty}（日足↑と週足↓が矛盾）`,
+    );
+  }
   lines.push(
     `    出来高変化: ${score.technical.volume}/10${summary.volumeAnalysis.volumeRatio ? `（${summary.volumeAnalysis.volumeRatio}倍）` : ""}`,
   );

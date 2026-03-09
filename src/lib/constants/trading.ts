@@ -97,8 +97,8 @@ export const TRADING_SCHEDULE = {
 // ========================================
 
 export const YAHOO_FINANCE = {
-  HISTORICAL_PERIOD: "3mo", // テクニカル分析用データ期間
-  HISTORICAL_DAYS: 60, // データポイント数
+  HISTORICAL_PERIOD: "10mo", // テクニカル分析用データ期間（週足SMA26に200日必要）
+  HISTORICAL_DAYS: 200, // データポイント数（週足トレンド分析対応）
   BATCH_SIZE: 50, // バッチクォート取得サイズ（1リクエストで複数銘柄）
   HISTORICAL_BATCH_SIZE: 10, // ヒストリカルデータ取得の並列数
   RATE_LIMIT_DELAY_MS: 2000, // レート制限用ディレイ

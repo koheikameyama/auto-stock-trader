@@ -12,6 +12,10 @@ import type { LogicScore } from "../core/technical-scorer";
 import { calculateEntryCondition } from "../core/entry-calculator";
 import { detectChartPatterns } from "../lib/chart-patterns";
 import { analyzeSingleCandle } from "../lib/candlestick-patterns";
+import {
+  aggregateDailyToWeekly,
+  analyzeWeeklyTrend,
+} from "../lib/technical-indicators";
 import { TECHNICAL_MIN_DATA, SCORING } from "../lib/constants";
 import { calculateTrailingStop } from "../core/trailing-stop";
 import { determineMarketRegime } from "../core/market-regime";
@@ -384,6 +388,13 @@ function evaluateTickers(
     // 週次ボラティリティ算出
     const weeklyVolatility = computeWeeklyVolatility(window);
 
+    // 週足トレンド分析
+    const weeklyBars = aggregateDailyToWeekly(window);
+    const weeklyTrend =
+      weeklyBars.length >= SCORING.WEEKLY_TREND.MIN_WEEKLY_BARS
+        ? analyzeWeeklyTrend(weeklyBars)
+        : null;
+
     // スコアリング
     let score = scoreTechnicals({
       summary,
@@ -393,6 +404,7 @@ function evaluateTickers(
       latestPrice: latest.close,
       latestVolume: latest.volume,
       weeklyVolatility,
+      weeklyTrend,
     });
 
     // 即死ルール判定（価格上限は config.maxPrice で上書き）
@@ -410,6 +422,7 @@ function evaluateTickers(
         latestPrice: SCORING.DISQUALIFY.MAX_PRICE,
         latestVolume: latest.volume,
         weeklyVolatility,
+        weeklyTrend,
       });
     }
     if (score.isDisqualified) continue;

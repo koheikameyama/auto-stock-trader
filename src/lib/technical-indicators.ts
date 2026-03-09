@@ -10,6 +10,7 @@ import {
   SUPPORT_RESISTANCE,
   MA_ALIGNMENT,
   TRENDLINE_SCORE,
+  SCORING,
 } from "./constants";
 
 interface PriceData {
@@ -820,4 +821,136 @@ export function detectTrendlines(
   }
 
   return { support, resistance, overallTrend };
+}
+
+// ========================================
+// 週足トレンド分析
+// ========================================
+
+export interface WeeklyBar {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface WeeklyTrendResult {
+  trend: "uptrend" | "downtrend" | "none";
+  sma13: number | null;
+  sma26: number | null;
+}
+
+/**
+ * 日足OHLCVデータ（oldest-first）を週足に集計する
+ *
+ * ISO週（月曜始まり）でグループ化し、各週のOHLCVを生成。
+ * - open: 週初日の始値
+ * - high: 週中の最高値
+ * - low: 週中の最安値
+ * - close: 週最終日の終値
+ * - volume: 週合計出来高
+ * - date: 週初日の日付
+ *
+ * @param dailyBars - 日足データ（oldest-first）
+ * @returns 週足データ（oldest-first）
+ */
+export function aggregateDailyToWeekly(
+  dailyBars: Array<{
+    date: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+  }>,
+): WeeklyBar[] {
+  if (dailyBars.length === 0) return [];
+
+  // ISO週キー（YYYY-WXX）でグループ化
+  const weekMap = new Map<string, typeof dailyBars>();
+
+  for (const bar of dailyBars) {
+    const d = new Date(bar.date);
+    // ISO week: 月曜始まり
+    const dayOfWeek = d.getUTCDay() || 7; // 日曜=7
+    const thursday = new Date(d);
+    thursday.setUTCDate(d.getUTCDate() + 4 - dayOfWeek);
+    const yearStart = new Date(Date.UTC(thursday.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil(
+      ((thursday.getTime() - yearStart.getTime()) / 86400000 + 1) / 7,
+    );
+    const key = `${thursday.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+
+    if (!weekMap.has(key)) {
+      weekMap.set(key, []);
+    }
+    weekMap.get(key)!.push(bar);
+  }
+
+  // 各週のOHLCVを算出（oldest-first）
+  const weeklyBars: WeeklyBar[] = [];
+  const sortedKeys = [...weekMap.keys()].sort();
+
+  for (const key of sortedKeys) {
+    const bars = weekMap.get(key)!;
+    if (bars.length === 0) continue;
+
+    weeklyBars.push({
+      date: bars[0].date,
+      open: bars[0].open,
+      high: Math.max(...bars.map((b) => b.high)),
+      low: Math.min(...bars.map((b) => b.low)),
+      close: bars[bars.length - 1].close,
+      volume: bars.reduce((sum, b) => sum + b.volume, 0),
+    });
+  }
+
+  return weeklyBars;
+}
+
+/**
+ * 週足のSMA13/SMA26アラインメントからトレンド方向を判定する
+ *
+ * - SMA13 > SMA26 → uptrend
+ * - SMA13 < SMA26 → downtrend
+ * - データ不足 or SMA13 ≈ SMA26 → none
+ *
+ * @param weeklyBars - 週足データ（oldest-first）
+ * @returns 週足トレンド結果
+ */
+export function analyzeWeeklyTrend(
+  weeklyBars: WeeklyBar[],
+): WeeklyTrendResult {
+  const noTrend: WeeklyTrendResult = { trend: "none", sma13: null, sma26: null };
+
+  if (weeklyBars.length < SCORING.WEEKLY_TREND.MIN_WEEKLY_BARS) {
+    return noTrend;
+  }
+
+  // calculateSMA は newest-first を期待するので reverse
+  const newestFirst = [...weeklyBars].reverse().map((b) => ({ close: b.close }));
+
+  const sma13 = calculateSMA(newestFirst, 13);
+  const sma26 = calculateSMA(newestFirst, 26);
+
+  // SMA13だけでも判定可能（SMA26不足時は最新終値と比較）
+  if (sma13 === null) return noTrend;
+
+  if (sma26 !== null) {
+    return {
+      trend: sma13 > sma26 ? "uptrend" : sma13 < sma26 ? "downtrend" : "none",
+      sma13,
+      sma26,
+    };
+  }
+
+  // SMA26がない場合: SMA13と最新終値の関係で判定
+  const latestClose = weeklyBars[weeklyBars.length - 1].close;
+  return {
+    trend: latestClose > sma13 ? "uptrend" : latestClose < sma13 ? "downtrend" : "none",
+    sma13,
+    sma26: null,
+  };
 }

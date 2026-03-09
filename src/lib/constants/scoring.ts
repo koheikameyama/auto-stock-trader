@@ -51,6 +51,12 @@ export const SCORING = {
     STABILITY_CV_TIERS: [0.3, 0.5, 0.7],
   },
 
+  // 週足トレンド整合性チェック
+  WEEKLY_TREND: {
+    PENALTY: 8,          // 日足↑ × 週足↓ 矛盾時の減点（MA 15点中）
+    MIN_WEEKLY_BARS: 14, // SMA13算出に必要な最低週足本数
+  },
+
   MAX_CANDIDATES_FOR_AI: 20,
   MIN_CANDIDATES_FOR_AI: 5,
 } as const;

@@ -14,6 +14,7 @@ import type { TechnicalSummary } from "./technical-analysis";
 import type { OHLCVData } from "./technical-analysis";
 import type { ChartPatternResult, ChartPatternRank } from "../lib/chart-patterns";
 import type { PatternResult } from "../lib/candlestick-patterns";
+import type { WeeklyTrendResult } from "../lib/technical-indicators";
 import { SCORING } from "../lib/constants";
 
 // ========================================
@@ -28,6 +29,7 @@ export interface LogicScoreInput {
   latestPrice: number;
   latestVolume: number;
   weeklyVolatility: number | null;
+  weeklyTrend?: WeeklyTrendResult | null;
 }
 
 export interface LogicScore {
@@ -63,6 +65,8 @@ export interface LogicScore {
   } | null;
 
   technicalSignal: "strong_buy" | "buy" | "neutral" | "sell" | "strong_sell";
+
+  weeklyTrendPenalty: number;
 }
 
 /** 後方互換: 旧 ScorerInput */
@@ -336,13 +340,26 @@ export function scoreTechnicals(input: LogicScoreInput): LogicScore {
       disqualifyReason: disqualify.reason,
       topPattern: null,
       technicalSignal: "strong_sell",
+      weeklyTrendPenalty: 0,
     };
   }
 
   // カテゴリ1: テクニカル指標（40点）
   const rsiScore = scoreRSI(summary.rsi);
-  const maScore = scoreMA(summary);
+  let maScore = scoreMA(summary);
   const volumeChangeScore = scoreVolumeChange(summary.volumeAnalysis.volumeRatio);
+
+  // 週足トレンド整合性チェック: 日足↑ × 週足↓ → MA減点
+  let weeklyTrendPenalty = 0;
+  if (
+    input.weeklyTrend &&
+    input.weeklyTrend.trend === "downtrend" &&
+    summary.maAlignment.trend === "uptrend"
+  ) {
+    weeklyTrendPenalty = -SCORING.WEEKLY_TREND.PENALTY;
+    maScore = Math.max(0, maScore + weeklyTrendPenalty);
+  }
+
   const technicalTotal = rsiScore + maScore + volumeChangeScore;
 
   // カテゴリ2: チャート・ローソク足パターン（30点）
@@ -382,5 +399,6 @@ export function scoreTechnicals(input: LogicScoreInput): LogicScore {
     disqualifyReason: null,
     topPattern,
     technicalSignal: getTechnicalSignal(totalScore),
+    weeklyTrendPenalty,
   };
 }

@@ -60,6 +60,10 @@ import type { MarketRegime } from "../core/market-regime";
 import { calculateDrawdownStatus } from "../core/drawdown-manager";
 import type { DrawdownStatus } from "../core/drawdown-manager";
 import { calculateSectorMomentum } from "../core/sector-analyzer";
+import {
+  aggregateDailyToWeekly,
+  analyzeWeeklyTrend,
+} from "../lib/technical-indicators";
 import type { SectorMomentum } from "../core/sector-analyzer";
 
 function sleep(ms: number): Promise<void> {
@@ -373,6 +377,13 @@ ${sectorText || "  特になし"}`;
             };
             const candlestickPattern = analyzeSingleCandle(latestCandle);
 
+            // 週足トレンド分析（volume含むoldest-firstデータが必要）
+            const weeklyBars = aggregateDailyToWeekly([...historical].reverse());
+            const weeklyTrend =
+              weeklyBars.length >= SCORING.WEEKLY_TREND.MIN_WEEKLY_BARS
+                ? analyzeWeeklyTrend(weeklyBars)
+                : null;
+
             // スコアリング
             const score = scoreTechnicals({
               summary,
@@ -382,6 +393,7 @@ ${sectorText || "  特になし"}`;
               latestPrice: Number(stock.latestPrice),
               latestVolume: Number(stock.latestVolume),
               weeklyVolatility: stock.volatility ? Number(stock.volatility) : null,
+              weeklyTrend,
             });
 
             return {
@@ -561,6 +573,7 @@ ${sectorText || "  特になし"}`;
       rsi: c.score.technical.rsi,
       ma: c.score.technical.ma,
       volume: c.score.technical.volume,
+      weeklyTrendPenalty: c.score.weeklyTrendPenalty,
     },
     patternBreakdown: {
       chart: c.score.pattern.chart,
