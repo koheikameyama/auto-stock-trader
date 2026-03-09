@@ -9,7 +9,7 @@
 
 import { parseArgs } from "node:util";
 import dayjs from "dayjs";
-import { fetchMultipleBacktestData } from "./data-fetcher";
+import { fetchMultipleBacktestData, fetchVixData } from "./data-fetcher";
 import { runBacktest } from "./simulation-engine";
 import { runSensitivityAnalysis } from "./sensitivity";
 import {
@@ -101,12 +101,14 @@ async function main(): Promise<void> {
   console.log("[backtest] 開始");
   const startTime = Date.now();
 
-  // 1. データ取得
-  const allData = await fetchMultipleBacktestData(
-    tickers,
-    config.startDate,
-    config.endDate,
-  );
+  // 1. データ取得（VIXを並行取得）
+  const [allData, vixData] = await Promise.all([
+    fetchMultipleBacktestData(tickers, config.startDate, config.endDate),
+    fetchVixData(config.startDate, config.endDate).catch((err) => {
+      console.warn("[backtest] VIXデータ取得失敗（crisis halt なし）:", err);
+      return new Map<string, number>();
+    }),
+  ]);
 
   if (allData.size === 0) {
     console.error("エラー: データを取得できませんでした");
@@ -115,7 +117,7 @@ async function main(): Promise<void> {
 
   // 2. バックテスト実行
   console.log("[backtest] シミュレーション実行中...");
-  const result = runBacktest(config, allData);
+  const result = runBacktest(config, allData, vixData);
 
   // 3. 結果表示
   printBacktestReport(result);
@@ -124,7 +126,7 @@ async function main(): Promise<void> {
   let sensitivityResults = null;
   if (values.sensitivity) {
     console.log("[backtest] パラメータ感度分析...");
-    sensitivityResults = runSensitivityAnalysis(config, allData);
+    sensitivityResults = runSensitivityAnalysis(config, allData, vixData);
     printSensitivityReport(sensitivityResults);
   }
 
