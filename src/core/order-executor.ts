@@ -20,6 +20,7 @@ export function checkOrderFill(
   order: TradingOrder,
   currentHigh: number,
   currentLow: number,
+  currentOpen?: number,
 ): number | null {
   const limitPrice = order.limitPrice ? Number(order.limitPrice) : null;
   const stopPrice = order.stopPrice ? Number(order.stopPrice) : null;
@@ -27,6 +28,10 @@ export function checkOrderFill(
   // 買い指値注文: 安値が指値以下なら約定
   if (order.side === "buy" && limitPrice !== null) {
     if (currentLow <= limitPrice) {
+      // ギャップダウンで寄り付いた場合、寄り付き値で約定（買い手に有利）
+      if (currentOpen != null && currentOpen < limitPrice) {
+        return currentOpen;
+      }
       return limitPrice;
     }
   }
@@ -38,6 +43,10 @@ export function checkOrderFill(
     order.orderType !== "stop_limit"
   ) {
     if (currentHigh >= limitPrice) {
+      // ギャップアップで寄り付いた場合、寄り付き値で約定（売り手に有利）
+      if (currentOpen != null && currentOpen > limitPrice) {
+        return currentOpen;
+      }
       return limitPrice;
     }
   }
@@ -45,6 +54,10 @@ export function checkOrderFill(
   // 逆指値注文（損切り）: 安値が逆指値以下なら約定
   if (order.side === "sell" && stopPrice !== null) {
     if (currentLow <= stopPrice) {
+      // ギャップダウンで逆指値を突き抜けた場合、寄り付き値で約定（スリッページ）
+      if (currentOpen != null && currentOpen < stopPrice) {
+        return currentOpen;
+      }
       return stopPrice;
     }
   }

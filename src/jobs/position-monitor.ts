@@ -9,7 +9,11 @@
  */
 
 import { prisma } from "../lib/prisma";
-import { TRADING_SCHEDULE, POSITION_DEFAULTS } from "../lib/constants";
+import {
+  TRADING_SCHEDULE,
+  POSITION_DEFAULTS,
+  DEFENSIVE_MODE,
+} from "../lib/constants";
 import { fetchStockQuote } from "../core/market-data";
 import {
   checkOrderFill,
@@ -49,7 +53,7 @@ export async function main() {
       continue;
     }
 
-    const filledPrice = checkOrderFill(order, quote.high, quote.low);
+    const filledPrice = checkOrderFill(order, quote.high, quote.low, quote.open);
 
     if (filledPrice !== null) {
       console.log(
@@ -170,13 +174,17 @@ export async function main() {
 
     // 利確チェック（トレーリング発動中は effectiveTP = null なのでスキップ）
     if (effectiveTP !== null && quote.high >= effectiveTP) {
-      exitPrice = effectiveTP;
+      // ギャップアップで利確ラインを突き抜けた場合、寄り付き値で約定
+      exitPrice =
+        quote.open > effectiveTP ? quote.open : effectiveTP;
       exitReason = "利確";
     }
 
     // 損切り / トレーリングストップチェック（利確より優先）
     if (quote.low <= effectiveSL) {
-      exitPrice = effectiveSL;
+      // ギャップダウンでSLを突き抜けた場合、寄り付き値で約定（スリッページ反映）
+      exitPrice =
+        quote.open < effectiveSL ? quote.open : effectiveSL;
       exitReason = trailingResult.isActivated ? "トレーリング利確" : "損切り";
     }
 
@@ -260,6 +268,115 @@ export async function main() {
         `  → ${position.stock.tickerCode}: 含み損益 ¥${unrealized.toLocaleString()} ${trailingResult.reason}`,
       );
     }
+  }
+
+  // 3.5. ディフェンシブモード（bearish/crisis時のポジション防衛）
+  console.log("[2.5/3] ディフェンシブモード判定...");
+  const latestAssessmentForDefense = await prisma.marketAssessment.findFirst({
+    orderBy: { date: "desc" },
+    select: { sentiment: true, reasoning: true },
+  });
+
+  const currentSentiment = latestAssessmentForDefense?.sentiment;
+  const isDefensiveMode =
+    currentSentiment != null &&
+    DEFENSIVE_MODE.ENABLED_SENTIMENTS.includes(currentSentiment);
+
+  if (isDefensiveMode) {
+    const isCrisis = currentSentiment === "crisis";
+    console.log(`  → ディフェンシブモード発動: ${currentSentiment}`);
+
+    // TP/SLで決済済みを除外した残存ポジションを取得
+    const remainingPositions = await getOpenPositions();
+    let defensiveCloseCount = 0;
+
+    for (const position of remainingPositions) {
+      const quote = await fetchStockQuote(position.stock.tickerCode);
+      if (!quote) continue;
+
+      const entryPriceNum = Number(position.entryPrice);
+      const currentProfitPct =
+        ((quote.price - entryPriceNum) / entryPriceNum) * 100;
+
+      let shouldDefensiveClose = false;
+      let defensiveReason = "";
+
+      if (isCrisis) {
+        // crisis: 全ポジション即時決済（資本防衛）
+        shouldDefensiveClose = true;
+        defensiveReason = `crisis全ポジション即時決済（含み損益: ${currentProfitPct >= 0 ? "+" : ""}${currentProfitPct.toFixed(2)}%）`;
+      } else if (
+        currentProfitPct >= DEFENSIVE_MODE.MIN_PROFIT_PCT_FOR_RETREAT
+      ) {
+        // bearish: 含み益ポジションのみ決済（利益確保）
+        shouldDefensiveClose = true;
+        defensiveReason = `bearish微益撤退（含み益 +${currentProfitPct.toFixed(2)}%）`;
+      }
+
+      if (shouldDefensiveClose) {
+        const maxHigh = position.maxHighDuringHold
+          ? Math.max(Number(position.maxHighDuringHold), quote.high)
+          : quote.high;
+        const minLow = position.minLowDuringHold
+          ? Math.min(Number(position.minLowDuringHold), quote.low)
+          : quote.low;
+
+        const exitSnapshot: ExitSnapshot = {
+          exitReason: defensiveReason,
+          exitPrice: quote.price,
+          priceJourney: {
+            maxHigh,
+            minLow,
+            maxFavorableExcursion:
+              ((maxHigh - entryPriceNum) / entryPriceNum) * 100,
+            maxAdverseExcursion:
+              ((entryPriceNum - minLow) / entryPriceNum) * 100,
+          },
+          marketContext: latestAssessmentForDefense
+            ? {
+                sentiment: latestAssessmentForDefense.sentiment,
+                reasoning: latestAssessmentForDefense.reasoning.slice(0, 500),
+              }
+            : null,
+        };
+
+        console.log(
+          `  → ${position.stock.tickerCode}: ${defensiveReason} @ ¥${quote.price.toLocaleString()}`,
+        );
+
+        const closed = await closePosition(
+          position.id,
+          quote.price,
+          exitSnapshot as object,
+        );
+
+        await notifyOrderFilled({
+          tickerCode: position.stock.tickerCode,
+          name: position.stock.name,
+          side: "sell",
+          filledPrice: quote.price,
+          quantity: position.quantity,
+          pnl: closed.realizedPnl ? Number(closed.realizedPnl) : 0,
+        });
+
+        defensiveCloseCount++;
+      } else {
+        console.log(
+          `  → ${position.stock.tickerCode}: bearish維持（含み損益 ${currentProfitPct.toFixed(2)}% → 通常SL監視継続）`,
+        );
+      }
+    }
+
+    if (defensiveCloseCount > 0) {
+      await notifyRiskAlert({
+        type: `ディフェンシブモード（${currentSentiment}）`,
+        message: `${defensiveCloseCount}件のポジションを防衛決済しました`,
+      });
+    }
+  } else {
+    console.log(
+      `  → ディフェンシブモード: OFF（sentiment: ${currentSentiment ?? "不明"}）`,
+    );
   }
 
   // 4. デイトレ強制決済チェック

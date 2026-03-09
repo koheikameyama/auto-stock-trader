@@ -41,6 +41,13 @@ export const TRAILING_STOP = {
   TRAIL_PCT: { day_trade: 0.015, swing: 0.025 },
 } as const;
 
+// ディフェンシブモード（市場環境悪化時のポジション防衛）
+export const DEFENSIVE_MODE = {
+  ENABLED_SENTIMENTS: ["bearish", "crisis"] as readonly string[],
+  // 微益撤退の最低利益率（%）— 手数料・スリッページを考慮
+  MIN_PROFIT_PCT_FOR_RETREAT: 0.3,
+} as const;
+
 // 週次レビュー
 export const WEEKLY_REVIEW = {
   LOOKBACK_DAYS: 7,
