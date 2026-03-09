@@ -49,6 +49,12 @@ export const DEFENSIVE_MODE = {
   MIN_PROFIT_PCT_FOR_RETREAT: 0.3,
 } as const;
 
+// 昼休み再評価
+export const MIDDAY_REASSESSMENT = {
+  SCHEDULED_HOUR: 12,
+  SCHEDULED_MINUTE: 15,
+} as const;
+
 // 週次レビュー
 export const WEEKLY_REVIEW = {
   LOOKBACK_DAYS: 7,

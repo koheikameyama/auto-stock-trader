@@ -100,6 +100,14 @@ model MarketAssessment {
   // AI選定銘柄（JSON配列）
   selectedStocks Json? // [{ tickerCode, strategy, score, reasoning }]
 
+  // 昼休み再評価（12:15 JST）
+  middaySentiment    String?   // 昼AIの生の評価: bullish / neutral / bearish / crisis
+  middayReasoning    String?   @db.Text // 昼AIの判断理由
+  middayReassessedAt DateTime? // 再評価実行タイムスタンプ
+  middayNikkeiPrice  Decimal?  @db.Decimal(10, 2)
+  middayNikkeiChange Decimal?  @db.Decimal(8, 4)
+  middayVix          Decimal?  @db.Decimal(8, 2)
+
   createdAt DateTime @default(now())
 
   @@unique([date])

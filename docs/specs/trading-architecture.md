@@ -818,6 +818,19 @@ totalBudget += realizedPnl（利益なら増加、損失なら減少）
 - 「まだ大丈夫」が最も危険な判断
 - 全資金をキャッシュにして嵐が過ぎるのを待つ
 
+### 昼休み再評価によるディフェンシブモード発動
+
+昼12:15に前場データに基づくセンチメント再評価を行う。朝の評価と比較して悪化していた場合、`MarketAssessment.sentiment` を更新する。position-monitorは毎分 `sentiment` を読み取るため、更新と同時にディフェンシブモードが自動的に発動する（追加コード不要）。
+
+| 朝の評価 | 昼の再評価 | アクション |
+|---------|-----------|-----------|
+| bullish | neutral | sentimentをneutralに更新（ディフェンシブ未発動） |
+| bullish | bearish | sentimentをbearishに更新 → ディフェンシブモード発動 |
+| neutral | bearish | sentimentをbearishに更新 → ディフェンシブモード発動 |
+| bearish | crisis | sentimentをcrisisに更新 → 全ポジション決済 |
+| bearish | neutral | 変更なし（bearishを維持） |
+| crisis | * | 変更なし（crisisは最悪レベル） |
+
 ### position-monitor内の実行位置
 
 ```

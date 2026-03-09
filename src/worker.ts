@@ -20,6 +20,7 @@ import { main as runMonitor } from "./jobs/position-monitor";
 import { main as runEod } from "./jobs/end-of-day";
 import { main as runDailyBacktest } from "./jobs/daily-backtest";
 import { main as runDelistingSync } from "./jobs/jpx-delisting-sync";
+import { main as runMiddayReassessment } from "./jobs/midday-reassessment";
 import { app } from "./web/app";
 import { setJobState } from "./web/routes/dashboard";
 import { prisma } from "./lib/prisma";
@@ -117,6 +118,8 @@ function nowJST(): string {
 const schedules = [
   // 9:20 注文発行（平日）— 寄付き9:00のデータ反映後
   { cron: "20 9 * * 1-5", job: runOrder, name: "order-manager", requiresMarketDay: true },
+  // 12:15 昼休み再評価（平日）— 前場終了11:30のデータ反映後
+  { cron: "15 12 * * 1-5", job: runMiddayReassessment, name: "midday-reassessment", requiresMarketDay: true },
   // 9:20-15:19 毎分 ポジション監視（平日）— 遅延考慮
   { cron: "20-59 9 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
   { cron: "* 10-14 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
@@ -188,6 +191,21 @@ async function catchUpMissedJobs() {
         console.log("[catch-up] order-manager が未実行 → 実行します");
         await runJob("order-manager", runOrder);
       }
+    }
+  }
+
+  // midday-reassessment: 12:15以降かつ15:00前で、未実行なら実行
+  if (
+    (now.hour() >= 13 || (now.hour() === 12 && now.minute() >= 15)) &&
+    now.hour() < 15
+  ) {
+    const assessmentForMidday = await prisma.marketAssessment.findFirst({
+      where: { date: todayStart },
+      select: { middayReassessedAt: true },
+    });
+    if (assessmentForMidday && !assessmentForMidday.middayReassessedAt) {
+      console.log("[catch-up] midday-reassessment が未実行 → 実行します");
+      await runJob("midday-reassessment", runMiddayReassessment);
     }
   }
 

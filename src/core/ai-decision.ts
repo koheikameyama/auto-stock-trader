@@ -23,6 +23,10 @@ import {
   TRADE_REVIEW_SYSTEM_PROMPT,
   TRADE_REVIEW_SCHEMA,
 } from "../prompts/trade-decision";
+import {
+  MIDDAY_REASSESSMENT_SYSTEM_PROMPT,
+  MIDDAY_REASSESSMENT_SCHEMA,
+} from "../prompts/midday-reassessment";
 
 // ========================================
 // 入力型
@@ -257,4 +261,72 @@ ${stock.scoreFormatted}
   }
 
   return JSON.parse(content) as TradeReviewResult;
+}
+
+// ========================================
+// 4. 昼休み再評価（前場実績に基づくセンチメント再判定）
+// ========================================
+
+export interface MiddayReassessmentInput {
+  morningSentiment: string;
+  morningReasoning: string;
+  morningNikkeiPrice: number;
+  morningVix: number;
+  currentNikkeiPrice: number;
+  currentNikkeiChange: number;
+  currentVix: number;
+  currentSp500Change: number;
+  currentUsdJpy: number;
+}
+
+export interface MiddayReassessmentResult {
+  sentiment: "bullish" | "neutral" | "bearish" | "crisis";
+  reasoning: string;
+}
+
+/**
+ * 前場終了後にセンチメントを再評価する
+ */
+export async function reassessMarketMidday(
+  data: MiddayReassessmentInput,
+): Promise<MiddayReassessmentResult> {
+  const openai = getOpenAIClient();
+
+  const morningSessionChange =
+    ((data.currentNikkeiPrice - data.morningNikkeiPrice) /
+      data.morningNikkeiPrice) *
+    100;
+
+  const userPrompt = `【朝の市場評価（前場開始前）】
+- センチメント: ${data.morningSentiment}
+- 理由: ${data.morningReasoning}
+- 日経225（朝時点）: ${data.morningNikkeiPrice.toLocaleString()}円
+- VIX（朝時点）: ${data.morningVix.toFixed(2)}
+
+【前場終了時点の市場データ】
+- 日経225: ${data.currentNikkeiPrice.toLocaleString()}円（朝比: ${morningSessionChange >= 0 ? "+" : ""}${morningSessionChange.toFixed(2)}%、前日比: ${data.currentNikkeiChange >= 0 ? "+" : ""}${data.currentNikkeiChange.toFixed(2)}%）
+- VIX: ${data.currentVix.toFixed(2)}（朝比: ${data.currentVix > data.morningVix ? "上昇" : data.currentVix < data.morningVix ? "低下" : "横ばい"}）
+- S&P500 前日比: ${data.currentSp500Change >= 0 ? "+" : ""}${data.currentSp500Change.toFixed(2)}%
+- USD/JPY: ${data.currentUsdJpy.toFixed(2)}
+
+朝の評価と前場の実績を比較して、センチメントを再評価してください。`;
+
+  const response = await openai.chat.completions.create({
+    model: OPENAI_CONFIG.MODEL,
+    temperature: OPENAI_CONFIG.TEMPERATURE,
+    messages: [
+      { role: "system", content: MIDDAY_REASSESSMENT_SYSTEM_PROMPT },
+      { role: "user", content: userPrompt },
+    ],
+    response_format: MIDDAY_REASSESSMENT_SCHEMA,
+  });
+
+  const content = response.choices[0].message.content;
+  if (!content) {
+    throw new Error(
+      "[ai-decision] reassessMarketMidday: Empty response from OpenAI",
+    );
+  }
+
+  return JSON.parse(content) as MiddayReassessmentResult;
 }
