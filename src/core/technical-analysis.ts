@@ -329,8 +329,14 @@ export function formatScoreForAI(
       `      ※週足トレンドペナルティ: ${score.weeklyTrendPenalty}（日足↑と週足↓が矛盾）`,
     );
   }
+  const volDirLabel =
+    score.technical.volumeDirection === "accumulation"
+      ? "買い集め"
+      : score.technical.volumeDirection === "distribution"
+        ? "投げ売り"
+        : "中立";
   lines.push(
-    `    出来高変化: ${score.technical.volume}/10${summary.volumeAnalysis.volumeRatio ? `（${summary.volumeAnalysis.volumeRatio}倍）` : ""}`,
+    `    出来高変化: ${score.technical.volume}/10${summary.volumeAnalysis.volumeRatio ? `（${summary.volumeAnalysis.volumeRatio}倍 / ${volDirLabel}）` : ""}`,
   );
 
   // パターン（30点）

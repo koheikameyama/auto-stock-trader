@@ -24,7 +24,7 @@
 |---------|------|-------------|-----------|
 | RSI / ストキャスティクス | 15点 | `TechnicalSummary.rsi` | RSI 30-40 = 15点（反発ゾーン）、40-50 = 10点、50-60 = 7点、<30 = 5点、>70 = 0点 |
 | 移動平均線 / 乖離率 | 15点 | `TechnicalSummary.maAlignment`, `deviationRate25` | パーフェクトオーダー+方向一致 = 15点、オーダーのみ = 12点、上昇トレンド = 10点、中立 = 7点、下降 = 0-4点 |
-| 出来高の変化 | 10点 | `TechnicalSummary.volumeAnalysis.volumeRatio` | 2倍以上 = 10点、1.5倍 = 8点、1.0倍 = 5点、0.5倍以下 = 2点 |
+| 出来高の変化（方向性込み） | 10点 | `TechnicalSummary.volumeAnalysis.volumeRatio` + OHLCV | 出来高の量（volumeRatio）× 方向性（accumulation/distribution/neutral）で評価。下表参照 |
 
 ### カテゴリ2: チャート・ローソク足パターン（30点）
 
@@ -102,6 +102,62 @@
 ### 根拠
 
 プロは「大きな時間軸のトレンドに逆らわない」が鉄則。週足が下降トレンドの銘柄を日足の反発で買うと、戻り売りに巻き込まれるリスクが高い。
+
+---
+
+## 出来高方向性分析（買い集め vs 投げ売り）
+
+出来高の「量」だけでなく「方向性」を評価する。出来高が急増しても、それが買い集めなのか投げ売りなのかで意味が全く異なる。
+
+### 分析手法
+
+2つのファクターを組み合わせて方向性を判定:
+
+**Factor 1: 陽線/陰線ベースの買い・売り出来高比率（直近5日）**
+- 陽線（close > open）の日の出来高 → 買い出来高
+- 陰線（close < open）の日の出来高 → 売り出来高
+- 同値の場合は50/50に分配
+- `buyingRatio = 買い出来高 / (買い出来高 + 売り出来高)`
+
+**Factor 2: OBVトレンド（直近10日）**
+- On-Balance Volume（OBV）を算出
+- 前半と後半の平均OBVを比較し、トレンド方向を判定
+
+### 総合判定
+
+| buyingRatio | OBVトレンド | 判定 |
+|---|---|---|
+| >= 0.6 | 任意 | **accumulation**（買い集め） |
+| <= 0.4 | 任意 | **distribution**（投げ売り） |
+| 0.4-0.6 | 上昇 & ratio >= 0.5 | **accumulation** |
+| 0.4-0.6 | 下降 & ratio <= 0.5 | **distribution** |
+| 0.4-0.6 | その他 | **neutral**（中立） |
+
+### スコアリング（出来高の量 × 方向性）
+
+| volumeRatio | accumulation | neutral | distribution |
+|---|---|---|---|
+| >= 2.0倍 | **10点** | 7点 | 3点 |
+| >= 1.5倍 | **8点** | 6点 | 3点 |
+| >= 1.0倍 | **6点** | 5点 | 4点 |
+| 0.5-1.0倍 | 4点 | 3点 | 3点 |
+| <= 0.5倍 | 2点 | 2点 | 2点 |
+
+### プロ視点の根拠
+
+出来高2倍でも下落中なら「投げ売り」であり買いシグナルではない。出来高の質を見ないと偽のシグナルに騙される。プロは「出来高を伴った上昇」と「出来高を伴った下落」を明確に区別する。
+
+### 定数
+
+```typescript
+VOLUME_DIRECTION: {
+  LOOKBACK_DAYS: 5,              // 買い/売り出来高の分析期間
+  OBV_PERIOD: 10,                // OBVトレンド算出期間
+  ACCUMULATION_THRESHOLD: 0.6,   // これ以上 → 買い集め
+  DISTRIBUTION_THRESHOLD: 0.4,   // これ以下 → 投げ売り
+  MIN_DATA_DAYS: 3,              // 分析に必要な最低日数
+}
+```
 
 ---
 
@@ -283,6 +339,7 @@ interface LogicScore {
     rsi: number;               // 0-15
     ma: number;                // 0-15
     volume: number;            // 0-10
+    volumeDirection: "accumulation" | "distribution" | "neutral";
   };
   pattern: {
     total: number;             // 0-30
@@ -360,6 +417,20 @@ export const SCORING = {
     STABILITY_CV_TIERS: [0.3, 0.5, 0.7],           // 変動係数
   },
 
+  // 出来高方向性分析
+  VOLUME_DIRECTION: {
+    LOOKBACK_DAYS: 5,
+    OBV_PERIOD: 10,
+    ACCUMULATION_THRESHOLD: 0.6,
+    DISTRIBUTION_THRESHOLD: 0.4,
+    MIN_DATA_DAYS: 3,
+    SCORES: {
+      HIGH_VOLUME: { accumulation: 10, neutral: 7, distribution: 3 },
+      MEDIUM_VOLUME: { accumulation: 8, neutral: 6, distribution: 3 },
+      NORMAL_VOLUME: { accumulation: 6, neutral: 5, distribution: 4 },
+    },
+  },
+
   MAX_CANDIDATES_FOR_AI: 20,
   MIN_CANDIDATES_FOR_AI: 5,
 } as const;
@@ -406,7 +477,7 @@ MarketAssessment に保存（既存フロー）
   テクニカル: 35/40
     RSI: 15/15（RSI=35、反発ゾーン）
     移動平均: 12/15（パーフェクトオーダー成立）
-    出来高変化: 8/10（1.8倍）
+    出来高変化: 8/10（1.8倍 / 買い集め）
   パターン: 28/30
     チャートパターン: 22/22（逆三尊 / Sランク / 勝率89%）
     ローソク足: 6/8（大陽線）

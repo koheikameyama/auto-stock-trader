@@ -573,6 +573,7 @@ ${sectorText || "  特になし"}`;
       rsi: c.score.technical.rsi,
       ma: c.score.technical.ma,
       volume: c.score.technical.volume,
+      volumeDirection: c.score.technical.volumeDirection,
       weeklyTrendPenalty: c.score.weeklyTrendPenalty,
     },
     patternBreakdown: {

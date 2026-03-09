@@ -57,6 +57,21 @@ export const SCORING = {
     MIN_WEEKLY_BARS: 14, // SMA13算出に必要な最低週足本数
   },
 
+  // 出来高方向性分析
+  VOLUME_DIRECTION: {
+    LOOKBACK_DAYS: 5,              // 買い/売り出来高の分析期間
+    OBV_PERIOD: 10,                // OBVトレンド算出期間
+    ACCUMULATION_THRESHOLD: 0.6,   // 買い出来高比率がこれ以上 → 買い集め
+    DISTRIBUTION_THRESHOLD: 0.4,   // 買い出来高比率がこれ以下 → 投げ売り
+    MIN_DATA_DAYS: 3,              // 方向性分析に必要な最低日数
+    // 出来高×方向性のスコア表（volumeRatio別）
+    SCORES: {
+      HIGH_VOLUME: { accumulation: 10, neutral: 7, distribution: 3 },   // ratio >= 2.0
+      MEDIUM_VOLUME: { accumulation: 8, neutral: 6, distribution: 3 },  // ratio >= 1.5
+      NORMAL_VOLUME: { accumulation: 6, neutral: 5, distribution: 4 },  // ratio >= 1.0
+    },
+  },
+
   MAX_CANDIDATES_FOR_AI: 20,
   MIN_CANDIDATES_FOR_AI: 5,
 } as const;

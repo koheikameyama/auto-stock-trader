@@ -32,6 +32,8 @@ export interface LogicScoreInput {
   weeklyTrend?: WeeklyTrendResult | null;
 }
 
+export type VolumeDirection = "accumulation" | "distribution" | "neutral";
+
 export interface LogicScore {
   totalScore: number;
   rank: "S" | "A" | "B" | "C";
@@ -41,6 +43,7 @@ export interface LogicScore {
     rsi: number;
     ma: number;
     volume: number;
+    volumeDirection: VolumeDirection;
   };
   pattern: {
     total: number;
@@ -144,16 +147,124 @@ function scoreMA(summary: TechnicalSummary): number {
   return 7; // none
 }
 
-/** 出来高変化スコア（0-10点） */
-function scoreVolumeChange(volumeRatio: number | null): number {
-  if (volumeRatio == null) return 5;
-  const max = SCORING.SUB_MAX.VOLUME_CHANGE;
+// ========================================
+// 出来高方向性分析
+// ========================================
 
-  if (volumeRatio >= 2.0) return max;
-  if (volumeRatio >= 1.5) return 8;
-  if (volumeRatio >= 1.0) return 5;
-  if (volumeRatio > 0.5) return 3;
-  return 2;
+interface VolumeDirectionResult {
+  direction: VolumeDirection;
+  buyingRatio: number; // 0-1（買い出来高 / 全出来高）
+  obvTrend: "up" | "down" | "flat";
+}
+
+/**
+ * 出来高の方向性を分析（買い集め vs 投げ売り）
+ *
+ * Factor 1: 陽線/陰線 × 出来高で「買い出来高」「売り出来高」を推定
+ * Factor 2: OBVトレンドで中期的な資金フローを確認
+ */
+export function calculateVolumeDirection(
+  ohlcvData: OHLCVData[],
+): VolumeDirectionResult {
+  const vd = SCORING.VOLUME_DIRECTION;
+
+  if (ohlcvData.length < vd.MIN_DATA_DAYS) {
+    return { direction: "neutral", buyingRatio: 0.5, obvTrend: "flat" };
+  }
+
+  // Factor 1: 陽線/陰線ベースの買い/売り出来高比率（直近N日）
+  const lookbackDays = Math.min(ohlcvData.length, vd.LOOKBACK_DAYS);
+  const recentData = ohlcvData.slice(0, lookbackDays);
+
+  let buyingVolume = 0;
+  let sellingVolume = 0;
+
+  for (const d of recentData) {
+    if (d.volume <= 0) continue;
+    if (d.close > d.open) {
+      buyingVolume += d.volume;
+    } else if (d.close < d.open) {
+      sellingVolume += d.volume;
+    } else {
+      // 同値: 50/50に分配
+      buyingVolume += d.volume * 0.5;
+      sellingVolume += d.volume * 0.5;
+    }
+  }
+
+  const totalVolume = buyingVolume + sellingVolume;
+  const buyingRatio = totalVolume > 0 ? buyingVolume / totalVolume : 0.5;
+
+  // Factor 2: OBVトレンド（直近N日）
+  const obvDays = Math.min(ohlcvData.length, vd.OBV_PERIOD);
+  const obvData = ohlcvData.slice(0, obvDays).slice().reverse(); // oldest first
+  let obv = 0;
+  const obvValues: number[] = [0];
+
+  for (let i = 1; i < obvData.length; i++) {
+    if (obvData[i].close > obvData[i - 1].close) {
+      obv += obvData[i].volume;
+    } else if (obvData[i].close < obvData[i - 1].close) {
+      obv -= obvData[i].volume;
+    }
+    obvValues.push(obv);
+  }
+
+  // OBV前半 vs 後半の平均を比較
+  const mid = Math.floor(obvValues.length / 2);
+  const recentHalf = obvValues.slice(mid);
+  const earlierHalf = obvValues.slice(0, mid);
+  const recentAvg =
+    recentHalf.reduce((s, v) => s + v, 0) / recentHalf.length;
+  const earlierAvg =
+    earlierHalf.length > 0
+      ? earlierHalf.reduce((s, v) => s + v, 0) / earlierHalf.length
+      : 0;
+
+  let obvTrend: "up" | "down" | "flat" = "flat";
+  if (earlierAvg === 0) {
+    if (recentAvg > 0) obvTrend = "up";
+    else if (recentAvg < 0) obvTrend = "down";
+  } else {
+    if (recentAvg > earlierAvg * 1.1) obvTrend = "up";
+    else if (recentAvg < earlierAvg * 0.9) obvTrend = "down";
+  }
+
+  // 総合判定: 買い出来高比率をベースに、OBVで補強
+  let direction: VolumeDirection = "neutral";
+
+  if (buyingRatio >= vd.ACCUMULATION_THRESHOLD) {
+    direction = "accumulation";
+  } else if (buyingRatio <= vd.DISTRIBUTION_THRESHOLD) {
+    direction = "distribution";
+  } else if (obvTrend === "up" && buyingRatio >= 0.5) {
+    // OBV上昇 + やや買い優勢 → 買い集め
+    direction = "accumulation";
+  } else if (obvTrend === "down" && buyingRatio <= 0.5) {
+    // OBV下降 + やや売り優勢 → 投げ売り
+    direction = "distribution";
+  }
+
+  return { direction, buyingRatio, obvTrend };
+}
+
+/** 出来高変化スコア（0-10点）— 出来高の量 × 方向性で評価 */
+function scoreVolumeChange(
+  volumeRatio: number | null,
+  direction: VolumeDirection,
+): number {
+  if (volumeRatio == null) return 5;
+
+  // 出来高が少ない場合: 方向性の影響は軽微
+  if (volumeRatio <= 0.5) return 2;
+  if (volumeRatio < 1.0) return direction === "accumulation" ? 4 : 3;
+
+  // 出来高が多い場合: 方向性が決定的に重要
+  const scores = SCORING.VOLUME_DIRECTION.SCORES;
+
+  if (volumeRatio >= 2.0) return scores.HIGH_VOLUME[direction];
+  if (volumeRatio >= 1.5) return scores.MEDIUM_VOLUME[direction];
+  return scores.NORMAL_VOLUME[direction]; // 1.0 <= ratio < 1.5
 }
 
 // ========================================
@@ -333,7 +444,7 @@ export function scoreTechnicals(input: LogicScoreInput): LogicScore {
     return {
       totalScore: 0,
       rank: "C",
-      technical: { total: 0, rsi: 0, ma: 0, volume: 0 },
+      technical: { total: 0, rsi: 0, ma: 0, volume: 0, volumeDirection: "neutral" },
       pattern: { total: 0, chart: 0, candlestick: 0 },
       liquidity: { total: 0, tradingValue: 0, spreadProxy: 0, stability: 0 },
       isDisqualified: true,
@@ -347,7 +458,11 @@ export function scoreTechnicals(input: LogicScoreInput): LogicScore {
   // カテゴリ1: テクニカル指標（40点）
   const rsiScore = scoreRSI(summary.rsi);
   let maScore = scoreMA(summary);
-  const volumeChangeScore = scoreVolumeChange(summary.volumeAnalysis.volumeRatio);
+  const volumeDir = calculateVolumeDirection(historicalData);
+  const volumeChangeScore = scoreVolumeChange(
+    summary.volumeAnalysis.volumeRatio,
+    volumeDir.direction,
+  );
 
   // 週足トレンド整合性チェック: 日足↑ × 週足↓ → MA減点
   let weeklyTrendPenalty = 0;
@@ -383,6 +498,7 @@ export function scoreTechnicals(input: LogicScoreInput): LogicScore {
       rsi: rsiScore,
       ma: maScore,
       volume: volumeChangeScore,
+      volumeDirection: volumeDir.direction,
     },
     pattern: {
       total: patternTotal,
