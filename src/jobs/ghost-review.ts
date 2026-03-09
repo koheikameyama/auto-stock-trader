@@ -12,7 +12,7 @@
  */
 
 import { prisma } from "../lib/prisma";
-import { getTodayForDB } from "../lib/date-utils";
+import { getTodayForDB, getDaysAgoForDB } from "../lib/date-utils";
 import { GHOST_TRADING, CONTRARIAN, OPENAI_CONFIG } from "../lib/constants";
 import { fetchStockQuotes } from "../core/market-data";
 import { getOpenAIClient } from "../lib/openai";
@@ -271,6 +271,51 @@ export async function main() {
         misjudgmentType: analysisMap.get(r.tickerCode)?.misjudgmentType,
       })),
   });
+
+  // 前日レコードの翌日価格を記録（今日の株価を使って前日の nextDayClosingPrice を埋める）
+  console.log("[5.5/6] 前日レコードに翌日価格を記録中...");
+  const yesterday = getDaysAgoForDB(1);
+  const prevDayRecords = await prisma.scoringRecord.findMany({
+    where: {
+      date: yesterday,
+      closingPrice: { not: null },
+      nextDayClosingPrice: null,
+    },
+    select: { id: true, tickerCode: true, closingPrice: true },
+  });
+
+  if (prevDayRecords.length > 0) {
+    const prevTickers = prevDayRecords.map((r) => r.tickerCode);
+    const prevQuotes = await fetchStockQuotes(prevTickers);
+    const nextDayPriceMap = new Map<string, number>();
+    for (let i = 0; i < prevTickers.length; i++) {
+      const quote = prevQuotes[i];
+      if (quote) nextDayPriceMap.set(prevTickers[i], quote.price);
+    }
+
+    const nextDayLimit = pLimit(10);
+    await Promise.all(
+      prevDayRecords
+        .filter((r) => nextDayPriceMap.has(r.tickerCode))
+        .map((r) =>
+          nextDayLimit(() => {
+            const nextDayPrice = nextDayPriceMap.get(r.tickerCode)!;
+            const prevClose = Number(r.closingPrice);
+            const nextDayProfitPct =
+              prevClose > 0
+                ? ((nextDayPrice - prevClose) / prevClose) * 100
+                : 0;
+            return prisma.scoringRecord.update({
+              where: { id: r.id },
+              data: { nextDayClosingPrice: nextDayPrice, nextDayProfitPct },
+            });
+          }),
+        ),
+    );
+    console.log(`  翌日価格記録: ${nextDayPriceMap.size}/${prevDayRecords.length}件`);
+  } else {
+    console.log("  前日レコードなし（スキップ）");
+  }
 
   // 逆行ウィナー分析（市場停止日のみ）
   const noTrade = await isNoTradeDay();

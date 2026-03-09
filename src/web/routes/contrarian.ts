@@ -92,7 +92,9 @@ app.get("/", async (c) => {
     },
     select: {
       tickerCode: true,
+      date: true,
       ghostProfitPct: true,
+      nextDayProfitPct: true,
       totalScore: true,
       technicalScore: true,
       patternScore: true,
@@ -114,6 +116,7 @@ app.get("/", async (c) => {
     },
     select: {
       tickerCode: true,
+      date: true,
       ghostProfitPct: true,
       totalScore: true,
       technicalScore: true,
@@ -124,6 +127,31 @@ app.get("/", async (c) => {
     },
     orderBy: { ghostProfitPct: "desc" },
   });
+
+  // ベースライン比較用: 低スコア上昇銘柄の日付に対応する日経変化率を取得
+  const lowScoreDates = [...new Set(lowScoreWinners.map((r) => r.date.toISOString()))];
+  const marketAssessments = lowScoreDates.length > 0
+    ? await prisma.marketAssessment.findMany({
+        where: { date: { in: lowScoreWinners.map((r) => r.date) } },
+        select: { date: true, nikkeiChange: true },
+      })
+    : [];
+  const nikkeiChangeMap = new Map(
+    marketAssessments
+      .filter((a) => a.nikkeiChange != null)
+      .map((a) => [a.date.toISOString(), Number(a.nikkeiChange)]),
+  );
+  // 低スコア上昇銘柄の日付の日経平均変化率（ベースライン）
+  const baselineNikkeiAvg = lowScoreWinners.length > 0
+    ? (() => {
+        const changes = lowScoreWinners
+          .map((r) => nikkeiChangeMap.get(r.date.toISOString()))
+          .filter((v): v is number => v != null);
+        return changes.length > 0
+          ? changes.reduce((s, v) => s + v, 0) / changes.length
+          : null;
+      })()
+    : null;
 
   // 傾向分析用: Stock テーブルからセクター情報を一括取得（N+1 回避）
   const trendTickers = [
@@ -205,6 +233,16 @@ app.get("/", async (c) => {
         records.length
       : null;
 
+  // 翌日継続: winners のうち nextDayProfitPct > 0 の件数
+  const winnersWithNextDay = winners.filter((r) => r.nextDayProfitPct != null);
+  const nextDayContinued = winnersWithNextDay.filter(
+    (r) => Number(r.nextDayProfitPct) > 0,
+  );
+  const nextDayContinuationRate =
+    winnersWithNextDay.length >= 5
+      ? Math.round((nextDayContinued.length / winnersWithNextDay.length) * 100)
+      : null;
+
   const trendSummary = {
     analyzed: analyzedRecords.length,
     winners: winners.length,
@@ -219,6 +257,8 @@ app.get("/", async (c) => {
     loserAvgLiquidity: avgOf(losers, "liquidityScore"),
     winnerAvgPct: avgPct(winners),
     loserAvgPct: avgPct(losers),
+    nextDayContinuationRate,
+    nextDaySampleSize: winnersWithNextDay.length,
   };
 
   // セクター分布集計
@@ -523,6 +563,14 @@ app.get("/", async (c) => {
                     </td>
                   </tr>
                   <tr>
+                    <td style="color:#94a3b8">翌日継続率</td>
+                    <td style="font-weight:600;color:${trendSummary.nextDayContinuationRate != null && trendSummary.nextDayContinuationRate >= 50 ? "#22c55e" : "#94a3b8"}">
+                      ${trendSummary.nextDayContinuationRate != null
+                        ? `${trendSummary.nextDayContinuationRate}% (n=${trendSummary.nextDaySampleSize})`
+                        : html`<span style="color:#64748b">データ蓄積中</span>`}
+                    </td>
+                  </tr>
+                  <tr>
                     <td style="color:#94a3b8">平均スコア</td>
                     <td style="font-weight:600">${trendSummary.winnerAvgScore ?? "-"}</td>
                   </tr>
@@ -640,7 +688,7 @@ app.get("/", async (c) => {
           ${sectorStats.length > 0
             ? html`
                 <div class="card table-wrap">
-                  <p style="font-size:0.8rem;color:#94a3b8;margin:0 0 0.75rem">セクター別成績</p>
+                  <p style="font-size:0.8rem;color:#94a3b8;margin:0 0 0.75rem">セクター別成績（n≥10 のみ信頼度あり）</p>
                   <table>
                     <thead>
                       <tr>
@@ -652,16 +700,22 @@ app.get("/", async (c) => {
                       </tr>
                     </thead>
                     <tbody>
-                      ${sectorStats.map(
-                        (s) => html`
-                          <tr>
-                            <td style="font-weight:600">${s.sector}</td>
+                      ${sectorStats.map((s) => {
+                        const lowSample = s.total < 10;
+                        const rowStyle = lowSample ? "color:#64748b" : "";
+                        return html`
+                          <tr style="${rowStyle}">
+                            <td style="font-weight:600">
+                              ${s.sector}${lowSample
+                                ? html`<span style="margin-left:4px;font-size:0.7rem;color:#94a3b8">(n=${s.total})</span>`
+                                : ""}
+                            </td>
                             <td>${s.total}回</td>
                             <td>${s.wins}回</td>
                             <td
-                              style="font-weight:600;color:${s.winRate >= 50 ? "#22c55e" : "#ef4444"}"
+                              style="font-weight:600;color:${lowSample ? "#64748b" : s.winRate >= 50 ? "#22c55e" : "#ef4444"}"
                             >
-                              ${s.winRate}%
+                              ${s.winRate}%${lowSample ? html`<span style="font-size:0.7rem"> ※</span>` : ""}
                             </td>
                             <td>
                               ${s.avgProfitPct != null
@@ -669,10 +723,11 @@ app.get("/", async (c) => {
                                 : html`<span style="color:#64748b">-</span>`}
                             </td>
                           </tr>
-                        `,
-                      )}
+                        `;
+                      })}
                     </tbody>
                   </table>
+                  <p style="font-size:0.72rem;color:#94a3b8;margin:0.5rem 0 0">※ n<10 はサンプル不足のため参考値</p>
                 </div>
               `
             : ""}
@@ -723,11 +778,19 @@ app.get("/", async (c) => {
                     低スコア上昇銘柄（${GHOST_TRADING.MIN_SCORE_FOR_TRACKING}〜79点）— ${lowScoreWinners.length}件
                     <span style="margin-left:0.5rem;font-size:0.75rem;color:#f59e0b">スコアリングが見逃した上昇パターン</span>
                   </p>
-                  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.5rem;margin-bottom:0.75rem;font-size:0.85rem">
+                  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.5rem;margin-bottom:0.75rem;font-size:0.85rem">
                     <div style="text-align:center">
                       <div style="color:#94a3b8;font-size:0.75rem">平均利益率</div>
                       <div style="font-weight:700;color:#22c55e">
                         ${lowScoreAvgPct != null ? `+${lowScoreAvgPct.toFixed(2)}%` : "-"}
+                      </div>
+                    </div>
+                    <div style="text-align:center">
+                      <div style="color:#94a3b8;font-size:0.75rem">日経avg</div>
+                      <div style="font-weight:600;color:#94a3b8">
+                        ${baselineNikkeiAvg != null
+                          ? `${baselineNikkeiAvg >= 0 ? "+" : ""}${baselineNikkeiAvg.toFixed(2)}%`
+                          : "-"}
                       </div>
                     </div>
                     <div style="text-align:center">
@@ -743,6 +806,13 @@ app.get("/", async (c) => {
                       <div style="font-weight:600">${lowScoreAvgLiquidity ?? "-"}</div>
                     </div>
                   </div>
+                  ${baselineNikkeiAvg != null && lowScoreAvgPct != null
+                    ? html`<p style="font-size:0.75rem;color:${lowScoreAvgPct > baselineNikkeiAvg ? "#22c55e" : "#94a3b8"};margin:0 0 0.75rem">
+                        ${lowScoreAvgPct > baselineNikkeiAvg
+                          ? `▲ 日経比 +${(lowScoreAvgPct - baselineNikkeiAvg).toFixed(2)}pt のアルファあり`
+                          : `日経と同等（アルファなし）`}
+                      </p>`
+                    : ""}
                   <!-- セクター分布 -->
                   ${lowScoreSectorStats.length > 0
                     ? html`

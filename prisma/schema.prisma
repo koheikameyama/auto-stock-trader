@@ -154,9 +154,11 @@ model ScoringRecord {
   // Ghost Trading Analysis（偽陰性分析）
   rejectionReason String?                     // below_threshold / ai_no_go / disqualified
   entryPrice      Decimal? @db.Decimal(10, 2) // スコアリング時の株価
-  closingPrice    Decimal? @db.Decimal(10, 2) // 大引け後の終値
-  ghostProfitPct  Decimal? @db.Decimal(8, 4)  // 仮想損益 %
-  ghostAnalysis   String?  @db.Text           // AI後悔分析
+  closingPrice        Decimal? @db.Decimal(10, 2) // 大引け後の終値
+  ghostProfitPct      Decimal? @db.Decimal(8, 4)  // 仮想損益 %
+  ghostAnalysis       String?  @db.Text           // AI後悔分析
+  nextDayClosingPrice Decimal? @db.Decimal(10, 2) // 翌営業日の終値
+  nextDayProfitPct    Decimal? @db.Decimal(8, 4)  // 翌日騰落率（前日終値比）
 
   createdAt    DateTime @default(now())
 
