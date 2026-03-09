@@ -18,24 +18,48 @@ import {
   TRADING_SCHEDULE,
   ORDER_EXPIRY,
   TECHNICAL_MIN_DATA,
+  JOB_CONCURRENCY,
 } from "../lib/constants";
 import { fetchStockQuote, fetchHistoricalData } from "../core/market-data";
 import {
   analyzeTechnicals,
   formatScoreForAI,
 } from "../core/technical-analysis";
+import type { TechnicalSummary } from "../core/technical-analysis";
 import { scoreTechnicals } from "../core/technical-scorer";
+import type { LogicScore } from "../core/technical-scorer";
 import { detectChartPatterns } from "../lib/chart-patterns";
 import { analyzeSingleCandle } from "../lib/candlestick-patterns";
 import { calculateEntryCondition } from "../core/entry-calculator";
+import type { EntryCondition } from "../core/entry-calculator";
 import { reviewTrade } from "../core/ai-decision";
-import type { MarketAssessmentResult } from "../core/ai-decision";
+import type {
+  MarketAssessmentResult,
+  TradeReviewResult,
+} from "../core/ai-decision";
 import { canOpenPosition, validateStopLoss } from "../core/risk-manager";
 import { getCashBalance } from "../core/position-manager";
 import { notifyOrderPlaced, notifyRiskAlert, notifySlack } from "../lib/slack";
 import { getSectorGroup } from "../lib/constants";
 import type { EntrySnapshot } from "../types/snapshots";
 import dayjs from "dayjs";
+import pLimit from "p-limit";
+
+/** フェーズ1（並列分析）の結果型 */
+interface AnalysisResult {
+  tickerCode: string;
+  stockId: string;
+  stockName: string;
+  sector: string;
+  latestVolume: number;
+  quote: { price: number };
+  techSummary: TechnicalSummary;
+  score: LogicScore;
+  entryCondition: EntryCondition;
+  review: TradeReviewResult;
+  newsContext: string | undefined;
+  strategy: "day_trade" | "swing";
+}
 
 export async function main() {
   console.log("=== Order Manager 開始 ===");
@@ -99,133 +123,192 @@ export async function main() {
     `  選定銘柄数: ${selectedStocks.length}, 現金残高: ¥${cashBalance.toLocaleString()}`,
   );
 
-  // 3. 各銘柄に対してロジック算出 → AIレビュー
+  // =========================================
+  // フェーズ1: 並列分析（データ取得 → スコアリング → AIレビュー）
+  // =========================================
+  console.log(`\n  [フェーズ1] 並列分析開始（同時実行数: ${JOB_CONCURRENCY.ORDER_MANAGER}）`);
+
+  const limit = pLimit(JOB_CONCURRENCY.ORDER_MANAGER);
+
+  const analysisResults = await Promise.all(
+    selectedStocks.map((selected) =>
+      limit(async (): Promise<AnalysisResult | null> => {
+        const { tickerCode } = selected;
+
+        // 銘柄データ取得
+        const stock = await prisma.stock.findUnique({
+          where: { tickerCode },
+        });
+        if (!stock) {
+          console.log(`    [${tickerCode}] 銘柄マスタに存在しません`);
+          return null;
+        }
+
+        // 同一銘柄の既存ポジションがあればスキップ
+        const existingPosition = await prisma.tradingPosition.findFirst({
+          where: { stockId: stock.id, status: "open" },
+        });
+        if (existingPosition) {
+          console.log(`    [${tickerCode}] 既存ポジションあり、スキップ`);
+          return null;
+        }
+
+        const quote = await fetchStockQuote(tickerCode);
+        if (!quote) {
+          console.log(`    [${tickerCode}] 株価取得失敗`);
+          return null;
+        }
+
+        // テクニカル分析 + スコアリング
+        const historical = await fetchHistoricalData(tickerCode);
+        if (
+          !historical ||
+          historical.length < TECHNICAL_MIN_DATA.SCANNER_MIN_BARS
+        ) {
+          console.log(`    [${tickerCode}] ヒストリカルデータ不足`);
+          return null;
+        }
+
+        const techSummary = analyzeTechnicals(historical);
+
+        const historicalOldestFirst = [...historical].reverse().map((d) => ({
+          date: d.date,
+          open: d.open,
+          high: d.high,
+          low: d.low,
+          close: d.close,
+        }));
+        const chartPatterns = detectChartPatterns(historicalOldestFirst);
+
+        const latestCandle = {
+          date: historical[0].date,
+          open: historical[0].open,
+          high: historical[0].high,
+          low: historical[0].low,
+          close: historical[0].close,
+        };
+        const candlestickPattern = analyzeSingleCandle(latestCandle);
+
+        const score = scoreTechnicals({
+          summary: techSummary,
+          chartPatterns,
+          candlestickPattern,
+          historicalData: historical,
+          latestPrice: quote.price,
+          latestVolume: Number(stock.latestVolume ?? 0),
+          weeklyVolatility: stock.volatility ? Number(stock.volatility) : null,
+        });
+
+        const strategy = selected.strategy as "day_trade" | "swing";
+
+        const entryCondition = calculateEntryCondition(
+          quote.price,
+          techSummary,
+          score,
+          strategy,
+          cashBalance,
+          maxPositionPct,
+        );
+
+        if (entryCondition.quantity === 0) {
+          console.log(`    [${tickerCode}] 予算不足でスキップ`);
+          return null;
+        }
+
+        // 銘柄別ニュースコンテキスト
+        const catalysts = stockCatalysts?.filter(
+          (c) => c.tickerCode === tickerCode,
+        );
+        const newsContext =
+          catalysts && catalysts.length > 0
+            ? catalysts.map((c) => `[${c.type}] ${c.summary}`).join("\n")
+            : undefined;
+
+        // AIレビュー
+        const scoreFormatted = formatScoreForAI(score, techSummary);
+        const review = await reviewTrade(
+          {
+            tickerCode,
+            name: stock.name,
+            price: quote.price,
+            sector: getSectorGroup(stock.sector) ?? stock.sector ?? "不明",
+            scoreFormatted,
+            newsContext,
+          },
+          entryCondition,
+          assessment,
+        );
+
+        if (review.decision === "reject") {
+          console.log(`    [${tickerCode}] AI却下: ${review.reasoning}`);
+          return null;
+        }
+
+        return {
+          tickerCode,
+          stockId: stock.id,
+          stockName: stock.name,
+          sector: stock.sector ?? "不明",
+          latestVolume: Number(stock.latestVolume ?? 0),
+          quote,
+          techSummary,
+          score,
+          entryCondition,
+          review,
+          newsContext,
+          strategy,
+        };
+      }),
+    ),
+  );
+
+  const passed = analysisResults.filter(
+    (r): r is AnalysisResult => r !== null,
+  );
+
+  console.log(
+    `  [フェーズ1] 分析完了: ${selectedStocks.length}銘柄中 ${passed.length}銘柄が条件通過`,
+  );
+
+  // =========================================
+  // フェーズ2: 直列注文作成（スコア順 → 流動性タイブレーク）
+  // =========================================
+  passed.sort((a, b) => {
+    // 第1キー: totalScore 降順
+    if (b.score.totalScore !== a.score.totalScore) {
+      return b.score.totalScore - a.score.totalScore;
+    }
+    // 第2キー: 流動性スコア 降順（タイブレーク）
+    if (b.score.liquidity.total !== a.score.liquidity.total) {
+      return b.score.liquidity.total - a.score.liquidity.total;
+    }
+    // 第3キー: 出来高実数値 降順
+    return b.latestVolume - a.latestVolume;
+  });
+
+  console.log(`\n  [フェーズ2] 注文作成開始（スコア順）`);
+
   let ordersCreated = 0;
 
-  for (const selected of selectedStocks) {
-    console.log(`\n  [${selected.tickerCode}] エントリー条件算出中...`);
-
-    // 銘柄データ取得
-    const stock = await prisma.stock.findUnique({
-      where: { tickerCode: selected.tickerCode },
-    });
-    if (!stock) {
-      console.log(
-        `    → 銘柄マスタに存在しません: ${selected.tickerCode}`,
-      );
-      continue;
-    }
-
-    // 同一銘柄の既存ポジションがあればスキップ
-    const existingPosition = await prisma.tradingPosition.findFirst({
-      where: { stockId: stock.id, status: "open" },
-    });
-    if (existingPosition) {
-      console.log(`    → 既存ポジションあり、スキップ: ${stock.tickerCode}`);
-      continue;
-    }
-
-    const quote = await fetchStockQuote(stock.tickerCode);
-    if (!quote) {
-      console.log(`    → 株価取得失敗: ${stock.tickerCode}`);
-      continue;
-    }
-
-    // テクニカル分析 + スコアリング
-    const historical = await fetchHistoricalData(stock.tickerCode);
-    if (
-      !historical ||
-      historical.length < TECHNICAL_MIN_DATA.SCANNER_MIN_BARS
-    ) {
-      console.log(`    → ヒストリカルデータ不足: ${stock.tickerCode}`);
-      continue;
-    }
-
-    const techSummary = analyzeTechnicals(historical);
-
-    // チャートパターン検出
-    const historicalOldestFirst = [...historical].reverse().map((d) => ({
-      date: d.date,
-      open: d.open,
-      high: d.high,
-      low: d.low,
-      close: d.close,
-    }));
-    const chartPatterns = detectChartPatterns(historicalOldestFirst);
-
-    // ローソク足パターン検出
-    const latestCandle = {
-      date: historical[0].date,
-      open: historical[0].open,
-      high: historical[0].high,
-      low: historical[0].low,
-      close: historical[0].close,
-    };
-    const candlestickPattern = analyzeSingleCandle(latestCandle);
-
-    // スコアリング
-    const score = scoreTechnicals({
-      summary: techSummary,
-      chartPatterns,
-      candlestickPattern,
-      historicalData: historical,
-      latestPrice: quote.price,
-      latestVolume: Number(stock.latestVolume ?? 0),
-      weeklyVolatility: stock.volatility ? Number(stock.volatility) : null,
-    });
-
-    const strategy = selected.strategy as "day_trade" | "swing";
-
-    // ロジックでエントリー条件を算出
-    const entryCondition = calculateEntryCondition(
-      quote.price,
+  for (const result of passed) {
+    const {
+      tickerCode,
+      stockId,
+      stockName,
       techSummary,
       score,
-      strategy,
-      cashBalance,
-      maxPositionPct,
-    );
+      entryCondition,
+      review,
+      newsContext,
+    } = result;
 
+    console.log(
+      `\n  [${tickerCode}] スコア: ${score.totalScore}点（${score.rank}） / 流動性: ${score.liquidity.total}点`,
+    );
     console.log(
       `    → ロジック算出: 指値¥${entryCondition.limitPrice} / 利確¥${entryCondition.takeProfitPrice} / 損切¥${entryCondition.stopLossPrice} / ${entryCondition.quantity}株 / RR 1:${entryCondition.riskRewardRatio}`,
     );
-
-    // 数量0 → 予算不足
-    if (entryCondition.quantity === 0) {
-      console.log(`    → 予算不足でスキップ`);
-      continue;
-    }
-
-    // 銘柄別ニュースコンテキスト
-    const catalysts = stockCatalysts?.filter(
-      (c) => c.tickerCode === stock.tickerCode,
-    );
-    const newsContext =
-      catalysts && catalysts.length > 0
-        ? catalysts.map((c) => `[${c.type}] ${c.summary}`).join("\n")
-        : undefined;
-
-    // AIレビュー
-    const scoreFormatted = formatScoreForAI(score, techSummary);
-    const review = await reviewTrade(
-      {
-        tickerCode: stock.tickerCode,
-        name: stock.name,
-        price: quote.price,
-        sector: getSectorGroup(stock.sector) ?? stock.sector ?? "不明",
-        scoreFormatted,
-        newsContext,
-      },
-      entryCondition,
-      assessment,
-    );
-
     console.log(`    → AIレビュー: ${review.decision}`);
-
-    if (review.decision === "reject") {
-      console.log(`    → AI却下: ${review.reasoning}`);
-      continue;
-    }
 
     // AIの修正を適用
     const finalCondition = { ...entryCondition };
@@ -276,9 +359,9 @@ export async function main() {
       }
     }
 
-    // リスクチェック
+    // リスクチェック（DB最新状態を参照）
     const riskCheck = await canOpenPosition(
-      stock.id,
+      stockId,
       finalCondition.quantity,
       finalCondition.limitPrice,
     );
@@ -287,8 +370,17 @@ export async function main() {
       console.log(`    → リスクチェック不可: ${riskCheck.reason}`);
       await notifyRiskAlert({
         type: "注文制限",
-        message: `${stock.tickerCode} ${stock.name}: ${riskCheck.reason}`,
+        message: `${tickerCode} ${stockName}: ${riskCheck.reason}`,
       });
+      continue;
+    }
+
+    // 残高チェック（並列分析時は初期値で算出しているため再確認）
+    const requiredAmount = finalCondition.limitPrice * finalCondition.quantity;
+    if (cashBalance < requiredAmount) {
+      console.log(
+        `    → 残高不足でスキップ（必要: ¥${requiredAmount.toLocaleString()} / 残高: ¥${cashBalance.toLocaleString()}）`,
+      );
       continue;
     }
 
@@ -353,7 +445,7 @@ export async function main() {
     // TradingOrder作成
     await prisma.tradingOrder.create({
       data: {
-        stockId: stock.id,
+        stockId,
         side: "buy",
         orderType: "limit",
         strategy: finalCondition.strategy,
@@ -369,12 +461,12 @@ export async function main() {
     });
 
     ordersCreated++;
-    cashBalance -= finalCondition.limitPrice * finalCondition.quantity;
+    cashBalance -= requiredAmount;
 
     // Slack通知
     await notifyOrderPlaced({
-      tickerCode: stock.tickerCode,
-      name: stock.name,
+      tickerCode,
+      name: stockName,
       side: "buy",
       strategy: finalCondition.strategy,
       limitPrice: finalCondition.limitPrice,

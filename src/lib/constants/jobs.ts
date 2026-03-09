@@ -22,6 +22,7 @@ export const STOCK_FETCH = {
 // ジョブの同時実行数
 export const JOB_CONCURRENCY = {
   MARKET_SCANNER: 5,
+  ORDER_MANAGER: 3, // OpenAI API レート制限考慮
 } as const;
 
 // トレーリングストップ
