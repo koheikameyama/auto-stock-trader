@@ -1,7 +1,10 @@
 /**
- * 逆行ウィナーページ（GET /contrarian）
+ * 見送り分析ページ（GET /contrarian）
  *
- * 市場停止日に上昇した銘柄の追跡・ランキング・スコアリング詳細を表示
+ * 1. 逆行候補: 市場停止日にスコアリングされた銘柄
+ * 2. 見逃し銘柄: 個別にスキップしたが上がった銘柄（ai_no_go / below_threshold）
+ * 3. 逆行実績ランキング
+ * 4. 逆行ボーナス適用銘柄
  */
 
 import { Hono } from "hono";
@@ -9,7 +12,7 @@ import { html } from "hono/html";
 import dayjs from "dayjs";
 import { prisma } from "../../lib/prisma";
 import { getTodayForDB, getDaysAgoForDB } from "../../lib/date-utils";
-import { CONTRARIAN } from "../../lib/constants";
+import { CONTRARIAN, GHOST_TRADING } from "../../lib/constants";
 import { calculateContrarianBonus } from "../../core/contrarian-analyzer";
 import { layout } from "../views/layout";
 import {
@@ -25,32 +28,48 @@ app.get("/", async (c) => {
   const today = getTodayForDB();
   const since90 = getDaysAgoForDB(CONTRARIAN.LOOKBACK_DAYS);
 
-  const [todayAssessment, todayCandidates, recentBonusRecords, allHaltedRecords] =
-    await Promise.all([
-      prisma.marketAssessment.findUnique({ where: { date: today } }),
-      // 今日の逆行候補: Ghost Review 不要（スコア・ランクだけで表示）
-      prisma.scoringRecord.findMany({
-        where: {
-          date: today,
-          rejectionReason: "market_halted",
-          entryPrice: { not: null },
-        },
-        orderBy: { totalScore: "desc" },
-      }),
-      prisma.scoringRecord.findMany({
-        where: { contrarianBonus: { gt: 0 } },
-        orderBy: { date: "desc" },
-        take: 50,
-      }),
-      // ランキング: closingPrice 不要（halt日にスコアされた回数も集計）
-      prisma.scoringRecord.findMany({
-        where: {
-          rejectionReason: "market_halted",
-          date: { gte: since90 },
-        },
-        select: { tickerCode: true, ghostProfitPct: true, totalScore: true },
-      }),
-    ]);
+  const [
+    todayAssessment,
+    todayCandidates,
+    missedStocks,
+    recentBonusRecords,
+    allHaltedRecords,
+  ] = await Promise.all([
+    prisma.marketAssessment.findUnique({ where: { date: today } }),
+    // 今日の逆行候補: Ghost Review 不要（スコア・ランクだけで表示）
+    prisma.scoringRecord.findMany({
+      where: {
+        date: today,
+        rejectionReason: "market_halted",
+        entryPrice: { not: null },
+      },
+      orderBy: { totalScore: "desc" },
+    }),
+    // 見逃し銘柄: AI却下 or スコア不足だが上がった銘柄（直近30件）
+    prisma.scoringRecord.findMany({
+      where: {
+        rejectionReason: { in: ["ai_no_go", "below_threshold"] },
+        ghostProfitPct: { gt: 0 },
+        closingPrice: { not: null },
+        entryPrice: { not: null },
+      },
+      orderBy: { date: "desc" },
+      take: 30,
+    }),
+    prisma.scoringRecord.findMany({
+      where: { contrarianBonus: { gt: 0 } },
+      orderBy: { date: "desc" },
+      take: 50,
+    }),
+    // ランキング: closingPrice 不要（halt日にスコアされた回数も集計）
+    prisma.scoringRecord.findMany({
+      where: {
+        rejectionReason: "market_halted",
+        date: { gte: since90 },
+      },
+      select: { tickerCode: true, ghostProfitPct: true, totalScore: true },
+    }),
+  ]);
 
   const isNoTradeDay = todayAssessment?.shouldTrade === false;
 
@@ -149,7 +168,48 @@ app.get("/", async (c) => {
           )}
         </div>`}
 
-    <!-- セクション2: 逆行実績ランキング -->
+    <!-- セクション2: 見逃し銘柄 -->
+    <p class="section-title">見逃し銘柄（スキップしたが上昇）</p>
+    ${missedStocks.length > 0
+      ? html`
+          <div class="card table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>日付</th>
+                  <th>銘柄</th>
+                  <th>理由</th>
+                  <th>スコア</th>
+                  <th>ランク</th>
+                  <th>騰落率</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${missedStocks.map(
+                  (r) => html`
+                    <tr>
+                      <td>${dayjs(r.date).format("M/D")}</td>
+                      <td style="font-weight:600">${r.tickerCode}</td>
+                      <td>
+                        ${r.rejectionReason === "ai_no_go"
+                          ? html`<span class="badge" style="background:#ef444420;color:#ef4444">AI却下</span>`
+                          : html`<span class="badge" style="background:#f59e0b20;color:#f59e0b">スコア不足</span>`}
+                      </td>
+                      <td>${r.totalScore}</td>
+                      <td>${rankBadge(r.rank)}</td>
+                      <td>${pnlPercent(Number(r.ghostProfitPct))}</td>
+                    </tr>
+                  `,
+                )}
+              </tbody>
+            </table>
+          </div>
+        `
+      : html`<div class="card">
+          ${emptyState("見逃し銘柄はまだありません")}
+        </div>`}
+
+    <!-- セクション3: 逆行実績ランキング -->
     <p class="section-title">
       逆行実績ランキング（過去${CONTRARIAN.LOOKBACK_DAYS}日）
     </p>
@@ -248,7 +308,7 @@ app.get("/", async (c) => {
         </div>`}
   `;
 
-  return c.html(layout("逆行ウィナー", "/contrarian", content));
+  return c.html(layout("見送り分析", "/contrarian", content));
 });
 
 export default app;

@@ -37,7 +37,7 @@ const NAV_ITEMS = [
   },
   {
     path: "/contrarian",
-    label: "逆行",
+    label: "見送り",
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/><path d="M17 7h4v4"/></svg>`,
   },
   {
