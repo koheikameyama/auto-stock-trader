@@ -134,8 +134,21 @@ ${sectorText || "  特になし"}`;
       type: "VIXレジーム停止",
       message: regime.reason,
     });
-    await prisma.marketAssessment.create({
-      data: {
+    await prisma.marketAssessment.upsert({
+      where: { date: getTodayForDB() },
+      update: {
+        nikkeiPrice: marketData.nikkei.price,
+        nikkeiChange: marketData.nikkei.changePercent,
+        sp500Change: marketData.sp500?.changePercent,
+        vix: marketData.vix.price,
+        usdjpy: marketData.usdjpy?.price,
+        cmeFuturesPrice: marketData.cmeFutures?.price,
+        sentiment: "crisis",
+        shouldTrade: false,
+        reasoning: `[VIXレジーム自動停止] ${regime.reason}`,
+        selectedStocks: [],
+      },
+      create: {
         date: getTodayForDB(),
         nikkeiPrice: marketData.nikkei.price,
         nikkeiChange: marketData.nikkei.changePercent,
@@ -166,8 +179,21 @@ ${sectorText || "  特になし"}`;
       type: "ドローダウン停止",
       message: drawdown.reason,
     });
-    await prisma.marketAssessment.create({
-      data: {
+    await prisma.marketAssessment.upsert({
+      where: { date: getTodayForDB() },
+      update: {
+        nikkeiPrice: marketData.nikkei.price,
+        nikkeiChange: marketData.nikkei.changePercent,
+        sp500Change: marketData.sp500?.changePercent,
+        vix: marketData.vix.price,
+        usdjpy: marketData.usdjpy?.price,
+        cmeFuturesPrice: marketData.cmeFutures?.price,
+        sentiment: "bearish",
+        shouldTrade: false,
+        reasoning: `[ドローダウン自動停止] ${drawdown.reason}`,
+        selectedStocks: [],
+      },
+      create: {
         date: getTodayForDB(),
         nikkeiPrice: marketData.nikkei.price,
         nikkeiChange: marketData.nikkei.changePercent,
@@ -215,8 +241,21 @@ ${sectorText || "  特になし"}`;
   // 3. shouldTrade = false → 保存して終了
   if (!assessment.shouldTrade) {
     console.log("取引見送り。MarketAssessment を保存して終了");
-    await prisma.marketAssessment.create({
-      data: {
+    await prisma.marketAssessment.upsert({
+      where: { date: getTodayForDB() },
+      update: {
+        nikkeiPrice: marketData.nikkei.price,
+        nikkeiChange: marketData.nikkei.changePercent,
+        sp500Change: marketData.sp500?.changePercent,
+        vix: marketData.vix.price,
+        usdjpy: marketData.usdjpy?.price,
+        cmeFuturesPrice: marketData.cmeFutures?.price,
+        sentiment: assessment.sentiment,
+        shouldTrade: false,
+        reasoning: assessment.reasoning,
+        selectedStocks: [],
+      },
+      create: {
         date: getTodayForDB(),
         nikkeiPrice: marketData.nikkei.price,
         nikkeiChange: marketData.nikkei.changePercent,
@@ -514,8 +553,21 @@ ${sectorText || "  特になし"}`;
 
   const today = getTodayForDB();
 
-  await prisma.marketAssessment.create({
-    data: {
+  await prisma.marketAssessment.upsert({
+    where: { date: today },
+    update: {
+      nikkeiPrice: marketData.nikkei.price,
+      nikkeiChange: marketData.nikkei.changePercent,
+      sp500Change: marketData.sp500?.changePercent,
+      vix: marketData.vix.price,
+      usdjpy: marketData.usdjpy?.price,
+      cmeFuturesPrice: marketData.cmeFutures?.price,
+      sentiment: assessment.sentiment,
+      shouldTrade: true,
+      reasoning: assessment.reasoning,
+      selectedStocks: JSON.parse(JSON.stringify(selectedStocksData)),
+    },
+    create: {
       date: today,
       nikkeiPrice: marketData.nikkei.price,
       nikkeiChange: marketData.nikkei.changePercent,
