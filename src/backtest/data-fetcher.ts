@@ -19,6 +19,21 @@ const yahooFinance = new YahooFinance({
 const LOOKBACK_CALENDAR_DAYS = 120;
 const FETCH_CONCURRENCY = 3;
 
+function isRetryableError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const msg = error.message;
+  // 429 Rate Limit
+  if (msg.includes("Too Many Requests") || msg.includes("429")) return true;
+  // ネットワークエラー
+  if (msg.includes("ETIMEDOUT") || msg.includes("ECONNRESET") ||
+      msg.includes("ECONNREFUSED") || msg.includes("fetch failed") ||
+      msg.includes("ENETUNREACH") || msg.includes("EAI_AGAIN")) return true;
+  // cause チェーン
+  const cause = (error as { cause?: { code?: string } }).cause;
+  if (cause?.code === "ETIMEDOUT" || cause?.code === "ECONNRESET") return true;
+  return false;
+}
+
 async function withRetry<T>(
   fn: () => Promise<T>,
   label: string,
@@ -27,15 +42,12 @@ async function withRetry<T>(
     try {
       return await fn();
     } catch (error: unknown) {
-      const is429 =
-        error instanceof Error &&
-        (error.message.includes("Too Many Requests") ||
-          error.message.includes("429"));
-      if (!is429 || attempt >= YAHOO_FINANCE.RETRY_MAX_ATTEMPTS - 1) {
+      if (!isRetryableError(error) || attempt >= YAHOO_FINANCE.RETRY_MAX_ATTEMPTS - 1) {
         throw error;
       }
       const delay = YAHOO_FINANCE.RETRY_BASE_DELAY_MS * 2 ** attempt;
-      console.log(`  [backtest] ${label}: 429 リトライ ${attempt + 1}/${YAHOO_FINANCE.RETRY_MAX_ATTEMPTS} (${delay}ms)`);
+      const errCode = error instanceof Error ? error.message.slice(0, 40) : "unknown";
+      console.log(`  [backtest] ${label}: リトライ ${attempt + 1}/${YAHOO_FINANCE.RETRY_MAX_ATTEMPTS} (${delay}ms) [${errCode}]`);
       await new Promise((r) => setTimeout(r, delay));
     }
   }
