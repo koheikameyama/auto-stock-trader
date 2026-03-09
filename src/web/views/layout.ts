@@ -122,20 +122,49 @@ export function layout(
             navigator.serviceWorker.register("/sw.js").catch(() => {});
           }
 
-          // Tooltip tap to show (mobile)
-          document.addEventListener('click', function(e) {
-            var el = e.target && e.target.closest ? e.target.closest('.tt') : null;
-            if (el) {
-              document.querySelectorAll('.tt.show').forEach(function(t) {
-                if (t !== el) t.classList.remove('show');
-              });
-              el.classList.toggle('show');
-            } else {
-              document.querySelectorAll('.tt.show').forEach(function(t) {
-                t.classList.remove('show');
-              });
+          // Tooltip (position:fixed で overflow クリップ回避)
+          (function() {
+            var tip = document.createElement('div');
+            tip.id = 'tt-popup';
+            document.body.appendChild(tip);
+            var active = null;
+
+            function show(el) {
+              var text = el.getAttribute('data-tooltip');
+              if (!text) return;
+              tip.textContent = text;
+              tip.style.display = 'block';
+              var r = el.getBoundingClientRect();
+              var tw = tip.offsetWidth;
+              var th = tip.offsetHeight;
+              var left = r.left + r.width / 2 - tw / 2;
+              left = Math.max(8, Math.min(left, window.innerWidth - tw - 8));
+              var top = r.top - th - 6;
+              if (top < 8) top = r.bottom + 6;
+              tip.style.left = left + 'px';
+              tip.style.top = top + 'px';
+              active = el;
             }
-          });
+
+            function hide() {
+              tip.style.display = 'none';
+              active = null;
+            }
+
+            document.addEventListener('mouseover', function(e) {
+              var el = e.target && e.target.closest ? e.target.closest('.tt') : null;
+              if (el) show(el); else hide();
+            });
+
+            document.addEventListener('click', function(e) {
+              var el = e.target && e.target.closest ? e.target.closest('.tt') : null;
+              if (el) {
+                if (active === el) { hide(); } else { show(el); }
+              } else {
+                hide();
+              }
+            }, true);
+          })();
         </script>
       </body>
     </html>`;

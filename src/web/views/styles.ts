@@ -110,7 +110,7 @@ export const CSS = `
   .badge-swing { background: rgba(168,85,247,0.15); color: #a855f7; }
 
   /* Table */
-  .table-wrap { overflow-x: auto; }
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   table {
     width: 100%;
     border-collapse: collapse;
@@ -132,6 +132,15 @@ export const CSS = `
     white-space: nowrap;
   }
   tr:last-child td { border-bottom: none; }
+
+  @media (max-width: 430px) {
+    th { padding: 5px 4px; font-size: 10px; letter-spacing: 0; }
+    td { padding: 5px 4px; font-size: 11px; }
+    .card { padding: 12px 10px; margin: 6px 10px; }
+    .grid-2 { margin: 6px 10px; gap: 6px; }
+    .section-title { padding: 12px 10px 4px; }
+    .chart-container { margin: 6px 10px; }
+  }
 
   /* PnL colors */
   .pnl-positive { color: ${COLORS.profit}; }
@@ -235,17 +244,11 @@ export const CSS = `
 
   /* Tooltip */
   .tt {
-    position: relative;
-    display: inline-block;
     border-bottom: 1px dashed ${COLORS.textDim};
     cursor: help;
   }
-  .tt::after {
-    content: attr(data-tooltip);
-    position: absolute;
-    bottom: calc(100% + 6px);
-    left: 50%;
-    transform: translateX(-50%);
+  #tt-popup {
+    position: fixed;
     background: #0b1120;
     border: 1px solid ${COLORS.border};
     color: ${COLORS.text};
@@ -255,16 +258,11 @@ export const CSS = `
     text-transform: none;
     padding: 6px 10px;
     border-radius: 6px;
-    width: max-content;
-    max-width: 160px;
+    max-width: 180px;
     white-space: normal;
-    z-index: 999;
+    line-height: 1.4;
+    z-index: 9999;
     pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.15s;
-  }
-  .tt:hover::after,
-  .tt.show::after {
-    opacity: 1;
+    display: none;
   }
 `;
