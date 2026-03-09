@@ -211,7 +211,8 @@ model TradingPosition {
   entryAtr          Decimal? @db.Decimal(10, 2) // エントリー時のATR(14)
   reviewComments    String?  @db.Text           // AIによる振り返り分析
 
-  orders TradingOrder[]
+  orders              TradingOrder[]
+  defensiveFollowUp   DefensiveExitFollowUp?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -320,4 +321,33 @@ model BacktestDailyResult {
 
   @@unique([date, budgetTier])
   @@index([date(sort: Desc)])
+}
+
+// ディフェンシブモード妥当性検証（exit後の価格追跡）
+model DefensiveExitFollowUp {
+  id         String   @id @default(cuid())
+  positionId String   @unique
+  position   TradingPosition @relation(fields: [positionId], references: [id])
+  tickerCode String
+  exitDate   DateTime @db.Date
+  exitPrice  Decimal  @db.Decimal(10, 2)
+  exitReason String   // "crisis" | "bearish"
+
+  // N営業日後の終値
+  day1Price  Decimal? @db.Decimal(10, 2)
+  day3Price  Decimal? @db.Decimal(10, 2)
+  day5Price  Decimal? @db.Decimal(10, 2)
+
+  // 持ち続けた場合の損益%
+  day1PnlPct Decimal? @db.Decimal(8, 4)
+  day3PnlPct Decimal? @db.Decimal(8, 4)
+  day5PnlPct Decimal? @db.Decimal(8, 4)
+
+  isComplete Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isComplete])
+  @@index([exitDate(sort: Desc)])
 }
