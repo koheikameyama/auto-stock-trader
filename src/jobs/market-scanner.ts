@@ -327,7 +327,6 @@ ${sectorText || "  特になし"}`;
         lte: maxAffordablePrice,
       },
       latestVolume: { not: null, gte: SCREENING.MIN_DAILY_VOLUME },
-      marketCap: { gte: SCREENING.MIN_MARKET_CAP },
     },
   });
 
