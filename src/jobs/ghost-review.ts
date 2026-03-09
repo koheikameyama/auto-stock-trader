@@ -317,6 +317,149 @@ export async function main() {
     console.log("  前日レコードなし（スキップ）");
   }
 
+  // 意思決定整合性評価
+  console.log("[5.7/6] 意思決定整合性評価中...");
+  try {
+    const todayAssessment = await prisma.marketAssessment.findUnique({
+      where: { date: today },
+    });
+
+    const marketHaltedToday = recordsWithPnl.filter(
+      (r) => r.rejectionReason === "market_halted",
+    );
+    const aiNoGoToday = recordsWithPnl.filter(
+      (r) => r.rejectionReason === "ai_no_go",
+    );
+    const belowThresholdToday = recordsWithPnl.filter(
+      (r) => r.rejectionReason === "below_threshold",
+    );
+
+    const mhRising = marketHaltedToday.filter((r) => r.ghostProfitPctNum > 0);
+    const aiRising = aiNoGoToday.filter((r) => r.ghostProfitPctNum > 0);
+    const btRising = belowThresholdToday.filter((r) => r.ghostProfitPctNum > 0);
+
+    interface DecisionAuditData {
+      marketHalt: {
+        wasHalted: boolean;
+        sentiment: string;
+        nikkeiChange: number | null;
+        totalScored: number;
+        risingCount: number;
+        risingRate: number | null;
+      } | null;
+      aiRejection: {
+        total: number;
+        correctlyRejected: number;
+        falselyRejected: number;
+        accuracy: number | null;
+      };
+      scoreThreshold: {
+        total: number;
+        rising: number;
+        avgRisingPct: number | null;
+      };
+      overallVerdict: string;
+    }
+
+    const auditData: DecisionAuditData = {
+      marketHalt: todayAssessment
+        ? {
+            wasHalted: !todayAssessment.shouldTrade,
+            sentiment: todayAssessment.sentiment,
+            nikkeiChange: todayAssessment.nikkeiChange
+              ? Number(todayAssessment.nikkeiChange)
+              : null,
+            totalScored: marketHaltedToday.length,
+            risingCount: mhRising.length,
+            risingRate:
+              marketHaltedToday.length > 0
+                ? Math.round(
+                    (mhRising.length / marketHaltedToday.length) * 100,
+                  )
+                : null,
+          }
+        : null,
+      aiRejection: {
+        total: aiNoGoToday.length,
+        correctlyRejected: aiNoGoToday.length - aiRising.length,
+        falselyRejected: aiRising.length,
+        accuracy:
+          aiNoGoToday.length > 0
+            ? Math.round(
+                ((aiNoGoToday.length - aiRising.length) /
+                  aiNoGoToday.length) *
+                  100,
+              )
+            : null,
+      },
+      scoreThreshold: {
+        total: belowThresholdToday.length,
+        rising: btRising.length,
+        avgRisingPct:
+          btRising.length > 0
+            ? btRising.reduce((s, r) => s + r.ghostProfitPctNum, 0) /
+              btRising.length
+            : null,
+      },
+      overallVerdict: "",
+    };
+
+    // AI verdict 生成
+    const verdictPrompt = `本日の自動売買システムの意思決定を評価してください。
+
+【市場停止判断】
+${auditData.marketHalt ? `- 判定: ${auditData.marketHalt.wasHalted ? "取引停止" : "取引実行"}（センチメント: ${auditData.marketHalt.sentiment}）
+- 日経変化率: ${auditData.marketHalt.nikkeiChange != null ? `${auditData.marketHalt.nikkeiChange.toFixed(2)}%` : "不明"}
+- スコア対象銘柄: ${auditData.marketHalt.totalScored}件のうち上昇 ${auditData.marketHalt.risingCount}件 (${auditData.marketHalt.risingRate ?? "-"}%)` : "- 市場評価データなし"}
+
+【AI却下精度】
+- 却下銘柄: ${auditData.aiRejection.total}件
+- 正確な却下（実際に下落）: ${auditData.aiRejection.correctlyRejected}件
+- 誤却下（実際に上昇）: ${auditData.aiRejection.falselyRejected}件
+- 精度: ${auditData.aiRejection.accuracy ?? "-"}%
+
+【スコアリング閾値】
+- 閾値未達で却下: ${auditData.scoreThreshold.total}件のうち上昇 ${auditData.scoreThreshold.rising}件
+- 上昇した銘柄の平均利益率: ${auditData.scoreThreshold.avgRisingPct != null ? `+${auditData.scoreThreshold.avgRisingPct.toFixed(2)}%` : "-"}
+
+200文字以内で本日の意思決定の整合性を評価してください。`;
+
+    try {
+      const openai = getOpenAIClient();
+      const verdictResponse = await openai.chat.completions.create({
+        model: OPENAI_CONFIG.MODEL,
+        temperature: 0.3,
+        messages: [{ role: "user", content: verdictPrompt }],
+        max_tokens: 200,
+      });
+      auditData.overallVerdict =
+        verdictResponse.choices[0].message.content ?? "";
+    } catch (e) {
+      console.error("  AI verdict 生成エラー:", e);
+    }
+
+    await prisma.tradingDailySummary.upsert({
+      where: { date: today },
+      create: {
+        date: today,
+        totalTrades: 0,
+        wins: 0,
+        losses: 0,
+        totalPnl: 0,
+        portfolioValue: 0,
+        cashBalance: 0,
+        decisionAudit: auditData as object,
+      },
+      update: { decisionAudit: auditData as object },
+    });
+
+    console.log(
+      `  整合性評価保存: AI精度 ${auditData.aiRejection.accuracy ?? "-"}% / 停止判断 上昇率 ${auditData.marketHalt?.risingRate ?? "-"}%`,
+    );
+  } catch (error) {
+    console.error("  意思決定整合性評価エラー:", error);
+  }
+
   // 逆行ウィナー分析（市場停止日のみ）
   const noTrade = await isNoTradeDay();
   if (noTrade) {

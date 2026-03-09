@@ -35,6 +35,7 @@ app.get("/", async (c) => {
     missedStocks,
     recentBonusRecords,
     allHaltedRecords,
+    todaySummary,
   ] = await Promise.all([
     prisma.marketAssessment.findUnique({ where: { date: today } }),
     // 今日の上昇確認銘柄: ghost-review 後に ghostProfitPct > 0 のもののみ表示
@@ -80,6 +81,7 @@ app.get("/", async (c) => {
         closingPrice: true,
       },
     }),
+    prisma.tradingDailySummary.findUnique({ where: { date: today } }),
   ]);
 
   // 傾向分析用: スコア80点以上で購入しなかった全銘柄（market_halted + ai_no_go + below_threshold）
@@ -347,7 +349,105 @@ app.get("/", async (c) => {
       ? lowScoreWinners.reduce((s, r) => s + Number(r.ghostProfitPct), 0) / lowScoreWinners.length
       : null;
 
+  // decisionAudit を型付きで取得
+  type DecisionAuditData = {
+    marketHalt: {
+      wasHalted: boolean;
+      sentiment: string;
+      nikkeiChange: number | null;
+      totalScored: number;
+      risingCount: number;
+      risingRate: number | null;
+    } | null;
+    aiRejection: {
+      total: number;
+      correctlyRejected: number;
+      falselyRejected: number;
+      accuracy: number | null;
+    };
+    scoreThreshold: {
+      total: number;
+      rising: number;
+      avgRisingPct: number | null;
+    };
+    overallVerdict: string;
+  };
+  const audit =
+    todaySummary?.decisionAudit != null
+      ? (todaySummary.decisionAudit as unknown as DecisionAuditData)
+      : null;
+
   const content = html`
+    <!-- セクション0: 本日の判断整合性 -->
+    <p class="section-title">本日の判断整合性</p>
+    ${audit == null
+      ? html`<div class="card">
+          ${emptyState("ゴーストレビュー後に更新されます（16:10 JST 以降）")}
+        </div>`
+      : html`
+          <div class="card">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1rem">
+              <!-- 市場停止判断 -->
+              <div>
+                <p style="font-size:0.75rem;color:#94a3b8;margin:0 0 0.25rem">市場停止判断</p>
+                ${audit.marketHalt != null
+                  ? html`
+                      <p style="font-size:0.85rem;font-weight:600;margin:0 0 0.25rem">
+                        ${audit.marketHalt.wasHalted
+                          ? html`<span style="color:#f59e0b">停止</span>`
+                          : html`<span style="color:#22c55e">取引実行</span>`}
+                        <span style="font-weight:400;color:#94a3b8;font-size:0.75rem">
+                          (${audit.marketHalt.sentiment})
+                        </span>
+                      </p>
+                      <p style="font-size:0.82rem;margin:0;color:${audit.marketHalt.risingRate != null && audit.marketHalt.risingRate > 50 ? "#f59e0b" : "#64748b"}">
+                        上昇率 ${audit.marketHalt.risingRate ?? "-"}%
+                        <span style="font-size:0.72rem;color:#94a3b8">
+                          (${audit.marketHalt.risingCount}/${audit.marketHalt.totalScored}件)
+                        </span>
+                      </p>
+                      ${audit.marketHalt.risingRate != null && audit.marketHalt.risingRate > 50 && audit.marketHalt.wasHalted
+                        ? html`<p style="font-size:0.72rem;color:#f59e0b;margin:0.25rem 0 0">⚠ 過剰な停止判断の可能性</p>`
+                        : ""}
+                    `
+                  : html`<p style="font-size:0.82rem;color:#64748b;margin:0">市場評価データなし</p>`}
+              </div>
+
+              <!-- AI却下精度 -->
+              <div>
+                <p style="font-size:0.75rem;color:#94a3b8;margin:0 0 0.25rem">AI却下精度</p>
+                <p style="font-size:1.1rem;font-weight:700;margin:0 0 0.25rem;color:${audit.aiRejection.accuracy != null && audit.aiRejection.accuracy >= 60 ? "#22c55e" : audit.aiRejection.accuracy != null ? "#ef4444" : "#64748b"}">
+                  ${audit.aiRejection.accuracy != null ? `${audit.aiRejection.accuracy}%` : "-"}
+                </p>
+                <p style="font-size:0.75rem;color:#94a3b8;margin:0">
+                  正確 ${audit.aiRejection.correctlyRejected}件 /
+                  誤却下 ${audit.aiRejection.falselyRejected}件
+                </p>
+              </div>
+
+              <!-- スコアリング閾値 -->
+              <div>
+                <p style="font-size:0.75rem;color:#94a3b8;margin:0 0 0.25rem">閾値未達で上昇</p>
+                <p style="font-size:1.1rem;font-weight:700;margin:0 0 0.25rem;color:${audit.scoreThreshold.rising > 5 ? "#f59e0b" : "#64748b"}">
+                  ${audit.scoreThreshold.rising}件
+                </p>
+                <p style="font-size:0.75rem;color:#94a3b8;margin:0">
+                  ${audit.scoreThreshold.total}件中
+                  ${audit.scoreThreshold.avgRisingPct != null
+                    ? `/ 平均 +${audit.scoreThreshold.avgRisingPct.toFixed(2)}%`
+                    : ""}
+                </p>
+              </div>
+            </div>
+
+            ${audit.overallVerdict
+              ? html`<p style="font-size:0.82rem;color:#cbd5e1;background:#1e293b;padding:0.75rem;border-radius:6px;margin:0;line-height:1.6">
+                  ${audit.overallVerdict}
+                </p>`
+              : ""}
+          </div>
+        `}
+
     <!-- セクション1: 今日の上昇確認銘柄 -->
     <p class="section-title">
       今日の上昇確認銘柄${isNoTradeDay
