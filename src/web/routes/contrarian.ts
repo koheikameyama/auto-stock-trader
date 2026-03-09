@@ -13,7 +13,7 @@ import { html } from "hono/html";
 import dayjs from "dayjs";
 import { prisma } from "../../lib/prisma";
 import { getTodayForDB, getDaysAgoForDB } from "../../lib/date-utils";
-import { CONTRARIAN, getSectorGroup } from "../../lib/constants";
+import { CONTRARIAN, GHOST_TRADING, getSectorGroup } from "../../lib/constants";
 import { calculateContrarianBonus } from "../../core/contrarian-analyzer";
 import { layout } from "../views/layout";
 import {
@@ -37,14 +37,15 @@ app.get("/", async (c) => {
     allHaltedRecords,
   ] = await Promise.all([
     prisma.marketAssessment.findUnique({ where: { date: today } }),
-    // 今日の逆行候補: Ghost Review 不要（スコア・ランクだけで表示）
+    // 今日の上昇確認銘柄: ghost-review 後に ghostProfitPct > 0 のもののみ表示
     prisma.scoringRecord.findMany({
       where: {
         date: today,
         rejectionReason: "market_halted",
         entryPrice: { not: null },
+        ghostProfitPct: { gt: 0 },
       },
-      orderBy: { totalScore: "desc" },
+      orderBy: { ghostProfitPct: "desc" },
     }),
     // 見逃し銘柄: AI却下 or スコア不足だが上がった銘柄（直近30件）
     prisma.scoringRecord.findMany({
@@ -102,8 +103,35 @@ app.get("/", async (c) => {
     },
   });
 
+  // 低スコア上昇銘柄: ghost追跡下限(60点)以上80点未満で ghostProfitPct > 0
+  const lowScoreWinners = await prisma.scoringRecord.findMany({
+    where: {
+      rejectionReason: { not: null },
+      totalScore: { gte: GHOST_TRADING.MIN_SCORE_FOR_TRACKING, lt: 80 },
+      closingPrice: { not: null },
+      ghostProfitPct: { gt: 0 },
+      date: { gte: since90 },
+    },
+    select: {
+      tickerCode: true,
+      ghostProfitPct: true,
+      totalScore: true,
+      technicalScore: true,
+      patternScore: true,
+      liquidityScore: true,
+      rank: true,
+      rejectionReason: true,
+    },
+    orderBy: { ghostProfitPct: "desc" },
+  });
+
   // 傾向分析用: Stock テーブルからセクター情報を一括取得（N+1 回避）
-  const trendTickers = [...new Set(highScoreTrendRecords.map((r) => r.tickerCode))];
+  const trendTickers = [
+    ...new Set([
+      ...highScoreTrendRecords.map((r) => r.tickerCode),
+      ...lowScoreWinners.map((r) => r.tickerCode),
+    ]),
+  ];
   const stocksForTrend = await prisma.stock.findMany({
     where: { tickerCode: { in: trendTickers } },
     select: { tickerCode: true, jpxSectorName: true },
@@ -239,10 +267,50 @@ app.get("/", async (c) => {
     }
   }
 
+  // 低スコア上昇銘柄のセクター集計
+  interface LowScoreSectorBucket { count: number; profitSum: number }
+  const lowScoreSectorBuckets = new Map<string, LowScoreSectorBucket>();
+  for (const r of lowScoreWinners) {
+    const jpxSector = sectorMap.get(r.tickerCode);
+    const sector = getSectorGroup(jpxSector ?? null) ?? "その他";
+    let b = lowScoreSectorBuckets.get(sector);
+    if (!b) {
+      b = { count: 0, profitSum: 0 };
+      lowScoreSectorBuckets.set(sector, b);
+    }
+    b.count++;
+    b.profitSum += Number(r.ghostProfitPct);
+  }
+  const lowScoreSectorStats = [...lowScoreSectorBuckets.entries()]
+    .map(([sector, b]) => ({
+      sector,
+      count: b.count,
+      avgProfitPct: b.profitSum / b.count,
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8);
+
+  const lowScoreAvgTech =
+    lowScoreWinners.length > 0
+      ? Math.round(lowScoreWinners.reduce((s, r) => s + r.technicalScore, 0) / lowScoreWinners.length)
+      : null;
+  const lowScoreAvgPattern =
+    lowScoreWinners.length > 0
+      ? Math.round(lowScoreWinners.reduce((s, r) => s + r.patternScore, 0) / lowScoreWinners.length)
+      : null;
+  const lowScoreAvgLiquidity =
+    lowScoreWinners.length > 0
+      ? Math.round(lowScoreWinners.reduce((s, r) => s + r.liquidityScore, 0) / lowScoreWinners.length)
+      : null;
+  const lowScoreAvgPct =
+    lowScoreWinners.length > 0
+      ? lowScoreWinners.reduce((s, r) => s + Number(r.ghostProfitPct), 0) / lowScoreWinners.length
+      : null;
+
   const content = html`
-    <!-- セクション1: 今日の逆行候補 -->
+    <!-- セクション1: 今日の上昇確認銘柄 -->
     <p class="section-title">
-      今日の逆行候補${isNoTradeDay
+      今日の上昇確認銘柄${isNoTradeDay
         ? html`<span style="margin-left:0.5rem;font-size:0.75rem;color:#f59e0b;background:#f59e0b20;padding:2px 8px;border-radius:9999px">市場停止日</span>`
         : ""}
     </p>
@@ -268,16 +336,8 @@ app.get("/", async (c) => {
                       <td>${r.totalScore}</td>
                       <td>${rankBadge(r.rank)}</td>
                       <td>¥${formatYen(Number(r.entryPrice))}</td>
-                      <td>
-                        ${r.closingPrice != null
-                          ? html`¥${formatYen(Number(r.closingPrice))}`
-                          : html`<span style="color:#64748b">-</span>`}
-                      </td>
-                      <td>
-                        ${r.ghostProfitPct != null
-                          ? pnlPercent(Number(r.ghostProfitPct))
-                          : html`<span style="color:#64748b">未確定</span>`}
-                      </td>
+                      <td>¥${formatYen(Number(r.closingPrice))}</td>
+                      <td>${pnlPercent(Number(r.ghostProfitPct))}</td>
                     </tr>
                   `,
                 )}
@@ -287,11 +347,7 @@ app.get("/", async (c) => {
         `
       : html`<div class="card">
           ${emptyState(
-            isNoTradeDay
-              ? "シャドウスコアリングされた銘柄はありません"
-              : todayAssessment
-                ? "本日は取引実行日のため逆行候補はありません"
-                : "本日の市場評価はまだ実行されていません",
+            "本日の上昇確認銘柄はありません（ゴーストレビュー後に更新されます）",
           )}
         </div>`}
 
@@ -658,6 +714,67 @@ app.get("/", async (c) => {
               </tbody>
             </table>
           </div>
+
+          <!-- 低スコア上昇銘柄 -->
+          ${lowScoreWinners.length > 0
+            ? html`
+                <div class="card">
+                  <p style="font-size:0.8rem;color:#94a3b8;margin:0 0 0.75rem">
+                    低スコア上昇銘柄（${GHOST_TRADING.MIN_SCORE_FOR_TRACKING}〜79点）— ${lowScoreWinners.length}件
+                    <span style="margin-left:0.5rem;font-size:0.75rem;color:#f59e0b">スコアリングが見逃した上昇パターン</span>
+                  </p>
+                  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.5rem;margin-bottom:0.75rem;font-size:0.85rem">
+                    <div style="text-align:center">
+                      <div style="color:#94a3b8;font-size:0.75rem">平均利益率</div>
+                      <div style="font-weight:700;color:#22c55e">
+                        ${lowScoreAvgPct != null ? `+${lowScoreAvgPct.toFixed(2)}%` : "-"}
+                      </div>
+                    </div>
+                    <div style="text-align:center">
+                      <div style="color:#94a3b8;font-size:0.75rem">技術avg</div>
+                      <div style="font-weight:600">${lowScoreAvgTech ?? "-"}</div>
+                    </div>
+                    <div style="text-align:center">
+                      <div style="color:#94a3b8;font-size:0.75rem">パターンavg</div>
+                      <div style="font-weight:600">${lowScoreAvgPattern ?? "-"}</div>
+                    </div>
+                    <div style="text-align:center">
+                      <div style="color:#94a3b8;font-size:0.75rem">流動性avg</div>
+                      <div style="font-weight:600">${lowScoreAvgLiquidity ?? "-"}</div>
+                    </div>
+                  </div>
+                  <!-- セクター分布 -->
+                  ${lowScoreSectorStats.length > 0
+                    ? html`
+                        <div class="table-wrap">
+                          <table style="font-size:0.82rem">
+                            <thead>
+                              <tr><th>セクター</th><th>件数</th><th>平均利益率</th></tr>
+                            </thead>
+                            <tbody>
+                              ${lowScoreSectorStats.map(
+                                (s) => html`
+                                  <tr>
+                                    <td style="font-weight:600">${s.sector}</td>
+                                    <td>${s.count}件</td>
+                                    <td>${pnlPercent(s.avgProfitPct)}</td>
+                                  </tr>
+                                `,
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      `
+                    : ""}
+                </div>
+              `
+            : html`
+                <div class="card">
+                  <p style="font-size:0.8rem;color:#94a3b8;margin:0">
+                    低スコア上昇銘柄（${GHOST_TRADING.MIN_SCORE_FOR_TRACKING}〜79点）— 該当なし
+                  </p>
+                </div>
+              `}
         `}
   `;
 
