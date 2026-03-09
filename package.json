@@ -15,6 +15,7 @@
     "monitor": "tsx src/jobs/position-monitor.ts",
     "eod": "tsx src/jobs/end-of-day.ts",
     "ghost": "tsx src/jobs/ghost-review.ts",
+    "defensive-followup": "tsx src/jobs/defensive-exit-followup.ts",
     "weekly": "tsx src/jobs/weekly-review.ts",
     "backfill": "tsx src/jobs/backfill-prices.ts",
     "jpx-sync": "tsx src/jobs/jpx-csv-sync.ts",

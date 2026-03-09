@@ -75,6 +75,7 @@ interface ScoredCandidate {
 
 export async function main() {
   console.log("=== Market Scanner 開始 ===");
+  let isShadowMode = false;
 
   // 1. 市場指標データ取得
   console.log("[1/5] 市場指標データ取得中...");
@@ -129,7 +130,7 @@ ${sectorText || "  特になし"}`;
   console.log(`  → レジーム: ${regime.level}（${regime.reason}）`);
 
   if (regime.shouldHaltTrading) {
-    console.log("VIXレジームにより取引停止。MarketAssessment を保存して終了");
+    console.log("VIXレジームにより取引停止。MarketAssessment を保存してシャドウスコアリングへ");
     await notifyRiskAlert({
       type: "VIXレジーム停止",
       message: regime.reason,
@@ -162,8 +163,7 @@ ${sectorText || "  特になし"}`;
         selectedStocks: [],
       },
     });
-    console.log("=== Market Scanner 終了 ===");
-    return;
+    isShadowMode = true;
   }
 
   // 1.9. ドローダウンチェック（機械的 — AI判断の前に実行）
@@ -207,73 +207,79 @@ ${sectorText || "  特になし"}`;
         selectedStocks: [],
       },
     });
-    console.log("=== Market Scanner 終了 ===");
-    return;
+    isShadowMode = true;
   }
 
-  // 2. AI市場評価
-  console.log("[2/5] AI市場評価中...");
-  const marketInput: MarketDataInput = {
-    nikkeiPrice: marketData.nikkei.price,
-    nikkeiChange: marketData.nikkei.changePercent,
-    sp500Change: marketData.sp500?.changePercent ?? 0,
-    vix: marketData.vix.price,
-    usdJpy: marketData.usdjpy?.price ?? 0,
-    cmeFuturesPrice: marketData.cmeFutures?.price ?? 0,
-    cmeFuturesChange: marketData.cmeFutures?.changePercent ?? 0,
-    newsSummary,
-  };
+  // 2. AI市場評価（VIX/ドローダウンでshadow modeの場合はスキップ）
+  let assessment: Awaited<ReturnType<typeof assessMarket>> | null = null;
 
-  const assessment = await assessMarket(marketInput);
-  console.log(
-    `  → shouldTrade: ${assessment.shouldTrade}, sentiment: ${assessment.sentiment}`,
-  );
+  if (!isShadowMode) {
+    console.log("[2/5] AI市場評価中...");
+    const marketInput: MarketDataInput = {
+      nikkeiPrice: marketData.nikkei.price,
+      nikkeiChange: marketData.nikkei.changePercent,
+      sp500Change: marketData.sp500?.changePercent ?? 0,
+      vix: marketData.vix.price,
+      usdJpy: marketData.usdjpy?.price ?? 0,
+      cmeFuturesPrice: marketData.cmeFutures?.price ?? 0,
+      cmeFuturesChange: marketData.cmeFutures?.changePercent ?? 0,
+      newsSummary,
+    };
 
-  // Slack通知
-  await notifyMarketAssessment({
-    shouldTrade: assessment.shouldTrade,
-    sentiment: assessment.sentiment,
-    reasoning: assessment.reasoning,
-    nikkeiChange: marketData.nikkei.changePercent,
-    vix: marketData.vix.price,
-  });
+    assessment = await assessMarket(marketInput);
+    console.log(
+      `  → shouldTrade: ${assessment.shouldTrade}, sentiment: ${assessment.sentiment}`,
+    );
 
-  // 3. shouldTrade = false → 保存して終了
-  if (!assessment.shouldTrade) {
-    console.log("取引見送り。MarketAssessment を保存して終了");
-    await prisma.marketAssessment.upsert({
-      where: { date: getTodayForDB() },
-      update: {
-        nikkeiPrice: marketData.nikkei.price,
-        nikkeiChange: marketData.nikkei.changePercent,
-        sp500Change: marketData.sp500?.changePercent,
-        vix: marketData.vix.price,
-        usdjpy: marketData.usdjpy?.price,
-        cmeFuturesPrice: marketData.cmeFutures?.price,
-        sentiment: assessment.sentiment,
-        shouldTrade: false,
-        reasoning: assessment.reasoning,
-        selectedStocks: [],
-      },
-      create: {
-        date: getTodayForDB(),
-        nikkeiPrice: marketData.nikkei.price,
-        nikkeiChange: marketData.nikkei.changePercent,
-        sp500Change: marketData.sp500?.changePercent,
-        vix: marketData.vix.price,
-        usdjpy: marketData.usdjpy?.price,
-        cmeFuturesPrice: marketData.cmeFutures?.price,
-        sentiment: assessment.sentiment,
-        shouldTrade: false,
-        reasoning: assessment.reasoning,
-        selectedStocks: [],
-      },
+    // Slack通知
+    await notifyMarketAssessment({
+      shouldTrade: assessment.shouldTrade,
+      sentiment: assessment.sentiment,
+      reasoning: assessment.reasoning,
+      nikkeiChange: marketData.nikkei.changePercent,
+      vix: marketData.vix.price,
     });
-    console.log("=== Market Scanner 終了 ===");
-    return;
+
+    // 3. shouldTrade = false → 保存してシャドウスコアリングへ
+    if (!assessment.shouldTrade) {
+      console.log("取引見送り。MarketAssessment を保存してシャドウスコアリングへ");
+      await prisma.marketAssessment.upsert({
+        where: { date: getTodayForDB() },
+        update: {
+          nikkeiPrice: marketData.nikkei.price,
+          nikkeiChange: marketData.nikkei.changePercent,
+          sp500Change: marketData.sp500?.changePercent,
+          vix: marketData.vix.price,
+          usdjpy: marketData.usdjpy?.price,
+          cmeFuturesPrice: marketData.cmeFutures?.price,
+          sentiment: assessment.sentiment,
+          shouldTrade: false,
+          reasoning: assessment.reasoning,
+          selectedStocks: [],
+        },
+        create: {
+          date: getTodayForDB(),
+          nikkeiPrice: marketData.nikkei.price,
+          nikkeiChange: marketData.nikkei.changePercent,
+          sp500Change: marketData.sp500?.changePercent,
+          vix: marketData.vix.price,
+          usdjpy: marketData.usdjpy?.price,
+          cmeFuturesPrice: marketData.cmeFutures?.price,
+          sentiment: assessment.sentiment,
+          shouldTrade: false,
+          reasoning: assessment.reasoning,
+          selectedStocks: [],
+        },
+      });
+      isShadowMode = true;
+    }
+  } else {
+    console.log("[2/5] AI市場評価: スキップ（シャドウモード）");
   }
 
   // 4. テクニカル分析 + スコアリング
+  // shadow modeの場合、スコアリング失敗がhalt判定に影響しないようtry-catchで囲む
+  try {
   console.log("[3/5] テクニカル分析 + スコアリング中...");
 
   // 利用可能資金から購入可能な上限株価を計算
@@ -502,178 +508,198 @@ ${sectorText || "  特になし"}`;
     }
   }
 
-  // 5. AIレビュー（Go/No-Go）
-  console.log("[4/5] AIレビュー中...");
-  const reviewCandidates: StockReviewCandidateInput[] = filtered.map((c) => {
-    const stock = candidates.find((s) => s.tickerCode === c.tickerCode);
-    const sectorGroup = getSectorGroup(stock?.jpxSectorName ?? null);
-    const sectorInfo = sectorGroup
-      ? sectorMomentum.find((s) => s.sectorGroup === sectorGroup)
-      : null;
-
-    const riskParts: string[] = [];
-    riskParts.push(`レジーム: ${regime.level}（VIX ${regime.vix.toFixed(1)}）`);
-    if (drawdown.consecutiveLosses > 0) {
-      riskParts.push(`連敗: ${drawdown.consecutiveLosses}`);
-    }
-    if (sectorInfo) {
-      riskParts.push(
-        `セクター(${sectorGroup}): 相対強度 ${sectorInfo.relativeStrength >= 0 ? "+" : ""}${sectorInfo.relativeStrength.toFixed(1)}%`,
-      );
-    }
-
-    return {
-      tickerCode: c.tickerCode,
-      name: c.name,
-      scoreFormatted: formatScoreForAI(c.score, c.summary),
-      newsContext: c.newsContext,
-      riskContext: riskParts.join(" / "),
-    };
-  });
-
-  const reviews = await reviewStocks(assessment, reviewCandidates);
-  const goStocks = reviews.filter((r) => r.decision === "go");
-  console.log(
-    `  → AIレビュー: ${reviews.length}銘柄中 ${goStocks.length}銘柄承認`,
-  );
-
-  // 6. MarketAssessment + ScoringRecord に結果を保存
-  console.log("[5/5] 結果保存中...");
-  const selectedStocksData = goStocks.map((g) => {
-    const scored = filtered.find((c) => c.tickerCode === g.tickerCode);
-    return {
-      tickerCode: g.tickerCode,
-      strategy: g.strategy,
-      reasoning: g.reasoning,
-      riskFlags: g.riskFlags,
-      technicalScore: scored?.score.totalScore ?? 0,
-      technicalRank: scored?.score.rank ?? "C",
-    };
-  });
-
   const today = getTodayForDB();
 
-  await prisma.marketAssessment.upsert({
-    where: { date: today },
-    update: {
-      nikkeiPrice: marketData.nikkei.price,
-      nikkeiChange: marketData.nikkei.changePercent,
-      sp500Change: marketData.sp500?.changePercent,
-      vix: marketData.vix.price,
-      usdjpy: marketData.usdjpy?.price,
-      cmeFuturesPrice: marketData.cmeFutures?.price,
-      sentiment: assessment.sentiment,
-      shouldTrade: true,
-      reasoning: assessment.reasoning,
-      selectedStocks: JSON.parse(JSON.stringify(selectedStocksData)),
-    },
-    create: {
-      date: today,
-      nikkeiPrice: marketData.nikkei.price,
-      nikkeiChange: marketData.nikkei.changePercent,
-      sp500Change: marketData.sp500?.changePercent,
-      vix: marketData.vix.price,
-      usdjpy: marketData.usdjpy?.price,
-      cmeFuturesPrice: marketData.cmeFutures?.price,
-      sentiment: assessment.sentiment,
-      shouldTrade: true,
-      reasoning: assessment.reasoning,
-      selectedStocks: JSON.parse(JSON.stringify(selectedStocksData)),
-    },
-  });
-
-  // ScoringRecord 保存（候補 + 即死棄却 + Ghost追跡）
   const findEntryPrice = (tickerCode: string) => {
     const stock = candidates.find((s) => s.tickerCode === tickerCode);
     return stock?.latestPrice ? Number(stock.latestPrice) : null;
   };
 
-  const scoringRecords = [
-    // AIレビュー対象（S/A/Bランク）
-    ...filtered.map((c) => {
-      const review = reviews.find((r) => r.tickerCode === c.tickerCode);
-      return {
-        date: today,
-        tickerCode: c.tickerCode,
-        totalScore: c.score.totalScore,
-        rank: c.score.rank,
-        technicalScore: c.score.technical.total,
-        patternScore: c.score.pattern.total,
-        liquidityScore: c.score.liquidity.total,
-        technicalBreakdown: {
-          rsi: c.score.technical.rsi,
-          ma: c.score.technical.ma,
-          volume: c.score.technical.volume,
-        },
-        patternBreakdown: {
-          chart: c.score.pattern.chart,
-          candlestick: c.score.pattern.candlestick,
-        },
-        liquidityBreakdown: {
-          tradingValue: c.score.liquidity.tradingValue,
-          spreadProxy: c.score.liquidity.spreadProxy,
-          stability: c.score.liquidity.stability,
-        },
-        isDisqualified: false,
-        aiDecision: review?.decision ?? null,
-        aiReasoning: review?.reasoning ?? null,
-        entryPrice: findEntryPrice(c.tickerCode),
-        rejectionReason: review?.decision === "no_go" ? "ai_no_go" : null,
-      };
-    }),
-    // Ghost追跡候補（スコア60+だがAI審査に送られなかった）
-    ...ghostCandidates.map((c) => ({
-      date: today,
-      tickerCode: c.tickerCode,
-      totalScore: c.score.totalScore,
-      rank: c.score.rank,
-      technicalScore: c.score.technical.total,
-      patternScore: c.score.pattern.total,
-      liquidityScore: c.score.liquidity.total,
-      technicalBreakdown: {
-        rsi: c.score.technical.rsi,
-        ma: c.score.technical.ma,
-        volume: c.score.technical.volume,
-      },
-      patternBreakdown: {
-        chart: c.score.pattern.chart,
-        candlestick: c.score.pattern.candlestick,
-      },
-      liquidityBreakdown: {
-        tradingValue: c.score.liquidity.tradingValue,
-        spreadProxy: c.score.liquidity.spreadProxy,
-        stability: c.score.liquidity.stability,
-      },
-      isDisqualified: false,
+  // スコアリングレコードの共通フィールド生成
+  const buildScoringFields = (c: ScoredCandidate) => ({
+    date: today,
+    tickerCode: c.tickerCode,
+    totalScore: c.score.totalScore,
+    rank: c.score.rank,
+    technicalScore: c.score.technical.total,
+    patternScore: c.score.pattern.total,
+    liquidityScore: c.score.liquidity.total,
+    technicalBreakdown: {
+      rsi: c.score.technical.rsi,
+      ma: c.score.technical.ma,
+      volume: c.score.technical.volume,
+    },
+    patternBreakdown: {
+      chart: c.score.pattern.chart,
+      candlestick: c.score.pattern.candlestick,
+    },
+    liquidityBreakdown: {
+      tradingValue: c.score.liquidity.tradingValue,
+      spreadProxy: c.score.liquidity.spreadProxy,
+      stability: c.score.liquidity.stability,
+    },
+    isDisqualified: false,
+    entryPrice: findEntryPrice(c.tickerCode),
+  });
+
+  if (isShadowMode) {
+    // === シャドウモード: AIレビューをスキップし、全候補をmarket_haltedで記録 ===
+    console.log("[4/5] AIレビュー: スキップ（シャドウモード）");
+    console.log("[5/5] シャドウスコアリング結果保存中...");
+
+    // filtered + ghostCandidates を全てmarket_haltedで記録
+    const shadowCandidates = [
+      ...filtered,
+      ...ghostCandidates,
+    ];
+
+    const shadowRecords = shadowCandidates.map((c) => ({
+      ...buildScoringFields(c),
       aiDecision: null,
       aiReasoning: null,
-      entryPrice: findEntryPrice(c.tickerCode),
-      rejectionReason: "below_threshold",
-    })),
-  ];
+      rejectionReason: "market_halted",
+    }));
 
-  if (scoringRecords.length > 0) {
-    await prisma.scoringRecord.createMany({
-      data: scoringRecords,
-      skipDuplicates: true,
+    if (shadowRecords.length > 0) {
+      await prisma.scoringRecord.createMany({
+        data: shadowRecords,
+        skipDuplicates: true,
+      });
+      console.log(`  シャドウScoringRecord 保存: ${shadowRecords.length}件`);
+    } else {
+      console.log("  シャドウ対象銘柄なし");
+    }
+  } else {
+    // === 通常モード: AIレビュー + 結果保存 ===
+    console.log("[4/5] AIレビュー中...");
+    const reviewCandidates: StockReviewCandidateInput[] = filtered.map((c) => {
+      const stock = candidates.find((s) => s.tickerCode === c.tickerCode);
+      const sectorGroup = getSectorGroup(stock?.jpxSectorName ?? null);
+      const sectorInfo = sectorGroup
+        ? sectorMomentum.find((s) => s.sectorGroup === sectorGroup)
+        : null;
+
+      const riskParts: string[] = [];
+      riskParts.push(`レジーム: ${regime.level}（VIX ${regime.vix.toFixed(1)}）`);
+      if (drawdown.consecutiveLosses > 0) {
+        riskParts.push(`連敗: ${drawdown.consecutiveLosses}`);
+      }
+      if (sectorInfo) {
+        riskParts.push(
+          `セクター(${sectorGroup}): 相対強度 ${sectorInfo.relativeStrength >= 0 ? "+" : ""}${sectorInfo.relativeStrength.toFixed(1)}%`,
+        );
+      }
+
+      return {
+        tickerCode: c.tickerCode,
+        name: c.name,
+        scoreFormatted: formatScoreForAI(c.score, c.summary),
+        newsContext: c.newsContext,
+        riskContext: riskParts.join(" / "),
+      };
     });
-    console.log(`  ScoringRecord 保存: ${scoringRecords.length}件`);
-  }
 
-  // Slack通知
-  if (goStocks.length > 0) {
-    await notifyStockCandidates(
-      goStocks.map((g) => {
-        const scored = filtered.find((c) => c.tickerCode === g.tickerCode);
+    const reviews = await reviewStocks(assessment!, reviewCandidates);
+    const goStocks = reviews.filter((r) => r.decision === "go");
+    console.log(
+      `  → AIレビュー: ${reviews.length}銘柄中 ${goStocks.length}銘柄承認`,
+    );
+
+    // 6. MarketAssessment + ScoringRecord に結果を保存
+    console.log("[5/5] 結果保存中...");
+    const selectedStocksData = goStocks.map((g) => {
+      const scored = filtered.find((c) => c.tickerCode === g.tickerCode);
+      return {
+        tickerCode: g.tickerCode,
+        strategy: g.strategy,
+        reasoning: g.reasoning,
+        riskFlags: g.riskFlags,
+        technicalScore: scored?.score.totalScore ?? 0,
+        technicalRank: scored?.score.rank ?? "C",
+      };
+    });
+
+    await prisma.marketAssessment.upsert({
+      where: { date: today },
+      update: {
+        nikkeiPrice: marketData.nikkei.price,
+        nikkeiChange: marketData.nikkei.changePercent,
+        sp500Change: marketData.sp500?.changePercent,
+        vix: marketData.vix.price,
+        usdjpy: marketData.usdjpy?.price,
+        cmeFuturesPrice: marketData.cmeFutures?.price,
+        sentiment: assessment!.sentiment,
+        shouldTrade: true,
+        reasoning: assessment!.reasoning,
+        selectedStocks: JSON.parse(JSON.stringify(selectedStocksData)),
+      },
+      create: {
+        date: today,
+        nikkeiPrice: marketData.nikkei.price,
+        nikkeiChange: marketData.nikkei.changePercent,
+        sp500Change: marketData.sp500?.changePercent,
+        vix: marketData.vix.price,
+        usdjpy: marketData.usdjpy?.price,
+        cmeFuturesPrice: marketData.cmeFutures?.price,
+        sentiment: assessment!.sentiment,
+        shouldTrade: true,
+        reasoning: assessment!.reasoning,
+        selectedStocks: JSON.parse(JSON.stringify(selectedStocksData)),
+      },
+    });
+
+    // ScoringRecord 保存（候補 + Ghost追跡）
+    const scoringRecords = [
+      // AIレビュー対象（S/A/Bランク）
+      ...filtered.map((c) => {
+        const review = reviews.find((r) => r.tickerCode === c.tickerCode);
         return {
-          tickerCode: g.tickerCode,
-          name: candidates.find((c) => c.tickerCode === g.tickerCode)?.name,
-          strategy: g.strategy,
-          score: scored?.score.totalScore ?? 0,
-          reasoning: g.reasoning,
+          ...buildScoringFields(c),
+          aiDecision: review?.decision ?? null,
+          aiReasoning: review?.reasoning ?? null,
+          rejectionReason: review?.decision === "no_go" ? "ai_no_go" : null,
         };
       }),
-    );
+      // Ghost追跡候補（スコア60+だがAI審査に送られなかった）
+      ...ghostCandidates.map((c) => ({
+        ...buildScoringFields(c),
+        aiDecision: null,
+        aiReasoning: null,
+        rejectionReason: "below_threshold",
+      })),
+    ];
+
+    if (scoringRecords.length > 0) {
+      await prisma.scoringRecord.createMany({
+        data: scoringRecords,
+        skipDuplicates: true,
+      });
+      console.log(`  ScoringRecord 保存: ${scoringRecords.length}件`);
+    }
+
+    // Slack通知
+    if (goStocks.length > 0) {
+      await notifyStockCandidates(
+        goStocks.map((g) => {
+          const scored = filtered.find((c) => c.tickerCode === g.tickerCode);
+          return {
+            tickerCode: g.tickerCode,
+            name: candidates.find((c) => c.tickerCode === g.tickerCode)?.name,
+            strategy: g.strategy,
+            score: scored?.score.totalScore ?? 0,
+            reasoning: g.reasoning,
+          };
+        }),
+      );
+    }
+  }
+
+  } catch (error) {
+    if (isShadowMode) {
+      console.error("シャドウスコアリングエラー（無視）:", error);
+    } else {
+      throw error;
+    }
   }
 
   console.log("=== Market Scanner 終了 ===");
