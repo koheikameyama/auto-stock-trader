@@ -298,6 +298,49 @@ export async function notifyBacktestResult(data: {
   });
 }
 
+/** 逆行ウィナー通知（市場停止日に上昇した銘柄） */
+export async function notifyContrarianWinners(data: {
+  totalHalted: number;
+  winners: Array<{
+    tickerCode: string;
+    score: number;
+    rank: string;
+    ghostProfitPct: number;
+    contrarianWins?: number;
+  }>;
+}): Promise<void> {
+  if (data.winners.length === 0) return;
+
+  const winnerList = data.winners
+    .map(
+      (w, i) =>
+        `${i + 1}. ${w.tickerCode} [${w.rank}:${w.score}点] +${w.ghostProfitPct.toFixed(2)}%${
+          w.contrarianWins != null && w.contrarianWins > 0
+            ? ` (過去90日: ${w.contrarianWins}回逆行勝ち)`
+            : ""
+        }`,
+    )
+    .join("\n");
+
+  await notifySlack({
+    title: `🦬 逆行ウィナー: ${data.winners.length}銘柄が市場停止日に上昇`,
+    message: winnerList,
+    color: "#FF6B35",
+    fields: [
+      {
+        title: "市場停止銘柄数",
+        value: `${data.totalHalted}件`,
+        short: true,
+      },
+      {
+        title: "上昇銘柄数",
+        value: `${data.winners.length}件`,
+        short: true,
+      },
+    ],
+  });
+}
+
 /** ゴースト・トレーディング分析通知 */
 export async function notifyGhostReview(data: {
   totalRejected: number;

@@ -66,6 +66,21 @@ export const GHOST_TRADING = {
   AI_CONCURRENCY: 3,
 } as const;
 
+export const CONTRARIAN = {
+  /** 逆行実績の検索期間（日） */
+  LOOKBACK_DAYS: 90,
+  /** 逆行勝ちとカウントする最低利益率(%) */
+  MIN_PROFIT_PCT: 0.5,
+  /** Slackレポートの最大表示件数 */
+  MAX_REPORT_WINNERS: 10,
+  /** ボーナスポイントの段階 */
+  BONUS_TIERS: [
+    { minWins: 4, bonus: 7 },
+    { minWins: 3, bonus: 5 },
+    { minWins: 2, bonus: 3 },
+  ],
+} as const;
+
 export const STOP_LOSS = {
   MAX_LOSS_PCT: 0.03,
   ATR_MIN_MULTIPLIER: 0.5,

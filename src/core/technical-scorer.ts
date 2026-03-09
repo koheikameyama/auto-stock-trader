@@ -287,7 +287,7 @@ function scoreStability(historicalData: OHLCVData[]): number {
 // メインスコアリング関数
 // ========================================
 
-function getRank(score: number): "S" | "A" | "B" | "C" {
+export function getRank(score: number): "S" | "A" | "B" | "C" {
   if (score >= SCORING.THRESHOLDS.S_RANK) return "S";
   if (score >= SCORING.THRESHOLDS.A_RANK) return "A";
   if (score >= SCORING.THRESHOLDS.B_RANK) return "B";

@@ -147,6 +147,10 @@ model ScoringRecord {
   tradeResult    String?  // win / loss / no_trade
   profitPct      Decimal? @db.Decimal(8, 4)
 
+  // 逆行ウィナー分析
+  contrarianBonus Int @default(0)  // 逆行ボーナスポイント（0-7）
+  contrarianWins  Int @default(0)  // 過去90日の逆行勝ち回数
+
   // Ghost Trading Analysis（偽陰性分析）
   rejectionReason String?                     // below_threshold / ai_no_go / disqualified
   entryPrice      Decimal? @db.Decimal(10, 2) // スコアリング時の株価

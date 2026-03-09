@@ -37,8 +37,12 @@ import {
   formatScoreForAI,
 } from "../core/technical-analysis";
 import type { TechnicalSummary } from "../core/technical-analysis";
-import { scoreTechnicals } from "../core/technical-scorer";
+import { scoreTechnicals, getRank } from "../core/technical-scorer";
 import type { LogicScore } from "../core/technical-scorer";
+import {
+  getContrarianHistoryBatch,
+  calculateContrarianBonus,
+} from "../core/contrarian-analyzer";
 import { detectChartPatterns } from "../lib/chart-patterns";
 import type { ChartPatternResult } from "../lib/chart-patterns";
 import { analyzeSingleCandle } from "../lib/candlestick-patterns";
@@ -411,6 +415,36 @@ ${sectorText || "  特になし"}`;
 
   console.log(`  テクニカル分析完了: ${scoredCandidates.length}銘柄`);
 
+  // 逆行ボーナス適用
+  console.log("[3.5/5] 逆行ボーナス適用中...");
+  const allTickerCodes = scoredCandidates.map((c) => c.tickerCode);
+  const contrarianHistoryMap = await getContrarianHistoryBatch(allTickerCodes);
+
+  const contrarianBonusMap = new Map<string, { bonus: number; wins: number }>();
+  for (const [ticker, history] of contrarianHistoryMap) {
+    const bonus = calculateContrarianBonus(history.wins);
+    if (bonus > 0) {
+      contrarianBonusMap.set(ticker, { bonus, wins: history.wins });
+    }
+  }
+
+  for (const c of scoredCandidates) {
+    const cb = contrarianBonusMap.get(c.tickerCode);
+    if (cb && !c.score.isDisqualified) {
+      c.score.totalScore = Math.min(100, c.score.totalScore + cb.bonus);
+      c.score.rank = getRank(c.score.totalScore);
+    }
+  }
+
+  if (contrarianBonusMap.size > 0) {
+    console.log(`  逆行ボーナス適用: ${contrarianBonusMap.size}銘柄`);
+    for (const [ticker, { bonus, wins }] of contrarianBonusMap) {
+      console.log(`    ${ticker}: +${bonus}点 (${wins}勝/90日)`);
+    }
+  } else {
+    console.log("  逆行ボーナス対象なし");
+  }
+
   // スコア降順ソート
   scoredCandidates.sort((a, b) => b.score.totalScore - a.score.totalScore);
 
@@ -539,6 +573,8 @@ ${sectorText || "  特になし"}`;
       stability: c.score.liquidity.stability,
     },
     isDisqualified: false,
+    contrarianBonus: contrarianBonusMap.get(c.tickerCode)?.bonus ?? 0,
+    contrarianWins: contrarianBonusMap.get(c.tickerCode)?.wins ?? 0,
     entryPrice: findEntryPrice(c.tickerCode),
   });
 
@@ -587,6 +623,12 @@ ${sectorText || "  特になし"}`;
       if (sectorInfo) {
         riskParts.push(
           `セクター(${sectorGroup}): 相対強度 ${sectorInfo.relativeStrength >= 0 ? "+" : ""}${sectorInfo.relativeStrength.toFixed(1)}%`,
+        );
+      }
+      const contrarianInfo = contrarianBonusMap.get(c.tickerCode);
+      if (contrarianInfo) {
+        riskParts.push(
+          `逆行実績: ${contrarianInfo.wins}回/90日（+${contrarianInfo.bonus}点ボーナス）`,
         );
       }
 

@@ -13,14 +13,19 @@
 
 import { prisma } from "../lib/prisma";
 import { getTodayForDB } from "../lib/date-utils";
-import { GHOST_TRADING, OPENAI_CONFIG } from "../lib/constants";
+import { GHOST_TRADING, CONTRARIAN, OPENAI_CONFIG } from "../lib/constants";
 import { fetchStockQuotes } from "../core/market-data";
 import { getOpenAIClient } from "../lib/openai";
 import {
   GHOST_ANALYSIS_SYSTEM_PROMPT,
   GHOST_ANALYSIS_SCHEMA,
 } from "../prompts/ghost-analysis";
-import { notifyGhostReview } from "../lib/slack";
+import { notifyGhostReview, notifyContrarianWinners } from "../lib/slack";
+import {
+  isNoTradeDay,
+  getTodayContrarianWinners,
+  getContrarianHistoryBatch,
+} from "../core/contrarian-analyzer";
 import pLimit from "p-limit";
 
 interface GhostAnalysisResult {
@@ -266,6 +271,40 @@ export async function main() {
         misjudgmentType: analysisMap.get(r.tickerCode)?.misjudgmentType,
       })),
   });
+
+  // 逆行ウィナー分析（市場停止日のみ）
+  const noTrade = await isNoTradeDay();
+  if (noTrade) {
+    console.log("[6/6] 逆行ウィナー分析中...");
+    const winners = await getTodayContrarianWinners();
+
+    if (winners.length > 0) {
+      const historyMap = await getContrarianHistoryBatch(
+        winners.map((w) => w.tickerCode),
+      );
+
+      const totalHalted = recordsWithPnl.filter(
+        (r) => r.rejectionReason === "market_halted",
+      ).length;
+
+      await notifyContrarianWinners({
+        totalHalted,
+        winners: winners
+          .slice(0, CONTRARIAN.MAX_REPORT_WINNERS)
+          .map((w) => ({
+            tickerCode: w.tickerCode,
+            score: w.totalScore,
+            rank: w.rank,
+            ghostProfitPct: w.ghostProfitPct,
+            contrarianWins: historyMap.get(w.tickerCode)?.wins,
+          })),
+      });
+
+      console.log(`  逆行ウィナー: ${winners.length}銘柄通知`);
+    } else {
+      console.log("  逆行ウィナーなし");
+    }
+  }
 
   console.log("=== Ghost Review 終了 ===");
 }
