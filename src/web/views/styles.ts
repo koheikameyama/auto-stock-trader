@@ -202,15 +202,19 @@ export const CSS = `
     background: ${COLORS.navBg};
     border-top: 1px solid ${COLORS.border};
     display: flex;
-    justify-content: space-around;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
     padding: 8px 0;
     padding-bottom: max(8px, env(safe-area-inset-bottom));
     z-index: 100;
   }
+  .bottom-nav::-webkit-scrollbar { display: none; }
   .nav-item {
     display: flex;
     flex-direction: column;
     align-items: center;
+    flex-shrink: 0;
     gap: 2px;
     font-size: 10px;
     color: ${COLORS.textDim};
