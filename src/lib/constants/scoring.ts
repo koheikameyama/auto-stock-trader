@@ -110,3 +110,9 @@ export const STOP_LOSS = {
   ATR_ADJUSTED_MULTIPLIER: 1.5,
   SUPPORT_BUFFER_ATR: 0.3,
 } as const;
+
+/** リスクベースのポジションサイジング */
+export const POSITION_SIZING = {
+  /** 1トレードあたりリスク: 総資金の2% */
+  RISK_PER_TRADE_PCT: 2,
+} as const;

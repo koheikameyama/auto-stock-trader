@@ -6,7 +6,7 @@
 
 import { prisma } from "../lib/prisma";
 import { getStartOfDayJST, getEndOfDayJST } from "../lib/date-utils";
-import { UNIT_SHARES, STOP_LOSS } from "../lib/constants";
+import { UNIT_SHARES, STOP_LOSS, POSITION_SIZING } from "../lib/constants";
 import { canAddToSector } from "./sector-analyzer";
 import { calculateDrawdownStatus } from "./drawdown-manager";
 
@@ -169,21 +169,36 @@ export async function getDailyPnl(date?: Date): Promise<number> {
 /**
  * ポジションサイズを計算する
  *
- * 予算と最大比率の制約内で購入可能な最大株数を算出する。
+ * リスクベースと予算ベースの両方で算出し、厳しい方を採用する。
+ * - リスクベース: 1トレードの最大損失額 / 1株あたりリスク（= エントリー価格 - 損切り価格）
+ * - 予算ベース: 利用可能予算 × 最大比率 / エントリー価格
  * 日本株は単元株制度（100株単位）のため、UNIT_SHARES の倍数に切り捨てる。
  */
 export function calculatePositionSize(
   price: number,
   budget: number,
   maxPositionPct: number,
+  stopLossPrice?: number,
 ): number {
   if (price <= 0 || budget <= 0 || maxPositionPct <= 0) {
     return 0;
   }
 
+  // 予算ベース: 従来の計算
   const maxAmount = budget * (maxPositionPct / 100);
-  const maxShares = Math.floor(maxAmount / price);
-  return Math.floor(maxShares / UNIT_SHARES) * UNIT_SHARES;
+  const budgetBasedShares = Math.floor(maxAmount / price);
+
+  // リスクベース: 損切り幅に基づく計算
+  let riskBasedShares = budgetBasedShares; // デフォルトは予算ベースと同じ
+  if (stopLossPrice != null && stopLossPrice > 0 && stopLossPrice < price) {
+    const riskPerShare = price - stopLossPrice;
+    const riskAmount = budget * (POSITION_SIZING.RISK_PER_TRADE_PCT / 100);
+    riskBasedShares = Math.floor(riskAmount / riskPerShare);
+  }
+
+  // 両方のminを取り、100株単位に切捨て
+  const shares = Math.min(budgetBasedShares, riskBasedShares);
+  return Math.floor(shares / UNIT_SHARES) * UNIT_SHARES;
 }
 
 // ========================================

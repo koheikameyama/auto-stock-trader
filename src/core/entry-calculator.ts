@@ -92,11 +92,12 @@ export function calculateEntryCondition(
   );
   const stopLossPrice = Math.round(stopLossValidation.validatedPrice);
 
-  // 4. 数量: 予算とリスク管理に基づく
+  // 4. 数量: リスクベース（損切り幅考慮）と予算の厳しい方
   const quantity = calculatePositionSize(
     limitPrice,
     availableBudget,
     maxPositionPct,
+    stopLossPrice,
   );
 
   // 5. リスクリワード比
