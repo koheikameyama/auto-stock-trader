@@ -15,7 +15,6 @@ on:
           - eod
           - ghost
           - weekly
-          - backfill
 
 env:
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -121,22 +120,8 @@ jobs:
       - run: npx prisma generate
       - run: npm run weekly
 
-  backfill:
-    if: github.event.inputs.job == 'backfill'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-      - run: npm ci
-      - run: npx prisma generate
-      - run: npm run backfill
-
   notify-failure:
-    needs: [news, scan, order, monitor, eod, ghost, weekly, backfill]
+    needs: [news, scan, order, monitor, eod, ghost, weekly]
     if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     steps:
