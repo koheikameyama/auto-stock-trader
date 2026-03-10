@@ -145,6 +145,7 @@ export async function runDailyBacktest(): Promise<DailyBacktestRunResult> {
       atrMultiplier: DEFAULT_PARAMS.atrMultiplier,
       strategy: DEFAULT_PARAMS.strategy,
       trailingStopEnabled: DEFAULT_PARAMS.trailingStopEnabled,
+      costModelEnabled: true,
       verbose: false,
     };
 

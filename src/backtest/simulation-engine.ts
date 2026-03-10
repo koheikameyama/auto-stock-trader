@@ -19,6 +19,7 @@ import {
 import { TECHNICAL_MIN_DATA, SCORING } from "../lib/constants";
 import { calculateTrailingStop } from "../core/trailing-stop";
 import { determineMarketRegime } from "../core/market-regime";
+import { calculateCommission, calculateTax } from "../core/trading-costs";
 import { calculateMetrics } from "./metrics";
 import type {
   BacktestConfig,
@@ -90,8 +91,11 @@ export function runBacktest(
     pendingOrders = [];
 
     for (const order of filledOrders) {
-      const cost = order.limitPrice * order.quantity;
-      cash -= cost;
+      const tradeValue = order.limitPrice * order.quantity;
+      const entryCommission = config.costModelEnabled
+        ? calculateCommission(tradeValue)
+        : 0;
+      cash -= tradeValue + entryCommission;
 
       const position: SimulatedPosition = {
         ticker: order.ticker,
@@ -112,6 +116,12 @@ export function runBacktest(
         pnl: null,
         pnlPct: null,
         holdingDays: null,
+        entryCommission,
+        exitCommission: null,
+        totalCost: null,
+        tax: null,
+        grossPnl: null,
+        netPnl: null,
       };
 
       openPositions.push(position);
@@ -165,7 +175,9 @@ export function runBacktest(
 
         // SL/トレーリングストップチェック（TP優先を上書き）
         if (todayBar.low <= effectiveSL) {
-          exitPrice = effectiveSL;
+          // ギャップダウン: 始値がSL以下なら始値で約定（スリッページ再現）
+          exitPrice =
+            todayBar.open < effectiveSL ? todayBar.open : effectiveSL;
           exitReason = trailingResult.isActivated
             ? "trailing_profit"
             : "stop_loss";
@@ -176,13 +188,24 @@ export function runBacktest(
         const tpHit = todayBar.high >= pos.takeProfitPrice;
 
         if (slHit && tpHit) {
-          exitPrice = pos.stopLossPrice;
+          // 両方ヒット → SL優先、ギャップダウン考慮
+          exitPrice =
+            todayBar.open < pos.stopLossPrice
+              ? todayBar.open
+              : pos.stopLossPrice;
           exitReason = "stop_loss";
         } else if (slHit) {
-          exitPrice = pos.stopLossPrice;
+          exitPrice =
+            todayBar.open < pos.stopLossPrice
+              ? todayBar.open
+              : pos.stopLossPrice;
           exitReason = "stop_loss";
         } else if (tpHit) {
-          exitPrice = pos.takeProfitPrice;
+          // ギャップアップ: 始値がTP以上なら始値で約定（有利方向）
+          exitPrice =
+            todayBar.open > pos.takeProfitPrice
+              ? todayBar.open
+              : pos.takeProfitPrice;
           exitReason = "take_profit";
         }
       }
@@ -195,27 +218,46 @@ export function runBacktest(
       }
 
       if (exitPrice != null && exitReason != null) {
-        const pnl = (exitPrice - pos.entryPrice) * pos.quantity;
+        const grossPnl = (exitPrice - pos.entryPrice) * pos.quantity;
         const pnlPct = pos.entryPrice > 0
           ? ((exitPrice - pos.entryPrice) / pos.entryPrice) * 100
           : 0;
         const entryDayIdx = tradingDays.indexOf(pos.entryDate);
         const holdingDays = entryDayIdx >= 0 ? dayIdx - entryDayIdx : 1;
 
+        // コスト計算
+        const exitTradeValue = exitPrice * pos.quantity;
+        const exitCommission = config.costModelEnabled
+          ? calculateCommission(exitTradeValue)
+          : 0;
+        const totalCost = (pos.entryCommission ?? 0) + exitCommission;
+        const tax = config.costModelEnabled
+          ? calculateTax(grossPnl, totalCost)
+          : 0;
+        const netPnl = grossPnl - totalCost - tax;
+
         pos.exitDate = today;
         pos.exitPrice = exitPrice;
         pos.exitReason = exitReason;
-        pos.pnl = Math.round(pnl);
+        pos.pnl = Math.round(grossPnl);
         pos.pnlPct = Math.round(pnlPct * 100) / 100;
         pos.holdingDays = holdingDays;
+        pos.exitCommission = exitCommission;
+        pos.totalCost = Math.round(totalCost);
+        pos.tax = Math.round(tax);
+        pos.grossPnl = Math.round(grossPnl);
+        pos.netPnl = Math.round(netPnl);
 
-        cash += exitPrice * pos.quantity;
+        cash += exitTradeValue - exitCommission - tax;
         toClose.push(i);
 
         if (config.verbose) {
-          const sign = pnl >= 0 ? "+" : "";
+          const sign = grossPnl >= 0 ? "+" : "";
+          const costInfo = config.costModelEnabled
+            ? ` 手数料¥${totalCost} 税¥${tax} 純${sign}¥${Math.round(netPnl)}`
+            : "";
           console.log(
-            `  [${today}] ${pos.ticker} 決済(${exitReason}): ¥${exitPrice} ${sign}¥${Math.round(pnl)} (${sign}${pos.pnlPct}%)`,
+            `  [${today}] ${pos.ticker} 決済(${exitReason}): ¥${exitPrice} ${sign}¥${Math.round(grossPnl)} (${sign}${pos.pnlPct}%)${costInfo}`,
           );
         }
       }

@@ -47,6 +47,23 @@ export function printBacktestReport(result: BacktestResult): void {
   console.log(`  累計損益: ${sign}¥${metrics.totalPnl.toLocaleString()} (${sign}${metrics.totalReturnPct}%)`);
   console.log("");
 
+  // コストサマリー
+  if (metrics.totalCommission > 0 || metrics.totalTax > 0) {
+    console.log("-".repeat(50));
+    console.log("  取引コスト");
+    console.log("-".repeat(50));
+    console.log(`  累計手数料: ¥${metrics.totalCommission.toLocaleString()}`);
+    console.log(`  累計税額: ¥${metrics.totalTax.toLocaleString()}`);
+    const costSign = metrics.costImpactPct > 0 ? "-" : "";
+    console.log(`  コスト影響: ${costSign}${metrics.costImpactPct}%`);
+    const grossSign = metrics.totalGrossPnl >= 0 ? "+" : "";
+    console.log(`  粗リターン: ${grossSign}${((metrics.totalGrossPnl / config.initialBudget) * 100).toFixed(2)}%`);
+    const netSign = metrics.totalNetPnl >= 0 ? "+" : "";
+    console.log(`  純リターン: ${netSign}${metrics.netReturnPct}%`);
+    console.log(`  純損益: ${netSign}¥${metrics.totalNetPnl.toLocaleString()}`);
+    console.log("");
+  }
+
   // ランク別
   const rankOrder = ["S", "A", "B", "C"];
   const rankEntries = rankOrder

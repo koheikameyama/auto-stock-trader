@@ -15,6 +15,7 @@ export interface BacktestConfig {
   maxPrice: number;
   strategy: "day_trade" | "swing";
   trailingStopEnabled: boolean;
+  costModelEnabled: boolean;
   outputFile?: string;
   verbose: boolean;
 }
@@ -46,6 +47,13 @@ export interface SimulatedPosition {
   pnl: number | null;
   pnlPct: number | null;
   holdingDays: number | null;
+  // 取引コスト関連
+  entryCommission: number | null;
+  exitCommission: number | null;
+  totalCost: number | null;
+  tax: number | null;
+  grossPnl: number | null;
+  netPnl: number | null;
 }
 
 export interface DailyEquity {
@@ -80,6 +88,13 @@ export interface PerformanceMetrics {
   totalReturnPct: number;
   byRank: Record<string, RankMetrics>;
   byRegime: Record<string, RankMetrics>;
+  // 取引コスト関連
+  totalCommission: number;
+  totalTax: number;
+  totalGrossPnl: number;
+  totalNetPnl: number;
+  netReturnPct: number;
+  costImpactPct: number;
 }
 
 export interface RankMetrics {

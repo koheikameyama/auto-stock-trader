@@ -6,6 +6,7 @@
 
 import { prisma } from "../lib/prisma";
 import type { TradingPosition } from "@prisma/client";
+import { calculateTradeCosts } from "./trading-costs";
 
 /**
  * 新規ポジションを建てる
@@ -76,7 +77,8 @@ export async function closePosition(
   });
 
   const entryPrice = Number(position.entryPrice);
-  const realizedPnl = (exitPrice - entryPrice) * position.quantity;
+  const costs = calculateTradeCosts(entryPrice, exitPrice, position.quantity);
+  const realizedPnl = costs.netPnl;
 
   return prisma.$transaction(async (tx) => {
     const closedPosition = await tx.tradingPosition.update({

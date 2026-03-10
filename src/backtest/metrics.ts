@@ -48,6 +48,27 @@ export function calculateMetrics(
   const totalReturnPct =
     initialBudget > 0 ? (totalPnl / initialBudget) * 100 : 0;
 
+  // コスト関連集計
+  const totalCommission = closedTrades.reduce(
+    (s, t) => s + (t.totalCost ?? 0),
+    0,
+  );
+  const totalTax = closedTrades.reduce((s, t) => s + (t.tax ?? 0), 0);
+  const totalGrossPnl = closedTrades.reduce(
+    (s, t) => s + (t.grossPnl ?? t.pnl ?? 0),
+    0,
+  );
+  const totalNetPnl = closedTrades.reduce(
+    (s, t) => s + (t.netPnl ?? t.pnl ?? 0),
+    0,
+  );
+  const netReturnPct =
+    initialBudget > 0 ? (totalNetPnl / initialBudget) * 100 : 0;
+  const costImpactPct =
+    initialBudget > 0
+      ? ((totalGrossPnl - totalNetPnl) / initialBudget) * 100
+      : 0;
+
   const avgHoldingDays =
     closedTrades.length > 0
       ? closedTrades.reduce((s, t) => s + (t.holdingDays ?? 0), 0) /
@@ -77,6 +98,12 @@ export function calculateMetrics(
     totalReturnPct: round2(totalReturnPct),
     byRank,
     byRegime,
+    totalCommission: Math.round(totalCommission),
+    totalTax: Math.round(totalTax),
+    totalGrossPnl: Math.round(totalGrossPnl),
+    totalNetPnl: Math.round(totalNetPnl),
+    netReturnPct: round2(netReturnPct),
+    costImpactPct: round2(costImpactPct),
   };
 }
 
