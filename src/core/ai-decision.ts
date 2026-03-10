@@ -277,6 +277,8 @@ export interface MiddayReassessmentInput {
   currentVix: number;
   currentSp500Change: number;
   currentUsdJpy: number;
+  newsSummary?: string; // 最新ニュース分析サマリー
+  sectorContext?: string; // セクター動向コンテキスト
 }
 
 export interface MiddayReassessmentResult {
@@ -297,6 +299,14 @@ export async function reassessMarketMidday(
       data.morningNikkeiPrice) *
     100;
 
+  let additionalContext = "";
+  if (data.newsSummary) {
+    additionalContext += `\n【前場中の最新ニュース分析】\n${data.newsSummary}\n`;
+  }
+  if (data.sectorContext) {
+    additionalContext += `\n【セクター動向】\n${data.sectorContext}\n`;
+  }
+
   const userPrompt = `【朝の市場評価（前場開始前）】
 - センチメント: ${data.morningSentiment}
 - 理由: ${data.morningReasoning}
@@ -308,7 +318,7 @@ export async function reassessMarketMidday(
 - VIX: ${data.currentVix.toFixed(2)}（朝比: ${data.currentVix > data.morningVix ? "上昇" : data.currentVix < data.morningVix ? "低下" : "横ばい"}）
 - S&P500 前日比: ${data.currentSp500Change >= 0 ? "+" : ""}${data.currentSp500Change.toFixed(2)}%
 - USD/JPY: ${data.currentUsdJpy.toFixed(2)}
-
+${additionalContext}
 朝の評価と前場の実績を比較して、センチメントを再評価してください。`;
 
   const response = await openai.chat.completions.create({
