@@ -22,6 +22,7 @@ import {
   getPendingOrders,
   expireOrders,
 } from "../core/order-executor";
+import { checkTimeWindow } from "../core/time-filter";
 import {
   openPosition,
   closePosition,
@@ -62,6 +63,23 @@ export async function main() {
     const filledPrice = checkOrderFill(order, quote.high, quote.low, quote.open);
 
     if (filledPrice !== null) {
+      // 買い注文: 時間帯チェック（デイトレ14:30以降は約定をスキップ）
+      if (order.side === "buy") {
+        const timeCheck = checkTimeWindow(
+          order.strategy as "day_trade" | "swing",
+        );
+        if (!timeCheck.canTrade) {
+          console.log(
+            `  → ${order.stock.tickerCode}: ${timeCheck.reason}のためスキップ`,
+          );
+          await prisma.tradingOrder.update({
+            where: { id: order.id },
+            data: { status: "cancelled" },
+          });
+          continue;
+        }
+      }
+
       console.log(
         `  → ${order.stock.tickerCode}: 約定! ¥${filledPrice.toLocaleString()} (${order.side})`,
       );
@@ -71,6 +89,11 @@ export async function main() {
 
       if (order.side === "buy") {
         // 買い約定 → ポジションをオープン
+        // 時間帯リスクフラグを判定
+        const timeCheck = checkTimeWindow(
+          order.strategy as "day_trade" | "swing",
+        );
+
         // 注文レコードから利確/損切り価格を取得
         const filledOrder = await prisma.tradingOrder.findUnique({
           where: { id: order.id },
@@ -88,6 +111,13 @@ export async function main() {
           filledOrder?.entrySnapshot,
         );
 
+        // 寄付き直後の約定にはリスクフラグを付与
+        const entrySnapshot = filledOrder?.entrySnapshot as object | undefined;
+        const snapshotWithTimeRisk =
+          timeCheck.isOpeningVolatility && entrySnapshot
+            ? { ...entrySnapshot, timeWindowRisk: "opening_volatility" }
+            : entrySnapshot;
+
         const position = await openPosition(
           order.stockId,
           order.strategy,
@@ -95,7 +125,7 @@ export async function main() {
           order.quantity,
           takeProfitPrice,
           stopLossPrice,
-          filledOrder?.entrySnapshot as object | undefined,
+          snapshotWithTimeRisk,
           entryAtr,
         );
 

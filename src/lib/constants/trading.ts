@@ -94,6 +94,20 @@ export const TRADING_SCHEDULE = {
 } as const;
 
 // ========================================
+// エントリー時間帯フィルタ
+// ========================================
+
+export const TIME_WINDOW = {
+  // 寄付き直後（板が薄い・スプレッド拡大）
+  OPENING_VOLATILITY: {
+    start: { hour: 9, minute: 0 },
+    end: { hour: 9, minute: 30 },
+  },
+  // デイトレ新規エントリー締切（残り30分では期待値マイナス）
+  DAY_TRADE_ENTRY_CUTOFF: { hour: 14, minute: 30 },
+} as const;
+
+// ========================================
 // yahoo-finance2 設定
 // ========================================
 
