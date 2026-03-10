@@ -8,6 +8,7 @@
  * 5. Slackに約定・損益通知
  */
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import {
   TRADING_SCHEDULE,
@@ -30,6 +31,12 @@ import {
   getUnrealizedPnl,
 } from "../core/position-manager";
 import { calculateTrailingStop } from "../core/trailing-stop";
+import {
+  adjustForExDividend,
+  adjustForSplit,
+  parseSplitFactor,
+} from "../core/corporate-event-handler";
+import { fetchCorporateEvents } from "../core/market-data";
 import { notifyOrderFilled, notifyRiskAlert } from "../lib/slack";
 import type { ExitSnapshot } from "../types/snapshots";
 import dayjs from "dayjs";
@@ -164,6 +171,9 @@ export async function main() {
   console.log("[2/3] ポジション利確/損切りチェック...");
   const openPositions = await getOpenPositions();
   console.log(`  オープンポジション: ${openPositions.length}件`);
+
+  // コーポレートイベント（配当落ち・株式分割）チェック
+  await applyCorporateEventAdjustments(openPositions);
 
   for (const position of openPositions) {
     const quote = await fetchStockQuote(position.stock.tickerCode);
@@ -523,6 +533,154 @@ function extractAtrFromSnapshot(snapshot: unknown): number | null {
   const s = snapshot as Record<string, unknown>;
   const technicals = s.technicals as Record<string, unknown> | undefined;
   return technicals?.atr14 != null ? Number(technicals.atr14) : null;
+}
+
+/**
+ * コーポレートイベント（配当落ち・株式分割）によるポジション調整
+ *
+ * - 配当落ち日当日: 損切り・トレーリングストップを配当額分引き下げ
+ * - 株式分割当日: 全ポジション値を分割比率で調整
+ */
+async function applyCorporateEventAdjustments(
+  positions: Awaited<ReturnType<typeof getOpenPositions>>,
+) {
+  const todayStr = dayjs().tz("Asia/Tokyo").format("YYYY-MM-DD");
+
+  for (const pos of positions) {
+    const stock = pos.stock;
+
+    // 配当落ち日チェック
+    if (
+      stock.exDividendDate &&
+      stock.dividendPerShare &&
+      dayjs(stock.exDividendDate).format("YYYY-MM-DD") === todayStr
+    ) {
+      const dividendPerShare = Number(stock.dividendPerShare);
+      const stopLoss = pos.stopLossPrice ? Number(pos.stopLossPrice) : null;
+      if (stopLoss == null || dividendPerShare <= 0) continue;
+
+      const result = adjustForExDividend(
+        stopLoss,
+        pos.trailingStopPrice ? Number(pos.trailingStopPrice) : null,
+        dividendPerShare,
+      );
+
+      if (result.adjusted) {
+        await prisma.tradingPosition.update({
+          where: { id: pos.id },
+          data: {
+            stopLossPrice: result.newStopLoss,
+            ...(result.newTrailingStop !== null && {
+              trailingStopPrice: result.newTrailingStop,
+            }),
+          },
+        });
+
+        // ポジションのメモリ内データも更新（後続のループで最新値を使うため）
+        pos.stopLossPrice = new Prisma.Decimal(result.newStopLoss);
+        if (result.newTrailingStop !== null) {
+          pos.trailingStopPrice = new Prisma.Decimal(result.newTrailingStop);
+        }
+
+        await prisma.corporateEventLog.create({
+          data: {
+            tickerCode: stock.tickerCode,
+            eventType: "ex_dividend",
+            eventDate: stock.exDividendDate,
+            detail: { dividendAmount: dividendPerShare },
+            positionId: pos.id,
+            adjustmentType: "stop_loss_adjusted",
+            beforeValue: {
+              stopLossPrice: result.oldStopLoss,
+              trailingStopPrice: result.oldTrailingStop,
+            },
+            afterValue: {
+              stopLossPrice: result.newStopLoss,
+              trailingStopPrice: result.newTrailingStop,
+            },
+          },
+        });
+
+        console.log(
+          `  → ${stock.tickerCode}: 配当落ち調整（SL: ¥${result.oldStopLoss} → ¥${result.newStopLoss}, 配当: ¥${dividendPerShare}）`,
+        );
+      }
+    }
+
+    // 株式分割チェック（yahoo-finance2 の lastSplitDate と比較）
+    try {
+      const events = await fetchCorporateEvents(stock.tickerCode);
+      if (
+        events.lastSplitDate &&
+        events.lastSplitFactor &&
+        dayjs(events.lastSplitDate).format("YYYY-MM-DD") === todayStr
+      ) {
+        const parsed = parseSplitFactor(events.lastSplitFactor);
+        if (!parsed) continue;
+
+        const stopLoss = pos.stopLossPrice ? Number(pos.stopLossPrice) : 0;
+        const result = adjustForSplit(
+          Number(pos.entryPrice),
+          pos.quantity,
+          stopLoss,
+          pos.takeProfitPrice ? Number(pos.takeProfitPrice) : null,
+          pos.trailingStopPrice ? Number(pos.trailingStopPrice) : null,
+          pos.entryAtr ? Number(pos.entryAtr) : null,
+          parsed.numerator,
+          parsed.denominator,
+        );
+
+        if (result.adjusted) {
+          const adj = result.adjustments;
+          await prisma.tradingPosition.update({
+            where: { id: pos.id },
+            data: {
+              entryPrice: adj.entryPrice.new,
+              quantity: adj.quantity.new,
+              stopLossPrice: adj.stopLossPrice.new,
+              takeProfitPrice: adj.takeProfitPrice.new,
+              trailingStopPrice: adj.trailingStopPrice.new,
+              entryAtr: adj.entryAtr.new,
+            },
+          });
+
+          await prisma.corporateEventLog.create({
+            data: {
+              tickerCode: stock.tickerCode,
+              eventType: "stock_split",
+              eventDate: events.lastSplitDate,
+              detail: {
+                splitRatio: events.lastSplitFactor,
+                numerator: parsed.numerator,
+                denominator: parsed.denominator,
+              },
+              positionId: pos.id,
+              adjustmentType: "position_split_adjusted",
+              beforeValue: {
+                entryPrice: adj.entryPrice.old,
+                quantity: adj.quantity.old,
+                stopLossPrice: adj.stopLossPrice.old,
+              },
+              afterValue: {
+                entryPrice: adj.entryPrice.new,
+                quantity: adj.quantity.new,
+                stopLossPrice: adj.stopLossPrice.new,
+              },
+            },
+          });
+
+          console.log(
+            `  → ${stock.tickerCode}: 株式分割調整（${events.lastSplitFactor}, 価格÷${result.splitRatio}, 数量×${result.splitRatio}）`,
+          );
+        }
+      }
+    } catch (error) {
+      console.warn(
+        `  → ${stock.tickerCode}: 分割チェックエラー:`,
+        error,
+      );
+    }
+  }
 }
 
 const isDirectRun = process.argv[1]?.includes("position-monitor");

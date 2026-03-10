@@ -35,8 +35,10 @@ model Stock {
   latestPriceDate DateTime? @db.Date
   priceUpdatedAt  DateTime?
 
-  // 決算日管理（即死ルール用）
+  // コーポレートイベント管理（即死ルール用）
   nextEarningsDate DateTime? @db.Date  // 次回決算発表予定日
+  exDividendDate   DateTime? @db.Date           // 次回配当権利落ち日
+  dividendPerShare Decimal?  @db.Decimal(10, 2) // 1株あたり配当金額（円）
 
   // 上場廃止管理
   fetchFailCount Int      @default(0)
@@ -310,6 +312,27 @@ model StockStatusLog {
 
   @@index([tickerCode])
   @@index([createdAt(sort: Desc)])
+}
+
+// コーポレートイベントログ（配当落ち・株式分割の調整記録）
+model CorporateEventLog {
+  id         String   @id @default(cuid())
+  tickerCode String
+  eventType  String   // "ex_dividend" | "stock_split"
+  eventDate  DateTime @db.Date
+  detail     Json?    // { dividendAmount: 15 } or { splitRatio: "1:2", numerator: 1, denominator: 2 }
+
+  // ポジション調整記録
+  positionId     String?
+  adjustmentType String?  // "stop_loss_adjusted" | "position_split_adjusted"
+  beforeValue    Json?    // 調整前の値
+  afterValue     Json?    // 調整後の値
+
+  createdAt DateTime @default(now())
+
+  @@index([tickerCode])
+  @@index([eventDate(sort: Desc)])
+  @@index([eventType])
 }
 
 // 日次バックテスト結果（資金帯別）

@@ -72,6 +72,7 @@
 | 2 | ボラティリティ異常 | `Stock.volatility > 8%`（週次ボラティリティ） | Stockモデル |
 | 3 | 10万円で買えない | `latestPrice > 1000`（100株 = 10万円超） | Stockモデル |
 | 4 | 決算発表前後 | 決算日の前5日〜後2日 | `Stock.nextEarningsDate`（yahoo-finance2 quoteSummary API） |
+| 5 | 配当落ち日前後 | 配当落ち日の前2日〜後1日 | `Stock.exDividendDate`（yahoo-finance2 quoteSummary API） |
 
 > 即死ルール該当銘柄は、棄却理由をDBに記録する（振り返り用）。
 
@@ -256,7 +257,7 @@ model ScoringRecord {
 
   // 即死ルール
   isDisqualified    Boolean @default(false)
-  disqualifyReason  String? // "price_too_high" | "volatility_extreme" | "spread_too_wide" | "earnings_upcoming"
+  disqualifyReason  String? // "price_too_high" | "volatility_extreme" | "spread_too_wide" | "earnings_upcoming" | "ex_dividend_upcoming"
 
   // AIレビュー結果（AIに渡された場合のみ）
   aiDecision   String?  // "go" | "no_go"
@@ -430,6 +431,8 @@ export const SCORING = {
     MAX_WEEKLY_VOLATILITY: 8,     // 週次ボラティリティ上限 8%
     EARNINGS_DAYS_BEFORE: 5,      // 決算前N日は即死
     EARNINGS_DAYS_AFTER: 2,       // 決算後N日は即死
+    EX_DIVIDEND_DAYS_BEFORE: 2,   // 配当落ち日前N日は即死
+    EX_DIVIDEND_DAYS_AFTER: 1,    // 配当落ち日後N日は即死
   },
 
   // 流動性閾値

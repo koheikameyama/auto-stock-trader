@@ -20,6 +20,7 @@ import { TECHNICAL_MIN_DATA, SCORING } from "../lib/constants";
 import { calculateTrailingStop } from "../core/trailing-stop";
 import { determineMarketRegime } from "../core/market-regime";
 import { calculateCommission, calculateTax } from "../core/trading-costs";
+import { getLimitDownPrice } from "../lib/constants/price-limits";
 import { calculateMetrics } from "./metrics";
 import type {
   BacktestConfig,
@@ -122,6 +123,7 @@ export function runBacktest(
         tax: null,
         grossPnl: null,
         netPnl: null,
+        limitLockDays: 0,
       };
 
       openPositions.push(position);
@@ -207,6 +209,41 @@ export function runBacktest(
               ? todayBar.open
               : pos.takeProfitPrice;
           exitReason = "take_profit";
+        }
+      }
+
+      // 値幅制限シミュレーション: ストップ安で損切り不可能な状況を再現
+      if (config.priceLimitEnabled && exitPrice != null && exitReason === "stop_loss") {
+        const prevBar = dayIdx > 0
+          ? bars?.find((b) => b.date === tradingDays[dayIdx - 1])
+          : null;
+
+        if (prevBar) {
+          const limitDown = getLimitDownPrice(prevBar.close);
+
+          // ストップ安張り付き（始値 == 安値 == 制限値幅下限）→ 約定不可
+          if (
+            todayBar.open <= limitDown &&
+            todayBar.low <= limitDown &&
+            todayBar.close <= limitDown
+          ) {
+            exitPrice = null;
+            exitReason = null;
+            pos.limitLockDays++;
+            if (config.verbose) {
+              console.log(
+                `  [${today}] ${pos.ticker}: ストップ安張り付き（約定不可、${pos.limitLockDays}日目）`,
+              );
+            }
+          } else if (exitPrice < limitDown) {
+            // 損切り価格がストップ安以下 → ストップ安価格で約定（スリッページ）
+            exitPrice = limitDown;
+            if (config.verbose) {
+              console.log(
+                `  [${today}] ${pos.ticker}: ストップ安スリッページ（SL ¥${pos.stopLossPrice} → 約定 ¥${limitDown}）`,
+              );
+            }
+          }
         }
       }
 

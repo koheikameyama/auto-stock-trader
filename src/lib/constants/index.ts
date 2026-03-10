@@ -10,3 +10,4 @@ export * from "./stock-master";
 export * from "./backtest";
 export * from "./data-quality";
 export * from "./trading-costs";
+export * from "./price-limits";

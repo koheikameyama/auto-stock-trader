@@ -9,7 +9,7 @@
 
 import { prisma } from "../lib/prisma";
 import { TRADING_DEFAULTS, YAHOO_FINANCE, STOCK_FETCH, TECHNICAL_MIN_DATA, JOB_CONCURRENCY } from "../lib/constants";
-import { fetchStockQuotesBatch, fetchHistoricalData, fetchNextEarningsDate } from "../core/market-data";
+import { fetchStockQuotesBatch, fetchHistoricalData, fetchCorporateEvents } from "../core/market-data";
 import { analyzeTechnicals } from "../core/technical-analysis";
 import pLimit from "p-limit";
 
@@ -91,10 +91,26 @@ export async function main() {
               }
             }
 
-            // 決算日が過去 or 未設定の場合のみ更新（API負荷軽減）
-            let nextEarningsDate: Date | null | undefined = undefined;
-            if (!stock.nextEarningsDate || stock.nextEarningsDate < new Date()) {
-              nextEarningsDate = await fetchNextEarningsDate(stock.tickerCode);
+            // コーポレートイベント（決算日・配当落ち日）が過去 or 未設定の場合のみ更新（API負荷軽減）
+            let corporateEventUpdate: Record<string, unknown> = {};
+            const now = new Date();
+            const needsCorporateUpdate =
+              !stock.nextEarningsDate ||
+              stock.nextEarningsDate < now ||
+              !stock.exDividendDate ||
+              stock.exDividendDate < now;
+
+            if (needsCorporateUpdate) {
+              const events = await fetchCorporateEvents(stock.tickerCode);
+              if (events.nextEarningsDate !== null) {
+                corporateEventUpdate.nextEarningsDate = events.nextEarningsDate;
+              }
+              if (events.exDividendDate !== null) {
+                corporateEventUpdate.exDividendDate = events.exDividendDate;
+              }
+              if (events.dividendPerShare !== null) {
+                corporateEventUpdate.dividendPerShare = events.dividendPerShare;
+              }
             }
 
             await prisma.stock.update({
@@ -115,8 +131,8 @@ export async function main() {
                 eps: quote.eps != null && Number.isFinite(quote.eps) ? quote.eps : null,
                 marketCap: quote.marketCap != null && Number.isFinite(quote.marketCap) ? quote.marketCap : null,
                 isProfitable: quote.eps != null ? quote.eps > 0 : null,
-                // 決算日（取得した場合のみ更新）
-                ...(nextEarningsDate !== undefined && { nextEarningsDate }),
+                // コーポレートイベント（取得した場合のみ更新）
+                ...corporateEventUpdate,
               },
             });
 

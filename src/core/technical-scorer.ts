@@ -41,6 +41,7 @@ export interface LogicScoreInput {
   weeklyTrend?: WeeklyTrendResult | null;
   fundamentals?: FundamentalInput;
   nextEarningsDate?: Date | null;
+  exDividendDate?: Date | null;
 }
 
 export type VolumeDirection = "accumulation" | "distribution" | "neutral";
@@ -144,6 +145,20 @@ function checkDisqualify(input: LogicScoreInput): DisqualifyResult {
       diffDays <= SCORING.DISQUALIFY.EARNINGS_DAYS_BEFORE
     ) {
       return { isDisqualified: true, reason: "earnings_upcoming" };
+    }
+  }
+
+  // 配当落ち日前後はエントリー禁止（前2日〜後1日）
+  if (input.exDividendDate) {
+    const now = new Date();
+    const diffDays = Math.round(
+      (input.exDividendDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
+    );
+    if (
+      diffDays >= -SCORING.DISQUALIFY.EX_DIVIDEND_DAYS_AFTER &&
+      diffDays <= SCORING.DISQUALIFY.EX_DIVIDEND_DAYS_BEFORE
+    ) {
+      return { isDisqualified: true, reason: "ex_dividend_upcoming" };
     }
   }
 

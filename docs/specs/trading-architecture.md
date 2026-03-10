@@ -922,6 +922,94 @@ TP/SLチェック後に実行することで、通常の損切り・利確が先
 
 ---
 
+## コーポレートイベント対応
+
+### 配当落ち日対応
+
+`Stock.exDividendDate` / `Stock.dividendPerShare` で次回配当落ち日を管理する。
+
+#### エントリー禁止（即死ルール）
+
+配当落ち日前後はエントリーを禁止する。配当落ち日には理論上、配当額分だけ株価が下落するため、テクニカル指標が歪みエントリーの前提が崩れる。
+
+- 配当落ち日の前2日〜後1日は即死ルール（`ex_dividend_upcoming`）で棄却
+- 定数: `SCORING.DISQUALIFY.EX_DIVIDEND_DAYS_BEFORE`（2）、`SCORING.DISQUALIFY.EX_DIVIDEND_DAYS_AFTER`（1）
+
+#### 保有中の配当落ち日対応
+
+ポジション保有中に配当落ち日を迎えた場合、損切り・トレーリングストップを配当額分引き下げる。配当落ちによる株価下落は本質的な価値毀損ではないため、機械的な損切りを回避する。
+
+```
+調整後stopLossPrice = stopLossPrice - dividendPerShare
+調整後trailingStopPrice = trailingStopPrice - dividendPerShare
+```
+
+#### 監査証跡
+
+`CorporateEventLog` テーブルで調整記録を保存する。
+
+```prisma
+model CorporateEventLog {
+  id              String   @id @default(cuid())
+  positionId      String
+  eventType       String   // "ex_dividend" | "stock_split"
+  eventDate       DateTime @db.Date
+  description     String   // 調整内容の説明
+  adjustments     Json     // { stopLossPrice: { before, after }, trailingStopPrice: { before, after } }
+  createdAt       DateTime @default(now())
+
+  @@index([positionId])
+  @@index([eventDate(sort: Desc)])
+}
+```
+
+### 株式分割対応
+
+yahoo-finance2 の `defaultKeyStatistics.lastSplitDate` / `lastSplitFactor` で株式分割を検知する。
+
+#### ポジション自動調整
+
+分割当日にポジション情報を自動調整する。
+
+```
+調整対象:
+  entryPrice     = entryPrice / splitFactor
+  quantity       = quantity × splitFactor
+  stopLossPrice  = stopLossPrice / splitFactor
+  trailingStopPrice = trailingStopPrice / splitFactor（発動済みの場合）
+  entryAtr       = entryAtr / splitFactor
+```
+
+#### 異常値除外の修正
+
+`removeAnomalies()` で分割日のバーを異常値として除外しないよう修正する。分割日は前日比で大きな価格変動が発生するが、これは異常値ではなく正常なコーポレートアクションであるため、除外対象から除く。
+
+#### 監査証跡
+
+配当落ち日と同様に `CorporateEventLog` テーブルで調整記録を保存する。`eventType: "stock_split"` として記録し、調整前後の値を `adjustments` フィールドに保存する。
+
+### 値幅制限シミュレーション
+
+`src/lib/constants/price-limits.ts` にJPX値幅制限テーブルを実装する。
+
+#### バックテストでの適用
+
+バックテストで損切り判定時にストップ安チェックを追加する。
+
+- 損切り価格がストップ安価格を下回る場合、約定不可と判定
+- ストップ安張り付き時は翌営業日に持ち越し（翌日の寄り付きで約定を試行）
+- `--price-limits` フラグで有効化（デフォルト無効）
+
+```
+損切り判定フロー（--price-limits 有効時）:
+  1. low <= stopLossPrice → 損切りトリガー
+  2. 当日のストップ安価格を算出（前日終値ベース）
+  3. open <= ストップ安価格 → 約定不可（翌日持ち越し）
+  4. open > ストップ安価格 → 通常通り約定（open or stopLossPrice）
+```
+
+---
+
 ## ギャップダウン対応（シミュレーション精度向上）
 
 ### 概要

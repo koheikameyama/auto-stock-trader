@@ -16,6 +16,7 @@ export interface BacktestConfig {
   strategy: "day_trade" | "swing";
   trailingStopEnabled: boolean;
   costModelEnabled: boolean;
+  priceLimitEnabled: boolean;
   outputFile?: string;
   verbose: boolean;
 }
@@ -48,6 +49,7 @@ export interface SimulatedPosition {
   pnl: number | null;
   pnlPct: number | null;
   holdingDays: number | null;
+  limitLockDays: number;
   // 取引コスト関連
   entryCommission: number | null;
   exitCommission: number | null;

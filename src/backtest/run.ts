@@ -33,6 +33,7 @@ const { values } = parseArgs({
     "max-price": { type: "string", default: "1000" },
     strategy: { type: "string", default: "swing" },
     "no-costs": { type: "boolean", default: false },
+    "price-limits": { type: "boolean", default: false },
     sensitivity: { type: "boolean", default: false },
     output: { type: "string" },
     verbose: { type: "boolean", default: false },
@@ -60,6 +61,7 @@ function printHelp(): void {
   --max-price <yen>       即死ルール価格上限         デフォルト: 1000
   --strategy <type>       day_trade | swing          デフォルト: swing
   --no-costs              取引コストモデルを無効化
+  --price-limits          値幅制限シミュレーションを有効化
   --sensitivity           パラメータ感度分析を実行
   --output <path>         JSON結果を出力
   --verbose               詳細ログ
@@ -97,6 +99,7 @@ async function main(): Promise<void> {
     strategy: values.strategy === "day_trade" ? "day_trade" : "swing",
     trailingStopEnabled: true,
     costModelEnabled: !values["no-costs"],
+    priceLimitEnabled: values["price-limits"] ?? false,
     outputFile: values.output,
     verbose: values.verbose ?? false,
   };

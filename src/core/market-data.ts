@@ -272,9 +272,15 @@ export async function fetchHistoricalData(
 
 /**
  * 前日比が異常に大きいバーを除外する
- * 株式分割や配当落ちによる価格ジャンプを検出し、テクニカル指標の歪みを防ぐ
+ * テクニカル指標の歪みを防ぐが、株式分割日は正常な価格変動なのでスキップする
+ *
+ * @param bars OHLCVバー
+ * @param knownSplitDates 分割日のセット（"YYYY-MM-DD"形式）。該当日は除外しない
  */
-function removeAnomalies(bars: OHLCVBar[]): OHLCVBar[] {
+function removeAnomalies(
+  bars: OHLCVBar[],
+  knownSplitDates?: Set<string>,
+): OHLCVBar[] {
   if (bars.length < 2) return bars;
 
   // 日付昇順でソート（古い順）
@@ -289,6 +295,9 @@ function removeAnomalies(bars: OHLCVBar[]): OHLCVBar[] {
     const changePct = Math.abs(currClose - prevClose) / prevClose;
 
     if (changePct <= DATA_QUALITY.MAX_DAILY_CHANGE_PCT) {
+      result.push(sorted[i]);
+    } else if (knownSplitDates?.has(sorted[i].date)) {
+      // 株式分割日: 正常な価格変動なので除外しない
       result.push(sorted[i]);
     } else {
       console.warn(
@@ -343,32 +352,96 @@ export async function fetchMarketData(): Promise<MarketData> {
 }
 
 // ========================================
-// 決算日データ取得
+// コーポレートイベントデータ取得
 // ========================================
 
+export interface CorporateEvents {
+  nextEarningsDate: Date | null;
+  exDividendDate: Date | null;
+  dividendPerShare: number | null;
+  lastSplitFactor: string | null;
+  lastSplitDate: Date | null;
+}
+
 /**
- * 銘柄の次回決算発表日を取得（quoteSummary API使用）
- * 取得失敗時はnullを返す（即死ルール適用せず）
+ * 銘柄のコーポレートイベント情報を一括取得（quoteSummary API使用）
+ *
+ * 決算日・配当落ち日・株式分割情報を1回のAPI呼び出しで取得する。
+ * 取得失敗時はnullを返す（即死ルール適用せず）。
  */
-export async function fetchNextEarningsDate(
+export async function fetchCorporateEvents(
   tickerCode: string,
-): Promise<Date | null> {
+): Promise<CorporateEvents> {
+  const empty: CorporateEvents = {
+    nextEarningsDate: null,
+    exDividendDate: null,
+    dividendPerShare: null,
+    lastSplitFactor: null,
+    lastSplitDate: null,
+  };
   const symbol = normalizeTickerCode(tickerCode);
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result: any = await retry(
       () =>
-        yahooFinance.quoteSummary(symbol, { modules: ["calendarEvents"] }),
-      `earnings-${symbol}`,
+        yahooFinance.quoteSummary(symbol, {
+          modules: ["calendarEvents", "summaryDetail", "defaultKeyStatistics"],
+        }),
+      `corporate-events-${symbol}`,
     );
-    const dates = result.calendarEvents?.earnings?.earningsDate;
-    if (!dates || dates.length === 0) return null;
 
-    // 最も近い未来の日付を返す（複数候補がある場合）
-    const now = new Date();
-    const futureDates = dates.filter((d: Date) => d >= now);
-    return futureDates.length > 0 ? futureDates[0] : dates[dates.length - 1];
+    // 決算日
+    let nextEarningsDate: Date | null = null;
+    const dates = result.calendarEvents?.earnings?.earningsDate;
+    if (dates && dates.length > 0) {
+      const now = new Date();
+      const futureDates = dates.filter((d: Date) => d >= now);
+      nextEarningsDate =
+        futureDates.length > 0 ? futureDates[0] : dates[dates.length - 1];
+    }
+
+    // 配当落ち日
+    const exDividendDate: Date | null =
+      result.calendarEvents?.exDividendDate ??
+      result.summaryDetail?.exDividendDate ??
+      null;
+
+    // 1株あたり配当金額（年間配当を2で割る: 日本株は通常年2回）
+    const dividendRate = result.summaryDetail?.dividendRate ?? null;
+    const dividendPerShare =
+      dividendRate != null && Number.isFinite(dividendRate)
+        ? Math.round((dividendRate / 2) * 100) / 100
+        : null;
+
+    // 株式分割
+    const lastSplitFactor: string | null =
+      result.defaultKeyStatistics?.lastSplitFactor ?? null;
+    const lastSplitDateRaw = result.defaultKeyStatistics?.lastSplitDate ?? null;
+    const lastSplitDate: Date | null =
+      lastSplitDateRaw instanceof Date
+        ? lastSplitDateRaw
+        : typeof lastSplitDateRaw === "number"
+          ? new Date(lastSplitDateRaw * 1000)
+          : null;
+
+    return {
+      nextEarningsDate,
+      exDividendDate,
+      dividendPerShare,
+      lastSplitFactor,
+      lastSplitDate,
+    };
   } catch {
-    return null;
+    return empty;
   }
+}
+
+/**
+ * @deprecated fetchCorporateEvents() を使用してください
+ */
+export async function fetchNextEarningsDate(
+  tickerCode: string,
+): Promise<Date | null> {
+  const events = await fetchCorporateEvents(tickerCode);
+  return events.nextEarningsDate;
 }

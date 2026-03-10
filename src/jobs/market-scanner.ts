@@ -445,6 +445,7 @@ ${sectorText || "  特になし"}`;
                 latestPrice: Number(stock.latestPrice),
               },
               nextEarningsDate: stock.nextEarningsDate,
+              exDividendDate: stock.exDividendDate,
             });
 
             return {

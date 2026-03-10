@@ -50,8 +50,10 @@ export const SCORING = {
     MAX_PRICE: 1000,
     MAX_DAILY_SPREAD_PCT: 0.05,
     MAX_WEEKLY_VOLATILITY: 8,
-    EARNINGS_DAYS_BEFORE: 5,   // 決算前N日は即死
-    EARNINGS_DAYS_AFTER: 2,    // 決算後N日は即死
+    EARNINGS_DAYS_BEFORE: 5,       // 決算前N日は即死
+    EARNINGS_DAYS_AFTER: 2,        // 決算後N日は即死
+    EX_DIVIDEND_DAYS_BEFORE: 2,    // 配当落ち日前N日は即死
+    EX_DIVIDEND_DAYS_AFTER: 1,     // 配当落ち日後N日は即死
   },
 
   // 流動性閾値
