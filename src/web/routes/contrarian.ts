@@ -28,8 +28,15 @@ import {
 const app = new Hono();
 
 app.get("/", async (c) => {
-  const today = getTodayForDB();
   const since90 = getDaysAgoForDB(CONTRARIAN.LOOKBACK_DAYS);
+
+  // 最新のmarketAssessment日付を取得（休日・祝日でもデータがある日を表示）
+  const latestAssessment = await prisma.marketAssessment.findFirst({
+    orderBy: { date: "desc" },
+    select: { date: true },
+  });
+  const latestDate = latestAssessment?.date ?? getTodayForDB();
+  const latestDateLabel = dayjs(latestDate).format("M月D日");
 
   const [
     todayAssessment,
@@ -39,11 +46,11 @@ app.get("/", async (c) => {
     allHaltedRecords,
     todaySummary,
   ] = await Promise.all([
-    prisma.marketAssessment.findUnique({ where: { date: today } }),
-    // 今日の上昇確認銘柄: ghost-review 後に ghostProfitPct > 0 のもののみ表示
+    prisma.marketAssessment.findUnique({ where: { date: latestDate } }),
+    // 最新日の上昇確認銘柄: ghost-review 後に ghostProfitPct > 0 のもののみ表示
     prisma.scoringRecord.findMany({
       where: {
-        date: today,
+        date: latestDate,
         rejectionReason: "market_halted",
         entryPrice: { not: null },
         ghostProfitPct: { gt: 0 },
@@ -83,7 +90,7 @@ app.get("/", async (c) => {
         closingPrice: true,
       },
     }),
-    prisma.tradingDailySummary.findUnique({ where: { date: today } }),
+    prisma.tradingDailySummary.findUnique({ where: { date: latestDate } }),
   ]);
 
   // 傾向分析用: スコア80点以上で購入しなかった全銘柄（market_halted + ai_no_go + below_threshold）
@@ -380,8 +387,8 @@ app.get("/", async (c) => {
       : null;
 
   const content = html`
-    <!-- セクション0: 本日の判断整合性 -->
-    <p class="section-title">本日の判断整合性</p>
+    <!-- セクション0: 判断整合性 -->
+    <p class="section-title">${latestDateLabel}の判断整合性</p>
     ${audit == null
       ? html`<div class="card">
           ${emptyState("ゴーストレビュー後に更新されます（16:10 JST 以降）")}
@@ -489,7 +496,7 @@ app.get("/", async (c) => {
         `
       : html`<div class="card">
           ${emptyState(
-            "本日の上昇確認銘柄はありません（ゴーストレビュー後に更新されます）",
+            `${latestDateLabel}の上昇確認銘柄はありません（ゴーストレビュー後に更新されます）`,
           )}
         </div>`}
 

@@ -6,7 +6,6 @@ import { Hono } from "hono";
 import { html } from "hono/html";
 import dayjs from "dayjs";
 import { prisma } from "../../lib/prisma";
-import { getStartOfDayJST } from "../../lib/date-utils";
 import { QUERY_LIMITS } from "../../lib/constants";
 import { layout } from "../views/layout";
 import {
@@ -23,9 +22,7 @@ const app = new Hono();
 app.get("/", async (c) => {
 
 
-  const todayStart = getStartOfDayJST();
-
-  const [pendingOrders, todayOrders] = await Promise.all([
+  const [pendingOrders, recentOrders] = await Promise.all([
     prisma.tradingOrder.findMany({
       where: { status: "pending" },
       include: { stock: true },
@@ -34,13 +31,16 @@ app.get("/", async (c) => {
     prisma.tradingOrder.findMany({
       where: {
         status: { not: "pending" },
-        updatedAt: { gte: todayStart },
       },
       include: { stock: true },
       orderBy: { updatedAt: "desc" },
       take: QUERY_LIMITS.ORDERS_TODAY,
     }),
   ]);
+
+  const latestOrderDate = recentOrders.length > 0
+    ? dayjs(recentOrders[0].updatedAt).format("M月D日")
+    : dayjs().format("M月D日");
 
   const content = html`
     <p class="section-title">待機中の注文 (${pendingOrders.length})</p>
@@ -87,8 +87,8 @@ app.get("/", async (c) => {
         `
       : html`<div class="card">${emptyState("待機中の注文なし")}</div>`}
 
-    <p class="section-title">本日の注文履歴</p>
-    ${todayOrders.length > 0
+    <p class="section-title">${latestOrderDate}の注文履歴</p>
+    ${recentOrders.length > 0
       ? html`
           <div class="card table-wrap">
             <table>
@@ -102,7 +102,7 @@ app.get("/", async (c) => {
                 </tr>
               </thead>
               <tbody>
-                ${todayOrders.map(
+                ${recentOrders.map(
                   (o) => html`
                     <tr>
                       <td>${tickerLink(o.stock?.tickerCode ?? o.stockId, o.stock?.name ?? o.stockId)}</td>
@@ -121,7 +121,7 @@ app.get("/", async (c) => {
             </table>
           </div>
         `
-      : html`<div class="card">${emptyState("本日の注文履歴なし")}</div>`}
+      : html`<div class="card">${emptyState(`${latestOrderDate}の注文履歴なし`)}</div>`}
   `;
 
   return c.html(layout("注文", "/orders", content));
