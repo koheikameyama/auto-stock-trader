@@ -575,10 +575,21 @@ relativeStrength = セクター平均weekChangeRate - 日経weekChangeRate
   ↓ S/A/Bランク抽出
 レジームフィルタ（VIX水準によるランク制限）
   ↓
+日経平均キルスイッチ（前日比 ≤ -3% で全取引停止・全決済）
+  ↓
 セクターモメンタムフィルタ（弱セクター除外） ← ここ
   ↓
 AIレビュー（Go/No-Go）
 ```
+
+### 日経平均キルスイッチ
+
+VIXは米国市場の指標であり、日本株の急落をリアルタイムに反映しきれない。日経平均の前日比が -3% 以下の場合、VIXレジームに関わらず **Crisisモード（全取引停止＋全ポジション即時決済）** に移行する。
+
+- **閾値**: `MARKET_INDEX.NIKKEI_CRISIS_THRESHOLD`（-3%）
+- **判定タイミング**: VIXレジーム判定の直後、ドローダウンチェックの前（market-scanner ステップ 1.8.5）
+- **動作**: `sentiment: "crisis"`, `shouldTrade: false` を MarketAssessment に保存 → position-monitor がディフェンシブモード（全決済）を実行
+- **実装**: `src/jobs/market-scanner.ts`
 
 ### 実装ファイル
 
