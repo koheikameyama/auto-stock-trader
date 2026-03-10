@@ -2,8 +2,8 @@
  * スコアリング・損切り検証の定数
  *
  * 4カテゴリ100点満点:
- * - テクニカル指標: 35点
- * - チャート・ローソク足パターン: 25点
+ * - テクニカル指標: 40点
+ * - チャート・ローソク足パターン: 20点
  * - 流動性: 25点
  * - ファンダメンタルズ: 15点
  */
@@ -11,21 +11,22 @@
 export const SCORING = {
   // カテゴリ配点
   CATEGORY_MAX: {
-    TECHNICAL: 35,
-    PATTERN: 25,
+    TECHNICAL: 40,
+    PATTERN: 20,
     LIQUIDITY: 25,
     FUNDAMENTAL: 15,
   },
 
   // サブ項目配点
   SUB_MAX: {
-    // テクニカル (35点)
-    RSI: 13,
-    MA: 13,
-    VOLUME_CHANGE: 9,
-    // パターン (25点)
-    CHART_PATTERN: 18,
-    CANDLESTICK: 7,
+    // テクニカル (40点)
+    RSI: 10,
+    MA: 15,
+    VOLUME_CHANGE: 10,
+    MACD: 5,
+    // パターン (20点)
+    CHART_PATTERN: 14,
+    CANDLESTICK: 6,
     // 流動性 (25点)
     TRADING_VALUE: 10,
     SPREAD_PROXY: 8,
