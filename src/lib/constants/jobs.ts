@@ -45,8 +45,8 @@ export const TRAILING_STOP = {
 // ディフェンシブモード（市場環境悪化時のポジション防衛）
 export const DEFENSIVE_MODE = {
   ENABLED_SENTIMENTS: ["bearish", "crisis"] as readonly string[],
-  // 微益撤退の最低利益率（%）— 手数料・スリッページを考慮
-  MIN_PROFIT_PCT_FOR_RETREAT: 0.3,
+  // 微益撤退の最低利益率（%）— 損小利大を維持するため手数料以上の利益を確保
+  MIN_PROFIT_PCT_FOR_RETREAT: 1.0,
 } as const;
 
 // 昼休み再評価
