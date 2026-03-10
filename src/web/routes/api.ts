@@ -91,7 +91,11 @@ app.get("/stock/:tickerCode", async (c) => {
     where: { tickerCode: c.req.param("tickerCode") },
   });
   if (!stock) return c.json({ error: "not found" }, 404);
-  return c.json(stock);
+  // BigInt (latestVolume) は JSON.stringify できないため変換
+  return c.json({
+    ...stock,
+    latestVolume: stock.latestVolume != null ? String(stock.latestVolume) : null,
+  });
 });
 
 /**

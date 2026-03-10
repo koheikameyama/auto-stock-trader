@@ -184,7 +184,10 @@ export function layout(
             var modal = document.getElementById('stock-modal');
             modal.innerHTML = '<div class="modal-overlay" onclick="if(event.target===this)closeStockModal()"><div class="modal-content"><div class="modal-loading">読み込み中...</div></div></div>';
             fetch('/api/stock/' + encodeURIComponent(tickerCode))
-              .then(function(r) { return r.json(); })
+              .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+              })
               .then(function(s) {
                 if (s.error) { closeStockModal(); return; }
                 var fmt = function(v, suffix) { return v != null ? v + (suffix || '') : '-'; };
@@ -238,7 +241,11 @@ export function layout(
                   + '</div></div></div>';
                 modal.innerHTML = h;
               })
-              .catch(function() { closeStockModal(); });
+              .catch(function(e) {
+                console.error('Stock modal error:', e);
+                var modal = document.getElementById('stock-modal');
+                modal.innerHTML = '<div class="modal-overlay" onclick="if(event.target===this)closeStockModal()"><div class="modal-content"><div class="modal-loading">データ取得に失敗しました</div></div></div>';
+              });
           }
 
           function closeStockModal() {
