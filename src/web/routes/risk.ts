@@ -7,7 +7,7 @@
 import { Hono } from "hono";
 import { html } from "hono/html";
 import { prisma } from "../../lib/prisma";
-import { determineMarketRegime } from "../../core/market-regime";
+import { determineMarketRegime, determineMarketRegimeFromVix } from "../../core/market-regime";
 import { calculateDrawdownStatus } from "../../core/drawdown-manager";
 import {
   getSectorConcentration,
@@ -34,9 +34,14 @@ app.get("/", async (c) => {
     getSectorConcentration(),
   ]);
 
-  // Market regime from latest VIX
+  // Market regime from latest 日経VI (fallback to VIX)
+  const nikkeiVi = assessment?.nikkeiVi ? Number(assessment.nikkeiVi) : null;
   const vix = assessment?.vix ? Number(assessment.vix) : null;
-  const regime = vix !== null ? determineMarketRegime(vix) : null;
+  const regime = nikkeiVi !== null
+    ? determineMarketRegime(nikkeiVi)
+    : vix !== null
+      ? determineMarketRegimeFromVix(vix)
+      : null;
 
   // Sector momentum (use nikkeiChange from assessment as proxy for week change)
   const nikkeiWeekChange = assessment?.nikkeiChange
@@ -58,7 +63,7 @@ app.get("/", async (c) => {
             >
               ${regimeBadge(regime.level)}
               <span style="font-size:13px;color:#94a3b8">
-                ${tt("VIX", "恐怖指数。高いほど市場の不安が大きい（30超で危機）")}: ${regime.vix.toFixed(1)}
+                ${tt("日経VI", "日本版恐怖指数。高いほど市場の不安が大きい（40超で危機）")}: ${regime.nikkeiVi.toFixed(1)}
               </span>
             </div>
             ${detailRow("最大ポジション数", `${regime.maxPositions}`)}
@@ -74,7 +79,7 @@ app.get("/", async (c) => {
               <div class="review-text">${regime.reason}</div>
             </details>
           `
-        : emptyState("VIXデータなし")}
+        : emptyState("日経VIデータなし")}
     </div>
 
     <!-- Drawdown Status -->

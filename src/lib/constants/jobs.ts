@@ -30,7 +30,7 @@ export const TRAILING_STOP = {
   // アクティベーション閾値（エントリー価格からATR×N上昇で発動）
   ACTIVATION_ATR_MULTIPLIER: {
     day_trade: 0.5,
-    swing: 0.5,   // 0.75 → 0.5（より早く発動）
+    swing: 1.0,   // 0.5 → 1.0（ATR1本分の上昇で発動、ノイズ耐性向上）
   },
   // トレール幅（最高値 - ATR×N がストップライン）
   TRAIL_ATR_MULTIPLIER: {

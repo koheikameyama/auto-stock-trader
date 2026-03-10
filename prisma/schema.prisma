@@ -96,6 +96,7 @@ model MarketAssessment {
   nikkeiChange    Decimal? @db.Decimal(8, 4) // 前日比%
   sp500Change     Decimal? @db.Decimal(8, 4)
   vix             Decimal? @db.Decimal(8, 2)
+  nikkeiVi        Decimal? @db.Decimal(8, 2)
   usdjpy          Decimal? @db.Decimal(8, 4)
   cmeFuturesPrice Decimal? @db.Decimal(10, 2)
   sentiment       String // bullish / neutral / bearish / crisis
@@ -112,6 +113,7 @@ model MarketAssessment {
   middayNikkeiPrice  Decimal?  @db.Decimal(10, 2)
   middayNikkeiChange Decimal?  @db.Decimal(8, 4)
   middayVix          Decimal?  @db.Decimal(8, 2)
+  middayNikkeiVi     Decimal?  @db.Decimal(8, 2)
 
   createdAt DateTime @default(now())
 

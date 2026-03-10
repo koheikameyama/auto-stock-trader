@@ -36,7 +36,8 @@ export interface MarketDataInput {
   nikkeiPrice: number;
   nikkeiChange: number;
   sp500Change: number;
-  vix: number;
+  nikkeiVi: number;
+  vix: number; // 補助指標（グローバルリスク参考）
   usdJpy: number;
   cmeFuturesPrice: number;
   cmeFuturesChange: number;
@@ -111,7 +112,8 @@ export async function assessMarket(
 【市場指標】
 - 日経225: ${data.nikkeiPrice.toLocaleString()}円（前日比: ${data.nikkeiChange >= 0 ? "+" : ""}${data.nikkeiChange.toFixed(2)}%）
 - S&P500 前日比: ${data.sp500Change >= 0 ? "+" : ""}${data.sp500Change.toFixed(2)}%
-- VIX: ${data.vix.toFixed(2)}
+- 日経VI: ${data.nikkeiVi.toFixed(2)}
+- VIX: ${data.vix.toFixed(2)}（参考）
 - USD/JPY: ${data.usdJpy.toFixed(2)}
 - CME日経先物: ${data.cmeFuturesPrice.toLocaleString()}円（前日比: ${data.cmeFuturesChange >= 0 ? "+" : ""}${data.cmeFuturesChange.toFixed(2)}%）`;
 
@@ -271,10 +273,10 @@ export interface MiddayReassessmentInput {
   morningSentiment: string;
   morningReasoning: string;
   morningNikkeiPrice: number;
-  morningVix: number;
+  morningNikkeiVi: number;
   currentNikkeiPrice: number;
   currentNikkeiChange: number;
-  currentVix: number;
+  currentNikkeiVi: number;
   currentSp500Change: number;
   currentUsdJpy: number;
   newsSummary?: string; // 最新ニュース分析サマリー
@@ -311,11 +313,11 @@ export async function reassessMarketMidday(
 - センチメント: ${data.morningSentiment}
 - 理由: ${data.morningReasoning}
 - 日経225（朝時点）: ${data.morningNikkeiPrice.toLocaleString()}円
-- VIX（朝時点）: ${data.morningVix.toFixed(2)}
+- 日経VI（朝時点）: ${data.morningNikkeiVi.toFixed(2)}
 
 【前場終了時点の市場データ】
 - 日経225: ${data.currentNikkeiPrice.toLocaleString()}円（朝比: ${morningSessionChange >= 0 ? "+" : ""}${morningSessionChange.toFixed(2)}%、前日比: ${data.currentNikkeiChange >= 0 ? "+" : ""}${data.currentNikkeiChange.toFixed(2)}%）
-- VIX: ${data.currentVix.toFixed(2)}（朝比: ${data.currentVix > data.morningVix ? "上昇" : data.currentVix < data.morningVix ? "低下" : "横ばい"}）
+- 日経VI: ${data.currentNikkeiVi.toFixed(2)}（朝比: ${data.currentNikkeiVi > data.morningNikkeiVi ? "上昇" : data.currentNikkeiVi < data.morningNikkeiVi ? "低下" : "横ばい"}）
 - S&P500 前日比: ${data.currentSp500Change >= 0 ? "+" : ""}${data.currentSp500Change.toFixed(2)}%
 - USD/JPY: ${data.currentUsdJpy.toFixed(2)}
 ${additionalContext}

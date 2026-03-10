@@ -18,6 +18,7 @@ export interface TrailingStopInput {
   originalTakeProfit: number;
   entryAtr: number | null;
   strategy: "day_trade" | "swing";
+  activationMultiplierOverride?: number;
 }
 
 export interface TrailingStopResult {
@@ -48,11 +49,14 @@ export function calculateTrailingStop(
     originalTakeProfit,
     entryAtr,
     strategy,
+    activationMultiplierOverride,
   } = input;
 
   // 1. アクティベーション閾値を算出
+  const activationMultiplier =
+    activationMultiplierOverride ?? TRAILING_STOP.ACTIVATION_ATR_MULTIPLIER[strategy];
   const activationPrice = entryAtr
-    ? entryPrice + entryAtr * TRAILING_STOP.ACTIVATION_ATR_MULTIPLIER[strategy]
+    ? entryPrice + entryAtr * activationMultiplier
     : entryPrice * (1 + TRAILING_STOP.ACTIVATION_PCT[strategy]);
 
   // 2. 未発動チェック

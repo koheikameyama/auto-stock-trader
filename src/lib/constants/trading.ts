@@ -73,11 +73,24 @@ export const FUTURES_DIVERGENCE = {
   STRONG_BEARISH_THRESHOLD: -1.0,
 } as const;
 
-// VIX閾値
+// 日経VI閾値（VIXより5-10pt高めに推移するため閾値を調整）
+export const NIKKEI_VI_THRESHOLDS = {
+  HIGH: 40, // Crisis: > 40（VIX相当: > 30）
+  ELEVATED: 30, // High: 30-40（VIX相当: 25-30）
+  NORMAL: 25, // Elevated: 25-30（VIX相当: 20-25）
+} as const;
+
+// VIX閾値（日経VI取得不可時のフォールバック用）
 export const VIX_THRESHOLDS = {
   HIGH: 30,
   ELEVATED: 25,
   NORMAL: 20,
+} as const;
+
+// CMEナイトセッション乖離率閾値
+export const CME_NIGHT_DIVERGENCE = {
+  CRITICAL: -3.0, // crisis（取引停止、前場でギャップダウン必至）
+  WARNING: -1.5, // elevated以上に引き上げ（警戒モード）
 } as const;
 
 // ========================================
@@ -186,27 +199,27 @@ export const DRAWDOWN = {
 } as const;
 
 // ========================================
-// マーケットレジーム（VIXベース）
+// マーケットレジーム（日経VIベース）
 // ========================================
 
 export const MARKET_REGIME = {
   CRISIS: {
-    // VIX > 30
+    // 日経VI > 40
     maxPositions: 0, // 取引停止
     minRank: null as null, // N/A
   },
   HIGH: {
-    // VIX 25-30
+    // 日経VI 30-40
     maxPositions: 1,
     minRank: "S" as const, // Sランクのみ
   },
   ELEVATED: {
-    // VIX 20-25
+    // 日経VI 25-30
     maxPositions: 2,
     minRank: "A" as const, // S/Aランク
   },
   NORMAL: {
-    // VIX < 20
+    // 日経VI < 25
     maxPositions: 3, // 制限なし（TradingConfig準拠）
     minRank: "B" as const, // S/A/Bランク（通常通り）
   },

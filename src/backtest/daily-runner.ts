@@ -10,7 +10,7 @@
 import dayjs from "dayjs";
 import { prisma } from "../lib/prisma";
 import { DAILY_BACKTEST, type BudgetTier } from "../lib/constants";
-import { fetchMultipleBacktestData, fetchVixData } from "./data-fetcher";
+import { fetchMultipleBacktestData, fetchNikkeiViData } from "./data-fetcher";
 import { runBacktest } from "./simulation-engine";
 import type { BacktestConfig, PerformanceMetrics } from "./types";
 
@@ -147,10 +147,10 @@ export async function runDailyBacktest(): Promise<DailyBacktestRunResult> {
 
   // 3. データ一括取得（全ティア共通）
   const fetchStart = Date.now();
-  const [allData, vixData] = await Promise.all([
+  const [allData, nikkeiViData] = await Promise.all([
     fetchMultipleBacktestData(allTickers, startDate, endDate),
-    fetchVixData(startDate, endDate).catch((err) => {
-      console.warn("[daily-backtest] VIXデータ取得失敗（レジーム集計なし）:", err);
+    fetchNikkeiViData(startDate, endDate).catch((err: unknown) => {
+      console.warn("[daily-backtest] 日経VIデータ取得失敗（レジーム集計なし）:", err);
       return new Map<string, number>();
     }),
   ]);
@@ -161,7 +161,7 @@ export async function runDailyBacktest(): Promise<DailyBacktestRunResult> {
   }
 
   console.log(
-    `[daily-backtest] データ取得完了: ${allData.size}銘柄 VIX${vixData.size}件 (${(dataFetchTimeMs / 1000).toFixed(1)}秒)`,
+    `[daily-backtest] データ取得完了: ${allData.size}銘柄 日経VI${nikkeiViData.size}件 (${(dataFetchTimeMs / 1000).toFixed(1)}秒)`,
   );
 
   // 4. 各ティアでシミュレーション実行
@@ -182,6 +182,7 @@ export async function runDailyBacktest(): Promise<DailyBacktestRunResult> {
       takeProfitRatio: DEFAULT_PARAMS.takeProfitRatio,
       stopLossRatio: DEFAULT_PARAMS.stopLossRatio,
       atrMultiplier: DEFAULT_PARAMS.atrMultiplier,
+      trailingActivationMultiplier: DEFAULT_PARAMS.trailingActivationMultiplier,
       strategy: DEFAULT_PARAMS.strategy,
       trailingStopEnabled: DEFAULT_PARAMS.trailingStopEnabled,
       costModelEnabled: true,
@@ -191,7 +192,7 @@ export async function runDailyBacktest(): Promise<DailyBacktestRunResult> {
     };
 
     console.log(`[daily-backtest] ${tier.label}ティア シミュレーション中...`);
-    const result = runBacktest(config, allData, vixData, candidateMap);
+    const result = runBacktest(config, allData, nikkeiViData, candidateMap);
 
     tierResults.push({
       tier,

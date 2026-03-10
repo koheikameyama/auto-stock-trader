@@ -10,13 +10,14 @@ import type { BacktestConfig, SensitivityResult } from "./types";
 import { runBacktest } from "./simulation-engine";
 
 const SENSITIVITY_PARAMS: Record<
-  keyof Pick<BacktestConfig, "scoreThreshold" | "takeProfitRatio" | "stopLossRatio" | "atrMultiplier">,
+  keyof Pick<BacktestConfig, "scoreThreshold" | "takeProfitRatio" | "stopLossRatio" | "atrMultiplier" | "trailingActivationMultiplier">,
   number[]
 > = {
   scoreThreshold: [60, 65, 70, 75, 80],
   takeProfitRatio: [1.015, 1.02, 1.025, 1.03, 1.04, 1.05],
   stopLossRatio: [0.975, 0.98, 0.985, 0.99],
   atrMultiplier: [0.5, 0.8, 1.0, 1.2, 1.5],
+  trailingActivationMultiplier: [0.5, 0.8, 1.0, 1.2, 1.5],
 };
 
 const PARAM_LABELS: Record<string, string> = {
@@ -24,12 +25,13 @@ const PARAM_LABELS: Record<string, string> = {
   takeProfitRatio: "利確比率",
   stopLossRatio: "損切比率",
   atrMultiplier: "ATR倍率",
+  trailingActivationMultiplier: "TS起動ATR倍率",
 };
 
 export function runSensitivityAnalysis(
   baseConfig: BacktestConfig,
   allData: Map<string, OHLCVData[]>,
-  vixData?: Map<string, number>,
+  nikkeiViData?: Map<string, number>,
 ): SensitivityResult[] {
   const results: SensitivityResult[] = [];
   const totalRuns = Object.values(SENSITIVITY_PARAMS).reduce((s, v) => s + v.length, 0);
@@ -42,7 +44,7 @@ export function runSensitivityAnalysis(
       console.log(`  [${current}/${totalRuns}] ${label}=${value}`);
 
       const config = { ...baseConfig, [param]: value, verbose: false };
-      const result = runBacktest(config, allData, vixData);
+      const result = runBacktest(config, allData, nikkeiViData);
 
       results.push({
         parameter: label,

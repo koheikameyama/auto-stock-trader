@@ -9,7 +9,7 @@
 
 import { parseArgs } from "node:util";
 import dayjs from "dayjs";
-import { fetchMultipleBacktestData, fetchVixData } from "./data-fetcher";
+import { fetchMultipleBacktestData, fetchNikkeiViData } from "./data-fetcher";
 import { runBacktest } from "./simulation-engine";
 import { runSensitivityAnalysis } from "./sensitivity";
 import {
@@ -30,6 +30,7 @@ const { values } = parseArgs({
     "tp-ratio": { type: "string", default: "1.03" },
     "sl-ratio": { type: "string", default: "0.98" },
     "atr-multiplier": { type: "string", default: "1.0" },
+    "trailing-activation": { type: "string", default: "1.0" },
     "max-price": { type: "string", default: "1000" },
     strategy: { type: "string", default: "swing" },
     "no-costs": { type: "boolean", default: false },
@@ -58,7 +59,8 @@ function printHelp(): void {
   --score-threshold <n>   スコア閾値                 デフォルト: 65
   --tp-ratio <n>          利確比率                   デフォルト: 1.03
   --sl-ratio <n>          損切比率                   デフォルト: 0.98
-  --atr-multiplier <n>    ATR倍率                    デフォルト: 1.0
+  --atr-multiplier <n>    ATR倍率（損切り）           デフォルト: 1.0
+  --trailing-activation <n> TS起動ATR倍率            デフォルト: 1.0
   --max-price <yen>       即死ルール価格上限         デフォルト: 1000
   --strategy <type>       day_trade | swing          デフォルト: swing
   --no-costs              取引コストモデルを無効化
@@ -97,6 +99,7 @@ async function main(): Promise<void> {
     takeProfitRatio: Number(values["tp-ratio"]),
     stopLossRatio: Number(values["sl-ratio"]),
     atrMultiplier: Number(values["atr-multiplier"]),
+    trailingActivationMultiplier: Number(values["trailing-activation"]),
     maxPrice: Number(values["max-price"]),
     strategy: values.strategy === "day_trade" ? "day_trade" : "swing",
     trailingStopEnabled: true,
@@ -110,11 +113,11 @@ async function main(): Promise<void> {
   console.log("[backtest] 開始");
   const startTime = Date.now();
 
-  // 1. データ取得（VIXを並行取得）
-  const [allData, vixData] = await Promise.all([
+  // 1. データ取得（日経VIを並行取得）
+  const [allData, nikkeiViData] = await Promise.all([
     fetchMultipleBacktestData(tickers, config.startDate, config.endDate),
-    fetchVixData(config.startDate, config.endDate).catch((err) => {
-      console.warn("[backtest] VIXデータ取得失敗（crisis halt なし）:", err);
+    fetchNikkeiViData(config.startDate, config.endDate).catch((err) => {
+      console.warn("[backtest] 日経VIデータ取得失敗（crisis halt なし）:", err);
       return new Map<string, number>();
     }),
   ]);
@@ -126,7 +129,7 @@ async function main(): Promise<void> {
 
   // 2. バックテスト実行
   console.log("[backtest] シミュレーション実行中...");
-  const result = runBacktest(config, allData, vixData);
+  const result = runBacktest(config, allData, nikkeiViData);
 
   // 3. 結果表示
   printBacktestReport(result);
@@ -135,7 +138,7 @@ async function main(): Promise<void> {
   let sensitivityResults = null;
   if (values.sensitivity) {
     console.log("[backtest] パラメータ感度分析...");
-    sensitivityResults = runSensitivityAnalysis(config, allData, vixData);
+    sensitivityResults = runSensitivityAnalysis(config, allData, nikkeiViData);
     printSensitivityReport(sensitivityResults);
   }
 

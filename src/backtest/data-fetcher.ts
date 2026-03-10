@@ -69,32 +69,64 @@ export async function fetchBacktestData(
 }
 
 /**
- * VIX（CBOE Volatility Index）の過去データを取得
- * @returns date -> VIX終値 のMap
+ * 日経VI（日経平均ボラティリティー・インデックス）の過去データを取得
+ * 取得できない場合はVIXデータ × 1.3 で日経VIを近似する
+ * @returns date -> 日経VI終値 のMap
  */
-export async function fetchVixData(
+export async function fetchNikkeiViData(
   startDate: string,
   endDate: string,
 ): Promise<Map<string, number>> {
+  const period1 = dayjs(startDate).subtract(LOOKBACK_CALENDAR_DAYS, "day").toDate();
+  const period2 = dayjs(endDate).add(1, "day").toDate();
+
+  // 日経VIを試行
+  try {
+    const result = await retry(
+      () =>
+        yahooFinance.chart("^JNV", {
+          period1,
+          period2,
+          interval: "1d",
+        }),
+      "^JNV",
+    );
+
+    const nikkeiViMap = new Map<string, number>();
+    for (const bar of result.quotes) {
+      if (bar.close != null) {
+        nikkeiViMap.set(dayjs(bar.date).format("YYYY-MM-DD"), bar.close);
+      }
+    }
+
+    if (nikkeiViMap.size > 0) {
+      console.log(`[backtest] 日経VIデータ取得完了: ${nikkeiViMap.size}件`);
+      return nikkeiViMap;
+    }
+  } catch {
+    console.warn("[backtest] 日経VI (^JNV) 取得失敗。VIXデータでフォールバック");
+  }
+
+  // フォールバック: VIXデータ × 1.3 で日経VIを近似
   const result = await retry(
     () =>
       yahooFinance.chart("^VIX", {
-        period1: dayjs(startDate).subtract(LOOKBACK_CALENDAR_DAYS, "day").toDate(),
-        period2: dayjs(endDate).add(1, "day").toDate(),
+        period1,
+        period2,
         interval: "1d",
       }),
-    "^VIX",
+    "^VIX (fallback)",
   );
 
-  const vixMap = new Map<string, number>();
+  const nikkeiViMap = new Map<string, number>();
   for (const bar of result.quotes) {
     if (bar.close != null) {
-      vixMap.set(dayjs(bar.date).format("YYYY-MM-DD"), bar.close);
+      nikkeiViMap.set(dayjs(bar.date).format("YYYY-MM-DD"), bar.close * 1.3);
     }
   }
 
-  console.log(`[backtest] VIXデータ取得完了: ${vixMap.size}件`);
-  return vixMap;
+  console.log(`[backtest] 日経VIデータ取得完了（VIX×1.3近似）: ${nikkeiViMap.size}件`);
+  return nikkeiViMap;
 }
 
 /**

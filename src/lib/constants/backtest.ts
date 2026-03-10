@@ -28,6 +28,7 @@ export const DAILY_BACKTEST = {
     takeProfitRatio: 1.05,
     stopLossRatio: 0.98,
     atrMultiplier: 1.0,
+    trailingActivationMultiplier: 1.0,
     strategy: "swing" as const,
     trailingStopEnabled: true,
   },

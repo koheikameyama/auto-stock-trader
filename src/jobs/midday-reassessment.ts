@@ -51,7 +51,7 @@ export async function main() {
   console.log("[1/6] 市場指標データ再取得中...");
   const marketData = await fetchMarketData();
 
-  if (!marketData.nikkei || !marketData.vix) {
+  if (!marketData.nikkei || (!marketData.nikkeiVi && !marketData.vix)) {
     console.error("市場データの取得に失敗しました");
     await notifyRiskAlert({
       type: "昼休み再評価エラー",
@@ -126,16 +126,22 @@ ${sectorText || "  特になし"}`;
   const morningNikkeiPrice = assessment.nikkeiPrice
     ? Number(assessment.nikkeiPrice)
     : 0;
-  const morningVix = assessment.vix ? Number(assessment.vix) : 0;
+  const morningNikkeiVi = assessment.nikkeiVi
+    ? Number(assessment.nikkeiVi)
+    : assessment.vix
+      ? Number(assessment.vix)
+      : 0;
+
+  const currentNikkeiVi = marketData.nikkeiVi?.price ?? marketData.vix?.price ?? 0;
 
   const result = await reassessMarketMidday({
     morningSentiment: assessment.sentiment,
     morningReasoning: assessment.reasoning,
     morningNikkeiPrice,
-    morningVix,
+    morningNikkeiVi,
     currentNikkeiPrice: marketData.nikkei.price,
     currentNikkeiChange: marketData.nikkei.changePercent,
-    currentVix: marketData.vix.price,
+    currentNikkeiVi,
     currentSp500Change: marketData.sp500?.changePercent ?? 0,
     currentUsdJpy: marketData.usdjpy?.price ?? 0,
     newsSummary,
@@ -157,7 +163,8 @@ ${sectorText || "  特になし"}`;
     middayReassessedAt: new Date(),
     middayNikkeiPrice: marketData.nikkei.price,
     middayNikkeiChange: marketData.nikkei.changePercent,
-    middayVix: marketData.vix.price,
+    middayVix: marketData.vix?.price,
+    middayNikkeiVi: marketData.nikkeiVi?.price,
   };
 
   if (sentimentWorsened) {

@@ -20,6 +20,7 @@ export function printBacktestReport(result: BacktestResult): void {
   console.log(`  TP: ${((config.takeProfitRatio - 1) * 100).toFixed(1)}%`);
   console.log(`  SL: ${((1 - config.stopLossRatio) * 100).toFixed(1)}%`);
   console.log(`  ATR倍率: ${config.atrMultiplier}`);
+  console.log(`  TS起動ATR倍率: ${config.trailingActivationMultiplier}`);
   console.log(`  価格上限: ¥${config.maxPrice.toLocaleString()}`);
   console.log("");
 

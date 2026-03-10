@@ -59,6 +59,7 @@ export interface MarketData {
   nikkei: IndexQuote | null;
   sp500: IndexQuote | null;
   vix: IndexQuote | null;
+  nikkeiVi: IndexQuote | null;
   usdjpy: IndexQuote | null;
   cmeFutures: IndexQuote | null;
 }
@@ -71,6 +72,7 @@ const MARKET_SYMBOLS = {
   NIKKEI: "^N225",
   SP500: "^GSPC",
   VIX: "^VIX",
+  NIKKEI_VI: "^JNV",
   USDJPY: "JPY=X",
   CME_FUTURES: "NKD=F",
 } as const;
@@ -340,15 +342,16 @@ async function fetchIndexQuote(symbol: string): Promise<IndexQuote | null> {
  * 市場指標データを一括取得
  */
 export async function fetchMarketData(): Promise<MarketData> {
-  const [nikkei, sp500, vix, usdjpy, cmeFutures] = await Promise.all([
+  const [nikkei, sp500, vix, nikkeiVi, usdjpy, cmeFutures] = await Promise.all([
     fetchIndexQuote(MARKET_SYMBOLS.NIKKEI),
     fetchIndexQuote(MARKET_SYMBOLS.SP500),
     fetchIndexQuote(MARKET_SYMBOLS.VIX),
+    fetchIndexQuote(MARKET_SYMBOLS.NIKKEI_VI),
     fetchIndexQuote(MARKET_SYMBOLS.USDJPY),
     fetchIndexQuote(MARKET_SYMBOLS.CME_FUTURES),
   ]);
 
-  return { nikkei, sp500, vix, usdjpy, cmeFutures };
+  return { nikkei, sp500, vix, nikkeiVi, usdjpy, cmeFutures };
 }
 
 // ========================================
