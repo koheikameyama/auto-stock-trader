@@ -266,21 +266,25 @@ src/web/routes/backtest.ts       -- ダッシュボードページ
 
 価格上限 = 初期資金 ÷ 100（日本株の最低売買単位=100株で1ロット買える価格上限）。
 
-### 銘柄選定ロジック
+### 銘柄選定ロジック（生存者バイアス除去）
 
-1. ScoringRecordから直近30日のS/Aランク銘柄をdistinctで取得
-2. 5件未満ならBランクも含める
-3. ScoringRecordが空の場合、Stockテーブルから出来高上位50銘柄を取得
+シミュレーション内の各日付Tに「その日のScoringRecordでS/Aだった銘柄」のみを候補とする。これにより「今の視点で優秀と判明した銘柄の過去を検証する」生存者バイアスを除去。
+
+1. ScoringRecordの最古日〜今日の全S/Aランクレコードを一括取得
+2. `Map<date, tickerCode[]>` を構築（日付別候補マップ）
+3. 各日付でSランク銘柄が5件未満ならS+Aランクで補完
+4. シミュレーション内で各日付の候補マップから銘柄を参照
+5. ScoringRecordが空の場合、Stockテーブルから出来高上位50銘柄でフォールバック
 
 ### バックテスト期間
 
-ローリング6ヶ月。当日から6ヶ月前まで。
+ScoringRecordの蓄積量に基づく動的期間。最古のScoringRecord日付〜当日。ScoringRecordが空の場合はフォールバックとして6ヶ月。
 
 ### 実行フロー
 
-1. 銘柄選定（`selectTickers()`）
-2. Yahoo Financeからデータを**1回だけ**一括取得
-3. 4つの資金帯それぞれで`runBacktest()`を実行
+1. 日付別候補銘柄マップを構築（`buildCandidateMap()`）
+2. Yahoo Financeからデータを**1回だけ**一括取得（全ユニーク銘柄分）
+3. 4つの資金帯それぞれで`runBacktest()`を実行（candidateMapを渡す）
 4. 結果をDB保存（`BacktestDailyResult`テーブルにupsert、`@@unique([date, budgetTier])`で冪等）
 5. Slack通知
 
