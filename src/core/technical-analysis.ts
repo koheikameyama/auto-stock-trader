@@ -343,14 +343,14 @@ export function formatScoreForAI(
   );
 
   // パターン（25点）
-  lines.push(`  パターン: ${score.pattern.total}/25`);
-  lines.push(`    チャートパターン: ${score.pattern.chart}/18`);
+  lines.push(`  パターン: ${score.pattern.total}/20`);
+  lines.push(`    チャートパターン: ${score.pattern.chart}/14`);
   if (score.topPattern) {
     lines.push(
       `      → ${score.topPattern.name}（${score.topPattern.rank}ランク / 勝率${score.topPattern.winRate}%）`,
     );
   }
-  lines.push(`    ローソク足: ${score.pattern.candlestick}/7`);
+  lines.push(`    ローソク足: ${score.pattern.candlestick}/6`);
 
   // 流動性（25点）
   lines.push(`  流動性: ${score.liquidity.total}/25`);

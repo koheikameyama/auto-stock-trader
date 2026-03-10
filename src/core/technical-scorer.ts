@@ -2,7 +2,7 @@
  * ロジックスコアリングエンジン（4カテゴリ100点満点）
  *
  * カテゴリ1: テクニカル指標（40点） — RSI, MA, 出来高変化, MACD
- * カテゴリ2: チャート・ローソク足パターン（25点）
+ * カテゴリ2: チャート・ローソク足パターン（20点）
  * カテゴリ3: 流動性（25点） — 売買代金, 値幅率, 安定性
  * カテゴリ4: ファンダメンタルズ（15点） — PER, PBR, 収益性, 時価総額
  *
@@ -315,10 +315,10 @@ function scoreVolumeChange(
 }
 
 // ========================================
-// カテゴリ2: チャート・ローソク足パターン（25点）
+// カテゴリ2: チャート・ローソク足パターン（20点）
 // ========================================
 
-/** チャートパターン スコア（0-18点） */
+/** チャートパターン スコア（0-14点） */
 function scoreChartPattern(
   patterns: ChartPatternResult[],
 ): { score: number; topPattern: LogicScore["topPattern"] } {
@@ -328,11 +328,11 @@ function scoreChartPattern(
 
   const max = SCORING.SUB_MAX.CHART_PATTERN;
   const rankScoreMap: Record<ChartPatternRank, number> = {
-    S: max,        // 18
-    A: 14,
-    B: 11,
-    C: 7,
-    D: 5,
+    S: max,        // 14
+    A: 11,
+    B: 8,
+    C: 5,
+    D: 3,
   };
 
   const buyPatterns = patterns.filter((p) => p.signal === "buy");
@@ -383,7 +383,7 @@ function scoreChartPattern(
   };
 }
 
-/** ローソク足パターン スコア（0-7点） */
+/** ローソク足パターン スコア（0-6点） */
 function scoreCandlestick(pattern: PatternResult | null): number {
   const max = SCORING.SUB_MAX.CANDLESTICK;
   const mid = Math.round(max / 2);
@@ -523,7 +523,7 @@ function getTechnicalSignal(
 /**
  * 4カテゴリスコアリング（100点満点）
  *
- * 即死ルール → テクニカル(40) + パターン(25) + 流動性(25) + ファンダ(15)
+ * 即死ルール → テクニカル(40) + パターン(20) + 流動性(25) + ファンダ(15)
  */
 export function scoreTechnicals(input: LogicScoreInput): LogicScore {
   const {
@@ -577,7 +577,7 @@ export function scoreTechnicals(input: LogicScoreInput): LogicScore {
   const macdScore = scoreMACD(summary);
   const technicalTotal = rsiScore + maScore + volumeChangeScore + macdScore;
 
-  // カテゴリ2: チャート・ローソク足パターン（25点）
+  // カテゴリ2: チャート・ローソク足パターン（20点）
   const { score: chartScore, topPattern } = scoreChartPattern(chartPatterns);
   const candlestickScore = scoreCandlestick(candlestickPattern);
   const patternTotal = chartScore + candlestickScore;
