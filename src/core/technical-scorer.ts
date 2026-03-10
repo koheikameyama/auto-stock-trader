@@ -1,7 +1,7 @@
 /**
  * ロジックスコアリングエンジン（4カテゴリ100点満点）
  *
- * カテゴリ1: テクニカル指標（35点） — RSI, MA, 出来高変化
+ * カテゴリ1: テクニカル指標（40点） — RSI, MA, 出来高変化, MACD
  * カテゴリ2: チャート・ローソク足パターン（25点）
  * カテゴリ3: 流動性（25点） — 売買代金, 値幅率, 安定性
  * カテゴリ4: ファンダメンタルズ（15点） — PER, PBR, 収益性, 時価総額
@@ -55,6 +55,7 @@ export interface LogicScore {
     ma: number;
     volume: number;
     volumeDirection: VolumeDirection;
+    macd: number;
   };
   pattern: {
     total: number;
@@ -150,7 +151,7 @@ function checkDisqualify(input: LogicScoreInput): DisqualifyResult {
 }
 
 // ========================================
-// カテゴリ1: テクニカル指標（35点）
+// カテゴリ1: テクニカル指標（40点）
 // ========================================
 
 /** RSI スコア（0-10点）— モメンタム型: RSI 50-65 に最高得点 */
@@ -161,6 +162,23 @@ function scoreRSI(rsi: number | null): number {
   if (rsi >= 65 && rsi < 75) return 5;                    // 強いが過熱気味
   if (rsi >= 30 && rsi < 40) return 3;                    // 下降トレンドの可能性
   return 0;                                                // rsi < 30 or rsi >= 75
+}
+
+/** MACD スコア（0-5点） */
+function scoreMACD(summary: TechnicalSummary): number {
+  const macd = summary.macd;
+  if (!macd || macd.macd == null || macd.signal == null || macd.histogram == null) return 2;
+
+  const max = SCORING.SUB_MAX.MACD;
+
+  // ゴールデンクロス + ヒストグラム正 → 最高得点
+  if (macd.macd > macd.signal && macd.histogram > 0) return max; // 5点
+  // MACDがシグナル上だがヒストグラム縮小中
+  if (macd.macd > macd.signal) return 3;
+  // デッドクロスだがヒストグラムが小さい（底打ち気配）
+  if (macd.macd <= macd.signal && macd.histogram > -0.5) return 1;
+  // デッドクロス
+  return 0;
 }
 
 /** 移動平均線 / 乖離率 スコア（0-15点） */
@@ -505,7 +523,7 @@ function getTechnicalSignal(
 /**
  * 4カテゴリスコアリング（100点満点）
  *
- * 即死ルール → テクニカル(35) + パターン(25) + 流動性(25) + ファンダ(15)
+ * 即死ルール → テクニカル(40) + パターン(25) + 流動性(25) + ファンダ(15)
  */
 export function scoreTechnicals(input: LogicScoreInput): LogicScore {
   const {
@@ -524,7 +542,7 @@ export function scoreTechnicals(input: LogicScoreInput): LogicScore {
     return {
       totalScore: 0,
       rank: "C",
-      technical: { total: 0, rsi: 0, ma: 0, volume: 0, volumeDirection: "neutral" },
+      technical: { total: 0, rsi: 0, ma: 0, volume: 0, volumeDirection: "neutral", macd: 0 },
       pattern: { total: 0, chart: 0, candlestick: 0 },
       liquidity: { total: 0, tradingValue: 0, spreadProxy: 0, stability: 0 },
       fundamental: { total: 0, per: 0, pbr: 0, profitability: 0, marketCap: 0 },
@@ -536,7 +554,7 @@ export function scoreTechnicals(input: LogicScoreInput): LogicScore {
     };
   }
 
-  // カテゴリ1: テクニカル指標（35点）
+  // カテゴリ1: テクニカル指標（40点）
   const rsiScore = scoreRSI(summary.rsi);
   let maScore = scoreMA(summary);
   const volumeDir = calculateVolumeDirection(historicalData);
@@ -556,7 +574,8 @@ export function scoreTechnicals(input: LogicScoreInput): LogicScore {
     maScore = Math.max(0, maScore + weeklyTrendPenalty);
   }
 
-  const technicalTotal = rsiScore + maScore + volumeChangeScore;
+  const macdScore = scoreMACD(summary);
+  const technicalTotal = rsiScore + maScore + volumeChangeScore + macdScore;
 
   // カテゴリ2: チャート・ローソク足パターン（25点）
   const { score: chartScore, topPattern } = scoreChartPattern(chartPatterns);
@@ -590,6 +609,7 @@ export function scoreTechnicals(input: LogicScoreInput): LogicScore {
       ma: maScore,
       volume: volumeChangeScore,
       volumeDirection: volumeDir.direction,
+      macd: macdScore,
     },
     pattern: {
       total: patternTotal,

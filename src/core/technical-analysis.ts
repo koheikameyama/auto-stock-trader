@@ -318,12 +318,12 @@ export function formatScoreForAI(
 
   lines.push(`【カテゴリ別】`);
 
-  // テクニカル指標（35点）
-  lines.push(`  テクニカル: ${score.technical.total}/35`);
+  // テクニカル指標（40点）
+  lines.push(`  テクニカル: ${score.technical.total}/40`);
   lines.push(
-    `    RSI: ${score.technical.rsi}/13${summary.rsi != null ? `（RSI=${summary.rsi}）` : ""}`,
+    `    RSI: ${score.technical.rsi}/10${summary.rsi != null ? `（RSI=${summary.rsi}）` : ""}`,
   );
-  lines.push(`    移動平均: ${score.technical.ma}/13`);
+  lines.push(`    移動平均: ${score.technical.ma}/15`);
   if (score.weeklyTrendPenalty < 0) {
     lines.push(
       `      ※週足トレンドペナルティ: ${score.weeklyTrendPenalty}（日足↑と週足↓が矛盾）`,
@@ -336,7 +336,10 @@ export function formatScoreForAI(
         ? "投げ売り"
         : "中立";
   lines.push(
-    `    出来高変化: ${score.technical.volume}/9${summary.volumeAnalysis.volumeRatio ? `（${summary.volumeAnalysis.volumeRatio}倍 / ${volDirLabel}）` : ""}`,
+    `    出来高変化: ${score.technical.volume}/10${summary.volumeAnalysis.volumeRatio ? `（${summary.volumeAnalysis.volumeRatio}倍 / ${volDirLabel}）` : ""}`,
+  );
+  lines.push(
+    `    MACD: ${score.technical.macd}/5${summary.macd.macd != null ? `（MACD=${summary.macd.macd} / Signal=${summary.macd.signal} / Hist=${summary.macd.histogram}）` : ""}`,
   );
 
   // パターン（25点）
