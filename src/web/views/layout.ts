@@ -79,7 +79,7 @@ export function layout(
         />
         <link rel="manifest" href="/manifest.json" />
         <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>" />
-        <link rel="apple-touch-icon" href="/icon-192.png" />
+        <link rel="apple-touch-icon" href="/icon-192.svg" />
         <style>
           ${CSS}
         </style>

@@ -47,8 +47,18 @@ app.get("/manifest.json", async (c) => {
     background_color: "#0f172a",
     theme_color: "#0f172a",
     icons: [
-      { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
-      { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+      {
+        src: "/icon-192.svg",
+        sizes: "192x192",
+        type: "image/svg+xml",
+        purpose: "any",
+      },
+      {
+        src: "/icon-512.svg",
+        sizes: "512x512",
+        type: "image/svg+xml",
+        purpose: "any",
+      },
     ],
   };
   return c.json(manifest);
@@ -94,23 +104,23 @@ self.addEventListener('fetch', (e) => {
   return c.body(sw);
 });
 
-// SVG icon endpoints (no auth)
-app.get("/icon-192.png", (c) => {
-  return c.redirect(
-    "data:image/svg+xml," +
-      encodeURIComponent(
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="32" fill="#0f172a"/><text x="96" y="130" text-anchor="middle" font-size="120">📈</text></svg>',
-      ),
-  );
+// SVG icon endpoints
+const ICON_SVG_192 =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="32" fill="#0f172a"/><text x="96" y="130" text-anchor="middle" font-size="120">📈</text></svg>';
+
+const ICON_SVG_512 =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="64" fill="#0f172a"/><text x="256" y="350" text-anchor="middle" font-size="300">📈</text></svg>';
+
+app.get("/icon-192.svg", (c) => {
+  c.header("Content-Type", "image/svg+xml");
+  c.header("Cache-Control", "public, max-age=604800");
+  return c.body(ICON_SVG_192);
 });
 
-app.get("/icon-512.png", (c) => {
-  return c.redirect(
-    "data:image/svg+xml," +
-      encodeURIComponent(
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="64" fill="#0f172a"/><text x="256" y="350" text-anchor="middle" font-size="300">📈</text></svg>',
-      ),
-  );
+app.get("/icon-512.svg", (c) => {
+  c.header("Content-Type", "image/svg+xml");
+  c.header("Cache-Control", "public, max-age=604800");
+  return c.body(ICON_SVG_512);
 });
 
 // Page routes
