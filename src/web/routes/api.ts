@@ -12,6 +12,8 @@ import { notifySlack } from "../../lib/slack";
 import { fetchHistoricalData } from "../../core/market-data";
 import { analyzeTechnicals } from "../../core/technical-analysis";
 import { generatePatternsResponse } from "../../lib/candlestick-patterns";
+import { stockModal } from "../views/stock-modal";
+import type { ModalAnalysis } from "../views/stock-modal";
 
 const app = new Hono();
 
@@ -155,6 +157,63 @@ app.get("/stock/:tickerCode/analysis", async (c) => {
     patterns,
     scoring,
   });
+});
+
+/**
+ * GET /api/stock/:tickerCode/modal - 銘柄詳細モーダル HTML フラグメント
+ */
+app.get("/stock/:tickerCode/modal", async (c) => {
+  const tickerCode = c.req.param("tickerCode");
+
+  const stock = await prisma.stock.findUnique({
+    where: { tickerCode },
+  });
+  if (!stock) return c.text("not found", 404);
+
+  // 分析データを並列取得（失敗してもモーダルは表示する）
+  let analysis: ModalAnalysis | null = null;
+  try {
+    const [ohlcv, scoring] = await Promise.all([
+      fetchHistoricalData(tickerCode),
+      prisma.scoringRecord.findFirst({
+        where: { tickerCode },
+        orderBy: { date: "desc" },
+        select: {
+          date: true,
+          totalScore: true,
+          rank: true,
+          technicalScore: true,
+          patternScore: true,
+          liquidityScore: true,
+          fundamentalScore: true,
+          isDisqualified: true,
+          disqualifyReason: true,
+          aiDecision: true,
+        },
+      }),
+    ]);
+
+    if (ohlcv && ohlcv.length > 0) {
+      const technical = analyzeTechnicals(ohlcv);
+      const oldestFirst = [...ohlcv].reverse();
+      const chartData = oldestFirst.map((bar, i) => ({
+        date: bar.date,
+        open: bar.open,
+        high: bar.high,
+        low: bar.low,
+        close: bar.close,
+        rsi: i === oldestFirst.length - 1 ? technical.rsi : null,
+        histogram:
+          i === oldestFirst.length - 1 ? technical.macd.histogram : null,
+      }));
+      const patterns = generatePatternsResponse(chartData);
+      analysis = { ohlcv: oldestFirst, technical, patterns, scoring };
+    }
+  } catch {
+    // 分析データ取得失敗 → analysis = null のままモーダル表示
+  }
+
+  return c.html(stockModal(stock, analysis));
 });
 
 /**

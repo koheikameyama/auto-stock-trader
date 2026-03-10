@@ -101,6 +101,8 @@ export const CSS = `
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   .badge-bullish { background: rgba(34,197,94,0.15); color: ${COLORS.bullish}; }
   .badge-bearish { background: rgba(239,68,68,0.15); color: ${COLORS.bearish}; }
@@ -443,6 +445,8 @@ export const CSS = `
     border-radius: 9999px;
     font-size: 12px;
     font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   .signal-buy { background: rgba(34,197,94,0.15); color: ${COLORS.profit}; }
   .signal-sell { background: rgba(239,68,68,0.15); color: ${COLORS.loss}; }
