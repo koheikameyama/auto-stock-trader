@@ -163,18 +163,17 @@ function scoreRSI(rsi: number | null): number {
   return 0;                                                // rsi < 30 or rsi >= 75
 }
 
-/** 移動平均線 / 乖離率 スコア（0-13点） */
+/** 移動平均線 / 乖離率 スコア（0-15点） */
 function scoreMA(summary: TechnicalSummary): number {
   const { trend, orderAligned, slopesAligned } = summary.maAlignment;
   const max = SCORING.SUB_MAX.MA;
-
-  if (trend === "uptrend" && orderAligned && slopesAligned) return max;
-  if (trend === "uptrend" && orderAligned) return 10;
-  if (trend === "uptrend") return 9;
+  if (trend === "uptrend" && orderAligned && slopesAligned) return max;  // 15
+  if (trend === "uptrend" && orderAligned) return 12;
+  if (trend === "uptrend") return 10;
   if (trend === "downtrend" && orderAligned && slopesAligned) return 0;
   if (trend === "downtrend" && orderAligned) return 2;
   if (trend === "downtrend") return 3;
-  return 6; // none
+  return 7; // none
 }
 
 // ========================================
