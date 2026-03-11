@@ -15,11 +15,11 @@ export interface BacktestConfig {
   trailingActivationMultiplier: number;
   maxPrice: number;
   strategy: "day_trade" | "swing";
-  trailingStopEnabled: boolean;
   costModelEnabled: boolean;
   priceLimitEnabled: boolean;
   gapRiskEnabled: boolean;
   cooldownDays: number;
+  overrideTpSl: boolean;
   outputFile?: string;
   verbose: boolean;
 }

@@ -9,16 +9,16 @@ import type { OHLCVData } from "../core/technical-analysis";
 import type { BacktestConfig, SensitivityResult } from "./types";
 import { runBacktest } from "./simulation-engine";
 
-const SENSITIVITY_PARAMS: Record<
-  keyof Pick<BacktestConfig, "scoreThreshold" | "takeProfitRatio" | "stopLossRatio" | "atrMultiplier" | "trailingActivationMultiplier">,
-  number[]
-> = {
+const SENSITIVITY_PARAMS: Record<string, number[]> = {
   scoreThreshold: [60, 65, 70, 75, 80],
   takeProfitRatio: [1.03, 1.05, 1.10, 1.20, 1.50],
   stopLossRatio: [0.975, 0.98, 0.985, 0.99],
   atrMultiplier: [0.5, 0.8, 1.0, 1.2, 1.5],
   trailingActivationMultiplier: [1.0, 1.2, 1.5, 2.0, 2.5],
 };
+
+// TP/SL関連パラメータ（変化時に overrideTpSl=true を自動セット）
+const TP_SL_PARAMS = new Set(["takeProfitRatio", "stopLossRatio", "atrMultiplier"]);
 
 const PARAM_LABELS: Record<string, string> = {
   scoreThreshold: "スコア閾値",
@@ -43,7 +43,9 @@ export function runSensitivityAnalysis(
       const label = PARAM_LABELS[param] ?? param;
       console.log(`  [${current}/${totalRuns}] ${label}=${value}`);
 
-      const config = { ...baseConfig, [param]: value, verbose: false };
+      // TP/SL系パラメータは overrideTpSl=true で上書きモード有効化
+      const overrideTpSl = TP_SL_PARAMS.has(param) ? true : baseConfig.overrideTpSl;
+      const config = { ...baseConfig, [param]: value, overrideTpSl, verbose: false };
       const result = runBacktest(config, allData, nikkeiViData);
 
       results.push({

@@ -14,7 +14,6 @@ import {
   TRADING_SCHEDULE,
   POSITION_DEFAULTS,
   DEFENSIVE_MODE,
-  TIME_STOP,
 } from "../lib/constants";
 import { fetchStockQuote } from "../core/market-data";
 import {
@@ -30,7 +29,8 @@ import {
   getOpenPositions,
   getUnrealizedPnl,
 } from "../core/position-manager";
-import { calculateTrailingStop } from "../core/trailing-stop";
+import { checkPositionExit } from "../core/exit-checker";
+import type { ExitReason } from "../core/exit-checker";
 import {
   adjustForExDividend,
   adjustForSplit,
@@ -223,15 +223,22 @@ export async function main() {
 
     const entryPriceNum = Number(position.entryPrice);
 
-    // maxHigh/minLow を exit チェック前に更新（トレーリングストップで最新値を使うため）
-    const newMaxHigh = position.maxHighDuringHold
-      ? Math.max(Number(position.maxHighDuringHold), quote.high)
-      : quote.high;
+    // minLow を更新（出口判定には不要だがスナップショットに使用）
     const newMinLow = position.minLowDuringHold
       ? Math.min(Number(position.minLowDuringHold), quote.low)
       : quote.low;
 
-    // トレーリングストップ算出
+    // 保有営業日数を算出
+    const entryDate = dayjs(position.createdAt).tz("Asia/Tokyo");
+    const now = dayjs().tz("Asia/Tokyo");
+    let holdingBusinessDays = 0;
+    let d = entryDate.add(1, "day");
+    while (d.isBefore(now, "day") || d.isSame(now, "day")) {
+      const dow = d.day();
+      if (dow !== 0 && dow !== 6) holdingBusinessDays++;
+      d = d.add(1, "day");
+    }
+
     const originalTP = position.takeProfitPrice
       ? Number(position.takeProfitPrice)
       : entryPriceNum * POSITION_DEFAULTS.TAKE_PROFIT_RATIO;
@@ -242,60 +249,42 @@ export async function main() {
       ? Number(position.entryAtr)
       : extractAtrFromSnapshot(position.entrySnapshot);
 
-    const trailingResult = calculateTrailingStop({
-      entryPrice: entryPriceNum,
-      maxHighDuringHold: newMaxHigh,
-      currentTrailingStop: position.trailingStopPrice
-        ? Number(position.trailingStopPrice)
-        : null,
-      originalStopLoss: originalSL,
-      originalTakeProfit: originalTP,
-      entryAtr,
-      strategy: position.strategy as "day_trade" | "swing",
-    });
+    // 共通出口判定（バックテストと同一ロジック）
+    const exitResult = checkPositionExit(
+      {
+        entryPrice: entryPriceNum,
+        takeProfitPrice: originalTP,
+        stopLossPrice: originalSL,
+        entryAtr,
+        maxHighDuringHold: position.maxHighDuringHold
+          ? Number(position.maxHighDuringHold)
+          : entryPriceNum,
+        currentTrailingStop: position.trailingStopPrice
+          ? Number(position.trailingStopPrice)
+          : null,
+        strategy: position.strategy as "day_trade" | "swing",
+        holdingBusinessDays,
+      },
+      { open: quote.open, high: quote.high, low: quote.low, close: quote.price },
+    );
 
-    const effectiveTP = trailingResult.effectiveTakeProfit;
-    const effectiveSL = trailingResult.effectiveStopLoss;
+    const newMaxHigh = exitResult.newMaxHigh;
+    const exitPrice = exitResult.exitPrice;
 
-    let exitPrice: number | null = null;
-    let exitReason = "";
-
-    // 利確チェック（トレーリング発動中は effectiveTP = null なのでスキップ）
-    if (effectiveTP !== null && quote.high >= effectiveTP) {
-      // ギャップアップで利確ラインを突き抜けた場合、寄り付き値で約定
-      exitPrice =
-        quote.open > effectiveTP ? quote.open : effectiveTP;
-      exitReason = "利確";
-    }
-
-    // 損切り / トレーリングストップチェック（利確より優先）
-    if (quote.low <= effectiveSL) {
-      // ギャップダウンでSLを突き抜けた場合、寄り付き値で約定（スリッページ反映）
-      exitPrice =
-        quote.open < effectiveSL ? quote.open : effectiveSL;
-      exitReason = trailingResult.isActivated ? "トレーリング利確" : "損切り";
-    }
-
-    // タイムストップ: 最大保有日数超過で強制決済（スイングのみ）
-    if (exitPrice === null && position.strategy !== "day_trade") {
-      const entryDate = dayjs(position.createdAt).tz("Asia/Tokyo");
-      const now = dayjs().tz("Asia/Tokyo");
-      let businessDays = 0;
-      let d = entryDate.add(1, "day");
-      while (d.isBefore(now, "day") || d.isSame(now, "day")) {
-        const dow = d.day();
-        if (dow !== 0 && dow !== 6) businessDays++;
-        d = d.add(1, "day");
-      }
-      if (businessDays >= TIME_STOP.MAX_HOLDING_DAYS) {
-        exitReason = "タイムストップ";
-        exitPrice = quote.price;
-      }
-    }
+    // 出口理由の日本語変換
+    const EXIT_REASON_LABELS: Record<ExitReason, string> = {
+      take_profit: "利確",
+      stop_loss: "損切り",
+      trailing_profit: "トレーリング利確",
+      time_stop: "タイムストップ",
+    };
+    const exitReason = exitResult.exitReason
+      ? EXIT_REASON_LABELS[exitResult.exitReason]
+      : "";
 
     if (exitPrice !== null) {
       console.log(
-        `  → ${position.stock.tickerCode}: ${exitReason}! ¥${exitPrice.toLocaleString()} (${trailingResult.reason})`,
+        `  → ${position.stock.tickerCode}: ${exitReason}! ¥${exitPrice.toLocaleString()}`,
       );
 
       const latestAssessment = await prisma.marketAssessment.findFirst({
@@ -315,8 +304,8 @@ export async function main() {
             ((entryPriceNum - newMinLow) / entryPriceNum) * 100,
         },
         trailingStop: {
-          wasActivated: trailingResult.isActivated,
-          finalTrailingStopPrice: trailingResult.trailingStopPrice,
+          wasActivated: exitResult.isTrailingActivated,
+          finalTrailingStopPrice: exitResult.trailingStopPrice,
           entryAtr,
         },
         marketContext: latestAssessment
@@ -356,8 +345,8 @@ export async function main() {
       const currentTrailing = position.trailingStopPrice
         ? Number(position.trailingStopPrice)
         : null;
-      if (trailingResult.trailingStopPrice !== currentTrailing) {
-        updateData.trailingStopPrice = trailingResult.trailingStopPrice;
+      if (exitResult.trailingStopPrice !== currentTrailing) {
+        updateData.trailingStopPrice = exitResult.trailingStopPrice;
       }
 
       if (Object.keys(updateData).length > 0) {
@@ -369,8 +358,11 @@ export async function main() {
 
       // 含み損益表示
       const unrealized = getUnrealizedPnl(position, quote.price);
+      const tsInfo = exitResult.isTrailingActivated
+        ? ` TS発動(¥${exitResult.trailingStopPrice})`
+        : "";
       console.log(
-        `  → ${position.stock.tickerCode}: 含み損益 ¥${unrealized.toLocaleString()} ${trailingResult.reason}`,
+        `  → ${position.stock.tickerCode}: 含み損益 ¥${unrealized.toLocaleString()}${tsInfo}`,
       );
     }
   }

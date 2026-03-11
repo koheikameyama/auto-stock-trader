@@ -37,6 +37,7 @@ const { values } = parseArgs({
     "no-costs": { type: "boolean", default: false },
     "price-limits": { type: "boolean", default: false },
     "no-gap-risk": { type: "boolean", default: false },
+    "override-tp-sl": { type: "boolean", default: false },
     sensitivity: { type: "boolean", default: false },
     output: { type: "string" },
     verbose: { type: "boolean", default: false },
@@ -68,6 +69,7 @@ function printHelp(): void {
   --no-costs              取引コストモデルを無効化
   --price-limits          値幅制限シミュレーションを有効化
   --no-gap-risk           ギャップリスク考慮を無効化
+  --override-tp-sl        TP/SLを固定比率で上書き（感度分析用、デフォルトは本番ロジック）
   --sensitivity           パラメータ感度分析を実行
   --output <path>         JSON結果を出力
   --verbose               詳細ログ
@@ -104,11 +106,11 @@ async function main(): Promise<void> {
     trailingActivationMultiplier: Number(values["trailing-activation"]),
     maxPrice: Number(values["max-price"]),
     strategy: values.strategy === "day_trade" ? "day_trade" : "swing",
-    trailingStopEnabled: true,
     costModelEnabled: !values["no-costs"],
     priceLimitEnabled: values["price-limits"] ?? false,
     gapRiskEnabled: !(values["no-gap-risk"] ?? false),
     cooldownDays: Number(values["cooldown-days"]),
+    overrideTpSl: values["override-tp-sl"] ?? false,
     outputFile: values.output,
     verbose: values.verbose ?? false,
   };

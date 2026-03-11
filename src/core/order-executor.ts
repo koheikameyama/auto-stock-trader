@@ -8,6 +8,25 @@ import { prisma } from "../lib/prisma";
 import type { TradingOrder } from "@prisma/client";
 
 /**
+ * 買い指値注文の約定判定（純粋関数）
+ *
+ * 安値が指値以下なら約定。ギャップダウン時は寄り付き値で約定（買い手に有利）。
+ * バックテストと本番で同一ロジックを共有する。
+ *
+ * @returns 約定価格（約定しない場合は null）
+ */
+export function checkBuyLimitFill(
+  limitPrice: number,
+  barLow: number,
+  barOpen: number,
+): number | null {
+  if (barLow <= limitPrice) {
+    return barOpen < limitPrice ? barOpen : limitPrice;
+  }
+  return null;
+}
+
+/**
  * 注文約定チェック
  *
  * - 買い指値: 安値が指値以下なら約定（指値で約定）
@@ -25,15 +44,9 @@ export function checkOrderFill(
   const limitPrice = order.limitPrice ? Number(order.limitPrice) : null;
   const stopPrice = order.stopPrice ? Number(order.stopPrice) : null;
 
-  // 買い指値注文: 安値が指値以下なら約定
+  // 買い指値注文
   if (order.side === "buy" && limitPrice !== null) {
-    if (currentLow <= limitPrice) {
-      // ギャップダウンで寄り付いた場合、寄り付き値で約定（買い手に有利）
-      if (currentOpen != null && currentOpen < limitPrice) {
-        return currentOpen;
-      }
-      return limitPrice;
-    }
+    return checkBuyLimitFill(limitPrice, currentLow, currentOpen ?? currentLow);
   }
 
   // 売り指値注文（利確）: 高値が指値以上なら約定

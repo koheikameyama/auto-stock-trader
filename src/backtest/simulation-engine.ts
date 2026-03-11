@@ -17,7 +17,8 @@ import {
   analyzeWeeklyTrend,
 } from "../lib/technical-indicators";
 import { TECHNICAL_MIN_DATA, SCORING, DEFENSIVE_MODE } from "../lib/constants";
-import { calculateTrailingStop } from "../core/trailing-stop";
+import { checkPositionExit } from "../core/exit-checker";
+import { checkBuyLimitFill } from "../core/order-executor";
 import { determineMarketRegime } from "../core/market-regime";
 import { calculateCommission, calculateTax } from "../core/trading-costs";
 import { getLimitDownPrice } from "../lib/constants/price-limits";
@@ -70,7 +71,7 @@ export function runBacktest(
     const today = tradingDays[dayIdx];
 
     // 1. ペンディング注文のフィル判定（前日に出した注文）
-    const filledOrders: PendingOrder[] = [];
+    const filledOrders: FilledOrder[] = [];
     const remainingOrders: PendingOrder[] = [];
 
     for (const order of pendingOrders) {
@@ -82,38 +83,40 @@ export function runBacktest(
         continue;
       }
 
-      // 安値が指値以下 → 約定
-      if (todayBar.low <= order.limitPrice) {
-        if (openPositions.length < config.maxPositions && cash >= order.limitPrice * order.quantity) {
+      // 本番 order-executor.ts の checkBuyLimitFill を直接呼出
+      const fillPrice = checkBuyLimitFill(order.limitPrice, todayBar.low, todayBar.open);
+      if (fillPrice !== null) {
+        if (openPositions.length < config.maxPositions && cash >= fillPrice * order.quantity) {
           const hasExisting = openPositions.some((p) => p.ticker === order.ticker);
           if (!hasExisting) {
-            filledOrders.push(order);
+            filledOrders.push({ ...order, fillPrice });
           }
         }
       }
     }
     pendingOrders = [];
 
-    for (const order of filledOrders) {
-      const tradeValue = order.limitPrice * order.quantity;
+    for (const filled of filledOrders) {
+      const fillPrice = filled.fillPrice;
+      const tradeValue = fillPrice * filled.quantity;
       const entryCommission = config.costModelEnabled
         ? calculateCommission(tradeValue)
         : 0;
       cash -= tradeValue + entryCommission;
 
       const position: SimulatedPosition = {
-        ticker: order.ticker,
+        ticker: filled.ticker,
         entryDate: today,
-        entryPrice: order.limitPrice,
-        takeProfitPrice: order.takeProfitPrice,
-        stopLossPrice: order.stopLossPrice,
-        quantity: order.quantity,
-        rank: order.rank,
-        score: order.score,
-        regime: order.regime,
-        maxHighDuringHold: order.limitPrice,
+        entryPrice: fillPrice,
+        takeProfitPrice: filled.takeProfitPrice,
+        stopLossPrice: filled.stopLossPrice,
+        quantity: filled.quantity,
+        rank: filled.rank,
+        score: filled.score,
+        regime: filled.regime,
+        maxHighDuringHold: fillPrice,
         trailingStopPrice: null,
-        entryAtr: order.entryAtr,
+        entryAtr: filled.entryAtr,
         exitDate: null,
         exitPrice: null,
         exitReason: null,
@@ -132,13 +135,14 @@ export function runBacktest(
       openPositions.push(position);
 
       if (config.verbose) {
+        const gapNote = fillPrice < filled.limitPrice ? ` (GD寄¥${fillPrice})` : "";
         console.log(
-          `  [${today}] ${order.ticker} 約定: ¥${order.limitPrice} x${order.quantity} (${order.rank}:${order.score}pt)`,
+          `  [${today}] ${filled.ticker} 約定: ¥${fillPrice} x${filled.quantity} (${filled.rank}:${filled.score}pt)${gapNote}`,
         );
       }
     }
 
-    // 2. オープンポジションの TP/SL 判定
+    // 2. オープンポジションの TP/SL 判定（本番 position-monitor.ts と同一の checkPositionExit を使用）
     const toClose: number[] = [];
     for (let i = 0; i < openPositions.length; i++) {
       const pos = openPositions[i];
@@ -146,75 +150,32 @@ export function runBacktest(
       const todayBar = bars?.find((b) => b.date === today);
       if (!todayBar) continue;
 
-      // maxHighDuringHold を更新（トレーリングストップ算出前に）
-      pos.maxHighDuringHold = Math.max(
-        pos.maxHighDuringHold,
-        todayBar.high,
-      );
+      // 保有営業日数を算出
+      const entryDayIdx = tradingDays.indexOf(pos.entryDate);
+      const holdingDays = entryDayIdx >= 0 ? dayIdx - entryDayIdx : 0;
 
-      let exitPrice: number | null = null;
-      let exitReason: SimulatedPosition["exitReason"] = null;
-
-      if (config.trailingStopEnabled && pos.entryAtr) {
-        // トレーリングストップ有効
-        const trailingResult = calculateTrailingStop({
+      // 共通出口判定（本番 position-monitor.ts と同一ロジック）
+      const exitResult = checkPositionExit(
+        {
           entryPrice: pos.entryPrice,
+          takeProfitPrice: pos.takeProfitPrice,
+          stopLossPrice: pos.stopLossPrice,
+          entryAtr: pos.entryAtr,
           maxHighDuringHold: pos.maxHighDuringHold,
           currentTrailingStop: pos.trailingStopPrice,
-          originalStopLoss: pos.stopLossPrice,
-          originalTakeProfit: pos.takeProfitPrice,
-          entryAtr: pos.entryAtr,
           strategy: config.strategy,
+          holdingBusinessDays: holdingDays,
           activationMultiplierOverride: config.trailingActivationMultiplier,
-        });
+        },
+        { open: todayBar.open, high: todayBar.high, low: todayBar.low, close: todayBar.close },
+      );
 
-        pos.trailingStopPrice = trailingResult.trailingStopPrice;
+      // ポジション状態を更新
+      pos.maxHighDuringHold = exitResult.newMaxHigh;
+      pos.trailingStopPrice = exitResult.trailingStopPrice;
 
-        const effectiveTP = trailingResult.effectiveTakeProfit;
-        const effectiveSL = trailingResult.effectiveStopLoss;
-
-        // TPチェック（トレーリング発動中はeffectiveTP=nullなのでスキップ）
-        if (effectiveTP !== null && todayBar.high >= effectiveTP) {
-          exitPrice = effectiveTP;
-          exitReason = "take_profit";
-        }
-
-        // SL/トレーリングストップチェック（TP優先を上書き）
-        if (todayBar.low <= effectiveSL) {
-          // ギャップダウン: 始値がSL以下なら始値で約定（スリッページ再現）
-          exitPrice =
-            todayBar.open < effectiveSL ? todayBar.open : effectiveSL;
-          exitReason = trailingResult.isActivated
-            ? "trailing_profit"
-            : "stop_loss";
-        }
-      } else {
-        // トレーリングストップ無効 or ATR不明 → 従来の固定TP/SL
-        const slHit = todayBar.low <= pos.stopLossPrice;
-        const tpHit = todayBar.high >= pos.takeProfitPrice;
-
-        if (slHit && tpHit) {
-          // 両方ヒット → SL優先、ギャップダウン考慮
-          exitPrice =
-            todayBar.open < pos.stopLossPrice
-              ? todayBar.open
-              : pos.stopLossPrice;
-          exitReason = "stop_loss";
-        } else if (slHit) {
-          exitPrice =
-            todayBar.open < pos.stopLossPrice
-              ? todayBar.open
-              : pos.stopLossPrice;
-          exitReason = "stop_loss";
-        } else if (tpHit) {
-          // ギャップアップ: 始値がTP以上なら始値で約定（有利方向）
-          exitPrice =
-            todayBar.open > pos.takeProfitPrice
-              ? todayBar.open
-              : pos.takeProfitPrice;
-          exitReason = "take_profit";
-        }
-      }
+      let exitPrice = exitResult.exitPrice;
+      let exitReason: SimulatedPosition["exitReason"] = exitResult.exitReason;
 
       // 値幅制限シミュレーション: ストップ安で損切り不可能な状況を再現
       if (config.priceLimitEnabled && exitPrice != null && exitReason === "stop_loss") {
@@ -256,16 +217,6 @@ export function runBacktest(
         exitPrice = todayBar.close;
         exitReason =
           todayBar.close >= pos.entryPrice ? "take_profit" : "stop_loss";
-      }
-
-      // スイング: タイムストップ（最大保有日数）
-      if (!exitPrice && config.strategy === "swing") {
-        const entryDayIdx = tradingDays.indexOf(pos.entryDate);
-        const holdingDays = entryDayIdx >= 0 ? dayIdx - entryDayIdx : 0;
-        if (holdingDays >= 10) {
-          exitPrice = todayBar.close;
-          exitReason = "time_stop";
-        }
       }
 
       if (exitPrice != null && exitReason != null) {
@@ -501,6 +452,10 @@ interface PendingOrder {
   regime: RegimeLevel;
 }
 
+interface FilledOrder extends PendingOrder {
+  fillPrice: number;
+}
+
 interface EntryCandidate {
   ticker: string;
   score: LogicScore;
@@ -639,25 +594,31 @@ function evaluateTickers(
 
     if (entry.quantity <= 0) continue;
 
-    // config の TP/SL パラメータで上書き
-    let takeProfitPrice = Math.round(entry.limitPrice * config.takeProfitRatio);
+    // TP/SL: デフォルトは calculateEntryCondition の算出値をそのまま使用（本番互換）
+    // --override-tp-sl 指定時のみ config の固定比率で上書き（感度分析用）
+    let takeProfitPrice: number;
     let stopLossPrice: number;
 
-    if (summary.atr14 != null) {
-      stopLossPrice = Math.round(
-        entry.limitPrice - summary.atr14 * config.atrMultiplier,
-      );
-    } else {
-      stopLossPrice = Math.round(entry.limitPrice * config.stopLossRatio);
-    }
-
-    // SL が指値を超えないように保護
-    if (stopLossPrice >= entry.limitPrice) {
-      stopLossPrice = Math.round(entry.limitPrice * config.stopLossRatio);
-    }
-    // TP が指値以下にならないように保護
-    if (takeProfitPrice <= entry.limitPrice) {
+    if (config.overrideTpSl) {
       takeProfitPrice = Math.round(entry.limitPrice * config.takeProfitRatio);
+      if (summary.atr14 != null) {
+        stopLossPrice = Math.round(
+          entry.limitPrice - summary.atr14 * config.atrMultiplier,
+        );
+      } else {
+        stopLossPrice = Math.round(entry.limitPrice * config.stopLossRatio);
+      }
+      // SL が指値を超えないように保護
+      if (stopLossPrice >= entry.limitPrice) {
+        stopLossPrice = Math.round(entry.limitPrice * config.stopLossRatio);
+      }
+      // TP が指値以下にならないように保護
+      if (takeProfitPrice <= entry.limitPrice) {
+        takeProfitPrice = Math.round(entry.limitPrice * config.takeProfitRatio);
+      }
+    } else {
+      takeProfitPrice = entry.takeProfitPrice;
+      stopLossPrice = entry.stopLossPrice;
     }
 
     candidates.push({
