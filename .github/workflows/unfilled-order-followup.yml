@@ -1,0 +1,96 @@
+name: Unfilled Order Follow-Up
+
+on:
+  schedule:
+    # 16:30 JST = 07:30 UTC
+    - cron: "30 7 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      skip_market_day_check:
+        description: "休場日チェックをスキップ"
+        type: boolean
+        default: false
+
+concurrency:
+  group: unfilled-order-followup
+  cancel-in-progress: false
+
+env:
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+jobs:
+  check-market-day:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.result.outputs.should_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+
+      - name: Check market day and system active
+        id: check
+        run: |
+          RESULT=$(npx tsx scripts/check-market-day.ts)
+          echo "should_run=$RESULT" >> "$GITHUB_OUTPUT"
+
+      - name: Determine final result
+        id: result
+        run: |
+          SKIP="${{ github.event.inputs.skip_market_day_check }}"
+          CHECK="${{ steps.check.outputs.should_run }}"
+          if [ "$SKIP" = "true" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=$CHECK" >> "$GITHUB_OUTPUT"
+          fi
+
+  unfilled-order-followup:
+    needs: check-market-day
+    if: needs.check-market-day.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run unfilled-followup
+
+  notify-success:
+    needs: unfilled-order-followup
+    if: success()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on success
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "Unfilled Order Follow-Up 完了"
+          SLACK_MESSAGE: "未約定注文フォローアップが正常に完了しました"
+          SLACK_COLOR: good
+          SLACK_FOOTER: "Stock Buddy"
+
+  notify-failure:
+    needs: unfilled-order-followup
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on failure
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "Unfilled Order Follow-Up 失敗"
+          SLACK_MESSAGE: |
+            未約定注文フォローアップが失敗しました。
+            詳細はGitHub Actionsログを確認してください。
+          SLACK_COLOR: danger
+          SLACK_FOOTER: "Stock Buddy"
