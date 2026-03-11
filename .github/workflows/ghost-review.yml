@@ -19,6 +19,7 @@ env:
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  MARKET_DATA_PROVIDER: yahoo
 
 jobs:
   check-market-day:

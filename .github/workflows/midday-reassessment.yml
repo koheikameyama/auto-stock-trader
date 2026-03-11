@@ -3,49 +3,69 @@ name: Midday Reassessment
 on:
   workflow_dispatch:
     inputs:
-      skip_checks:
-        description: "市場日・システム停止チェックをスキップ"
+      skip_market_day_check:
+        description: "休場日チェックをスキップ"
         type: boolean
         default: false
 
+concurrency:
+  group: midday-reassessment
+  cancel-in-progress: false
+
 env:
-  APP_URL: ${{ secrets.APP_URL }}
-  CRON_SECRET: ${{ secrets.CRON_SECRET }}
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  MARKET_DATA_PROVIDER: yahoo
 
 jobs:
-  trigger:
+  check-market-day:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.result.outputs.should_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+
+      - name: Check market day and system active
+        id: check
+        run: |
+          RESULT=$(npx tsx scripts/check-market-day.ts)
+          echo "should_run=$RESULT" >> "$GITHUB_OUTPUT"
+
+      - name: Determine final result
+        id: result
+        run: |
+          SKIP="${{ github.event.inputs.skip_market_day_check }}"
+          CHECK="${{ steps.check.outputs.should_run }}"
+          if [ "$SKIP" = "true" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=$CHECK" >> "$GITHUB_OUTPUT"
+          fi
+
+  midday-reassessment:
+    needs: check-market-day
+    if: needs.check-market-day.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    outputs:
-      response: ${{ steps.api.outputs.response }}
     steps:
-      - name: Trigger midday-reassessment
-        id: api
-        run: |
-          QUERY=""
-          if [ "${{ github.event.inputs.skip_checks }}" = "true" ]; then
-            QUERY="?skip_checks=true"
-          fi
-
-          RESPONSE=$(curl -s -w "\n%{http_code}" \
-            -X POST \
-            -H "Authorization: Bearer $CRON_SECRET" \
-            "$APP_URL/api/cron/midday-reassessment${QUERY}")
-
-          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-          BODY=$(echo "$RESPONSE" | head -n -1)
-
-          echo "HTTP Status: $HTTP_CODE"
-          echo "Response: $BODY"
-          echo "response=$BODY" >> $GITHUB_OUTPUT
-
-          if [ "$HTTP_CODE" -ge 400 ]; then
-            echo "Job failed with HTTP $HTTP_CODE"
-            exit 1
-          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run midday
 
   notify-success:
-    needs: trigger
+    needs: midday-reassessment
     if: success()
     runs-on: ubuntu-latest
     steps:
@@ -59,7 +79,7 @@ jobs:
           SLACK_FOOTER: "Stock Buddy"
 
   notify-failure:
-    needs: trigger
+    needs: midday-reassessment
     if: failure()
     runs-on: ubuntu-latest
     steps:
@@ -69,7 +89,7 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_TITLE: "❌ midday-reassessment 失敗"
           SLACK_MESSAGE: |
-            midday-reassessment が失敗しました
-            レスポンス: ${{ needs.trigger.outputs.response }}
+            midday-reassessment が失敗しました。
+            詳細はGitHub Actionsログを確認してください。
           SLACK_COLOR: danger
           SLACK_FOOTER: "Stock Buddy"
