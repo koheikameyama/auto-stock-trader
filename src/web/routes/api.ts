@@ -7,7 +7,6 @@ import { prisma } from "../../lib/prisma";
 import { getOpenPositions, getCashBalance } from "../../core/position-manager";
 import { getPendingOrders } from "../../core/order-executor";
 import { jobState } from "./dashboard";
-import { authMiddleware } from "../middleware/auth";
 import { notifySlack } from "../../lib/slack";
 import { cronControl } from "../../lib/cron-control";
 import { fetchHistoricalData, fetchStockQuote } from "../../core/market-data";
@@ -57,7 +56,7 @@ app.get("/status", async (c) => {
 /**
  * POST /api/trading/toggle - 取引の有効/無効を切り替え（緊急停止/再開）
  */
-app.post("/trading/toggle", authMiddleware, async (c) => {
+app.post("/trading/toggle", async (c) => {
   const body = await c.req.json<{ active: boolean }>();
 
   if (typeof body.active !== "boolean") {
