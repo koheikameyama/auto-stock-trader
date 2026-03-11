@@ -2,20 +2,6 @@
  * Web UI・ルート設定
  */
 
-// クライアント側の市場時間判定（JST）
-export const MARKET_HOURS_CLIENT = {
-  START_HOUR: 9,
-  END_HOUR: 16,
-  START_DAY: 1, // 月曜
-  END_DAY: 5, // 金曜
-} as const;
-
-// 自動リフレッシュ間隔（ms）
-export const REFRESH_INTERVALS = {
-  MARKET_HOURS: 30_000,
-  OFF_HOURS: 60_000,
-} as const;
-
 // チャートSVGパディング
 export const CHART_PADDING = {
   TOP: 10,

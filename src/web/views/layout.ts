@@ -5,7 +5,6 @@
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { CSS } from "./styles";
-import { MARKET_HOURS_CLIENT, REFRESH_INTERVALS } from "../../lib/constants";
 
 type HtmlContent = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -119,16 +118,6 @@ export function layout(
             if (el) el.textContent = new Date().toLocaleTimeString("ja-JP");
           }
           updateTime();
-
-          // Auto refresh
-          const isMarketHours = (() => {
-            const now = new Date();
-            const h = now.getHours();
-            const d = now.getDay();
-            return d >= ${MARKET_HOURS_CLIENT.START_DAY} && d <= ${MARKET_HOURS_CLIENT.END_DAY} && h >= ${MARKET_HOURS_CLIENT.START_HOUR} && h < ${MARKET_HOURS_CLIENT.END_HOUR};
-          })();
-          const interval = isMarketHours ? ${REFRESH_INTERVALS.MARKET_HOURS} : ${REFRESH_INTERVALS.OFF_HOURS};
-          setTimeout(() => location.reload(), interval);
 
           // Register SW
           if ("serviceWorker" in navigator) {
