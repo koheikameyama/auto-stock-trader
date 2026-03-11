@@ -200,6 +200,8 @@ model TradingOrder {
   positionId String?
   position   TradingPosition? @relation(fields: [positionId], references: [id])
 
+  unfilledFollowUp UnfilledOrderFollowUp?
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   expiresAt DateTime? // 注文有効期限
@@ -395,4 +397,43 @@ model DefensiveExitFollowUp {
 
   @@index([isComplete])
   @@index([exitDate(sort: Desc)])
+}
+
+// 未約定注文フォローアップ（指値が刺さらなかった注文の事後検証）
+model UnfilledOrderFollowUp {
+  id         String   @id @default(cuid())
+  orderId    String   @unique
+  order      TradingOrder @relation(fields: [orderId], references: [id])
+  tickerCode String
+  strategy   String   // day_trade / swing
+
+  // 注文コンテキスト
+  orderDate   DateTime @db.Date
+  limitPrice  Decimal  @db.Decimal(10, 2)
+  marketPrice Decimal  @db.Decimal(10, 2) // 注文時の市場価格
+  gapPct      Decimal  @db.Decimal(8, 4)  // (limitPrice - marketPrice) / marketPrice * 100
+  cancelReason String  // expired / cancelled_midday / cancelled_eod
+
+  // N営業日後の終値
+  day1Price  Decimal? @db.Decimal(10, 2)
+  day3Price  Decimal? @db.Decimal(10, 2)
+  day5Price  Decimal? @db.Decimal(10, 2)
+
+  // 指値に到達したか（N営業日目までの安値が指値以下）
+  day1ReachedLimit Boolean?
+  day3ReachedLimit Boolean?
+  day5ReachedLimit Boolean?
+
+  // 仮想損益（指値で買えていた場合のN営業日後損益%）
+  day1PnlPct Decimal? @db.Decimal(8, 4)
+  day3PnlPct Decimal? @db.Decimal(8, 4)
+  day5PnlPct Decimal? @db.Decimal(8, 4)
+
+  isComplete Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isComplete])
+  @@index([orderDate(sort: Desc)])
 }

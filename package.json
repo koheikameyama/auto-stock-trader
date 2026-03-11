@@ -16,6 +16,7 @@
     "eod": "tsx src/jobs/end-of-day.ts",
     "ghost": "tsx src/jobs/ghost-review.ts",
     "defensive-followup": "tsx src/jobs/defensive-exit-followup.ts",
+    "unfilled-followup": "tsx src/jobs/unfilled-order-followup.ts",
     "weekly": "tsx src/jobs/weekly-review.ts",
     "scoring-report": "tsx src/jobs/scoring-accuracy-report.ts",
     "backfill": "tsx src/jobs/backfill-prices.ts",

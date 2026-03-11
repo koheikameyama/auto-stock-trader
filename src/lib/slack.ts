@@ -518,3 +518,74 @@ export async function notifyScoringAccuracyReport(data: {
     ],
   });
 }
+
+/** 未約定注文フォローアップ通知 */
+export async function notifyUnfilledOrderFollowUp(data: {
+  newCount: number;
+  updatedCount: number;
+  completedCount: number;
+  totalTracking: number;
+  stats: {
+    totalCompleted: number;
+    reachRate: number;
+    avgDay5Pnl: number;
+    avgGapPct: number;
+    profitableIfReachedCount: number;
+    reachedCount: number;
+  };
+  topMissed: Array<{
+    tickerCode: string;
+    limitPrice: number;
+    day5Price: number;
+    day5PnlPct: number;
+    gapPct: number;
+  }>;
+}): Promise<void> {
+  const missedList =
+    data.topMissed
+      .map(
+        (m, i) =>
+          `${i + 1}. ${m.tickerCode} 指値¥${m.limitPrice.toLocaleString()} → 5日後¥${m.day5Price.toLocaleString()} (+${m.day5PnlPct.toFixed(2)}%) 乖離${m.gapPct.toFixed(2)}%`,
+      )
+      .join("\n") || "指値到達かつ利益の見逃し銘柄なし";
+
+  const message = [
+    `新規: ${data.newCount}件 | 更新: ${data.updatedCount}件 | 完了: ${data.completedCount}件`,
+    "",
+    `[完了分サマリ（直近${data.stats.totalCompleted}件）]`,
+    `指値到達率: ${data.stats.reachRate.toFixed(0)}% (${data.stats.reachedCount}/${data.stats.totalCompleted}件)`,
+    `5日後平均損益: ${data.stats.avgDay5Pnl >= 0 ? "+" : ""}${data.stats.avgDay5Pnl.toFixed(2)}%（指値で買えていた場合）`,
+    `平均指値乖離: ${data.stats.avgGapPct.toFixed(2)}%`,
+    "",
+    "[見逃し上位]",
+    missedList,
+  ].join("\n");
+
+  await notifySlack({
+    title: `📋 未約定注文フォローアップ: ${data.totalTracking}件追跡中`,
+    message,
+    color: data.stats.profitableIfReachedCount > 0 ? "warning" : "good",
+    fields: [
+      {
+        title: "指値到達率",
+        value: `${data.stats.reachRate.toFixed(0)}%`,
+        short: true,
+      },
+      {
+        title: "5日後平均損益",
+        value: `${data.stats.avgDay5Pnl >= 0 ? "+" : ""}${data.stats.avgDay5Pnl.toFixed(2)}%`,
+        short: true,
+      },
+      {
+        title: "平均指値乖離",
+        value: `${data.stats.avgGapPct.toFixed(2)}%`,
+        short: true,
+      },
+      {
+        title: "到達+利益",
+        value: `${data.stats.profitableIfReachedCount}件`,
+        short: true,
+      },
+    ],
+  });
+}
