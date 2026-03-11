@@ -74,6 +74,10 @@ export async function main() {
   console.log(`  未約定注文: ${pendingOrders.length}件`);
 
   for (const order of pendingOrders) {
+    if (!(await isSystemActive())) {
+      console.log("  → システム停止中のため終了");
+      return;
+    }
     const quote = await fetchStockQuote(order.stock.tickerCode);
     if (!quote) {
       console.log(`  → ${order.stock.tickerCode}: 株価取得失敗`);
@@ -210,6 +214,10 @@ export async function main() {
   await applyCorporateEventAdjustments(openPositions);
 
   for (const position of openPositions) {
+    if (!(await isSystemActive())) {
+      console.log("  → システム停止中のため終了");
+      return;
+    }
     const quote = await fetchStockQuote(position.stock.tickerCode);
     if (!quote) continue;
 
@@ -367,6 +375,12 @@ export async function main() {
     }
   }
 
+  // システム停止チェック（フェーズ間で再確認）
+  if (!(await isSystemActive())) {
+    console.log("  → システム停止中のため終了");
+    return;
+  }
+
   // 3.5. ディフェンシブモード（bearish/crisis時のポジション防衛）
   console.log("[2.5/3] ディフェンシブモード判定...");
   const latestAssessmentForDefense = await prisma.marketAssessment.findFirst({
@@ -474,6 +488,12 @@ export async function main() {
     console.log(
       `  → ディフェンシブモード: OFF（sentiment: ${currentSentiment ?? "不明"}）`,
     );
+  }
+
+  // システム停止チェック（フェーズ間で再確認）
+  if (!(await isSystemActive())) {
+    console.log("  → システム停止中のため終了");
+    return;
   }
 
   // 4. デイトレ強制決済チェック
