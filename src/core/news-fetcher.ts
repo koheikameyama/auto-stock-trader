@@ -14,6 +14,7 @@ import {
   NEWS_RSS_FEEDS,
   NEWS_CONCURRENCY,
 } from "../lib/constants";
+import { throttledYahooRequest } from "../lib/yahoo-finance-throttle";
 
 // ========================================
 // 共通インターフェース
@@ -179,9 +180,11 @@ export async function fetchFromYahooFinance(
     tickerCodes.map((ticker) =>
       limit(async (): Promise<RawNewsItem[]> => {
         try {
-          const result = await yahooFinance.search(ticker, {
-            newsCount: NEWS_SOURCES.YAHOO_FINANCE.MAX_RESULTS,
-          });
+          const result = await throttledYahooRequest(() =>
+            yahooFinance.search(ticker, {
+              newsCount: NEWS_SOURCES.YAHOO_FINANCE.MAX_RESULTS,
+            }),
+          );
 
           if (!result.news || result.news.length === 0) return [];
 

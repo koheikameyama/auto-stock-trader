@@ -11,6 +11,7 @@ import dayjs from "dayjs";
 import type { OHLCVData } from "../core/technical-analysis";
 import { normalizeTickerCode } from "../lib/ticker-utils";
 import { withRetry as _withRetry } from "../lib/retry-utils";
+import { throttledYahooRequest } from "../lib/yahoo-finance-throttle";
 
 const yahooFinance = new YahooFinance({
   suppressNotices: ["yahooSurvey"],
@@ -39,11 +40,13 @@ export async function fetchBacktestData(
 
   const result = await retry(
     () =>
-      yahooFinance.chart(symbol, {
-        period1,
-        period2,
-        interval: "1d",
-      }),
+      throttledYahooRequest(() =>
+        yahooFinance.chart(symbol, {
+          period1,
+          period2,
+          interval: "1d",
+        }),
+      ),
     symbol,
   );
 
@@ -84,11 +87,13 @@ export async function fetchNikkeiViData(
   try {
     const result = await retry(
       () =>
-        yahooFinance.chart("^JNV", {
-          period1,
-          period2,
-          interval: "1d",
-        }),
+        throttledYahooRequest(() =>
+          yahooFinance.chart("^JNV", {
+            period1,
+            period2,
+            interval: "1d",
+          }),
+        ),
       "^JNV",
     );
 
@@ -110,11 +115,13 @@ export async function fetchNikkeiViData(
   // フォールバック: VIXデータ × 1.3 で日経VIを近似
   const result = await retry(
     () =>
-      yahooFinance.chart("^VIX", {
-        period1,
-        period2,
-        interval: "1d",
-      }),
+      throttledYahooRequest(() =>
+        yahooFinance.chart("^VIX", {
+          period1,
+          period2,
+          interval: "1d",
+        }),
+      ),
     "^VIX (fallback)",
   );
 

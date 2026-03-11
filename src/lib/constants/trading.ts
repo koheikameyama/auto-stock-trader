@@ -132,6 +132,10 @@ export const YAHOO_FINANCE = {
   RATE_LIMIT_DELAY_MS: 2000, // レート制限用ディレイ
   RETRY_MAX_ATTEMPTS: 3, // リトライ最大回数
   RETRY_BASE_DELAY_MS: 5000, // リトライ初回待機（指数バックオフ）
+  // スロットルキュー設定（429回避）
+  THROTTLE_CONCURRENCY: 1, // 同時実行数（1 = 直列実行）
+  THROTTLE_MIN_DELAY_MS: 1000, // リクエスト間最小ディレイ（ms）
+  THROTTLE_MAX_DELAY_MS: 2000, // リクエスト間最大ディレイ（ms）
 } as const;
 
 // ========================================
