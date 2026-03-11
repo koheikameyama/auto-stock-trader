@@ -128,11 +128,9 @@ ${sectorText || "  特になし"}`;
     : 0;
   const morningNikkeiVi = assessment.nikkeiVi
     ? Number(assessment.nikkeiVi)
-    : assessment.vix
-      ? Number(assessment.vix)
-      : 0;
+    : null;
 
-  const currentNikkeiVi = marketData.nikkeiVi?.price ?? marketData.vix?.price ?? 0;
+  const currentNikkeiVi = marketData.nikkeiVi?.price ?? null;
 
   const result = await reassessMarketMidday({
     morningSentiment: assessment.sentiment,

@@ -36,8 +36,8 @@ export interface MarketDataInput {
   nikkeiPrice: number;
   nikkeiChange: number;
   sp500Change: number;
-  nikkeiVi: number;
-  vix: number; // 補助指標（グローバルリスク参考）
+  nikkeiVi: number | null; // nullの場合はVIXで代替判断
+  vix: number;
   usdJpy: number;
   cmeFuturesPrice: number;
   cmeFuturesChange: number;
@@ -107,13 +107,17 @@ export async function assessMarket(
 ): Promise<MarketAssessmentResult> {
   const openai = getOpenAIClient();
 
+  const nikkeiViText = data.nikkeiVi != null
+    ? `${data.nikkeiVi.toFixed(2)}`
+    : `取得不可（データソース障害のためVIXで代替判断してください）`;
+
   let userPrompt = `以下の市場データに基づいて、今日の日本株取引を行うべきか評価してください。
 
 【市場指標】
 - 日経225: ${data.nikkeiPrice.toLocaleString()}円（前日比: ${data.nikkeiChange >= 0 ? "+" : ""}${data.nikkeiChange.toFixed(2)}%）
 - S&P500 前日比: ${data.sp500Change >= 0 ? "+" : ""}${data.sp500Change.toFixed(2)}%
-- 日経VI: ${data.nikkeiVi.toFixed(2)}
-- VIX: ${data.vix.toFixed(2)}（参考）
+- 日経VI: ${nikkeiViText}
+- VIX: ${data.vix.toFixed(2)}${data.nikkeiVi == null ? "（日経VI取得不可のため、VIXを主要リスク指標として使用）" : "（参考）"}
 - USD/JPY: ${data.usdJpy.toFixed(2)}
 - CME日経先物: ${data.cmeFuturesPrice.toLocaleString()}円（前日比: ${data.cmeFuturesChange >= 0 ? "+" : ""}${data.cmeFuturesChange.toFixed(2)}%）`;
 
@@ -273,10 +277,10 @@ export interface MiddayReassessmentInput {
   morningSentiment: string;
   morningReasoning: string;
   morningNikkeiPrice: number;
-  morningNikkeiVi: number;
+  morningNikkeiVi: number | null;
   currentNikkeiPrice: number;
   currentNikkeiChange: number;
-  currentNikkeiVi: number;
+  currentNikkeiVi: number | null;
   currentSp500Change: number;
   currentUsdJpy: number;
   newsSummary?: string; // 最新ニュース分析サマリー
@@ -309,15 +313,25 @@ export async function reassessMarketMidday(
     additionalContext += `\n【セクター動向】\n${data.sectorContext}\n`;
   }
 
+  const morningViText = data.morningNikkeiVi != null
+    ? data.morningNikkeiVi.toFixed(2)
+    : "取得不可";
+  const currentViText = data.currentNikkeiVi != null
+    ? data.currentNikkeiVi.toFixed(2)
+    : "取得不可";
+  const viCompareText = data.currentNikkeiVi != null && data.morningNikkeiVi != null
+    ? `（朝比: ${data.currentNikkeiVi > data.morningNikkeiVi ? "上昇" : data.currentNikkeiVi < data.morningNikkeiVi ? "低下" : "横ばい"}）`
+    : "";
+
   const userPrompt = `【朝の市場評価（前場開始前）】
 - センチメント: ${data.morningSentiment}
 - 理由: ${data.morningReasoning}
 - 日経225（朝時点）: ${data.morningNikkeiPrice.toLocaleString()}円
-- 日経VI（朝時点）: ${data.morningNikkeiVi.toFixed(2)}
+- 日経VI（朝時点）: ${morningViText}
 
 【前場終了時点の市場データ】
 - 日経225: ${data.currentNikkeiPrice.toLocaleString()}円（朝比: ${morningSessionChange >= 0 ? "+" : ""}${morningSessionChange.toFixed(2)}%、前日比: ${data.currentNikkeiChange >= 0 ? "+" : ""}${data.currentNikkeiChange.toFixed(2)}%）
-- 日経VI: ${data.currentNikkeiVi.toFixed(2)}（朝比: ${data.currentNikkeiVi > data.morningNikkeiVi ? "上昇" : data.currentNikkeiVi < data.morningNikkeiVi ? "低下" : "横ばい"}）
+- 日経VI: ${currentViText}${viCompareText}
 - S&P500 前日比: ${data.currentSp500Change >= 0 ? "+" : ""}${data.currentSp500Change.toFixed(2)}%
 - USD/JPY: ${data.currentUsdJpy.toFixed(2)}
 ${additionalContext}

@@ -68,7 +68,7 @@ export async function notifyMarketAssessment(data: {
   sentiment: string;
   reasoning: string;
   nikkeiChange?: number;
-  vix?: number;
+  vix?: number | null;
 }): Promise<void> {
   const emoji = data.shouldTrade ? "🟢" : "🔴";
   const action = data.shouldTrade ? "取引実行" : "取引見送り";

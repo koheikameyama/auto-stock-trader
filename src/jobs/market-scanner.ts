@@ -331,7 +331,7 @@ ${sectorText || "  特になし"}`;
       nikkeiPrice: marketData.nikkei.price,
       nikkeiChange: marketData.nikkei.changePercent,
       sp500Change: marketData.sp500?.changePercent ?? 0,
-      nikkeiVi: marketData.nikkeiVi?.price ?? 0,
+      nikkeiVi: marketData.nikkeiVi?.price ?? null,
       vix: marketData.vix?.price ?? 0,
       usdJpy: marketData.usdjpy?.price ?? 0,
       cmeFuturesPrice: marketData.cmeFutures?.price ?? 0,
@@ -350,7 +350,7 @@ ${sectorText || "  特になし"}`;
       sentiment: assessment.sentiment,
       reasoning: assessment.reasoning,
       nikkeiChange: marketData.nikkei.changePercent,
-      vix: marketData.nikkeiVi?.price ?? marketData.vix?.price ?? 0,
+      vix: marketData.nikkeiVi?.price ?? marketData.vix?.price ?? null,
     });
 
     // 3. shouldTrade = false → 保存してシャドウスコアリングへ
