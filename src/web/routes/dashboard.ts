@@ -115,7 +115,7 @@ app.get("/", async (c) => {
           <button
             id="toggleTrading"
             class="btn-toggle ${config?.isActive ? "btn-danger" : "btn-success"}"
-            onclick="toggleSystem(${!config?.isActive})"
+            onclick="toggleSystem(${config?.isActive ? "false" : "true"})"
           >
             ${config?.isActive ? "緊急停止" : "再開"}
           </button>
