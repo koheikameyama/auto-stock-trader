@@ -159,6 +159,9 @@ export const SECTOR_MASTER: Record<string, readonly string[]> = {
   その他: ["その他製品"],
 };
 
+// セクターグループ名リスト（AI構造化出力のenum等で使用）
+export const SECTOR_GROUP_NAMES = Object.keys(SECTOR_MASTER);
+
 // TSE業種 → セクターグループの逆引き
 export const TSE_TO_SECTOR: Record<string, string> = Object.entries(
   SECTOR_MASTER,

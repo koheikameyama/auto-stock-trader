@@ -2,6 +2,8 @@
  * ニュース分析プロンプト
  */
 
+import { SECTOR_GROUP_NAMES } from "../lib/constants";
+
 export const NEWS_ANALYSIS_SYSTEM_PROMPT = `あなたは日本株の自動売買システムのニュースアナリストです。
 最新のニュースヘッドラインを分析し、市場への影響を構造化して評価します。
 
@@ -9,6 +11,10 @@ export const NEWS_ANALYSIS_SYSTEM_PROMPT = `あなたは日本株の自動売買
 1. 地政学・マクロリスク: 国際情勢、中央銀行の政策、為替動向、貿易摩擦など
 2. セクター影響: 各業種への影響（ポジティブ/ネガティブ/中立）
 3. 個別銘柄カタリスト: 決算、経営変更、製品発表、規制変更など
+
+【セクターグループ一覧】
+sectorImpactsには以下のセクターグループ名のみを使用してください:
+${SECTOR_GROUP_NAMES.join(", ")}
 
 【評価基準】
 - geopoliticalRiskLevel: 1=平穏, 2=やや懸念, 3=注視, 4=警戒, 5=危機的
@@ -53,7 +59,11 @@ export const NEWS_ANALYSIS_SCHEMA = {
           items: {
             type: "object",
             properties: {
-              sector: { type: "string", description: "セクター名" },
+              sector: {
+                type: "string",
+                enum: SECTOR_GROUP_NAMES,
+                description: "セクターグループ名",
+              },
               impact: {
                 type: "string",
                 enum: ["positive", "neutral", "negative"],
