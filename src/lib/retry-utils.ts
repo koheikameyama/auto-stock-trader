@@ -5,37 +5,50 @@
  */
 
 import { YAHOO_FINANCE } from "./constants";
+import { markFailure, markSuccess } from "./yahoo-finance-client";
 
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** ネットワーク系のエラーコード */
+const RETRYABLE_NETWORK_CODES = [
+  "ETIMEDOUT",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ENETUNREACH",
+  "EAI_AGAIN",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_SOCKET",
+] as const;
+
 /**
- * リトライ可能なエラーか判定（429 + ネットワークエラー）
+ * リトライ可能なエラーか判定（429 + ネットワークエラー + タイムアウト）
  */
 export function isRetryableError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const msg = error.message;
   // 429 Rate Limit
   if (msg.includes("Too Many Requests") || msg.includes("429")) return true;
+  // fetch failed（crumb取得含む）
+  if (msg.includes("fetch failed")) return true;
+  // AbortError（タイムアウト）
+  if (error.name === "TimeoutError" || error.name === "AbortError") return true;
   // ネットワークエラー
-  if (
-    msg.includes("ETIMEDOUT") ||
-    msg.includes("ECONNRESET") ||
-    msg.includes("ECONNREFUSED") ||
-    msg.includes("fetch failed") ||
-    msg.includes("ENETUNREACH") ||
-    msg.includes("EAI_AGAIN")
-  )
-    return true;
-  // cause チェーン
-  const cause = (error as { cause?: { code?: string } }).cause;
-  if (cause?.code === "ETIMEDOUT" || cause?.code === "ECONNRESET") return true;
+  if (RETRYABLE_NETWORK_CODES.some((code) => msg.includes(code))) return true;
+  // cause チェーン（undici のネストされたエラー）
+  const cause = (error as { cause?: { code?: string; message?: string } }).cause;
+  if (cause) {
+    if (RETRYABLE_NETWORK_CODES.some((code) => cause.code === code)) return true;
+    if (cause.message && RETRYABLE_NETWORK_CODES.some((code) => cause.message!.includes(code))) return true;
+  }
   return false;
 }
 
 /**
  * リトライ可能エラー時に指数バックオフでリトライ
+ *
+ * crumb/fetch 失敗時は YahooFinance インスタンスのリセットも行う。
  */
 export async function withRetry<T>(
   fn: () => Promise<T>,
@@ -44,8 +57,11 @@ export async function withRetry<T>(
 ): Promise<T> {
   for (let attempt = 0; attempt < YAHOO_FINANCE.RETRY_MAX_ATTEMPTS; attempt++) {
     try {
-      return await fn();
+      const result = await fn();
+      markSuccess();
+      return result;
     } catch (error: unknown) {
+      markFailure();
       if (
         !isRetryableError(error) ||
         attempt >= YAHOO_FINANCE.RETRY_MAX_ATTEMPTS - 1

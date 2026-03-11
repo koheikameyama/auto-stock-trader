@@ -6,7 +6,6 @@
  */
 
 import { createHash } from "crypto";
-import YahooFinance from "yahoo-finance2";
 import pLimit from "p-limit";
 import {
   NEWS_SOURCES,
@@ -173,7 +172,7 @@ export async function fetchFromGoogleRSS(): Promise<RawNewsItem[]> {
 export async function fetchFromYahooFinance(
   tickerCodes: string[],
 ): Promise<RawNewsItem[]> {
-  const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
+  const { getYahooFinance } = await import("../lib/yahoo-finance-client");
   const limit = pLimit(NEWS_CONCURRENCY.YAHOO_STOCK_NEWS);
 
   const results = await Promise.all(
@@ -181,7 +180,7 @@ export async function fetchFromYahooFinance(
       limit(async (): Promise<RawNewsItem[]> => {
         try {
           const result = await throttledYahooRequest(() =>
-            yahooFinance.search(ticker, {
+            getYahooFinance().search(ticker, {
               newsCount: NEWS_SOURCES.YAHOO_FINANCE.MAX_RESULTS,
             }),
           );

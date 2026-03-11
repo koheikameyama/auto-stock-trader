@@ -5,17 +5,13 @@
  * oldest-first（時系列順）で返す。
  */
 
-import YahooFinance from "yahoo-finance2";
 import pLimit from "p-limit";
 import dayjs from "dayjs";
 import type { OHLCVData } from "../core/technical-analysis";
+import { getYahooFinance } from "../lib/yahoo-finance-client";
 import { normalizeTickerCode } from "../lib/ticker-utils";
 import { withRetry as _withRetry } from "../lib/retry-utils";
 import { throttledYahooRequest } from "../lib/yahoo-finance-throttle";
-
-const yahooFinance = new YahooFinance({
-  suppressNotices: ["yahooSurvey"],
-});
 
 const LOOKBACK_CALENDAR_DAYS = 120;
 const FETCH_CONCURRENCY = 3;
@@ -41,7 +37,7 @@ export async function fetchBacktestData(
   const result = await retry(
     () =>
       throttledYahooRequest(() =>
-        yahooFinance.chart(symbol, {
+        getYahooFinance().chart(symbol, {
           period1,
           period2,
           interval: "1d",
@@ -88,7 +84,7 @@ export async function fetchNikkeiViData(
     const result = await retry(
       () =>
         throttledYahooRequest(() =>
-          yahooFinance.chart("^JNV", {
+          getYahooFinance().chart("^JNV", {
             period1,
             period2,
             interval: "1d",
@@ -116,7 +112,7 @@ export async function fetchNikkeiViData(
   const result = await retry(
     () =>
       throttledYahooRequest(() =>
-        yahooFinance.chart("^VIX", {
+        getYahooFinance().chart("^VIX", {
           period1,
           period2,
           interval: "1d",
