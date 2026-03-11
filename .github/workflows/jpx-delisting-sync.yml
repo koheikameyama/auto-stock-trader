@@ -3,35 +3,49 @@ name: JPX Delisting Sync
 on:
   workflow_dispatch:
     inputs:
-      skip_market_day_check:
-        description: "休場日チェックをスキップ"
+      skip_checks:
+        description: "市場日・システム停止チェックをスキップ"
         type: boolean
         default: false
 
-concurrency:
-  group: jpx-delisting-sync
-  cancel-in-progress: false
-
 env:
-  DATABASE_URL: ${{ secrets.DATABASE_URL }}
-  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  APP_URL: ${{ secrets.APP_URL }}
+  CRON_SECRET: ${{ secrets.CRON_SECRET }}
 
 jobs:
-  jpx-delisting-sync:
+  trigger:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    outputs:
+      response: ${{ steps.api.outputs.response }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-      - run: npm ci
-      - run: npx prisma generate
-      - run: npm run delisting-sync
+      - name: Trigger jpx-delisting-sync
+        id: api
+        run: |
+          QUERY=""
+          if [ "${{ github.event.inputs.skip_checks }}" = "true" ]; then
+            QUERY="?skip_checks=true"
+          fi
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$APP_URL/api/cron/jpx-delisting-sync${QUERY}")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          echo "response=$BODY" >> $GITHUB_OUTPUT
+
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "Job failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
 
   notify-success:
-    needs: jpx-delisting-sync
+    needs: trigger
     if: success()
     runs-on: ubuntu-latest
     steps:
@@ -45,7 +59,7 @@ jobs:
           SLACK_FOOTER: "Stock Buddy"
 
   notify-failure:
-    needs: jpx-delisting-sync
+    needs: trigger
     if: failure()
     runs-on: ubuntu-latest
     steps:
@@ -55,7 +69,7 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_TITLE: "❌ jpx-delisting-sync 失敗"
           SLACK_MESSAGE: |
-            jpx-delisting-sync が失敗しました。
-            詳細はGitHub Actionsログを確認してください。
+            jpx-delisting-sync が失敗しました
+            レスポンス: ${{ needs.trigger.outputs.response }}
           SLACK_COLOR: danger
           SLACK_FOOTER: "Stock Buddy"
