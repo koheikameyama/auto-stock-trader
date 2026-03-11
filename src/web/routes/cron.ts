@@ -54,13 +54,13 @@ for (const [key, def] of Object.entries(JOBS)) {
   app.post(`/${key}`, async (c) => {
     const skipChecks = c.req.query("skip_checks") === "true";
 
-    // 休場日チェック
+    // 休場日チェック（skip_checksでスキップ可能）
     if (!skipChecks && def.requiresMarketDay && !isMarketDay()) {
       return c.json({ status: "skipped", jobName: key, reason: "non-market-day" });
     }
 
-    // システム停止チェック
-    if (!skipChecks && def.requiresMarketDay) {
+    // システム停止チェック（skip_checksでもバイパス不可）
+    if (def.requiresMarketDay) {
       const config = await prisma.tradingConfig.findFirst({
         orderBy: { createdAt: "desc" },
       });

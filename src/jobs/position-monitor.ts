@@ -46,8 +46,21 @@ import timezone from "dayjs/plugin/timezone";
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
+async function isSystemActive(): Promise<boolean> {
+  const config = await prisma.tradingConfig.findFirst({
+    orderBy: { createdAt: "desc" },
+  });
+  return !config || config.isActive;
+}
+
 export async function main() {
   console.log("=== Position Monitor 開始 ===");
+
+  // システム停止チェック（実行中でも即座に停止）
+  if (!(await isSystemActive())) {
+    console.log("  → システム停止中のため終了");
+    return;
+  }
 
   // 1. 期限切れ注文をキャンセル
   const expiredCount = await expireOrders();
@@ -180,6 +193,12 @@ export async function main() {
         });
       }
     }
+  }
+
+  // システム停止チェック（フェーズ間で再確認）
+  if (!(await isSystemActive())) {
+    console.log("  → システム停止中のため終了");
+    return;
   }
 
   // 3. openポジションの利確・損切りチェック
