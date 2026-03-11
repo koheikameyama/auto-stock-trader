@@ -89,7 +89,7 @@ export function printBacktestReport(result: BacktestResult): void {
 
   // トレード一覧（最大20件）
   const closedTrades = result.trades.filter(
-    (t) => t.exitReason === "take_profit" || t.exitReason === "stop_loss" || t.exitReason === "trailing_profit" || t.exitReason === "time_stop",
+    (t) => t.exitReason === "take_profit" || t.exitReason === "stop_loss" || t.exitReason === "trailing_profit" || t.exitReason === "time_stop" || t.exitReason === "defensive_exit",
   );
   if (closedTrades.length > 0) {
     console.log("-".repeat(50));
@@ -98,7 +98,7 @@ export function printBacktestReport(result: BacktestResult): void {
     const display = closedTrades.slice(-20);
     for (const t of display) {
       const pnlSign = (t.pnl ?? 0) >= 0 ? "+" : "";
-      const reasonMap: Record<string, string> = { take_profit: "TP", stop_loss: "SL", trailing_profit: "TR", time_stop: "TS" };
+      const reasonMap: Record<string, string> = { take_profit: "TP", stop_loss: "SL", trailing_profit: "TR", time_stop: "TS", defensive_exit: "DF" };
       const reason = reasonMap[t.exitReason ?? ""] ?? t.exitReason;
       console.log(
         `  ${t.entryDate} ${t.ticker.padEnd(8)} ${reason} ¥${t.entryPrice}→¥${t.exitPrice} ${pnlSign}¥${t.pnl} (${pnlSign}${t.pnlPct}%) ${t.holdingDays}日`,

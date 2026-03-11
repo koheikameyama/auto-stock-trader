@@ -16,7 +16,7 @@ import {
   aggregateDailyToWeekly,
   analyzeWeeklyTrend,
 } from "../lib/technical-indicators";
-import { TECHNICAL_MIN_DATA, SCORING } from "../lib/constants";
+import { TECHNICAL_MIN_DATA, SCORING, DEFENSIVE_MODE } from "../lib/constants";
 import { calculateTrailingStop } from "../core/trailing-stop";
 import { determineMarketRegime } from "../core/market-regime";
 import { calculateCommission, calculateTax } from "../core/trading-costs";
@@ -318,12 +318,89 @@ export function runBacktest(
       openPositions.splice(toClose[i], 1);
     }
 
-    // 3. 新規エントリー評価
-    // 日経VIからレジームを判定（データなければ"normal"）
+    // 2.5. ディフェンシブモード（本番の position-monitor と同等）
+    //   crisis → 全ポジション即時決済
+    //   high   → 含み益ポジション微益撤退
     const todayNikkeiVi = nikkeiViData?.get(today);
     const todayRegime: RegimeLevel =
       todayNikkeiVi != null ? determineMarketRegime(todayNikkeiVi).level : "normal";
 
+    if (
+      (todayRegime === "crisis" || todayRegime === "high") &&
+      openPositions.length > 0
+    ) {
+      const defensiveToClose: number[] = [];
+
+      for (let i = 0; i < openPositions.length; i++) {
+        const pos = openPositions[i];
+        const bars = allData.get(pos.ticker);
+        const todayBar = bars?.find((b) => b.date === today);
+        if (!todayBar) continue;
+
+        const currentProfitPct =
+          ((todayBar.close - pos.entryPrice) / pos.entryPrice) * 100;
+
+        let shouldClose = false;
+        if (todayRegime === "crisis") {
+          // crisis: 全ポジション即時決済
+          shouldClose = true;
+        } else if (
+          currentProfitPct >= DEFENSIVE_MODE.MIN_PROFIT_PCT_FOR_RETREAT
+        ) {
+          // high: 含み益ポジションのみ微益撤退
+          shouldClose = true;
+        }
+
+        if (shouldClose) {
+          const exitPrice = todayBar.close;
+          const grossPnl = (exitPrice - pos.entryPrice) * pos.quantity;
+          const pnlPct =
+            ((exitPrice - pos.entryPrice) / pos.entryPrice) * 100;
+          const entryDayIdx = tradingDays.indexOf(pos.entryDate);
+          const holdingDays = entryDayIdx >= 0 ? dayIdx - entryDayIdx : 1;
+
+          const exitTradeValue = exitPrice * pos.quantity;
+          const exitCommission = config.costModelEnabled
+            ? calculateCommission(exitTradeValue)
+            : 0;
+          const totalCost = (pos.entryCommission ?? 0) + exitCommission;
+          const tax = config.costModelEnabled
+            ? calculateTax(grossPnl, totalCost)
+            : 0;
+          const netPnl = grossPnl - totalCost - tax;
+
+          pos.exitDate = today;
+          pos.exitPrice = exitPrice;
+          pos.exitReason = "defensive_exit";
+          pos.pnl = Math.round(grossPnl);
+          pos.pnlPct = Math.round(pnlPct * 100) / 100;
+          pos.holdingDays = holdingDays;
+          pos.exitCommission = exitCommission;
+          pos.totalCost = Math.round(totalCost);
+          pos.tax = Math.round(tax);
+          pos.grossPnl = Math.round(grossPnl);
+          pos.netPnl = Math.round(netPnl);
+
+          cash += exitTradeValue - exitCommission - tax;
+          defensiveToClose.push(i);
+
+          if (config.verbose) {
+            const sign = grossPnl >= 0 ? "+" : "";
+            const mode = todayRegime === "crisis" ? "crisis全決済" : "high微益撤退";
+            console.log(
+              `  [${today}] ${pos.ticker} ${mode}: ¥${exitPrice} ${sign}¥${Math.round(grossPnl)} (${sign}${pos.pnlPct}%)`,
+            );
+          }
+        }
+      }
+
+      for (let i = defensiveToClose.length - 1; i >= 0; i--) {
+        closedTrades.push(openPositions[defensiveToClose[i]]);
+        openPositions.splice(defensiveToClose[i], 1);
+      }
+    }
+
+    // 3. 新規エントリー評価
     // crisis時は新規エントリーをスキップ（本番のshouldTrade=falseと同等）
     if (todayRegime === "crisis") {
       if (config.verbose) {

@@ -77,12 +77,14 @@ export function calculateTrailingStop(
 
   const rawTrailingStop = maxHighDuringHold - trailWidth;
 
-  // 4. ラチェット（上方向のみ移動）+ 下限保証
+  // 4. ラチェット（上方向のみ移動）+ ブレークイーブン保証
+  //    発動条件（activation）< トレール幅（trail）の場合、
+  //    発動直後のストップがエントリー以下になる構造的問題を防止
   let newTrailingStop = Math.round(rawTrailingStop);
   if (currentTrailingStop !== null) {
     newTrailingStop = Math.max(newTrailingStop, currentTrailingStop);
   }
-  newTrailingStop = Math.max(newTrailingStop, originalStopLoss);
+  newTrailingStop = Math.max(newTrailingStop, originalStopLoss, entryPrice);
 
   // 5. 発動後: 固定TPを無効化し上値を追う
   return {

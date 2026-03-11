@@ -45,6 +45,7 @@ export interface SimulatedPosition {
     | "stop_loss"
     | "trailing_profit"
     | "time_stop"
+    | "defensive_exit"
     | "expired"
     | "still_open"
     | null;
