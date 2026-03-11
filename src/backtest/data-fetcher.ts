@@ -36,8 +36,8 @@ export async function fetchBacktestData(
 
   const result = await retry(
     () =>
-      throttledYahooRequest(() =>
-        getYahooFinance().chart(symbol, {
+      throttledYahooRequest(async () =>
+        (await getYahooFinance()).chart(symbol, {
           period1,
           period2,
           interval: "1d",
@@ -83,8 +83,8 @@ export async function fetchNikkeiViData(
   try {
     const result = await retry(
       () =>
-        throttledYahooRequest(() =>
-          getYahooFinance().chart("^JNV", {
+        throttledYahooRequest(async () =>
+          (await getYahooFinance()).chart("^JNV", {
             period1,
             period2,
             interval: "1d",
@@ -111,8 +111,8 @@ export async function fetchNikkeiViData(
   // フォールバック: VIXデータ × 1.3 で日経VIを近似
   const result = await retry(
     () =>
-      throttledYahooRequest(() =>
-        getYahooFinance().chart("^VIX", {
+      throttledYahooRequest(async () =>
+        (await getYahooFinance()).chart("^VIX", {
           period1,
           period2,
           interval: "1d",

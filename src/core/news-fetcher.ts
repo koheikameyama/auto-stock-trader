@@ -179,8 +179,8 @@ export async function fetchFromYahooFinance(
     tickerCodes.map((ticker) =>
       limit(async (): Promise<RawNewsItem[]> => {
         try {
-          const result = await throttledYahooRequest(() =>
-            getYahooFinance().search(ticker, {
+          const result = await throttledYahooRequest(async () =>
+            (await getYahooFinance()).search(ticker, {
               newsCount: NEWS_SOURCES.YAHOO_FINANCE.MAX_RESULTS,
             }),
           );

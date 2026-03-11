@@ -113,7 +113,7 @@ export async function fetchStockQuote(
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result: any = await retry(
-      () => throttledYahooRequest(() => getYahooFinance().quote(symbol)),
+      () => throttledYahooRequest(async () => (await getYahooFinance()).quote(symbol)),
       symbol,
     );
     return parseQuoteResult(result, symbol);
@@ -139,7 +139,7 @@ export async function fetchStockQuotesBatch(
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const batchResults: any[] = await retry(
-        () => throttledYahooRequest(() => getYahooFinance().quote(batch)),
+        () => throttledYahooRequest(async () => (await getYahooFinance()).quote(batch)),
         `batch[${i}..${i + batch.length}]`,
       );
 
@@ -159,7 +159,7 @@ export async function fetchStockQuotesBatch(
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const result: any = await retry(
-            () => throttledYahooRequest(() => getYahooFinance().quote(symbol)),
+            () => throttledYahooRequest(async () => (await getYahooFinance()).quote(symbol)),
             symbol,
           );
           results.set(symbol, parseQuoteResult(result, symbol));
@@ -206,7 +206,7 @@ export async function fetchHistoricalData(
   try {
     const period1 = dayjs().subtract(YAHOO_FINANCE.HISTORICAL_DAYS, "day").toDate();
 
-    const result = await retry(() => throttledYahooRequest(() => getYahooFinance().chart(symbol, {
+    const result = await retry(() => throttledYahooRequest(async () => (await getYahooFinance()).chart(symbol, {
       period1,
       period2: dayjs().toDate(),
       interval: "1d",
@@ -316,7 +316,7 @@ async function fetchIndexQuote(symbol: string): Promise<IndexQuote | null> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result: any = await retry(
-      () => throttledYahooRequest(() => getYahooFinance().quote(symbol)),
+      () => throttledYahooRequest(async () => (await getYahooFinance()).quote(symbol)),
       symbol,
     );
 
@@ -389,8 +389,8 @@ export async function fetchCorporateEvents(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result: any = await retry(
       () =>
-        throttledYahooRequest(() =>
-          getYahooFinance().quoteSummary(symbol, {
+        throttledYahooRequest(async () =>
+          (await getYahooFinance()).quoteSummary(symbol, {
             modules: ["calendarEvents", "summaryDetail", "defaultKeyStatistics"],
           }),
         ),
