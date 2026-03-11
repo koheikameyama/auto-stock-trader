@@ -113,22 +113,24 @@ function nowJST(): string {
 //   daily-backtest, jpx-delisting-sync）は cron-job.org → /api/cron/* に移行
 // ※ news-collector, market-scanner, ghost-review, weekly-review は
 //   GitHub Actions cron に移行済み（KOH-296）
-const schedules = [
-  // 9:20-15:19 毎分 ポジション監視（平日）— Yahoo Finance遅延考慮
-  { cron: "20-59 9 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
-  { cron: "* 10-14 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
-  { cron: "0-19 15 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
-];
-
-// cron 登録
-for (const s of schedules) {
-  cron.schedule(
-    s.cron,
-    () => runJob(s.name, s.job, s.requiresMarketDay),
-    { timezone: "Asia/Tokyo" },
-  );
-  console.log(`  スケジュール登録: ${s.name} → ${s.cron} (JST)`);
-}
+// TODO: isActive制御が安定したらスケジュールを復元する
+// const schedules = [
+//   // 9:20-15:19 毎分 ポジション監視（平日）— Yahoo Finance遅延考慮
+//   { cron: "20-59 9 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
+//   { cron: "* 10-14 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
+//   { cron: "0-19 15 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
+// ];
+//
+// // cron 登録
+// for (const s of schedules) {
+//   cron.schedule(
+//     s.cron,
+//     () => runJob(s.name, s.job, s.requiresMarketDay),
+//     { timezone: "Asia/Tokyo" },
+//   );
+//   console.log(`  スケジュール登録: ${s.name} → ${s.cron} (JST)`);
+// }
+console.log("  ⚠️ position-monitor スケジュール: 無効化中");
 
 // 日次リセット: 休場日スキップログをクリア
 cron.schedule("0 0 * * *", () => {
