@@ -9,11 +9,11 @@ import { getPendingOrders } from "../../core/order-executor";
 import { jobState } from "./dashboard";
 import { authMiddleware } from "../middleware/auth";
 import { notifySlack } from "../../lib/slack";
-import { fetchHistoricalData } from "../../core/market-data";
+import { fetchHistoricalData, fetchStockQuote } from "../../core/market-data";
 import { analyzeTechnicals } from "../../core/technical-analysis";
 import { generatePatternsResponse } from "../../lib/candlestick-patterns";
 import { stockModal } from "../views/stock-modal";
-import type { ModalAnalysis } from "../views/stock-modal";
+import type { ModalAnalysis, ModalPositionInfo } from "../views/stock-modal";
 
 const app = new Hono();
 
@@ -170,10 +170,11 @@ app.get("/stock/:tickerCode/modal", async (c) => {
   });
   if (!stock) return c.text("not found", 404);
 
-  // 分析データを並列取得（失敗してもモーダルは表示する）
+  // 分析データ・ポジション・リアルタイム価格を並列取得
   let analysis: ModalAnalysis | null = null;
+  let positionInfo: ModalPositionInfo | null = null;
   try {
-    const [ohlcv, scoring] = await Promise.all([
+    const [ohlcv, scoring, openPosition, quote] = await Promise.all([
       fetchHistoricalData(tickerCode),
       prisma.scoringRecord.findFirst({
         where: { tickerCode },
@@ -191,6 +192,10 @@ app.get("/stock/:tickerCode/modal", async (c) => {
           aiDecision: true,
         },
       }),
+      prisma.tradingPosition.findFirst({
+        where: { stockId: stock.id, status: "open" },
+      }),
+      fetchStockQuote(tickerCode),
     ]);
 
     if (ohlcv && ohlcv.length > 0) {
@@ -209,11 +214,26 @@ app.get("/stock/:tickerCode/modal", async (c) => {
       const patterns = generatePatternsResponse(chartData);
       analysis = { ohlcv: oldestFirst, technical, patterns, scoring };
     }
+
+    if (openPosition) {
+      const entryPrice = Number(openPosition.entryPrice);
+      const currentPrice = quote?.price ?? null;
+      positionInfo = {
+        entryPrice,
+        quantity: openPosition.quantity,
+        strategy: openPosition.strategy,
+        currentPrice,
+        unrealizedPnl: currentPrice != null ? (currentPrice - entryPrice) * openPosition.quantity : null,
+        pnlRate: currentPrice != null ? ((currentPrice - entryPrice) / entryPrice) * 100 : null,
+        takeProfitPrice: openPosition.takeProfitPrice != null ? Number(openPosition.takeProfitPrice) : null,
+        stopLossPrice: openPosition.stopLossPrice != null ? Number(openPosition.stopLossPrice) : null,
+      };
+    }
   } catch {
     // 分析データ取得失敗 → analysis = null のままモーダル表示
   }
 
-  return c.html(stockModal(stock, analysis));
+  return c.html(stockModal(stock, analysis, positionInfo));
 });
 
 /**

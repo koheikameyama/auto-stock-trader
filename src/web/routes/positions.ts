@@ -11,11 +11,13 @@ import { layout } from "../views/layout";
 import {
   formatYen,
   pnlText,
+  pnlPercent,
   strategyBadge,
   tickerLink,
   emptyState,
   tt,
 } from "../views/components";
+import { fetchStockQuotesBatch } from "../../core/market-data";
 
 const app = new Hono();
 
@@ -39,6 +41,14 @@ app.get("/", async (c) => {
     }),
   ]);
 
+  // オープンポジションのリアルタイム価格を一括取得
+  const openTickerCodes = openPositions
+    .map((p) => p.stock?.tickerCode)
+    .filter((t): t is string => t != null);
+  const quotes = openTickerCodes.length > 0
+    ? await fetchStockQuotesBatch(openTickerCodes)
+    : new Map();
+
   const content = html`
     <p class="section-title">オープンポジション (${openPositions.length})</p>
     ${openPositions.length > 0
@@ -51,18 +61,32 @@ app.get("/", async (c) => {
                   <th>戦略</th>
                   <th>${tt("建値", "エントリー時の購入価格")}</th>
                   <th>数量</th>
+                  <th>${tt("現在価格", "Yahoo Financeからのリアルタイム価格")}</th>
+                  <th>${tt("含み損益", "（現在価格 − 建値）× 数量")}</th>
+                  <th>${tt("損益率", "（現在価格 − 建値）÷ 建値 × 100")}</th>
                   <th>${tt("利確", "利益確定の目標価格（TP）")}</th>
                   <th>${tt("損切", "損失を限定する売却価格（SL）")}</th>
                 </tr>
               </thead>
               <tbody>
                 ${openPositions.map(
-                  (p) => html`
+                  (p) => {
+                    const tickerCode = p.stock?.tickerCode ?? p.stockId;
+                    const quote = quotes.get(tickerCode + ".T") ?? quotes.get(tickerCode);
+                    const entryPrice = Number(p.entryPrice);
+                    const currentPrice = quote?.price ?? null;
+                    const unrealizedPnl = currentPrice != null ? (currentPrice - entryPrice) * p.quantity : null;
+                    const pnlRate = currentPrice != null ? ((currentPrice - entryPrice) / entryPrice) * 100 : null;
+
+                    return html`
                     <tr>
-                      <td>${tickerLink(p.stock?.tickerCode ?? p.stockId, p.stock?.name ?? p.stockId)}</td>
+                      <td>${tickerLink(tickerCode, p.stock?.name ?? p.stockId)}</td>
                       <td>${strategyBadge(p.strategy)}</td>
-                      <td>¥${formatYen(Number(p.entryPrice))}</td>
+                      <td>¥${formatYen(entryPrice)}</td>
                       <td>${p.quantity}</td>
+                      <td>${currentPrice != null ? `¥${formatYen(currentPrice)}` : "-"}</td>
+                      <td>${unrealizedPnl != null ? pnlText(unrealizedPnl) : "-"}</td>
+                      <td>${pnlRate != null ? pnlPercent(pnlRate) : "-"}</td>
                       <td>
                         ${p.takeProfitPrice
                           ? `¥${formatYen(Number(p.takeProfitPrice))}`
@@ -74,7 +98,8 @@ app.get("/", async (c) => {
                           : "-"}
                       </td>
                     </tr>
-                  `,
+                  `;
+                  },
                 )}
               </tbody>
             </table>

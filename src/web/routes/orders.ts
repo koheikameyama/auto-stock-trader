@@ -11,11 +11,14 @@ import { layout } from "../views/layout";
 import {
   formatYen,
   pnlText,
+  pnlPercent,
   strategyBadge,
   orderStatusBadge,
   tickerLink,
   emptyState,
+  tt,
 } from "../views/components";
+import { fetchStockQuotesBatch } from "../../core/market-data";
 
 const app = new Hono();
 
@@ -38,6 +41,14 @@ app.get("/", async (c) => {
     }),
   ]);
 
+  // 待機中注文のリアルタイム価格を一括取得
+  const pendingTickerCodes = pendingOrders
+    .map((o) => o.stock?.tickerCode)
+    .filter((t): t is string => t != null);
+  const quotes = pendingTickerCodes.length > 0
+    ? await fetchStockQuotesBatch(pendingTickerCodes)
+    : new Map();
+
   const latestOrderDate = recentOrders.length > 0
     ? dayjs(recentOrders[0].updatedAt).format("M月D日")
     : dayjs().format("M月D日");
@@ -54,15 +65,26 @@ app.get("/", async (c) => {
                   <th>売買</th>
                   <th>戦略</th>
                   <th>指値</th>
+                  <th>${tt("現在価格", "Yahoo Financeからのリアルタイム価格")}</th>
+                  <th>${tt("乖離", "指値と現在価格の差（%）")}</th>
                   <th>数量</th>
                   <th>期限</th>
                 </tr>
               </thead>
               <tbody>
                 ${pendingOrders.map(
-                  (o) => html`
+                  (o) => {
+                    const tickerCode = o.stock?.tickerCode ?? o.stockId;
+                    const quote = quotes.get(tickerCode + ".T") ?? quotes.get(tickerCode);
+                    const currentPrice = quote?.price ?? null;
+                    const orderPrice = o.limitPrice ? Number(o.limitPrice) : o.stopPrice ? Number(o.stopPrice) : null;
+                    const deviationPct = currentPrice != null && orderPrice != null
+                      ? ((currentPrice - orderPrice) / orderPrice) * 100
+                      : null;
+
+                    return html`
                     <tr>
-                      <td>${tickerLink(o.stock?.tickerCode ?? o.stockId, o.stock?.name ?? o.stockId)}</td>
+                      <td>${tickerLink(tickerCode, o.stock?.name ?? o.stockId)}</td>
                       <td>${o.side === "buy" ? "買" : "売"}</td>
                       <td>${strategyBadge(o.strategy)}</td>
                       <td>
@@ -72,6 +94,8 @@ app.get("/", async (c) => {
                             ? `¥${formatYen(Number(o.stopPrice))}(逆)`
                             : "-"}
                       </td>
+                      <td>${currentPrice != null ? `¥${formatYen(currentPrice)}` : "-"}</td>
+                      <td>${deviationPct != null ? pnlPercent(deviationPct) : "-"}</td>
                       <td>${o.quantity}</td>
                       <td>
                         ${o.expiresAt
@@ -79,7 +103,8 @@ app.get("/", async (c) => {
                           : "-"}
                       </td>
                     </tr>
-                  `,
+                  `;
+                  },
                 )}
               </tbody>
             </table>

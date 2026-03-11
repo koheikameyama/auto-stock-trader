@@ -32,6 +32,18 @@ export interface ModalAnalysis {
   } | null;
 }
 
+/** ポジション情報（モーダル表示用） */
+export interface ModalPositionInfo {
+  entryPrice: number;
+  quantity: number;
+  strategy: string;
+  currentPrice: number | null;
+  unrealizedPnl: number | null;
+  pnlRate: number | null;
+  takeProfitPrice: number | null;
+  stopLossPrice: number | null;
+}
+
 // ========================================
 // メインコンポーネント
 // ========================================
@@ -40,6 +52,7 @@ export interface ModalAnalysis {
 export function stockModal(
   stock: Stock,
   analysis: ModalAnalysis | null,
+  position?: ModalPositionInfo | null,
 ): HtmlContent {
   return html`<div
     class="modal-overlay"
@@ -53,6 +66,7 @@ export function stockModal(
         </div>
         <button class="modal-close" onclick="closeStockModal()">✕</button>
       </div>
+      ${position ? positionBanner(position) : ""}
       <div class="modal-tabs">
         <button
           class="modal-tab active"
@@ -71,6 +85,46 @@ export function stockModal(
         ${chartTab(analysis)} ${infoTab(stock)} ${financeTab(stock)}
       </div>
     </div>
+  </div>`;
+}
+
+/** ポジション情報バナー（モーダル上部に表示） */
+function positionBanner(pos: ModalPositionInfo): HtmlContent {
+  const strategyLabels: Record<string, string> = {
+    day_trade: "デイ",
+    swing: "スイング",
+  };
+  const pnlColor = (pos.unrealizedPnl ?? 0) >= 0 ? "#22c55e" : "#ef4444";
+  const pnlSign = (pos.unrealizedPnl ?? 0) >= 0 ? "+" : "";
+  const fmtPrice = (v: number) => "¥" + v.toLocaleString("ja-JP");
+
+  return html`<div style="background:${pnlColor}10;border:1px solid ${pnlColor}30;border-radius:8px;padding:10px 14px;margin:0 0 8px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+      <div style="font-size:12px;color:#94a3b8">
+        保有中 · ${strategyLabels[pos.strategy] ?? pos.strategy} · ${pos.quantity}株 · 建値 ${fmtPrice(pos.entryPrice)}
+      </div>
+      <div style="display:flex;align-items:baseline;gap:8px">
+        ${pos.currentPrice != null
+          ? html`<span style="font-size:16px;font-weight:700">${fmtPrice(pos.currentPrice)}</span>`
+          : ""}
+        ${pos.unrealizedPnl != null
+          ? html`<span style="font-size:14px;font-weight:600;color:${pnlColor}">${pnlSign}${fmtPrice(Math.abs(pos.unrealizedPnl))}</span>`
+          : ""}
+        ${pos.pnlRate != null
+          ? html`<span style="font-size:12px;color:${pnlColor}">(${pnlSign}${pos.pnlRate.toFixed(2)}%)</span>`
+          : ""}
+      </div>
+    </div>
+    ${pos.takeProfitPrice != null || pos.stopLossPrice != null
+      ? html`<div style="display:flex;gap:12px;margin-top:6px;font-size:11px">
+          ${pos.takeProfitPrice != null
+            ? html`<span style="color:#22c55e">利確: ${fmtPrice(pos.takeProfitPrice)}</span>`
+            : ""}
+          ${pos.stopLossPrice != null
+            ? html`<span style="color:#ef4444">損切: ${fmtPrice(pos.stopLossPrice)}</span>`
+            : ""}
+        </div>`
+      : ""}
   </div>`;
 }
 
