@@ -91,6 +91,43 @@ def normalize_ticker(ticker_code: str) -> str:
 
 
 # ========================================
+# リトライ
+# ========================================
+
+_RETRY_MAX = 2  # 最大2回リトライ（計3回試行）
+_RETRY_DELAY_S = 2.0
+
+
+def _is_retryable(e: Exception) -> bool:
+    """リトライ可能なエラーか判定"""
+    msg = str(e)
+    # yfinance 内部のパースエラー（'str' object has no attribute 'get' 等）
+    if "has no attribute" in msg:
+        return True
+    # ネットワーク系
+    if any(code in msg for code in ("ConnectionError", "Timeout", "ReadTimeout")):
+        return True
+    return _is_rate_limit_error(e)
+
+
+async def throttled_with_retry(fn: Callable[[], T]) -> T:
+    """throttled + リトライ（yfinance 内部エラー対策）"""
+    last_error: Exception | None = None
+    for attempt in range(_RETRY_MAX + 1):
+        try:
+            return await throttled(fn)
+        except Exception as e:
+            last_error = e
+            if not _is_retryable(e) or attempt >= _RETRY_MAX:
+                raise
+            logger.warning(
+                f"リトライ {attempt + 1}/{_RETRY_MAX} after {_RETRY_DELAY_S}s: {e}"
+            )
+            await asyncio.sleep(_RETRY_DELAY_S)
+    raise last_error  # type: ignore[misc]
+
+
+# ========================================
 # ユーティリティ
 # ========================================
 
@@ -212,7 +249,7 @@ async def get_quote(symbol: str):
             # info が dict でない場合、fast_info にフォールバック
             logger.warning(f"ticker.info returned {type(info).__name__} for {symbol}, falling back to fast_info")
             return _build_info_from_fast_info(ticker)
-        info = await throttled(_fetch)
+        info = await throttled_with_retry(_fetch)
         return parse_quote_from_info(info, symbol)
     except Exception as e:
         logger.error(f"Failed to fetch quote for {symbol}: {e}")
@@ -238,7 +275,7 @@ async def get_quotes_batch(req: QuotesBatchRequest):
                     return info
                 logger.warning(f"ticker.info returned {type(info).__name__} for {s}, falling back to fast_info")
                 return _build_info_from_fast_info(ticker)
-            info = await throttled(_fetch)
+            info = await throttled_with_retry(_fetch)
             results.append(parse_quote_from_info(info, symbol))
         except Exception as e:
             logger.error(f"Failed to fetch quote for {symbol}: {e}")
@@ -257,7 +294,7 @@ async def get_historical(symbol: str, days: int = 200):
             df = ticker.history(period=f"{days}d", interval="1d")
             return df
 
-        df = await throttled(_fetch)
+        df = await throttled_with_retry(_fetch)
 
         if df is None or df.empty:
             return []
@@ -300,7 +337,7 @@ async def get_historical_range(req: HistoricalRangeRequest):
             df = ticker.history(start=req.start, end=req.end, interval="1d")
             return df
 
-        df = await throttled(_fetch)
+        df = await throttled_with_retry(_fetch)
 
         if df is None or df.empty:
             return []
@@ -351,7 +388,7 @@ async def get_market():
                     return info
                 logger.warning(f"ticker.info returned {type(info).__name__} for {s}, falling back to fast_info")
                 return _build_info_from_fast_info(ticker)
-            info = await throttled(_fetch)
+            info = await throttled_with_retry(_fetch)
             result[key] = parse_index_quote_from_info(info)
         except Exception as e:
             logger.warning(f"Failed to fetch market index {symbol}: {e}")
@@ -377,7 +414,7 @@ async def get_events(symbol: str):
                 pass
             return info, cal
 
-        info, cal = await throttled(_fetch)
+        info, cal = await throttled_with_retry(_fetch)
 
         # 決算日
         next_earnings_date = None
@@ -452,7 +489,7 @@ async def search_news(req: SearchRequest):
             search = yf.Search(req.query, news_count=req.news_count)
             return search.news
 
-        news = await throttled(_fetch)
+        news = await throttled_with_retry(_fetch)
 
         if not news:
             return {"news": []}
