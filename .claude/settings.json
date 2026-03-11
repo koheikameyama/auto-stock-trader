@@ -1,4 +1,19 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(echo:*)",
+      "Read(//Users/kouheikameyama/development/auto-stock-system/**)",
+      "Bash(ls:*)",
+      "Bash(curl:*)",
+      "Bash(python3:*)",
+      "Bash(source:*)",
+      "Bash(for id in 7344604 7321805 7321804 7321801 7321800 7319332 7322607 7322609 7322611 7324104 7324105 7324335 7344605 7319338 7319339)",
+      "Bash(do echo -n \"Deleting $id... \")",
+      "Bash(done)"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
@@ -10,12 +25,6 @@
           }
         ]
       }
-    ]
-  },
-  "permissions": {
-    "allow": [
-      "Bash(git add:*)",
-      "Bash(git commit:*)"
     ]
   }
 }
