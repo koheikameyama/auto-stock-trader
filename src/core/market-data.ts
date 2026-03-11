@@ -5,7 +5,6 @@
  */
 
 import YahooFinance from "yahoo-finance2";
-import pLimit from "p-limit";
 import dayjs from "dayjs";
 
 const yahooFinance = new YahooFinance({
@@ -20,6 +19,7 @@ const yahooFinance = new YahooFinance({
 import { YAHOO_FINANCE, DATA_QUALITY } from "../lib/constants";
 import { normalizeTickerCode } from "../lib/ticker-utils";
 import { sleep, withRetry as _withRetry } from "../lib/retry-utils";
+import { throttledYahooRequest } from "../lib/yahoo-finance-throttle";
 
 const retry = <T>(fn: () => Promise<T>, label: string) =>
   _withRetry(fn, label, "market-data");
@@ -122,7 +122,7 @@ export async function fetchStockQuote(
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result: any = await retry(
-      () => yahooFinance.quote(symbol),
+      () => throttledYahooRequest(() => yahooFinance.quote(symbol)),
       symbol,
     );
     return parseQuoteResult(result, symbol);
@@ -148,7 +148,7 @@ export async function fetchStockQuotesBatch(
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const batchResults: any[] = await retry(
-        () => yahooFinance.quote(batch),
+        () => throttledYahooRequest(() => yahooFinance.quote(batch)),
         `batch[${i}..${i + batch.length}]`,
       );
 
@@ -168,7 +168,7 @@ export async function fetchStockQuotesBatch(
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const result: any = await retry(
-            () => yahooFinance.quote(symbol),
+            () => throttledYahooRequest(() => yahooFinance.quote(symbol)),
             symbol,
           );
           results.set(symbol, parseQuoteResult(result, symbol));
@@ -215,11 +215,11 @@ export async function fetchHistoricalData(
   try {
     const period1 = dayjs().subtract(YAHOO_FINANCE.HISTORICAL_DAYS, "day").toDate();
 
-    const result = await retry(() => yahooFinance.chart(symbol, {
+    const result = await retry(() => throttledYahooRequest(() => yahooFinance.chart(symbol, {
       period1,
       period2: dayjs().toDate(),
       interval: "1d",
-    }), symbol);
+    })), symbol);
 
     const totalBars = result.quotes.length;
 
@@ -325,7 +325,7 @@ async function fetchIndexQuote(symbol: string): Promise<IndexQuote | null> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result: any = await retry(
-      () => yahooFinance.quote(symbol),
+      () => throttledYahooRequest(() => yahooFinance.quote(symbol)),
       symbol,
     );
 
@@ -398,9 +398,11 @@ export async function fetchCorporateEvents(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result: any = await retry(
       () =>
-        yahooFinance.quoteSummary(symbol, {
-          modules: ["calendarEvents", "summaryDetail", "defaultKeyStatistics"],
-        }),
+        throttledYahooRequest(() =>
+          yahooFinance.quoteSummary(symbol, {
+            modules: ["calendarEvents", "summaryDetail", "defaultKeyStatistics"],
+          }),
+        ),
       `corporate-events-${symbol}`,
     );
 
