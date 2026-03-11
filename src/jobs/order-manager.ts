@@ -144,12 +144,20 @@ export async function main() {
           return null;
         }
 
-        // 同一銘柄の既存ポジションがあればスキップ
+        // 同一銘柄の既存ポジションまたはpending買い注文があればスキップ
         const existingPosition = await prisma.tradingPosition.findFirst({
           where: { stockId: stock.id, status: "open" },
         });
         if (existingPosition) {
           console.log(`    [${tickerCode}] 既存ポジションあり、スキップ`);
+          return null;
+        }
+
+        const pendingBuyOrder = await prisma.tradingOrder.findFirst({
+          where: { stockId: stock.id, side: "buy", status: "pending" },
+        });
+        if (pendingBuyOrder) {
+          console.log(`    [${tickerCode}] pending買い注文あり、スキップ`);
           return null;
         }
 

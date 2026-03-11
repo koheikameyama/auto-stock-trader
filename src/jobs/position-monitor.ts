@@ -95,6 +95,21 @@ export async function main() {
       await fillOrder(order.id, filledPrice);
 
       if (order.side === "buy") {
+        // 同一銘柄のopenポジションが既にあれば約定をスキップ（多重防御）
+        const existingPosition = await prisma.tradingPosition.findFirst({
+          where: { stockId: order.stockId, status: "open" },
+        });
+        if (existingPosition) {
+          console.log(
+            `  → ${order.stock.tickerCode}: 同一銘柄のopenポジションあり、注文キャンセル`,
+          );
+          await prisma.tradingOrder.update({
+            where: { id: order.id },
+            data: { status: "cancelled" },
+          });
+          continue;
+        }
+
         // 買い約定 → ポジションをオープン
         // 時間帯リスクフラグを判定
         const timeCheck = checkTimeWindow(
