@@ -47,7 +47,7 @@ export const SCORING = {
 
   // 即死ルール
   DISQUALIFY: {
-    MAX_PRICE: 1000,
+    MAX_PRICE: 3000,
     MAX_DAILY_SPREAD_PCT: 0.05,
     MAX_WEEKLY_VOLATILITY: 8,
     EARNINGS_DAYS_BEFORE: 5,       // 決算前N日は即死
