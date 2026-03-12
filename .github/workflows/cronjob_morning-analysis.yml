@@ -1,6 +1,10 @@
 name: "[cron-job.org] Morning Analysis"
 
 on:
+  # schedule:
+  #   # 8:00 JST = 23:00 UTC (前日)
+  #   # UTC日-木 = JST月-金
+  #   - cron: "0 23 * * 0-4"
   workflow_dispatch:
     inputs:
       job:

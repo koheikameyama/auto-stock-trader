@@ -1,6 +1,9 @@
 name: "[cron-job.org] Midday Reassessment"
 
 on:
+  # schedule:
+  #   # 12:15 JST = 03:15 UTC
+  #   - cron: "15 3 * * 1-5"
   workflow_dispatch:
     inputs:
       skip_market_day_check:
