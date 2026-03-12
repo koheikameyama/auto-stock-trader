@@ -2,34 +2,38 @@
 
 ## ジョブ実行基盤
 
-ジョブは2つの基盤で実行される。
-
 ### Railway Worker（src/worker.ts）
 
-Railway上で常駐する node-cron ベースのジョブスケジューラ。時間精度が重要なジョブ、または毎分実行が必要なジョブを担当。
+Railway上で常駐する node-cron ベースのジョブスケジューラ。毎分実行が必要なジョブを担当。
 
 | ジョブ | cron式 | 実行タイミング | 備考 |
 |--------|--------|--------------|------|
-| order-manager | `20 9 * * 1-5` | 平日 9:20 JST | 注文生成（寄付き9:00のデータ反映後） |
-| midday-reassessment | `15 12 * * 1-5` | 平日 12:15 JST | 昼休み再評価（前場終了11:30のデータ反映後） |
 | position-monitor | `* 9-10, 0-29 11, 30-59 12, * 13-14, 0-19 15 * * 1-5` | 平日 9:00-11:29, 12:30-15:19 毎分 | ポジション監視（昼休み除外） |
-| end-of-day | `50 15 * * 1-5` | 平日 15:50 JST | 日次締め（大引け15:30のデータ反映後） |
-| daily-backtest | `30 16 * * 1-5` | 平日 16:30 JST | 日次バックテスト |
-| jpx-delisting-sync | `0 9 * * 6` | 土曜 9:00 JST | JPX廃止予定同期 |
+
+### cron-job.org
+
+時間の正確性が重要なジョブを担当。GitHub Actions cronは数分〜数十分のズレが発生するため、取引時間に連動する処理はcron-job.orgで実行する。cron-job.orgからGitHub Actionsの `workflow_dispatch` をトリガーする。
+
+| ジョブ | ワークフロー | 実行タイミング | 備考 |
+|--------|------------|--------------|------|
+| news-collector + market-scanner | cronjob_morning-analysis.yml | 平日 8:00 JST | ニュース収集→市場スキャン（開場前に完了必要） |
+| order-manager | cronjob_order-manager.yml | 平日 9:20 JST | 注文生成（寄付き9:00のデータ反映後） |
+| midday-reassessment | cronjob_midday-reassessment.yml | 平日 12:15 JST | 昼休み再評価（前場終了11:30のデータ反映後） |
+| end-of-day | cronjob_end-of-day.yml | 平日 15:50 JST | 日次締め（大引け15:30のデータ反映後） |
 
 ### GitHub Actions cron
 
-外部API（Yahoo Finance等）への接続が必要なジョブを担当。RailwayのIPレンジがYahoo Financeにブロックされる問題を回避するため、GitHub Actionsランナーから実行する（KOH-296）。
+時間の正確性が不要なジョブを担当。閉場後の分析・週末処理など、数分〜数十分のズレが許容される処理。
 
 | ジョブ | ワークフロー | cron式 (UTC) | 実行タイミング | 備考 |
 |--------|------------|-------------|--------------|------|
-| news-collector | morning-analysis.yml | `0 23 * * 0-4` | 平日 8:00 JST | ニュース収集・AI分析 |
-| market-scanner | morning-analysis.yml | news完了後 | 平日 ~8:15-8:30 JST | `needs:` で順序制御 |
-| ghost-review | ghost-review.yml | `10 7 * * 1-5` | 平日 16:10 JST | ゴースト・トレード分析 |
-| defensive-exit-followup | defensive-exit-followup.yml | `20 7 * * 1-5` | 平日 16:20 JST | ディフェンシブ出口判断の事後検証 |
-| unfilled-order-followup | unfilled-order-followup.yml | `30 7 * * 1-5` | 平日 16:30 JST | 未約定注文の事後検証 |
-| weekly-review | weekly-review.yml | `0 1 * * 6` | 土曜 10:00 JST | 週次レビュー |
-| scoring-accuracy-report | scoring-accuracy-report.yml | `0 2 * * 6` | 土曜 11:00 JST | スコアリング精度レポート |
+| ghost-review | scheduled_ghost-review.yml | `10 7 * * 1-5` | 平日 16:10 JST | ゴースト・トレード分析 |
+| defensive-exit-followup | scheduled_defensive-exit-followup.yml | `20 7 * * 1-5` | 平日 16:20 JST | ディフェンシブ出口判断の事後検証 |
+| unfilled-order-followup | scheduled_unfilled-order-followup.yml | `30 7 * * 1-5` | 平日 16:30 JST | 未約定注文の事後検証 |
+| daily-backtest | scheduled_daily-backtest.yml | `30 7 * * 1-5` | 平日 16:30 JST | 日次バックテスト |
+| jpx-delisting-sync | scheduled_jpx-delisting-sync.yml | `0 0 * * 6` | 土曜 9:00 JST | JPX廃止予定同期 |
+| weekly-review | scheduled_weekly-review.yml | `0 1 * * 6` | 土曜 10:00 JST | 週次レビュー |
+| scoring-accuracy-report | scheduled_scoring-accuracy-report.yml | `0 2 * * 6` | 土曜 11:00 JST | スコアリング精度レポート |
 
 各ワークフローには `workflow_dispatch` トリガーがあり、手動実行も可能。平日ジョブは `check-market-day` ステップで休場日・システム停止チェックを行う。
 

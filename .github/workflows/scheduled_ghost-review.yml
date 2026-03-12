@@ -1,9 +1,9 @@
-name: "[cron-job.org] Ghost Review"
+name: "[Scheduled] Ghost Review"
 
 on:
-  # schedule:
-  #   # 16:10 JST = 07:10 UTC
-  #   - cron: "10 7 * * 1-5"
+  schedule:
+    # 16:10 JST = 07:10 UTC
+    - cron: "10 7 * * 1-5"
   workflow_dispatch:
     inputs:
       skip_market_day_check:
