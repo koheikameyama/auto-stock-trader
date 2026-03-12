@@ -53,7 +53,6 @@ export interface YfMarketData {
   nikkei: YfIndexQuote | null;
   sp500: YfIndexQuote | null;
   vix: YfIndexQuote | null;
-  nikkeiVi: YfIndexQuote | null;
   usdjpy: YfIndexQuote | null;
   cmeFutures: YfIndexQuote | null;
 }

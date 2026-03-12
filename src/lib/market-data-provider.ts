@@ -241,7 +241,6 @@ export async function providerFetchMarket(): Promise<YfMarketData> {
         nikkei: "^N225",
         sp500: "^GSPC",
         vix: "^VIX",
-        nikkeiVi: "^JNV",
         usdjpy: "JPY=X",
         cmeFutures: "NKD=F",
       } as const;

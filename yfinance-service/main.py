@@ -375,7 +375,6 @@ MARKET_SYMBOLS = {
     "nikkei": "^N225",
     "sp500": "^GSPC",
     "vix": "^VIX",
-    "nikkeiVi": "^JNV",
     "usdjpy": "JPY=X",
     "cmeFutures": "NKD=F",
 }

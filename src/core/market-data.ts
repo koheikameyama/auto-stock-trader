@@ -60,7 +60,6 @@ export interface MarketData {
   nikkei: IndexQuote | null;
   sp500: IndexQuote | null;
   vix: IndexQuote | null;
-  nikkeiVi: IndexQuote | null;
   usdjpy: IndexQuote | null;
   cmeFutures: IndexQuote | null;
 }
@@ -258,7 +257,6 @@ export async function fetchMarketData(): Promise<MarketData> {
       nikkei: null,
       sp500: null,
       vix: null,
-      nikkeiVi: null,
       usdjpy: null,
       cmeFutures: null,
     };

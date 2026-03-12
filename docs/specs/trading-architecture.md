@@ -602,18 +602,18 @@ async function marketScanner() {
 
 ## リスク管理: マーケットレジーム
 
-### 日経VIベース機械的レジーム判定
+### VIXベース機械的レジーム判定
 
-日経VI（日経平均ボラティリティー・インデックス）水準に応じてAI判断の前段で取引制限を自動適用する。AIは暴落局面で楽観的な判断をするリスクがあるため、日経VI > 40 ではAI判断を待たず機械的に取引停止する。
+VIX水準に応じてAI判断の前段で取引制限を自動適用する。AIは暴落局面で楽観的な判断をするリスクがあるため、VIX > 30 ではAI判断を待たず機械的に取引停止する。
 
-| 日経VI | レジーム | 最大ポジション | 最低ランク | 動作 |
-|--------|---------|--------------|-----------|------|
-| < 25 | normal | 3（制限なし） | B | 通常取引 |
-| 25-30 | elevated | 2 | A | S/Aランクのみ |
-| 30-40 | high | 1 | S | Sランクのみ |
-| > 40 | crisis | 0 | - | 取引停止（AI不要） |
+> **注**: 日経VI（`^JNV`）はYahoo Financeで取得不可となったため廃止。VIXと日経VIの相関は高く、VIXをプライマリ指標として使用する。
 
-> **フォールバック**: 日経VI（`^JNV`）が取得不可の場合、VIXで代替判定（閾値: normal < 20, elevated 20-25, high 25-30, crisis > 30）
+| VIX | レジーム | 最大ポジション | 最低ランク | 動作 |
+|-----|---------|--------------|-----------|------|
+| < 20 | normal | 3（制限なし） | B | 通常取引 |
+| 20-25 | elevated | 2 | A | S/Aランクのみ |
+| 25-30 | high | 1 | S | Sランクのみ |
+| > 30 | crisis | 0 | - | 取引停止（AI不要） |
 
 ### CME先物ナイトセッション乖離率チェック
 
@@ -631,12 +631,12 @@ CME日経先物（NKD=F、USD建て）のナイトセッション乖離率を算
 
 ### 実装ファイル
 
-- `src/core/market-regime.ts`: `determineMarketRegime(nikkeiVi)`, `determineMarketRegimeFromVix(vix)`, `determinePreMarketRegime(cmeDivergencePct)`, `calculateCmeDivergence()`
-- `src/lib/constants/trading.ts`: `NIKKEI_VI_THRESHOLDS`, `VIX_THRESHOLDS`（フォールバック用）, `CME_NIGHT_DIVERGENCE`, `MARKET_REGIME`
+- `src/core/market-regime.ts`: `determineMarketRegime(vix)`, `determinePreMarketRegime(cmeDivergencePct)`, `calculateCmeDivergence()`
+- `src/lib/constants/trading.ts`: `VIX_THRESHOLDS`, `CME_NIGHT_DIVERGENCE`, `MARKET_REGIME`
 
 ### 日経平均キルスイッチ
 
-日経平均の前日比が **-3%以下** の場合、日経VIレジームに関わらずCrisisモード（全取引停止＋全ポジション即時決済）に自動移行する。
+日経平均の前日比が **-3%以下** の場合、VIXレジームに関わらずCrisisモード（全取引停止＋全ポジション即時決済）に自動移行する。
 
 - **閾値**: `MARKET_INDEX.NIKKEI_CRISIS_THRESHOLD`（-3%）
 - **実装**: `src/jobs/market-scanner.ts`（ステップ 1.8.5）
@@ -644,13 +644,13 @@ CME日経先物（NKD=F、USD建て）のナイトセッション乖離率を算
 ### market-scannerフロー内の位置
 
 ```
-市場データ取得（日経VI・VIX・CME先物含む）
+市場データ取得（VIX・CME先物含む）
   ↓
 ★ CME先物乖離率チェック（機械的）
   └─ 乖離 ≤ -3% → crisis、即停止
   └─ 乖離 ≤ -1.5% → elevated以上に引き上げ
   ↓
-★ 日経VIレジーム判定（機械的、日経VI不可時はVIXフォールバック）
+★ VIXレジーム判定（機械的）
   └─ crisis → 即停止、MarketAssessment保存して終了
   ↓
 ★ 日経平均キルスイッチ（機械的）
@@ -871,7 +871,7 @@ totalBudget += realizedPnl（利益なら増加、損失なら減少）
 
 ### 概要
 
-市場評価がbearish/crisisの場合、既存ポジションに対して防衛的な決済を行う。通常の防衛機能（日経VIレジーム、ドローダウン管理等）は新規ポジションの参入を止めるだけだが、ディフェンシブモードは既存ポジションにも市場環境の悪化を反映する。
+市場評価がbearish/crisisの場合、既存ポジションに対して防衛的な決済を行う。通常の防衛機能（VIXレジーム、ドローダウン管理等）は新規ポジションの参入を止めるだけだが、ディフェンシブモードは既存ポジションにも市場環境の悪化を反映する。
 
 **設計思想**: 「不確実な状況ではキャッシュが最強のポジション」
 

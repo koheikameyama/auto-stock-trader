@@ -59,7 +59,6 @@ import {
 import pLimit from "p-limit";
 import {
   determineMarketRegime,
-  determineMarketRegimeFromVix,
   determinePreMarketRegime,
   calculateCmeDivergence,
 } from "../core/market-regime";
@@ -111,13 +110,13 @@ export async function main() {
     throw new Error("市場データの取得に失敗しました（nikkei が null）");
   }
 
-  if (!marketData.nikkeiVi && !marketData.vix) {
-    console.error("恐怖指標（日経VI/VIX）の取得に失敗しました");
+  if (!marketData.vix) {
+    console.error("VIXの取得に失敗しました");
     await notifyRiskAlert({
       type: "データ取得エラー",
-      message: "日経VI・VIXの両方が取得できませんでした。手動確認してください。",
+      message: "VIXが取得できませんでした。手動確認してください。",
     });
-    throw new Error("市場データの取得に失敗しました（nikkeiVi/vix が両方 null）");
+    throw new Error("市場データの取得に失敗しました（vix が null）");
   }
 
   // 1.5. ニュース分析データ取得
@@ -176,7 +175,7 @@ ${sectorText || "  特になし"}`;
         nikkeiChange: marketData.nikkei.changePercent,
         sp500Change: marketData.sp500?.changePercent,
         vix: marketData.vix?.price,
-        nikkeiVi: marketData.nikkeiVi?.price,
+        nikkeiVi: null,
         usdjpy: marketData.usdjpy?.price,
         cmeFuturesPrice: marketData.cmeFutures?.price,
         sentiment: "crisis" as const,
@@ -197,18 +196,9 @@ ${sectorText || "  特になし"}`;
     console.log("[1.7/5] CME先物乖離率: データ不足のためスキップ");
   }
 
-  // 1.8. 日経VIレジーム判定（機械的 — AI判断の前に実行）
-  let regime: MarketRegime;
-  if (marketData.nikkeiVi) {
-    console.log("[1.8/5] 日経VIレジーム判定...");
-    regime = determineMarketRegime(marketData.nikkeiVi.price);
-  } else if (marketData.vix) {
-    console.log("[1.8/5] 日経VIレジーム判定（日経VI未取得 → VIXフォールバック）...");
-    regime = determineMarketRegimeFromVix(marketData.vix.price);
-  } else {
-    // 上の null チェックで弾かれているはずだが型安全のため
-    throw new Error("恐怖指標が取得できません");
-  }
+  // 1.8. VIXレジーム判定（機械的 — AI判断の前に実行）
+  console.log("[1.8/5] VIXレジーム判定...");
+  let regime: MarketRegime = determineMarketRegime(marketData.vix.price);
 
   // CME乖離率によるレジーム引き上げ
   if (cmeDivergencePct != null) {
@@ -232,20 +222,19 @@ ${sectorText || "  特になし"}`;
   if (regime.shouldHaltTrading && !isShadowMode) {
     console.log("レジームにより取引停止。MarketAssessment を保存してシャドウスコアリングへ");
     await notifyRiskAlert({
-      type: "日経VIレジーム停止",
+      type: "VIXレジーム停止",
       message: regime.reason,
     });
     const assessmentData = {
       nikkeiPrice: marketData.nikkei.price,
       nikkeiChange: marketData.nikkei.changePercent,
       sp500Change: marketData.sp500?.changePercent,
-      vix: marketData.vix?.price,
-      nikkeiVi: marketData.nikkeiVi?.price,
+      vix: marketData.vix.price,
       usdjpy: marketData.usdjpy?.price,
       cmeFuturesPrice: marketData.cmeFutures?.price,
       sentiment: "crisis" as const,
       shouldTrade: false,
-      reasoning: `[日経VIレジーム自動停止] ${regime.reason}`,
+      reasoning: `[VIXレジーム自動停止] ${regime.reason}`,
       selectedStocks: [],
     };
     await prisma.marketAssessment.upsert({
@@ -256,7 +245,7 @@ ${sectorText || "  特になし"}`;
     isShadowMode = true;
   }
 
-  // 1.8.5. 日経平均キルスイッチ（機械的 — 日経VIとは独立）
+  // 1.8.5. 日経平均キルスイッチ（機械的 — VIXレジームとは独立）
   if (
     !isShadowMode &&
     marketData.nikkei.changePercent <= MARKET_INDEX.NIKKEI_CRISIS_THRESHOLD
@@ -272,7 +261,7 @@ ${sectorText || "  特になし"}`;
       nikkeiChange: marketData.nikkei.changePercent,
       sp500Change: marketData.sp500?.changePercent,
       vix: marketData.vix?.price,
-      nikkeiVi: marketData.nikkeiVi?.price,
+      nikkeiVi: null,
       usdjpy: marketData.usdjpy?.price,
       cmeFuturesPrice: marketData.cmeFutures?.price,
       sentiment: "crisis" as const,
@@ -306,7 +295,7 @@ ${sectorText || "  特になし"}`;
       nikkeiChange: marketData.nikkei.changePercent,
       sp500Change: marketData.sp500?.changePercent,
       vix: marketData.vix?.price,
-      nikkeiVi: marketData.nikkeiVi?.price,
+      nikkeiVi: null,
       usdjpy: marketData.usdjpy?.price,
       cmeFuturesPrice: marketData.cmeFutures?.price,
       sentiment: "bearish" as const,
@@ -331,8 +320,7 @@ ${sectorText || "  特になし"}`;
       nikkeiPrice: marketData.nikkei.price,
       nikkeiChange: marketData.nikkei.changePercent,
       sp500Change: marketData.sp500?.changePercent ?? 0,
-      nikkeiVi: marketData.nikkeiVi?.price ?? null,
-      vix: marketData.vix?.price ?? 0,
+      vix: marketData.vix.price,
       usdJpy: marketData.usdjpy?.price ?? 0,
       cmeFuturesPrice: marketData.cmeFutures?.price ?? 0,
       cmeFuturesChange: marketData.cmeFutures?.changePercent ?? 0,
@@ -350,7 +338,7 @@ ${sectorText || "  特になし"}`;
       sentiment: assessment.sentiment,
       reasoning: assessment.reasoning,
       nikkeiChange: marketData.nikkei.changePercent,
-      vix: marketData.nikkeiVi?.price ?? marketData.vix?.price ?? null,
+      vix: marketData.vix.price,
     });
 
     // 3. shouldTrade = false → 保存してシャドウスコアリングへ
@@ -361,7 +349,7 @@ ${sectorText || "  特になし"}`;
         nikkeiChange: marketData.nikkei.changePercent,
         sp500Change: marketData.sp500?.changePercent,
         vix: marketData.vix?.price,
-        nikkeiVi: marketData.nikkeiVi?.price,
+        nikkeiVi: null,
         usdjpy: marketData.usdjpy?.price,
         cmeFuturesPrice: marketData.cmeFutures?.price,
         sentiment: assessment.sentiment,
@@ -754,7 +742,7 @@ ${sectorText || "  特になし"}`;
         : null;
 
       const riskParts: string[] = [];
-      riskParts.push(`レジーム: ${regime.level}（日経VI ${regime.nikkeiVi.toFixed(1)}）`);
+      riskParts.push(`レジーム: ${regime.level}（VIX ${regime.vix.toFixed(1)}）`);
       if (drawdown.consecutiveLosses > 0) {
         riskParts.push(`連敗: ${drawdown.consecutiveLosses}`);
       }
@@ -812,7 +800,7 @@ ${sectorText || "  特になし"}`;
       nikkeiChange: marketData.nikkei.changePercent,
       sp500Change: marketData.sp500?.changePercent,
       vix: marketData.vix?.price,
-      nikkeiVi: marketData.nikkeiVi?.price,
+      nikkeiVi: null,
       usdjpy: marketData.usdjpy?.price,
       cmeFuturesPrice: marketData.cmeFutures?.price,
       sentiment: assessment!.sentiment,

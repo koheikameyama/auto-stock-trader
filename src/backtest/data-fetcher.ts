@@ -57,11 +57,10 @@ export async function fetchBacktestData(
 }
 
 /**
- * 日経VI（日経平均ボラティリティー・インデックス）の過去データを取得
- * 取得できない場合はVIXデータ × 1.3 で日経VIを近似する
- * @returns date -> 日経VI終値 のMap
+ * VIXの過去データを取得（レジーム判定に使用）
+ * @returns date -> VIX終値 のMap
  */
-export async function fetchNikkeiViData(
+export async function fetchVixData(
   startDate: string,
   endDate: string,
 ): Promise<Map<string, number>> {
@@ -70,45 +69,21 @@ export async function fetchNikkeiViData(
     .format("YYYY-MM-DD");
   const adjustedEnd = dayjs(endDate).add(1, "day").format("YYYY-MM-DD");
 
-  // 日経VIを試行
-  try {
-    const bars = await providerFetchHistoricalRange(
-      "^JNV",
-      adjustedStart,
-      adjustedEnd,
-    );
-
-    const nikkeiViMap = new Map<string, number>();
-    for (const bar of bars) {
-      if (bar.close != null) {
-        nikkeiViMap.set(bar.date, bar.close);
-      }
-    }
-
-    if (nikkeiViMap.size > 0) {
-      console.log(`[backtest] 日経VIデータ取得完了: ${nikkeiViMap.size}件`);
-      return nikkeiViMap;
-    }
-  } catch {
-    console.warn("[backtest] 日経VI (^JNV) 取得失敗。VIXデータでフォールバック");
-  }
-
-  // フォールバック: VIXデータ × 1.3 で日経VIを近似
   const bars = await providerFetchHistoricalRange(
     "^VIX",
     adjustedStart,
     adjustedEnd,
   );
 
-  const nikkeiViMap = new Map<string, number>();
+  const vixMap = new Map<string, number>();
   for (const bar of bars) {
     if (bar.close != null) {
-      nikkeiViMap.set(bar.date, bar.close * 1.3);
+      vixMap.set(bar.date, bar.close);
     }
   }
 
-  console.log(`[backtest] 日経VIデータ取得完了（VIX×1.3近似）: ${nikkeiViMap.size}件`);
-  return nikkeiViMap;
+  console.log(`[backtest] VIXデータ取得完了: ${vixMap.size}件`);
+  return vixMap;
 }
 
 /**
