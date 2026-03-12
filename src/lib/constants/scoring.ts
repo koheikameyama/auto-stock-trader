@@ -139,14 +139,15 @@ export const CONTRARIAN = {
   /** 逆行実績の検索期間（日） */
   LOOKBACK_DAYS: 90,
   /** 逆行勝ちとカウントする最低利益率(%) */
-  MIN_PROFIT_PCT: 0.5,
+  MIN_PROFIT_PCT: 1.5,
+  /** ボーナス判定に必要な最低市場停止日数 */
+  MIN_SAMPLE_DAYS: 4,
   /** Slackレポートの最大表示件数 */
   MAX_REPORT_WINNERS: 10,
-  /** ボーナスポイントの段階 */
+  /** ボーナスポイントの段階（勝率条件付き） */
   BONUS_TIERS: [
-    { minWins: 4, bonus: 7 },
-    { minWins: 3, bonus: 5 },
-    { minWins: 2, bonus: 3 },
+    { minWins: 4, minWinRate: 0.5, bonus: 4 },
+    { minWins: 3, minWinRate: 0.4, bonus: 2 },
   ],
 } as const;
 

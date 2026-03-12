@@ -208,7 +208,7 @@ app.get("/", async (c) => {
       winRate: b.wins > 0 ? Math.round((b.wins / b.totalDays) * 100) : null,
       avgProfitPct: b.wins > 0 ? b.profitSum / b.wins : null,
       avgScore: Math.round(b.scoreSum / b.totalDays),
-      bonus: calculateContrarianBonus(b.wins),
+      bonus: calculateContrarianBonus(b.wins, b.totalDays),
     }))
     .sort(
       (a, b) =>

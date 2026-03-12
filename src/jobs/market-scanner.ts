@@ -525,7 +525,10 @@ ${sectorText || "  特になし"}`;
 
   const contrarianBonusMap = new Map<string, { bonus: number; wins: number }>();
   for (const [ticker, history] of contrarianHistoryMap) {
-    const bonus = calculateContrarianBonus(history.wins);
+    const bonus = calculateContrarianBonus(
+      history.wins,
+      history.totalNoTradeDays,
+    );
     if (bonus > 0) {
       contrarianBonusMap.set(ticker, { bonus, wins: history.wins });
     }

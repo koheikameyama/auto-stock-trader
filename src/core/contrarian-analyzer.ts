@@ -141,11 +141,17 @@ export async function getContrarianHistoryBatch(
 }
 
 /**
- * 逆行勝ち回数からボーナスポイントを算出する。
+ * 逆行実績からボーナスポイントを算出する。
+ * 勝数・勝率・最低サンプル数の全条件を満たす必要がある。
  */
-export function calculateContrarianBonus(wins: number): number {
+export function calculateContrarianBonus(
+  wins: number,
+  totalDays: number,
+): number {
+  if (totalDays < CONTRARIAN.MIN_SAMPLE_DAYS) return 0;
+  const winRate = totalDays > 0 ? wins / totalDays : 0;
   for (const tier of CONTRARIAN.BONUS_TIERS) {
-    if (wins >= tier.minWins) return tier.bonus;
+    if (wins >= tier.minWins && winRate >= tier.minWinRate) return tier.bonus;
   }
   return 0;
 }
