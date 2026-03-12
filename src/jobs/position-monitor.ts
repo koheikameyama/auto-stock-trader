@@ -90,6 +90,19 @@ export async function main() {
       console.log("  → システム停止中のため終了");
       return;
     }
+
+    // 買い注文: ディフェンシブモード中はquote取得前にキャンセル（防御的二重チェック）
+    if (order.side === "buy" && isDefensiveModeForBuy) {
+      console.log(
+        `  → ${order.stock.tickerCode}: ディフェンシブモード中のため買い注文キャンセル`,
+      );
+      await prisma.tradingOrder.update({
+        where: { id: order.id },
+        data: { status: "cancelled" },
+      });
+      continue;
+    }
+
     const quote = await fetchStockQuote(order.stock.tickerCode);
     if (!quote) {
       console.log(`  → ${order.stock.tickerCode}: 株価取得失敗`);
@@ -99,17 +112,6 @@ export async function main() {
     const filledPrice = checkOrderFill(order, quote.high, quote.low, quote.open);
 
     if (filledPrice !== null) {
-      // 買い注文: ディフェンシブモード中はキャンセル（防御的二重チェック）
-      if (order.side === "buy" && isDefensiveModeForBuy) {
-        console.log(
-          `  → ${order.stock.tickerCode}: ディフェンシブモード中のため買い注文キャンセル`,
-        );
-        await prisma.tradingOrder.update({
-          where: { id: order.id },
-          data: { status: "cancelled" },
-        });
-        continue;
-      }
 
       // 買い注文: 時間帯チェック（デイトレ14:30以降は約定をスキップ）
       if (order.side === "buy") {
