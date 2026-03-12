@@ -10,6 +10,7 @@ import logging
 import math
 import os
 import re
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, TypeVar
 
@@ -17,6 +18,7 @@ T = TypeVar("T")
 
 import uvicorn
 import yfinance as yf
+from curl_cffi.requests import Session as CurlSession
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
@@ -37,16 +39,58 @@ app = FastAPI(title="yfinance sidecar")
 SIDECAR_SECRET = os.environ.get("SIDECAR_SECRET", "")
 
 # ========================================
-# プロキシ設定（グローバル）
+# セッションプール（プロキシ対応）
 # ========================================
+#
+# yfinance はデフォルトでシングルトンセッション（同一 Cookie）を使うため、
+# rotation residential プロキシを使っても Yahoo 側から同一ユーザーに見える。
+# → リクエストごとに独立した curl_cffi Session を渡し、Cookie を分離する。
 
 PROXY = os.environ.get("YFINANCE_PROXY", "")
-if PROXY:
-    # curl_cffi の Session.proxies は dict を期待する
-    yf.config.network.proxy = {"http": PROXY, "https": PROXY}
-    logger.info(f"Proxy configured: {PROXY.split('@')[-1] if '@' in PROXY else PROXY}")
-else:
-    logger.info("No proxy configured (YFINANCE_PROXY not set)")
+_SESSION_POOL_SIZE = 5
+
+_session_pool: list[CurlSession] = []
+_session_index = 0
+_session_lock = threading.Lock()
+
+
+def _create_session() -> CurlSession:
+    """プロキシ付きの独立した curl_cffi Session を作成"""
+    session = CurlSession(impersonate="chrome")
+    if PROXY:
+        session.proxies = {"http": PROXY, "https": PROXY}
+    return session
+
+
+def _init_session_pool() -> None:
+    """セッションプールを初期化"""
+    global _session_pool
+    _session_pool = [_create_session() for _ in range(_SESSION_POOL_SIZE)]
+    proxy_display = PROXY.split("@")[-1] if "@" in PROXY else PROXY
+    if PROXY:
+        logger.info(f"Session pool initialized: {_SESSION_POOL_SIZE} sessions, proxy={proxy_display}")
+    else:
+        logger.info(f"Session pool initialized: {_SESSION_POOL_SIZE} sessions, no proxy")
+
+
+def get_session() -> CurlSession:
+    """ラウンドロビンでセッションを取得（各セッションが独立した Cookie を持つ）"""
+    global _session_index
+    with _session_lock:
+        session = _session_pool[_session_index % _SESSION_POOL_SIZE]
+        _session_index += 1
+    return session
+
+
+def _refresh_all_sessions() -> None:
+    """rate limit 時に全セッションを新しい Cookie で再作成する"""
+    with _session_lock:
+        for i in range(_SESSION_POOL_SIZE):
+            _session_pool[i] = _create_session()
+    logger.info(f"All {_SESSION_POOL_SIZE} sessions refreshed due to rate limit")
+
+
+_init_session_pool()
 
 
 @app.middleware("http")
@@ -130,6 +174,9 @@ async def throttled_with_retry(fn: Callable[[], T]) -> T:
             last_error = e
             if not _is_retryable(e) or attempt >= _RETRY_MAX:
                 raise
+            # rate limit の場合、該当セッションを新しいセッションに入れ替え
+            if _is_rate_limit_error(e):
+                _refresh_all_sessions()
             logger.warning(
                 f"リトライ {attempt + 1}/{_RETRY_MAX} after {_RETRY_DELAY_S}s: {e}"
             )
@@ -264,7 +311,8 @@ async def get_quote(symbol: str):
     symbol = normalize_ticker(symbol)
     try:
         def _fetch():
-            ticker = yf.Ticker(symbol)
+            session = get_session()
+            ticker = yf.Ticker(symbol, session=session)
             try:
                 info = ticker.info
                 if isinstance(info, dict):
@@ -293,7 +341,8 @@ async def get_quotes_batch(req: QuotesBatchRequest):
     for symbol in symbols:
         try:
             def _fetch(s=symbol):
-                ticker = yf.Ticker(s)
+                session = get_session()
+                ticker = yf.Ticker(s, session=session)
                 try:
                     info = ticker.info
                     if isinstance(info, dict):
@@ -343,7 +392,8 @@ async def get_historical(symbol: str, days: int = 200):
     symbol = normalize_ticker(symbol)
     try:
         def _fetch():
-            df = yf.download(symbol, period=f"{days}d", interval="1d", progress=False, auto_adjust=True)
+            session = get_session()
+            df = yf.download(symbol, period=f"{days}d", interval="1d", progress=False, auto_adjust=True, session=session)
             return df
 
         df = await throttled_with_retry(_fetch)
@@ -365,7 +415,8 @@ async def get_historical_range(req: HistoricalRangeRequest):
     symbol = normalize_ticker(req.symbol)
     try:
         def _fetch():
-            df = yf.download(symbol, start=req.start, end=req.end, interval="1d", progress=False, auto_adjust=True)
+            session = get_session()
+            df = yf.download(symbol, start=req.start, end=req.end, interval="1d", progress=False, auto_adjust=True, session=session)
             return df
 
         df = await throttled_with_retry(_fetch)
@@ -387,7 +438,8 @@ async def get_historical_batch(req: HistoricalBatchRequest):
     symbols = [normalize_ticker(s) for s in req.symbols]
     try:
         def _fetch():
-            df = yf.download(symbols, start=req.start, end=req.end, interval="1d", progress=False, auto_adjust=True, group_by="ticker")
+            session = get_session()
+            df = yf.download(symbols, start=req.start, end=req.end, interval="1d", progress=False, auto_adjust=True, group_by="ticker", session=session)
             return df
 
         df = await throttled_with_retry(_fetch)
@@ -433,7 +485,8 @@ async def get_market():
 
     try:
         def _fetch():
-            df = yf.download(symbols_list, period="5d", interval="1d", progress=False, auto_adjust=True, group_by="ticker")
+            session = get_session()
+            df = yf.download(symbols_list, period="5d", interval="1d", progress=False, auto_adjust=True, group_by="ticker", session=session)
             return df
 
         df = await throttled_with_retry(_fetch)
@@ -472,7 +525,8 @@ async def get_market():
         for key, symbol in MARKET_SYMBOLS.items():
             try:
                 def _fetch_single(s=symbol):
-                    ticker = yf.Ticker(s)
+                    session = get_session()
+                    ticker = yf.Ticker(s, session=session)
                     try:
                         info = ticker.info
                         if isinstance(info, dict):
@@ -494,7 +548,8 @@ async def get_events(symbol: str):
     symbol = normalize_ticker(symbol)
     try:
         def _fetch():
-            ticker = yf.Ticker(symbol)
+            session = get_session()
+            ticker = yf.Ticker(symbol, session=session)
             try:
                 info = ticker.info
                 if not isinstance(info, dict):
@@ -582,7 +637,8 @@ async def search_news(req: SearchRequest):
     """銘柄関連ニュースを検索"""
     try:
         def _fetch():
-            search = yf.Search(req.query, news_count=req.news_count)
+            session = get_session()
+            search = yf.Search(req.query, news_count=req.news_count, session=session)
             return search.news
 
         news = await throttled_with_retry(_fetch)
