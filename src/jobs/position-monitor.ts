@@ -14,7 +14,9 @@ import {
   TRADING_SCHEDULE,
   POSITION_DEFAULTS,
   DEFENSIVE_MODE,
+  STOP_LOSS,
 } from "../lib/constants";
+import { validateStopLoss } from "../core/risk-manager";
 import { fetchStockQuote } from "../core/market-data";
 import {
   checkOrderFill,
@@ -165,15 +167,16 @@ export async function main() {
           select: { entrySnapshot: true, takeProfitPrice: true, stopLossPrice: true },
         });
 
-        const takeProfitPrice = filledOrder?.takeProfitPrice
-          ? Number(filledOrder.takeProfitPrice)
-          : filledPrice * POSITION_DEFAULTS.TAKE_PROFIT_RATIO;
-        const stopLossPrice = filledOrder?.stopLossPrice
-          ? Number(filledOrder.stopLossPrice)
-          : filledPrice * POSITION_DEFAULTS.STOP_LOSS_RATIO;
-
         const entryAtr = extractAtrFromSnapshot(
           filledOrder?.entrySnapshot,
+        );
+
+        // 約定価格ベースでTP/SLを再検証（指値と約定価格の乖離を補正）
+        const { takeProfitPrice, stopLossPrice } = recalculateExitPrices(
+          filledPrice,
+          filledOrder?.takeProfitPrice ? Number(filledOrder.takeProfitPrice) : null,
+          filledOrder?.stopLossPrice ? Number(filledOrder.stopLossPrice) : null,
+          entryAtr,
         );
 
         // 寄付き直後の約定にはリスクフラグを付与
@@ -265,15 +268,36 @@ export async function main() {
       d = d.add(1, "day");
     }
 
-    const originalTP = position.takeProfitPrice
-      ? Number(position.takeProfitPrice)
-      : entryPriceNum * POSITION_DEFAULTS.TAKE_PROFIT_RATIO;
-    const originalSL = position.stopLossPrice
-      ? Number(position.stopLossPrice)
-      : entryPriceNum * POSITION_DEFAULTS.STOP_LOSS_RATIO;
     const entryAtr = position.entryAtr
       ? Number(position.entryAtr)
       : extractAtrFromSnapshot(position.entrySnapshot);
+
+    // 既存ポジションのTP/SL整合性チェック（3%ルール違反を自動修正）
+    const rawTP = position.takeProfitPrice
+      ? Number(position.takeProfitPrice)
+      : entryPriceNum * POSITION_DEFAULTS.TAKE_PROFIT_RATIO;
+    const rawSL = position.stopLossPrice
+      ? Number(position.stopLossPrice)
+      : entryPriceNum * POSITION_DEFAULTS.STOP_LOSS_RATIO;
+
+    const { takeProfitPrice: correctedTP, stopLossPrice: correctedSL, wasCorrected } =
+      validateExistingPositionExitPrices(entryPriceNum, rawTP, rawSL, entryAtr);
+
+    const originalTP = correctedTP;
+    const originalSL = correctedSL;
+
+    if (wasCorrected) {
+      await prisma.tradingPosition.update({
+        where: { id: position.id },
+        data: {
+          takeProfitPrice: originalTP,
+          stopLossPrice: originalSL,
+        },
+      });
+      console.log(
+        `  → ${position.stock.tickerCode}: TP/SL修正（TP: ¥${rawTP} → ¥${originalTP}, SL: ¥${rawSL} → ¥${originalSL}）`,
+      );
+    }
 
     // 共通出口判定（バックテストと同一ロジック）
     const exitResult = checkPositionExit(
@@ -753,6 +777,84 @@ async function applyCorporateEventAdjustments(
       );
     }
   }
+}
+
+/**
+ * 約定価格ベースでTP/SLを再検証する
+ *
+ * 注文時のTP/SLはlimitPrice基準で計算されるが、実際の約定価格（filledPrice）は
+ * limitPriceと異なる場合がある。約定価格に対してSLが3%ルールを超過していないか等を
+ * 再検証し、必要に応じて修正する。
+ */
+function recalculateExitPrices(
+  filledPrice: number,
+  orderTP: number | null,
+  orderSL: number | null,
+  entryAtr: number | null,
+): { takeProfitPrice: number; stopLossPrice: number } {
+  // デフォルト値
+  let takeProfitPrice = orderTP ?? filledPrice * POSITION_DEFAULTS.TAKE_PROFIT_RATIO;
+  let stopLossPrice = orderSL ?? filledPrice * POSITION_DEFAULTS.STOP_LOSS_RATIO;
+
+  // SLを約定価格ベースで再検証
+  const slValidation = validateStopLoss(filledPrice, stopLossPrice, entryAtr, []);
+  if (slValidation.wasOverridden) {
+    const oldSL = stopLossPrice;
+    stopLossPrice = Math.round(slValidation.validatedPrice);
+    console.log(
+      `    → SL再検証（約定価格¥${filledPrice}）: ¥${oldSL} → ¥${stopLossPrice}（${slValidation.reason}）`,
+    );
+
+    // SLが変わった場合、TPもRR比を維持するよう再計算
+    // entryAtrがあればATR×1.5、なければ元のRR比から逆算
+    if (entryAtr) {
+      const atrBasedTP = filledPrice + entryAtr * 1.5;
+      // 元のTPとATRベースTPの大きい方を採用（利益を伸ばす方向）
+      takeProfitPrice = Math.round(Math.max(takeProfitPrice, atrBasedTP));
+    }
+    // RRチェック: 最低1.5を確保
+    const risk = filledPrice - stopLossPrice;
+    const reward = takeProfitPrice - filledPrice;
+    if (risk > 0 && reward / risk < 1.5) {
+      takeProfitPrice = Math.round(filledPrice + risk * 1.5);
+      console.log(
+        `    → TP再計算（RR≥1.5確保）: ¥${takeProfitPrice}`,
+      );
+    }
+  }
+
+  return { takeProfitPrice, stopLossPrice };
+}
+
+/**
+ * 既存オープンポジションのTP/SL整合性を検証する
+ *
+ * エントリー価格に対してSLが3%ルールを超過している場合に自動修正する。
+ * 過去にバグで不正なTP/SLが設定されたポジションを救済する。
+ */
+function validateExistingPositionExitPrices(
+  entryPrice: number,
+  currentTP: number,
+  currentSL: number,
+  entryAtr: number | null,
+): { takeProfitPrice: number; stopLossPrice: number; wasCorrected: boolean } {
+  const slValidation = validateStopLoss(entryPrice, currentSL, entryAtr, []);
+
+  if (!slValidation.wasOverridden) {
+    return { takeProfitPrice: currentTP, stopLossPrice: currentSL, wasCorrected: false };
+  }
+
+  const newSL = Math.round(slValidation.validatedPrice);
+  let newTP = currentTP;
+
+  // TPもRR≥1.5を確保するよう再計算
+  const risk = entryPrice - newSL;
+  const reward = newTP - entryPrice;
+  if (risk > 0 && reward / risk < 1.5) {
+    newTP = Math.round(entryPrice + risk * 1.5);
+  }
+
+  return { takeProfitPrice: newTP, stopLossPrice: newSL, wasCorrected: true };
 }
 
 const isDirectRun = process.argv[1]?.includes("position-monitor");

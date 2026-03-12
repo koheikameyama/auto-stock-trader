@@ -8,7 +8,7 @@
  * - 発動後は固定TP/SLを両方置き換え、上値を追う
  */
 
-import { TRAILING_STOP } from "../lib/constants";
+import { TRAILING_STOP, BREAK_EVEN_STOP } from "../lib/constants";
 
 export interface TrailingStopInput {
   entryPrice: number;
@@ -63,12 +63,29 @@ export function calculateTrailingStop(
 
   // 2. 未発動チェック
   if (maxHighDuringHold < activationPrice) {
+    // 2.5. ブレイクイーブンストップ（トレーリング発動前の建値撤退）
+    const beMultiplier = BREAK_EVEN_STOP.ACTIVATION_ATR_MULTIPLIER[strategy];
+    const beActivationPrice = entryAtr
+      ? entryPrice + entryAtr * beMultiplier
+      : entryPrice * (1 + BREAK_EVEN_STOP.ACTIVATION_PCT[strategy]);
+
+    if (maxHighDuringHold >= beActivationPrice) {
+      const breakEvenStop = Math.max(entryPrice, originalStopLoss);
+      return {
+        isActivated: false,
+        trailingStopPrice: null,
+        effectiveStopLoss: breakEvenStop,
+        effectiveTakeProfit: originalTakeProfit,
+        reason: `ブレイクイーブン発動（最高値¥${Math.round(maxHighDuringHold)} >= BE発動¥${Math.round(beActivationPrice)}、SL→¥${Math.round(breakEvenStop)}）`,
+      };
+    }
+
     return {
       isActivated: false,
       trailingStopPrice: null,
       effectiveStopLoss: originalStopLoss,
       effectiveTakeProfit: originalTakeProfit,
-      reason: `未発動（最高値¥${Math.round(maxHighDuringHold)} < 発動¥${Math.round(activationPrice)}）`,
+      reason: `未発動（最高値¥${Math.round(maxHighDuringHold)} < BE発動¥${Math.round(beActivationPrice)} < TS発動¥${Math.round(activationPrice)}）`,
     };
   }
 

@@ -25,6 +25,18 @@ export const JOB_CONCURRENCY = {
   ORDER_MANAGER: 3, // OpenAI API レート制限考慮
 } as const;
 
+// ブレイクイーブンストップ（トレーリングストップ発動前の建値撤退）
+// エントリー + ATR × N 以上の含み益が出たらSLをエントリー価格に引き上げ
+// トレーリングストップ発動（ATR×2.0）までの空白期間で「最悪でもトントン」を確保
+export const BREAK_EVEN_STOP = {
+  ACTIVATION_ATR_MULTIPLIER: {
+    day_trade: 0.8,  // ATR×0.8の含み益でBE発動（トレーリング発動=1.2より手前）
+    swing: 1.0,      // ATR×1.0の含み益でBE発動（トレーリング発動=2.0より手前）
+  },
+  // ATR不明時のフォールバック（%ベース）
+  ACTIVATION_PCT: { day_trade: 0.01, swing: 0.02 },
+} as const;
+
 // トレーリングストップ
 // 制約: ACTIVATION_ATR_MULTIPLIER > TRAIL_ATR_MULTIPLIER（発動時にストップが必ずエントリー以上）
 export const TRAILING_STOP = {
