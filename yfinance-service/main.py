@@ -39,58 +39,84 @@ app = FastAPI(title="yfinance sidecar")
 SIDECAR_SECRET = os.environ.get("SIDECAR_SECRET", "")
 
 # ========================================
-# セッションプール（プロキシ対応）
+# セッションプール（プロキシフォールバック対応）
 # ========================================
 #
 # yfinance はデフォルトでシングルトンセッション（同一 Cookie）を使うため、
 # rotation residential プロキシを使っても Yahoo 側から同一ユーザーに見える。
 # → リクエストごとに独立した curl_cffi Session を渡し、Cookie を分離する。
+#
+# プロキシフォールバック戦略:
+# 1. まず直接接続（プロキシなし）で試行
+# 2. 失敗した場合、プロキシ経由でリトライ
+# → プロキシが不要な環境ではオーバーヘッドなし、必要な環境では自動切替
 
 PROXY = os.environ.get("YFINANCE_PROXY", "")
 _SESSION_POOL_SIZE = 5
 
-_session_pool: list[CurlSession] = []
-_session_index = 0
-_session_lock = threading.Lock()
+# 直接接続用プール
+_direct_pool: list[CurlSession] = []
+_direct_index = 0
+_direct_lock = threading.Lock()
+
+# プロキシ接続用プール（PROXY が設定されている場合のみ使用）
+_proxy_pool: list[CurlSession] = []
+_proxy_index = 0
+_proxy_lock = threading.Lock()
 
 
-def _create_session() -> CurlSession:
-    """プロキシ付きの独立した curl_cffi Session を作成"""
+def _create_session(*, use_proxy: bool = False) -> CurlSession:
+    """curl_cffi Session を作成（use_proxy=True でプロキシ付き）"""
     session = CurlSession(impersonate="chrome")
-    if PROXY:
+    if use_proxy and PROXY:
         session.proxies = {"http": PROXY, "https": PROXY}
     return session
 
 
-def _init_session_pool() -> None:
-    """セッションプールを初期化"""
-    global _session_pool
-    _session_pool = [_create_session() for _ in range(_SESSION_POOL_SIZE)]
-    proxy_display = PROXY.split("@")[-1] if "@" in PROXY else PROXY
+def _init_session_pools() -> None:
+    """セッションプールを初期化（直接 + プロキシの2系統）"""
+    global _direct_pool, _proxy_pool
+    _direct_pool = [_create_session(use_proxy=False) for _ in range(_SESSION_POOL_SIZE)]
+    logger.info(f"Direct session pool initialized: {_SESSION_POOL_SIZE} sessions")
     if PROXY:
-        logger.info(f"Session pool initialized: {_SESSION_POOL_SIZE} sessions, proxy={proxy_display}")
+        _proxy_pool = [_create_session(use_proxy=True) for _ in range(_SESSION_POOL_SIZE)]
+        proxy_display = PROXY.split("@")[-1] if "@" in PROXY else PROXY
+        logger.info(f"Proxy session pool initialized: {_SESSION_POOL_SIZE} sessions, proxy={proxy_display}")
     else:
-        logger.info(f"Session pool initialized: {_SESSION_POOL_SIZE} sessions, no proxy")
+        logger.info("No proxy configured, proxy fallback disabled")
 
 
-def get_session() -> CurlSession:
+def get_session(*, use_proxy: bool = False) -> CurlSession:
     """ラウンドロビンでセッションを取得（各セッションが独立した Cookie を持つ）"""
-    global _session_index
-    with _session_lock:
-        session = _session_pool[_session_index % _SESSION_POOL_SIZE]
-        _session_index += 1
-    return session
+    if use_proxy and PROXY:
+        global _proxy_index
+        with _proxy_lock:
+            session = _proxy_pool[_proxy_index % _SESSION_POOL_SIZE]
+            _proxy_index += 1
+        return session
+    else:
+        global _direct_index
+        with _direct_lock:
+            session = _direct_pool[_direct_index % _SESSION_POOL_SIZE]
+            _direct_index += 1
+        return session
 
 
-def _refresh_all_sessions() -> None:
-    """rate limit 時に全セッションを新しい Cookie で再作成する"""
-    with _session_lock:
-        for i in range(_SESSION_POOL_SIZE):
-            _session_pool[i] = _create_session()
-    logger.info(f"All {_SESSION_POOL_SIZE} sessions refreshed due to rate limit")
+def _refresh_all_sessions(*, use_proxy: bool = False) -> None:
+    """rate limit 時にセッションを新しい Cookie で再作成する"""
+    if use_proxy and PROXY:
+        with _proxy_lock:
+            for i in range(_SESSION_POOL_SIZE):
+                _proxy_pool[i] = _create_session(use_proxy=True)
+        logger.info(f"All {_SESSION_POOL_SIZE} proxy sessions refreshed due to rate limit")
+    else:
+        with _direct_lock:
+            for i in range(_SESSION_POOL_SIZE):
+                _direct_pool[i] = _create_session(use_proxy=False)
+        logger.info(f"All {_SESSION_POOL_SIZE} direct sessions refreshed due to rate limit")
 
 
-_init_session_pool()
+_init_session_pools()
 
 
 @app.middleware("http")
@@ -167,25 +193,57 @@ def _is_retryable(e: Exception) -> bool:
     return False
 
 
-async def throttled_with_retry(fn: Callable[[], T]) -> T:
-    """throttled + リトライ（yfinance 内部エラー対策）"""
+async def throttled_with_retry(fn: Callable[[CurlSession], T]) -> T:
+    """throttled + リトライ + プロキシフォールバック
+
+    fn は CurlSession を受け取る callable。
+    1. まず直接接続セッションで最大3回試行
+    2. すべて失敗し、PROXY が設定されていればプロキシセッションで最大3回試行
+    """
     last_error: Exception | None = None
+
+    # フェーズ1: 直接接続で試行
     for attempt in range(_RETRY_MAX + 1):
         try:
-            return await throttled(fn)
+            session = get_session(use_proxy=False)
+            return await throttled(lambda: fn(session))
         except Exception as e:
             last_error = e
-            # rate limit → セッション入れ替えて即座に raise（TS 側のバックオフに委ねる）
             if _is_rate_limit_error(e):
-                _refresh_all_sessions()
+                _refresh_all_sessions(use_proxy=False)
+                # プロキシがあればフォールバックへ、なければ即 raise
+                if not PROXY:
+                    raise
+                logger.info(f"Rate limited on direct connection, falling back to proxy")
+                break
+            if not _is_retryable(e) or attempt >= _RETRY_MAX:
+                if not PROXY:
+                    raise
+                # 直接接続で全リトライ失敗 → プロキシフォールバックへ
+                logger.info(f"Direct connection failed after {attempt + 1} attempt(s): {e}, falling back to proxy")
+                break
+            logger.warning(
+                f"リトライ(direct) {attempt + 1}/{_RETRY_MAX} after {_RETRY_DELAY_S}s: {e}"
+            )
+            await asyncio.sleep(_RETRY_DELAY_S)
+    else:
+        # for-else: break せずにループ完了 = PROXY なしで全リトライ失敗
+        raise last_error  # type: ignore[misc]
+
+    # フェーズ2: プロキシで試行（PROXY が設定されている場合のみ到達）
+    for attempt in range(_RETRY_MAX + 1):
+        try:
+            session = get_session(use_proxy=True)
+            return await throttled(lambda: fn(session))
+        except Exception as e:
+            last_error = e
+            if _is_rate_limit_error(e):
+                _refresh_all_sessions(use_proxy=True)
                 raise
             if not _is_retryable(e) or attempt >= _RETRY_MAX:
                 raise
-            # rate limit の場合、該当セッションを新しいセッションに入れ替え
-            if _is_rate_limit_error(e):
-                _refresh_all_sessions()
             logger.warning(
-                f"リトライ {attempt + 1}/{_RETRY_MAX} after {_RETRY_DELAY_S}s: {e}"
+                f"リトライ(proxy) {attempt + 1}/{_RETRY_MAX} after {_RETRY_DELAY_S}s: {e}"
             )
             await asyncio.sleep(_RETRY_DELAY_S)
     raise last_error  # type: ignore[misc]
@@ -317,8 +375,7 @@ async def get_quote(symbol: str):
     """個別銘柄のリアルタイムクォートを取得"""
     symbol = normalize_ticker(symbol)
     try:
-        def _fetch():
-            session = get_session()
+        def _fetch(session: CurlSession):
             ticker = yf.Ticker(symbol, session=session)
             try:
                 info = ticker.info
@@ -347,8 +404,7 @@ async def get_quotes_batch(req: QuotesBatchRequest):
 
     for symbol in symbols:
         try:
-            def _fetch(s=symbol):
-                session = get_session()
+            def _fetch(session: CurlSession, s=symbol):
                 ticker = yf.Ticker(s, session=session)
                 try:
                     info = ticker.info
@@ -398,8 +454,7 @@ async def get_historical(symbol: str, days: int = 200):
     """ヒストリカルOHLCVデータを取得"""
     symbol = normalize_ticker(symbol)
     try:
-        def _fetch():
-            session = get_session()
+        def _fetch(session: CurlSession):
             df = yf.download(symbol, period=f"{days}d", interval="1d", progress=False, auto_adjust=True, session=session)
             return df
 
@@ -421,8 +476,7 @@ async def get_historical_range(req: HistoricalRangeRequest):
     """バックテスト用: 期間指定でヒストリカルデータを取得"""
     symbol = normalize_ticker(req.symbol)
     try:
-        def _fetch():
-            session = get_session()
+        def _fetch(session: CurlSession):
             df = yf.download(symbol, start=req.start, end=req.end, interval="1d", progress=False, auto_adjust=True, session=session)
             return df
 
@@ -444,8 +498,7 @@ async def get_historical_batch(req: HistoricalBatchRequest):
     """複数銘柄のヒストリカルデータを yf.download() で一括取得"""
     symbols = [normalize_ticker(s) for s in req.symbols]
     try:
-        def _fetch():
-            session = get_session()
+        def _fetch(session: CurlSession):
             df = yf.download(symbols, start=req.start, end=req.end, interval="1d", progress=False, auto_adjust=True, group_by="ticker", session=session)
             return df
 
@@ -491,8 +544,7 @@ async def get_market():
     symbols_list = list(MARKET_SYMBOLS.values())
 
     try:
-        def _fetch():
-            session = get_session()
+        def _fetch(session: CurlSession):
             df = yf.download(symbols_list, period="5d", interval="1d", progress=False, auto_adjust=True, group_by="ticker", session=session)
             return df
 
@@ -531,8 +583,7 @@ async def get_market():
         result: dict[str, dict | None] = {}
         for key, symbol in MARKET_SYMBOLS.items():
             try:
-                def _fetch_single(s=symbol):
-                    session = get_session()
+                def _fetch_single(session: CurlSession, s=symbol):
                     ticker = yf.Ticker(s, session=session)
                     try:
                         info = ticker.info
@@ -554,8 +605,7 @@ async def get_events(symbol: str):
     """コーポレートイベント情報を取得"""
     symbol = normalize_ticker(symbol)
     try:
-        def _fetch():
-            session = get_session()
+        def _fetch(session: CurlSession):
             ticker = yf.Ticker(symbol, session=session)
             try:
                 info = ticker.info
@@ -643,8 +693,7 @@ class SearchRequest(BaseModel):
 async def search_news(req: SearchRequest):
     """銘柄関連ニュースを検索"""
     try:
-        def _fetch():
-            session = get_session()
+        def _fetch(session: CurlSession):
             search = yf.Search(req.query, news_count=req.news_count, session=session)
             return search.news
 
