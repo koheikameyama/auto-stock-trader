@@ -22,6 +22,8 @@ import {
 } from "../views/components";
 import { isMarketDay } from "../../lib/market-calendar";
 import { fetchStockQuotesBatch } from "../../core/market-data";
+import { determineMarketRegime } from "../../core/market-regime";
+import { calculateDrawdownStatus } from "../../core/drawdown-manager";
 
 // jobState is injected from worker.ts
 export let jobState: {
@@ -51,6 +53,7 @@ app.get("/", async (c) => {
     pendingOrders,
     latestSummary,
     cashBalance,
+    drawdown,
   ] = await Promise.all([
     prisma.tradingConfig.findFirst({ orderBy: { createdAt: "desc" } }),
     prisma.marketAssessment.findFirst({ orderBy: { date: "desc" } }),
@@ -58,6 +61,7 @@ app.get("/", async (c) => {
     getPendingOrders(),
     prisma.tradingDailySummary.findFirst({ orderBy: { date: "desc" } }),
     getCashBalance().catch(() => null),
+    calculateDrawdownStatus(),
   ]);
 
   // オープンポジションのリアルタイム価格を一括取得
@@ -92,6 +96,14 @@ app.get("/", async (c) => {
   const selectedStocks = assessment?.selectedStocks as
     | { tickerCode: string }[]
     | null;
+
+  // Trading verdict: 3-gate check
+  const vix = assessment?.vix ? Number(assessment.vix) : null;
+  const regime = vix !== null ? determineMarketRegime(vix) : null;
+  const canTrade =
+    (regime ? !regime.shouldHaltTrading : false) &&
+    (assessment?.shouldTrade ?? false) &&
+    !drawdown.shouldHaltTrading;
 
   const marketOpen = isMarketDay();
 
@@ -140,16 +152,16 @@ app.get("/", async (c) => {
       </div>
     </div>
 
-    <!-- Market Assessment -->
+    <!-- Market Assessment + Trading Verdict -->
     <div class="card">
       <div class="card-title">市場評価</div>
       ${assessment
         ? html`
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+              ${canTrade
+                ? html`<span class="badge" style="background:#22c55e20;color:#22c55e;font-size:14px;padding:6px 12px">取引許可</span>`
+                : html`<span class="badge" style="background:#ef444420;color:#ef4444;font-size:14px;padding:6px 12px">取引見送り</span>`}
               ${sentimentBadge(assessment.sentiment)}
-              <span style="font-size:13px;color:#94a3b8">
-                ${assessment.shouldTrade ? "取引推奨" : "様子見"}
-              </span>
             </div>
             ${detailRow(
               "日経225",

@@ -21,7 +21,6 @@ import {
   detailRow,
   emptyState,
   regimeBadge,
-  sentimentBadge,
   tt,
 } from "../views/components";
 
@@ -50,41 +49,7 @@ app.get("/", async (c) => {
     (a, b) => b.relativeStrength - a.relativeStrength,
   );
 
-  // Trading verdict: AND of all three gates
-  const regimeOk = regime ? !regime.shouldHaltTrading : false;
-  const aiOk = assessment?.shouldTrade ?? false;
-  const drawdownOk = !drawdown.shouldHaltTrading;
-  const canTrade = regimeOk && aiOk && drawdownOk;
-
   const content = html`
-    <!-- Trading Verdict -->
-    <div class="card">
-      <div class="card-title">取引判定</div>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-        ${canTrade
-          ? html`<span class="badge" style="background:#22c55e20;color:#22c55e;font-size:14px;padding:6px 12px">取引許可</span>`
-          : html`<span class="badge" style="background:#ef444420;color:#ef4444;font-size:14px;padding:6px 12px">取引見送り</span>`}
-      </div>
-      ${detailRow(
-        tt("VIXレジーム", "VIX水準による機械的なリスク判定"),
-        regimeOk
-          ? html`<span style="color:#22c55e">許可</span>`
-          : html`<span style="color:#ef4444">${regime ? "停止" : "データなし"}</span>`,
-      )}
-      ${detailRow(
-        tt("AI市場評価", "AIによる総合的な市場センチメント判断"),
-        aiOk
-          ? html`<span style="color:#22c55e">取引推奨</span>`
-          : assessment ? html`<span style="color:#ef4444">見送り（${sentimentBadge(assessment.sentiment)}）</span>` : html`<span style="color:#ef4444">データなし</span>`,
-      )}
-      ${detailRow(
-        tt("ドローダウン", "損失管理による取引制限"),
-        drawdownOk
-          ? html`<span style="color:#22c55e">正常</span>`
-          : html`<span style="color:#ef4444">停止</span>`,
-      )}
-    </div>
-
     <!-- Market Regime -->
     <div class="card">
       <div class="card-title">マーケットレジーム</div>
@@ -99,17 +64,7 @@ app.get("/", async (c) => {
               </span>
             </div>
             ${detailRow("最大ポジション数", `${regime.maxPositions}`)}
-            ${detailRow("最低ランク", regime.minRank ?? "取引停止")}
-            ${detailRow(
-              "取引",
-              regime.shouldHaltTrading
-                ? html`<span style="color:#ef4444">停止</span>`
-                : html`<span style="color:#22c55e">許可</span>`,
-            )}
-            <details>
-              <summary>判定理由</summary>
-              <div class="review-text">${regime.reason}</div>
-            </details>
+            ${detailRow("最低ランク", regime.minRank ?? "-")}
           `
         : emptyState("VIXデータなし")}
     </div>
@@ -117,19 +72,6 @@ app.get("/", async (c) => {
     <!-- Drawdown Status -->
     <div class="card">
       <div class="card-title">ドローダウン管理</div>
-      ${drawdown.shouldHaltTrading
-        ? html`<div
-            style="background:rgba(239,68,68,0.15);color:#ef4444;padding:8px 12px;border-radius:8px;font-size:13px;margin-bottom:8px"
-          >
-            取引停止中: ${drawdown.reason}
-          </div>`
-        : drawdown.maxPositionsOverride !== null
-          ? html`<div
-              style="background:rgba(245,158,11,0.15);color:#f59e0b;padding:8px 12px;border-radius:8px;font-size:13px;margin-bottom:8px"
-            >
-              クールダウン中: ${drawdown.reason}
-            </div>`
-          : ""}
       <div class="grid-2" style="margin:0;gap:8px">
         <div>
           ${detailRow(tt("週次P&L", "今週の実現損益合計"), pnlText(drawdown.weeklyPnl))}
@@ -156,15 +98,7 @@ app.get("/", async (c) => {
       </div>
       ${detailRow(
         tt("連敗数", "連続して発生した損失トレードの回数"),
-        html`<span
-          class="${drawdown.consecutiveLosses >= DRAWDOWN.COOLDOWN_TRIGGER ? "pnl-negative" : ""}"
-          >${drawdown.consecutiveLosses}
-          ${drawdown.consecutiveLosses >= DRAWDOWN.COOLDOWN_HALT_TRIGGER
-            ? `(停止: ${DRAWDOWN.COOLDOWN_HALT_TRIGGER})`
-            : drawdown.consecutiveLosses >= DRAWDOWN.COOLDOWN_TRIGGER
-              ? `(制限中: ${DRAWDOWN.COOLDOWN_TRIGGER})`
-              : ""}</span
-        >`,
+        `${drawdown.consecutiveLosses}`,
       )}
       ${detailRow(tt("ピークエクイティ", "運用開始以来の資産最高値"), `¥${formatYen(drawdown.peakEquity)}`)}
     </div>
