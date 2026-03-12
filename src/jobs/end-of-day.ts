@@ -1,7 +1,8 @@
 /**
  * 日次締め処理（15:50 JST / 平日）
  *
- * 1. デイトレ未決済ポジションの強制決済
+ * 1a. デイトレ未決済ポジションの強制決済
+ * 1b. デイトレ判定日のスイングポジション強制決済（オーバーナイトリスク回避）
  * 2. 期限切れ注文のキャンセル
  * 3. TradingDailySummary 作成
  * 4. AIによる日次レビュー
@@ -21,25 +22,19 @@ import { updatePeakEquity } from "../core/drawdown-manager";
 import { notifyDailyReport, notifyOrderFilled } from "../lib/slack";
 import dayjs from "dayjs";
 
-export async function main() {
-  console.log("=== End of Day 開始 ===");
-
-  // 1. デイトレ未決済ポジションの強制決済
-  console.log("[1/5] デイトレ未決済ポジション強制決済...");
-  const dayTradePositions = await prisma.tradingPosition.findMany({
-    where: { status: "open", strategy: "day_trade" },
-    include: { stock: true },
-  });
-
-  for (const position of dayTradePositions) {
-    const quote = await fetchStockQuote(position.stock.tickerCode);
+async function forceClosePositions(
+  positions: Awaited<ReturnType<typeof prisma.tradingPosition.findMany>>,
+  exitReason: string,
+) {
+  for (const position of positions) {
+    const stock = (position as typeof position & { stock: { tickerCode: string; name: string } }).stock;
+    const quote = await fetchStockQuote(stock.tickerCode);
     const exitPrice = quote?.price ?? Number(position.entryPrice);
 
     console.log(
-      `  → ${position.stock.tickerCode}: 強制決済 @ ¥${exitPrice.toLocaleString()}`,
+      `  → ${stock.tickerCode}: ${exitReason} @ ¥${exitPrice.toLocaleString()}`,
     );
 
-    // exitSnapshot構築
     const entryPriceNum = Number(position.entryPrice);
     const maxHigh = position.maxHighDuringHold
       ? Math.max(Number(position.maxHighDuringHold), quote?.high ?? exitPrice)
@@ -49,7 +44,7 @@ export async function main() {
       : exitPrice;
 
     const exitSnapshot: ExitSnapshot = {
-      exitReason: "EOD強制決済",
+      exitReason,
       exitPrice,
       priceJourney: {
         maxHigh,
@@ -69,13 +64,48 @@ export async function main() {
     );
 
     await notifyOrderFilled({
-      tickerCode: position.stock.tickerCode,
-      name: position.stock.name,
+      tickerCode: stock.tickerCode,
+      name: stock.name,
       side: "sell",
       filledPrice: exitPrice,
       quantity: position.quantity,
       pnl: closed.realizedPnl ? Number(closed.realizedPnl) : 0,
     });
+  }
+}
+
+export async function main() {
+  console.log("=== End of Day 開始 ===");
+
+  // 今日の戦略判定を取得
+  const todayAssessmentForStrategy = await prisma.marketAssessment.findUnique({
+    where: { date: getTodayForDB() },
+  });
+  const todayStrategy = (todayAssessmentForStrategy as Record<string, unknown> | null)?.tradingStrategy as string | null;
+
+  // 1a. デイトレ未決済ポジションの強制決済
+  console.log("[1a/5] デイトレ未決済ポジション強制決済...");
+  const dayTradePositions = await prisma.tradingPosition.findMany({
+    where: { status: "open", strategy: "day_trade" },
+    include: { stock: true },
+  });
+  await forceClosePositions(dayTradePositions, "EOD強制決済");
+
+  // 1b. デイトレ判定日のスイングポジション強制決済（オーバーナイトリスク回避）
+  if (todayStrategy === "day_trade") {
+    console.log("[1b/5] デイトレ判定日: スイングポジションも強制決済（オーバーナイトリスク回避）...");
+    const swingPositions = await prisma.tradingPosition.findMany({
+      where: { status: "open", strategy: "swing" },
+      include: { stock: true },
+    });
+    if (swingPositions.length > 0) {
+      console.log(`  ${swingPositions.length}件のスイングポジションを決済`);
+      await forceClosePositions(swingPositions, "デイトレ判定日オーバーナイトリスク回避");
+    } else {
+      console.log("  対象なし");
+    }
+  } else {
+    console.log("[1b/5] スイング判定日: スイングポジション保持");
   }
 
   // 2. 期限切れ注文のキャンセル

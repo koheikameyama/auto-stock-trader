@@ -653,13 +653,19 @@ CME日経先物（NKD=F、USD建て）のナイトセッション乖離率を算
 #### 実行フロー
 
 ```
-market-scanner:
+market-scanner（朝）:
   1. VIX・CME乖離率を取得
   2. VIXレジーム判定（機械的）
   3. ★ determineTradingStrategy(vix, cmeDivergencePct)
   4. AI市場評価 → shouldTrade判定
   5. AIレビュー（Go/No-Go）← 戦略は引数として渡す、AIは選ばない
-  6. MarketAssessment.selectedStocks に戦略を含めて保存
+  6. MarketAssessment に戦略（tradingStrategy）を含めて保存
+
+end-of-day（引け前）:
+  1a. デイトレポジション強制決済
+  1b. ★ MarketAssessment.tradingStrategy == "day_trade" の場合
+      → スイングポジションも強制決済（オーバーナイトリスク回避）
+  2-5. 注文キャンセル → 日次サマリー → AIレビュー → Slack通知
 ```
 
 #### AIとの役割分担
@@ -677,6 +683,20 @@ export const STRATEGY_SWITCHING = {
   DEFAULT_STRATEGY: "swing",             // デフォルト戦略
 } as const;
 ```
+
+#### 既存スイングポジションの扱い
+
+デイトレ判定日には、既存のスイングポジションもオーバーナイトリスク回避のため引け前に強制決済する。
+
+| 当日の戦略判定 | デイトレポジション | スイングポジション |
+|---------------|-------------------|-------------------|
+| swing | EOD強制決済 | 保持（通常運用） |
+| day_trade | EOD強制決済 | **EOD強制決済**（オーバーナイトリスク回避） |
+
+- **実装**: `src/jobs/end-of-day.ts`（ステップ 1b）
+- **データソース**: `MarketAssessment.tradingStrategy` に当日のシステム決定値を保存
+- **決済理由**: `"デイトレ判定日オーバーナイトリスク回避"` として `exitSnapshot` に記録
+- **設計意図**: VIX ≥ 25 やCME乖離率悪化は市場全体のリスクを示すため、スイングで入ったポジションも翌日のギャップダウンリスクを受ける。戦略切り替えの意味がオーバーナイトリスク回避である以上、既存ポジションも同様に保護する必要がある。
 
 ### 日経平均キルスイッチ
 

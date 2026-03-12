@@ -183,6 +183,7 @@ ${sectorText || "  特になし"}`;
         shouldTrade: false,
         reasoning: `[CME先物乖離率キルスイッチ] ${preMarket.reason}`,
         selectedStocks: [],
+        tradingStrategy: "day_trade",
       };
       await prisma.marketAssessment.upsert({
         where: { date: getTodayForDB() },
@@ -244,6 +245,7 @@ ${sectorText || "  特になし"}`;
       shouldTrade: false,
       reasoning: `[VIXレジーム自動停止] ${regime.reason}`,
       selectedStocks: [],
+      tradingStrategy: strategyDecision.strategy,
     };
     await prisma.marketAssessment.upsert({
       where: { date: getTodayForDB() },
@@ -276,6 +278,7 @@ ${sectorText || "  特になし"}`;
       shouldTrade: false,
       reasoning: `[日経平均キルスイッチ] ${reason}`,
       selectedStocks: [],
+      tradingStrategy: strategyDecision.strategy,
     };
     await prisma.marketAssessment.upsert({
       where: { date: getTodayForDB() },
@@ -310,6 +313,7 @@ ${sectorText || "  特になし"}`;
       shouldTrade: false,
       reasoning: `[ドローダウン自動停止] ${drawdown.reason}`,
       selectedStocks: [],
+      tradingStrategy: strategyDecision.strategy,
     };
     await prisma.marketAssessment.upsert({
       where: { date: getTodayForDB() },
@@ -364,6 +368,7 @@ ${sectorText || "  特になし"}`;
         shouldTrade: false,
         reasoning: assessment.reasoning,
         selectedStocks: [],
+        tradingStrategy: strategyDecision.strategy,
       };
       await prisma.marketAssessment.upsert({
         where: { date: getTodayForDB() },
@@ -818,6 +823,7 @@ ${sectorText || "  特になし"}`;
       shouldTrade: true,
       reasoning: assessment!.reasoning,
       selectedStocks: JSON.parse(JSON.stringify(selectedStocksData)),
+      tradingStrategy: strategyDecision.strategy,
     };
     await prisma.marketAssessment.upsert({
       where: { date: today },
