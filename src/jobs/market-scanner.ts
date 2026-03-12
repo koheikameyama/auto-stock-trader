@@ -61,8 +61,9 @@ import {
   determineMarketRegime,
   determinePreMarketRegime,
   calculateCmeDivergence,
+  determineTradingStrategy,
 } from "../core/market-regime";
-import type { MarketRegime } from "../core/market-regime";
+import type { MarketRegime, StrategyDecision } from "../core/market-regime";
 import { calculateDrawdownStatus } from "../core/drawdown-manager";
 import type { DrawdownStatus } from "../core/drawdown-manager";
 import {
@@ -218,6 +219,13 @@ ${sectorText || "  特になし"}`;
   }
 
   console.log(`  → レジーム: ${regime.level}（${regime.reason}）`);
+
+  // 1.8.1. 戦略決定（市場環境ベース — 全銘柄共通）
+  const strategyDecision: StrategyDecision = determineTradingStrategy(
+    marketData.vix.price,
+    cmeDivergencePct,
+  );
+  console.log(`[1.8.1/5] 戦略決定: ${strategyDecision.strategy}（${strategyDecision.reason}）`);
 
   if (regime.shouldHaltTrading && !isShadowMode) {
     console.log("レジームにより取引停止。MarketAssessment を保存してシャドウスコアリングへ");
@@ -778,7 +786,7 @@ ${sectorText || "  特になし"}`;
       };
     });
 
-    const reviews = await reviewStocks(assessment!, reviewCandidates);
+    const reviews = await reviewStocks(assessment!, reviewCandidates, strategyDecision.strategy);
     const goStocks = reviews.filter((r) => r.decision === "go");
     console.log(
       `  → AIレビュー: ${reviews.length}銘柄中 ${goStocks.length}銘柄承認`,

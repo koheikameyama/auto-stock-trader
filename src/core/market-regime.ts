@@ -8,7 +8,7 @@
  * VIXをプライマリ指標として使用する（日経VIとの相関が高く、実用上問題なし）。
  */
 
-import { VIX_THRESHOLDS, MARKET_REGIME, CME_NIGHT_DIVERGENCE } from "../lib/constants";
+import { VIX_THRESHOLDS, MARKET_REGIME, CME_NIGHT_DIVERGENCE, STRATEGY_SWITCHING } from "../lib/constants";
 
 export type RegimeLevel = "normal" | "elevated" | "high" | "crisis";
 
@@ -102,6 +102,50 @@ export function determinePreMarketRegime(cmeDivergencePct: number): {
   }
 
   return { minLevel: null, reason: null };
+}
+
+export type TradingStrategy = "day_trade" | "swing";
+
+export interface StrategyDecision {
+  strategy: TradingStrategy;
+  reason: string;
+}
+
+/**
+ * 市場環境に基づいて当日の取引戦略を決定する（日単位・全銘柄共通）
+ *
+ * オーバーナイトリスクが高い環境ではデイトレに切り替え、持ち越しを回避する。
+ * - VIX ≥ 25: デイトレ（翌日のギャップダウンリスクが高い）
+ * - CME乖離率 ≤ -1.5%: デイトレ（翌朝のギャップリスクが顕在化）
+ * - それ以外: スイング（トレンドに乗って利を伸ばす）
+ */
+export function determineTradingStrategy(
+  vix: number,
+  cmeDivergencePct: number | null,
+): StrategyDecision {
+  // VIXチェック（オーバーナイトリスク）
+  if (vix >= STRATEGY_SWITCHING.VIX_DAY_TRADE_THRESHOLD) {
+    return {
+      strategy: "day_trade",
+      reason: `VIX ${vix.toFixed(1)} ≥ ${STRATEGY_SWITCHING.VIX_DAY_TRADE_THRESHOLD}: オーバーナイトリスク回避のためデイトレ`,
+    };
+  }
+
+  // CME乖離率チェック（翌朝ギャップリスク）
+  if (
+    cmeDivergencePct != null &&
+    cmeDivergencePct <= STRATEGY_SWITCHING.CME_DIVERGENCE_DAY_TRADE_THRESHOLD
+  ) {
+    return {
+      strategy: "day_trade",
+      reason: `CME乖離率 ${cmeDivergencePct.toFixed(2)}% ≤ ${STRATEGY_SWITCHING.CME_DIVERGENCE_DAY_TRADE_THRESHOLD}%: ギャップリスク回避のためデイトレ`,
+    };
+  }
+
+  return {
+    strategy: STRATEGY_SWITCHING.DEFAULT_STRATEGY,
+    reason: `通常環境（VIX ${vix.toFixed(1)}, CME乖離率 ${cmeDivergencePct != null ? cmeDivergencePct.toFixed(2) + "%" : "N/A"}）→ スイング`,
+  };
 }
 
 /**

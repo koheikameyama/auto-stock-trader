@@ -143,10 +143,13 @@ export async function assessMarket(
 
 /**
  * ロジックが推薦した銘柄を AI がレビューし、Go/No-Go を判断する
+ *
+ * @param strategy - システムが市場環境に基づいて決定した戦略（全銘柄共通）
  */
 export async function reviewStocks(
   assessment: MarketAssessmentResult,
   candidates: StockReviewCandidateInput[],
+  strategy: "day_trade" | "swing",
 ): Promise<StockReviewResult[]> {
   const openai = getOpenAIClient();
 
@@ -158,14 +161,20 @@ ${c.scoreFormatted}${c.newsContext ? `\n【ニュース】\n${c.newsContext}` : 
     )
     .join("\n---\n");
 
+  const strategyLabel = strategy === "day_trade" ? "デイトレード" : "スイングトレード";
+
   const userPrompt = `【市場評価】
 - センチメント: ${assessment.sentiment}
 - 理由: ${assessment.reasoning}
 
+【本日の取引戦略】${strategyLabel}（${strategy}）
+※ システムが市場環境（VIX・CME乖離率）に基づいて決定済み
+
 【ロジックが推薦した銘柄一覧】
 ${candidatesText}
 
-各銘柄について、Go（承認）またはNo-Go（見送り）の判断をしてください。`;
+各銘柄について、Go（承認）またはNo-Go（見送り）の判断をしてください。
+承認する銘柄のstrategyには「${strategy}」を設定してください。`;
 
   const response = await openai.chat.completions.create({
     model: OPENAI_CONFIG.MODEL,
@@ -183,6 +192,12 @@ ${candidatesText}
   }
 
   const parsed = JSON.parse(content) as { stocks: StockReviewResult[] };
+
+  // AIがstrategyを変えてしまった場合に備え、システム決定値で上書き
+  for (const stock of parsed.stocks) {
+    stock.strategy = strategy;
+  }
+
   return parsed.stocks;
 }
 

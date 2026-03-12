@@ -631,8 +631,52 @@ CME日経先物（NKD=F、USD建て）のナイトセッション乖離率を算
 
 ### 実装ファイル
 
-- `src/core/market-regime.ts`: `determineMarketRegime(vix)`, `determinePreMarketRegime(cmeDivergencePct)`, `calculateCmeDivergence()`
-- `src/lib/constants/trading.ts`: `VIX_THRESHOLDS`, `CME_NIGHT_DIVERGENCE`, `MARKET_REGIME`
+- `src/core/market-regime.ts`: `determineMarketRegime(vix)`, `determinePreMarketRegime(cmeDivergencePct)`, `calculateCmeDivergence()`, `determineTradingStrategy()`
+- `src/lib/constants/trading.ts`: `VIX_THRESHOLDS`, `CME_NIGHT_DIVERGENCE`, `MARKET_REGIME`, `STRATEGY_SWITCHING`
+
+### 戦略切り替え（市場環境ベース）
+
+市場環境に基づいてday_trade/swingを**日単位・全銘柄共通**で決定する。AIには戦略を選ばせず、ルールベースで機械的に決定する。
+
+#### 設計思想
+
+オーバーナイトリスクが高い環境では持ち越しを避けてデイトレに切り替える。銘柄単位ではなく日単位で統一する理由は、オーバーナイトリスクは市場全体の問題であり、銘柄固有ではないため。
+
+#### 切り替えルール
+
+| 条件 | 戦略 | 理由 |
+|------|------|------|
+| VIX ≥ 25 | day_trade | 翌日のギャップダウンリスクが高い |
+| CME乖離率 ≤ -1.5% | day_trade | 翌朝のギャップリスクが顕在化 |
+| デフォルト | swing | スイングトレード主体（CLAUDE.md方針） |
+
+#### 実行フロー
+
+```
+market-scanner:
+  1. VIX・CME乖離率を取得
+  2. VIXレジーム判定（機械的）
+  3. ★ determineTradingStrategy(vix, cmeDivergencePct)
+  4. AI市場評価 → shouldTrade判定
+  5. AIレビュー（Go/No-Go）← 戦略は引数として渡す、AIは選ばない
+  6. MarketAssessment.selectedStocks に戦略を含めて保存
+```
+
+#### AIとの役割分担
+
+- **戦略決定**: ルールベース（`determineTradingStrategy`）— VIX・CME乖離率で機械的に決定
+- **AIの役割**: Go/No-Go判断（定性的リスク評価）に集中。戦略はシステムが決定した値をそのまま使用
+- **安全装置**: AIが戦略を変更しても、`reviewStocks` 内でシステム決定値に上書き
+
+#### 定数
+
+```typescript
+export const STRATEGY_SWITCHING = {
+  VIX_DAY_TRADE_THRESHOLD: 25,          // VIXがこの値以上でデイトレ
+  CME_DIVERGENCE_DAY_TRADE_THRESHOLD: -1.5, // CME乖離率がこの値以下でデイトレ
+  DEFAULT_STRATEGY: "swing",             // デフォルト戦略
+} as const;
+```
 
 ### 日経平均キルスイッチ
 
