@@ -19,6 +19,7 @@ import {
   ORDER_EXPIRY,
   TECHNICAL_MIN_DATA,
   JOB_CONCURRENCY,
+  DEFENSIVE_MODE,
 } from "../lib/constants";
 import { fetchStockQuote, fetchHistoricalData } from "../core/market-data";
 import {
@@ -78,6 +79,17 @@ export async function main() {
 
   if (!todayAssessment.shouldTrade) {
     console.log("今日は取引見送りです。");
+    return;
+  }
+
+  // ディフェンシブモード（bearish/crisis）: 新規買い注文を作らない
+  const isDefensiveMode =
+    todayAssessment.sentiment != null &&
+    DEFENSIVE_MODE.ENABLED_SENTIMENTS.includes(todayAssessment.sentiment);
+  if (isDefensiveMode) {
+    console.log(
+      `ディフェンシブモード（${todayAssessment.sentiment}）のため新規買い注文を見送ります。`,
+    );
     return;
   }
 

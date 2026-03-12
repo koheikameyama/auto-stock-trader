@@ -70,6 +70,18 @@ export async function main() {
 
   // 2. pending注文の約定チェック
   console.log("[1/3] 未約定注文の約定チェック...");
+
+  // ディフェンシブモード判定（買い注文の約定ブロック用）
+  const latestAssessmentForBuyBlock = await prisma.marketAssessment.findFirst({
+    orderBy: { date: "desc" },
+    select: { sentiment: true },
+  });
+  const isDefensiveModeForBuy =
+    latestAssessmentForBuyBlock?.sentiment != null &&
+    DEFENSIVE_MODE.ENABLED_SENTIMENTS.includes(
+      latestAssessmentForBuyBlock.sentiment,
+    );
+
   const pendingOrders = await getPendingOrders();
   console.log(`  未約定注文: ${pendingOrders.length}件`);
 
@@ -87,6 +99,18 @@ export async function main() {
     const filledPrice = checkOrderFill(order, quote.high, quote.low, quote.open);
 
     if (filledPrice !== null) {
+      // 買い注文: ディフェンシブモード中はキャンセル（防御的二重チェック）
+      if (order.side === "buy" && isDefensiveModeForBuy) {
+        console.log(
+          `  → ${order.stock.tickerCode}: ディフェンシブモード中のため買い注文キャンセル`,
+        );
+        await prisma.tradingOrder.update({
+          where: { id: order.id },
+          data: { status: "cancelled" },
+        });
+        continue;
+      }
+
       // 買い注文: 時間帯チェック（デイトレ14:30以降は約定をスキップ）
       if (order.side === "buy") {
         const timeCheck = checkTimeWindow(
