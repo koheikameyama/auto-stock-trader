@@ -66,6 +66,7 @@ app.get("/", async (c) => {
                   <th>${tt("損益率", "（現在価格 − 建値）÷ 建値 × 100")}</th>
                   <th>${tt("利確", "利益確定の目標価格（TP）")}</th>
                   <th>${tt("損切", "損失を限定する売却価格（SL）")}</th>
+                  <th>${tt("RR比", "リスクリワード比（利幅÷損幅）。1.5以上が目標")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -96,6 +97,19 @@ app.get("/", async (c) => {
                         ${p.stopLossPrice
                           ? `¥${formatYen(Number(p.stopLossPrice))}`
                           : "-"}
+                      </td>
+                      <td>
+                        ${(() => {
+                          const tp = p.takeProfitPrice ? Number(p.takeProfitPrice) : null;
+                          const sl = p.stopLossPrice ? Number(p.stopLossPrice) : null;
+                          if (tp == null || sl == null) return "-";
+                          const risk = entryPrice - sl;
+                          const reward = tp - entryPrice;
+                          if (risk <= 0) return "-";
+                          const rr = reward / risk;
+                          const cls = rr >= 1.5 ? "pnl-positive" : "pnl-negative";
+                          return html`<span class="${cls}">1:${rr.toFixed(1)}</span>`;
+                        })()}
                       </td>
                     </tr>
                   `;
