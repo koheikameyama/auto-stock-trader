@@ -75,7 +75,7 @@ app.get("/", async (c) => {
         tt("AI市場評価", "AIによる総合的な市場センチメント判断"),
         aiOk
           ? html`<span style="color:#22c55e">取引推奨</span>`
-          : html`<span style="color:#ef4444">${assessment ? `見送り（${sentimentBadge(assessment.sentiment)}）` : "データなし"}</span>`,
+          : assessment ? html`<span style="color:#ef4444">見送り（${sentimentBadge(assessment.sentiment)}）</span>` : html`<span style="color:#ef4444">データなし</span>`,
       )}
       ${detailRow(
         tt("ドローダウン", "損失管理による取引制限"),
