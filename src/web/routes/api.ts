@@ -137,8 +137,14 @@ app.get("/stock/:tickerCode/analysis", async (c) => {
     }),
   ]);
 
+  // チャートデータがなくてもスコアリング等の取得済みデータは返す
   if (!ohlcv || ohlcv.length === 0) {
-    return c.json({ error: "historical data not available" }, 404);
+    return c.json({
+      ohlcv: [],
+      technical: null,
+      patterns: null,
+      scoring,
+    });
   }
 
   // テクニカル分析
@@ -220,6 +226,9 @@ app.get("/stock/:tickerCode/modal", async (c) => {
       }));
       const patterns = generatePatternsResponse(chartData);
       analysis = { ohlcv: oldestFirst, technical, patterns, scoring };
+    } else if (scoring) {
+      // チャートデータがなくてもスコアリング情報は表示する
+      analysis = { ohlcv: [], technical: null, patterns: null, scoring };
     }
 
     if (openPosition) {

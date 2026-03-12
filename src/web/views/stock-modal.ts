@@ -17,8 +17,8 @@ type HtmlContent = HtmlEscapedString | Promise<HtmlEscapedString>;
 /** 分析データ型 */
 export interface ModalAnalysis {
   ohlcv: OHLCVData[];
-  technical: TechnicalSummary;
-  patterns: PatternsResponse;
+  technical: TechnicalSummary | null;
+  patterns: PatternsResponse | null;
   scoring: {
     totalScore: number;
     rank: string;
@@ -136,7 +136,7 @@ function positionBanner(pos: ModalPositionInfo): HtmlContent {
 function chartTab(analysis: ModalAnalysis | null): HtmlContent {
   return html`<div class="modal-pane" data-tab="chart" style="display:block">
     <div class="modal-chart">
-      ${analysis?.ohlcv && analysis.ohlcv.length >= 2
+      ${analysis?.ohlcv && analysis.ohlcv.length >= 2 && analysis.technical
         ? candlestickChart(analysis.ohlcv, analysis.technical)
         : html`<div
             style="text-align:center;padding:24px;color:#64748b;font-size:12px"
@@ -144,15 +144,17 @@ function chartTab(analysis: ModalAnalysis | null): HtmlContent {
             チャートデータなし
           </div>`}
     </div>
-    ${analysis
+    ${analysis?.patterns
       ? html`${combinedSignal(analysis.patterns)}
-          ${technicalGrid(analysis.technical)}
-          ${trendInfo(analysis.technical)}
-          ${supportResistanceInfo(analysis.technical)}
           ${chartPatterns(analysis.patterns)}
-          ${latestCandle(analysis.patterns)}
-          ${scoringSection(analysis.scoring)}`
+          ${latestCandle(analysis.patterns)}`
       : ""}
+    ${analysis?.technical
+      ? html`${technicalGrid(analysis.technical)}
+          ${trendInfo(analysis.technical)}
+          ${supportResistanceInfo(analysis.technical)}`
+      : ""}
+    ${analysis ? scoringSection(analysis.scoring) : ""}
   </div>`;
 }
 

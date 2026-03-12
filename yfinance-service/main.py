@@ -423,10 +423,22 @@ async def get_quotes_batch(req: QuotesBatchRequest):
     return results
 
 
+def _flatten_columns(df) -> None:
+    """yf.download() が返す MultiIndex カラムをフラット化する（in-place）
+
+    yfinance 1.x では単一銘柄でも MultiIndex カラム
+    (e.g. ('Close', '7203.T')) を返すため、'Close' 等で
+    アクセスできるようレベルを落とす。
+    """
+    if hasattr(df, "columns") and hasattr(df.columns, "nlevels") and df.columns.nlevels > 1:
+        df.columns = df.columns.get_level_values(0)
+
+
 def _df_to_bars(df, *, require_positive_close: bool = False) -> list[dict]:
     """DataFrame を OHLCV バー一覧に変換する共通ヘルパー"""
     if df is None or df.empty:
         return []
+    _flatten_columns(df)
     bars = []
     for date, row in df.iterrows():
         o = safe_float_or_none(row.get("Open"))
@@ -451,11 +463,12 @@ def _df_to_bars(df, *, require_positive_close: bool = False) -> list[dict]:
 
 @app.get("/historical")
 async def get_historical(symbol: str, days: int = 200):
-    """ヒストリカルOHLCVデータを取得"""
+    """ヒストリカルOHLCVデータを取得（単一銘柄は Ticker.history() を使用）"""
     symbol = normalize_ticker(symbol)
     try:
         def _fetch(session: CurlSession):
-            df = yf.download(symbol, period=f"{days}d", interval="1d", progress=False, auto_adjust=True, session=session)
+            ticker = yf.Ticker(symbol, session=session)
+            df = ticker.history(period=f"{days}d", interval="1d", auto_adjust=True)
             return df
 
         df = await throttled_with_retry(_fetch)
@@ -473,11 +486,12 @@ class HistoricalRangeRequest(BaseModel):
 
 @app.post("/historical")
 async def get_historical_range(req: HistoricalRangeRequest):
-    """バックテスト用: 期間指定でヒストリカルデータを取得"""
+    """バックテスト用: 期間指定でヒストリカルデータを取得（単一銘柄は Ticker.history() を使用）"""
     symbol = normalize_ticker(req.symbol)
     try:
         def _fetch(session: CurlSession):
-            df = yf.download(symbol, start=req.start, end=req.end, interval="1d", progress=False, auto_adjust=True, session=session)
+            ticker = yf.Ticker(symbol, session=session)
+            df = ticker.history(start=req.start, end=req.end, interval="1d", auto_adjust=True)
             return df
 
         df = await throttled_with_retry(_fetch)
@@ -554,6 +568,7 @@ async def get_market():
         for key, symbol in MARKET_SYMBOLS.items():
             try:
                 symbol_df = df[symbol] if len(symbols_list) > 1 else df
+                _flatten_columns(symbol_df)
                 # 直近の有効な2行を取得（当日 + 前日）
                 valid = symbol_df.dropna(subset=["Close"])
                 if valid.empty:
