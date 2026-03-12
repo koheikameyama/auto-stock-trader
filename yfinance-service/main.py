@@ -150,7 +150,10 @@ _RETRY_DELAY_S = 2.0
 
 
 def _is_retryable(e: Exception) -> bool:
-    """リトライ可能なエラーか判定"""
+    """リトライ可能なエラーか判定（rate limit は除外 — TS 側のバックオフに委ねる）"""
+    # rate limit はサイドカーではリトライしない
+    if _is_rate_limit_error(e):
+        return False
     # asyncio.wait_for によるタイムアウト
     if isinstance(e, (asyncio.TimeoutError, TimeoutError)):
         return True
@@ -161,7 +164,7 @@ def _is_retryable(e: Exception) -> bool:
     # ネットワーク系
     if any(code in msg for code in ("ConnectionError", "Timeout", "ReadTimeout")):
         return True
-    return _is_rate_limit_error(e)
+    return False
 
 
 async def throttled_with_retry(fn: Callable[[], T]) -> T:
@@ -172,11 +175,12 @@ async def throttled_with_retry(fn: Callable[[], T]) -> T:
             return await throttled(fn)
         except Exception as e:
             last_error = e
-            if not _is_retryable(e) or attempt >= _RETRY_MAX:
-                raise
-            # rate limit の場合、該当セッションを新しいセッションに入れ替え
+            # rate limit → セッション入れ替えて即座に raise（TS 側のバックオフに委ねる）
             if _is_rate_limit_error(e):
                 _refresh_all_sessions()
+                raise
+            if not _is_retryable(e) or attempt >= _RETRY_MAX:
+                raise
             logger.warning(
                 f"リトライ {attempt + 1}/{_RETRY_MAX} after {_RETRY_DELAY_S}s: {e}"
             )
