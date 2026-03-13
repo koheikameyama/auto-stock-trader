@@ -173,9 +173,9 @@ app.get("/", async (c) => {
   ];
   const stocksForTrend = await prisma.stock.findMany({
     where: { tickerCode: { in: trendTickers } },
-    select: { tickerCode: true, jpxSectorName: true },
+    select: { tickerCode: true, jpxSectorName: true, sector: true },
   });
-  const sectorMap = new Map(stocksForTrend.map((s) => [s.tickerCode, s.jpxSectorName]));
+  const sectorMap = new Map(stocksForTrend.map((s) => [s.tickerCode, s.jpxSectorName ?? s.sector]));
 
   const isNoTradeDay = todayAssessment?.shouldTrade === false;
 
