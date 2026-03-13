@@ -59,6 +59,8 @@ function breakdownDetail(
     if (technical.rsi != null) parts.push(`RSI:${technical.rsi}`);
     if (technical.ma != null) parts.push(`MA:${technical.ma}`);
     if (technical.volume != null) parts.push(`出来高:${technical.volume}`);
+    if (technical.macd != null) parts.push(`MACD:${technical.macd}`);
+    if (technical.rs != null) parts.push(`RS:${technical.rs}`);
     if (technical.volumeDirection != null) parts.push(`方向:${technical.volumeDirection}`);
     if (technical.weeklyTrendPenalty) parts.push(`週足減点:${technical.weeklyTrendPenalty}`);
     if (parts.length > 0) items.push(`技術: ${parts.join(" / ")}`);
