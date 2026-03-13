@@ -13,6 +13,7 @@ import {
   DAILY_BACKTEST,
   type ParameterCondition,
   hasParamOverride,
+  getSectorGroup,
 } from "../lib/constants";
 import { fetchMultipleBacktestData, fetchVixData } from "./data-fetcher";
 import { runBacktest } from "./simulation-engine";
@@ -177,6 +178,17 @@ export async function runDailyBacktest(): Promise<DailyBacktestRunResult> {
     `[daily-backtest] データ取得完了: ${allData.size}銘柄 VIX${vixData.size}件 (${(dataFetchTimeMs / 1000).toFixed(1)}秒)`,
   );
 
+  // 3.5. セクターデータ取得（RS計算用）
+  const stocks = await prisma.stock.findMany({
+    where: { tickerCode: { in: allTickers } },
+    select: { tickerCode: true, jpxSectorName: true },
+  });
+  const sectorMap = new Map<string, string>();
+  for (const s of stocks) {
+    sectorMap.set(s.tickerCode, getSectorGroup(s.jpxSectorName) ?? "その他");
+  }
+  console.log(`[daily-backtest] セクターデータ: ${sectorMap.size}銘柄`);
+
   // 4. 各パラメータ条件でシミュレーション実行
   const conditionResults: DailyBacktestConditionResult[] = [];
   const { DEFAULT_PARAMS, FIXED_BUDGET, PARAMETER_CONDITIONS } = DAILY_BACKTEST;
@@ -219,7 +231,7 @@ export async function runDailyBacktest(): Promise<DailyBacktestRunResult> {
     }
 
     console.log(`[daily-backtest] ${condition.label} シミュレーション中...`);
-    const result = runBacktest(config, allData, vixData, candidateMap);
+    const result = runBacktest(config, allData, vixData, candidateMap, sectorMap);
 
     conditionResults.push({
       condition,

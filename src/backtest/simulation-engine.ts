@@ -7,7 +7,7 @@
 
 import type { OHLCVData } from "../core/technical-analysis";
 import { analyzeTechnicals } from "../core/technical-analysis";
-import { scoreTechnicals } from "../core/technical-scorer";
+import { scoreTechnicals, calculateRsScores } from "../core/technical-scorer";
 import type { LogicScore } from "../core/technical-scorer";
 import { calculateEntryCondition } from "../core/entry-calculator";
 import { detectChartPatterns } from "../lib/chart-patterns";
@@ -41,6 +41,7 @@ export function runBacktest(
   allData: Map<string, OHLCVData[]>,
   vixData?: Map<string, number>,
   candidateMap?: Map<string, string[]> | null,
+  sectorMap?: Map<string, string>,
 ): BacktestResult {
   const openPositions: SimulatedPosition[] = [];
   const closedTrades: SimulatedPosition[] = [];
@@ -382,6 +383,7 @@ export function runBacktest(
         lastExitDayIdx,
         dayIdx,
         minRank,
+        sectorMap,
       );
 
       // スコア上位から注文を作成
@@ -488,6 +490,7 @@ function evaluateTickers(
   lastExitDayIdxMap?: Map<string, number>,
   currentDayIdx?: number,
   minRank?: "S" | "A" | "B" | null,
+  sectorMap?: Map<string, string>,
 ): EntryCandidate[] {
   const candidates: EntryCandidate[] = [];
 
@@ -497,6 +500,36 @@ function evaluateTickers(
         .filter((t) => allData.has(t))
         .map((t) => [t, allData.get(t)!] as [string, OHLCVData[]])
     : allData;
+
+  // RS計算: セクターデータがある場合、全銘柄の週次変化率からRSスコアを事前計算
+  let rsScoreMap = new Map<string, number>();
+  if (sectorMap && sectorMap.size > 0) {
+    const rsInput: { tickerCode: string; weekChangeRate: number | null; sector: string }[] = [];
+    const sectorRates: Record<string, number[]> = {};
+
+    for (const [ticker, bars] of tickersToEvaluate) {
+      const todayIdx = bars.findIndex((b) => b.date === today);
+      if (todayIdx < 0) continue;
+
+      const sector = sectorMap.get(ticker) ?? "その他";
+      const weekChangeRate = todayIdx >= 5 && bars[todayIdx - 5].close > 0
+        ? ((bars[todayIdx].close - bars[todayIdx - 5].close) / bars[todayIdx - 5].close) * 100
+        : null;
+
+      rsInput.push({ tickerCode: ticker, weekChangeRate, sector });
+      if (weekChangeRate != null) {
+        if (!sectorRates[sector]) sectorRates[sector] = [];
+        sectorRates[sector].push(weekChangeRate);
+      }
+    }
+
+    const sectorAvgs: Record<string, number> = {};
+    for (const [sector, rates] of Object.entries(sectorRates)) {
+      sectorAvgs[sector] = rates.reduce((a, b) => a + b, 0) / rates.length;
+    }
+
+    rsScoreMap = calculateRsScores(rsInput, sectorAvgs);
+  }
 
   for (const [ticker, bars] of tickersToEvaluate) {
     // 同一銘柄のオープンポジションがある場合はスキップ
@@ -556,6 +589,7 @@ function evaluateTickers(
         : null;
 
     // スコアリング
+    const tickerRsScore = rsScoreMap.get(ticker) ?? 0;
     let score = scoreTechnicals({
       summary,
       chartPatterns,
@@ -565,6 +599,7 @@ function evaluateTickers(
       latestVolume: latest.volume,
       weeklyVolatility,
       weeklyTrend,
+      rsScore: tickerRsScore,
     });
 
     // 即死ルール判定（価格上限は config.maxPrice で上書き）
@@ -583,6 +618,7 @@ function evaluateTickers(
         latestVolume: latest.volume,
         weeklyVolatility,
         weeklyTrend,
+        rsScore: tickerRsScore,
       });
     }
     if (score.isDisqualified) continue;
