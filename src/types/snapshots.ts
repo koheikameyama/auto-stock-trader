@@ -9,7 +9,7 @@ export interface EntrySnapshot {
   score: {
     totalScore: number;
     rank: string;
-    technical: { total: number; rsi: number; ma: number; volume: number };
+    technical: { total: number; rsi: number; ma: number; volume: number; volumeDirection?: string; macd?: number; rs?: number };
     pattern: { total: number; chart: number; candlestick: number };
     liquidity: {
       total: number;

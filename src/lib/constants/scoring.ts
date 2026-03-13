@@ -2,121 +2,109 @@
  * スコアリング・損切り検証の定数
  *
  * 4カテゴリ100点満点:
- * - テクニカル指標: 40点
- * - チャート・ローソク足パターン: 20点
- * - 流動性: 25点
- * - ファンダメンタルズ: 15点
+ * - テクニカル指標: 65点
+ * - チャート・ローソク足パターン: 15点
+ * - 流動性: 10点
+ * - ファンダメンタルズ: 10点
  */
 
 export const SCORING = {
-  // カテゴリ配点
   CATEGORY_MAX: {
-    TECHNICAL: 40,
-    PATTERN: 20,
-    LIQUIDITY: 25,
-    FUNDAMENTAL: 15,
+    TECHNICAL: 65,
+    PATTERN: 15,
+    LIQUIDITY: 10,
+    FUNDAMENTAL: 10,
   },
 
-  // サブ項目配点
   SUB_MAX: {
-    // テクニカル (40点)
-    RSI: 10,
-    MA: 15,
-    VOLUME_CHANGE: 10,
-    MACD: 5,
-    // パターン (20点)
-    CHART_PATTERN: 14,
-    CANDLESTICK: 6,
-    // 流動性 (25点)
-    TRADING_VALUE: 10,
-    SPREAD_PROXY: 8,
-    STABILITY: 7,
-    // ファンダメンタルズ (15点)
-    PER: 5,
-    PBR: 4,
-    PROFITABILITY: 4,
-    MARKET_CAP: 2,
+    // テクニカル (65点)
+    RSI: 12,
+    MA: 18,
+    VOLUME_CHANGE: 13,
+    MACD: 7,
+    RELATIVE_STRENGTH: 15,
+    // パターン (15点)
+    CHART_PATTERN: 10,
+    CANDLESTICK: 5,
+    // 流動性 (10点)
+    TRADING_VALUE: 5,
+    SPREAD_PROXY: 3,
+    STABILITY: 2,
+    // ファンダメンタルズ (10点)
+    PER: 4,
+    PBR: 3,
+    PROFITABILITY: 2,
+    MARKET_CAP: 1,
   },
 
-  // 閾値
   THRESHOLDS: {
     S_RANK: 80,
     A_RANK: 65,
     B_RANK: 50,
   },
 
-  // 即死ルール
   DISQUALIFY: {
     MAX_PRICE: 3000,
     MAX_DAILY_SPREAD_PCT: 0.05,
     MAX_WEEKLY_VOLATILITY: 8,
-    EARNINGS_DAYS_BEFORE: 5,       // 決算前N日は即死
-    EARNINGS_DAYS_AFTER: 2,        // 決算後N日は即死
-    EX_DIVIDEND_DAYS_BEFORE: 2,    // 配当落ち日前N日は即死
-    EX_DIVIDEND_DAYS_AFTER: 1,     // 配当落ち日後N日は即死
+    EARNINGS_DAYS_BEFORE: 5,
+    EARNINGS_DAYS_AFTER: 2,
+    EX_DIVIDEND_DAYS_BEFORE: 2,
+    EX_DIVIDEND_DAYS_AFTER: 1,
   },
 
-  // 流動性閾値
+  WEEKLY_TREND: {
+    PENALTY: 8,
+    MIN_WEEKLY_BARS: 14,
+  },
+
+  RELATIVE_STRENGTH: {
+    MAX_SCORE: 15,
+    MIN_SECTOR_STOCKS: 2,
+  },
+
   LIQUIDITY: {
     TRADING_VALUE_TIERS: [500_000_000, 300_000_000, 100_000_000, 50_000_000],
     SPREAD_PROXY_TIERS: [0.01, 0.02, 0.03, 0.05],
     STABILITY_CV_TIERS: [0.3, 0.5, 0.7],
   },
 
-  // 週足トレンド整合性チェック
-  WEEKLY_TREND: {
-    PENALTY: 7,          // 日足↑ × 週足↓ 矛盾時の減点（MA 13点中）
-    MIN_WEEKLY_BARS: 14, // SMA13算出に必要な最低週足本数
-  },
-
-  // ファンダメンタルズ閾値
   FUNDAMENTAL: {
-    // PER閾値（点数は高い順に評価）
     PER_TIERS: [
-      { min: 5, max: 15, score: 5 },   // 割安〜適正
-      { min: 15, max: 30, score: 4 },  // 小型株として妥当
-      { min: 0, max: 5, score: 3 },    // 安すぎ（構造的問題の可能性）
-      { min: 30, max: 50, score: 2 },  // やや割高
+      { min: 5, max: 15, score: 4 },
+      { min: 15, max: 30, score: 3 },
+      { min: 0, max: 5, score: 2 },
+      { min: 30, max: 50, score: 1 },
     ],
-    PER_DEFAULT: 0,       // 上記に該当しない or null → 0点
-
-    // PBR閾値
+    PER_DEFAULT: 0,
     PBR_TIERS: [
-      { min: 0.5, max: 1.5, score: 4 },
-      { min: 1.5, max: 3.0, score: 3 },
-      { min: 0, max: 0.5, score: 2 },
+      { min: 0.5, max: 1.5, score: 3 },
+      { min: 1.5, max: 3.0, score: 2 },
+      { min: 0, max: 0.5, score: 1 },
       { min: 3.0, max: 5.0, score: 1 },
     ],
-    PBR_DEFAULT: 2,       // null → 2点（中立）
-    PBR_OVER_5: 0,        // PBR > 5 → 0点
-
-    // 収益性（EPS基準）
-    EPS_STRONG_RATIO: 0.05,  // EPS >= 株価×5% → 4点
-    EPS_GOOD_RATIO: 0.02,    // EPS >= 株価×2% → 3点
-    EPS_POSITIVE: 2,          // EPS > 0 → 2点
-    EPS_NEGATIVE: 0,          // EPS ≤ 0 → 0点
-    EPS_NULL: 2,              // null → 2点（中立）
-
-    // 時価総額（円）
+    PBR_DEFAULT: 0,
+    PBR_OVER_5: 0,
+    EPS_STRONG_RATIO: 0.05,
+    EPS_POSITIVE: 1,
+    EPS_NEGATIVE: 0,
+    EPS_NULL: 0,
     MARKET_CAP_TIERS: [
-      { min: 200_000_000_000, score: 2 },  // ≥ 200億円
-      { min: 50_000_000_000, score: 1 },   // ≥ 50億円
+      { min: 200_000_000_000, score: 1 },
     ],
-    MARKET_CAP_DEFAULT: 0,    // < 50億円 or null → 0点
+    MARKET_CAP_DEFAULT: 0,
   },
 
-  // 出来高方向性分析
   VOLUME_DIRECTION: {
-    LOOKBACK_DAYS: 5,              // 買い/売り出来高の分析期間
-    OBV_PERIOD: 10,                // OBVトレンド算出期間
-    ACCUMULATION_THRESHOLD: 0.6,   // 買い出来高比率がこれ以上 → 買い集め
-    DISTRIBUTION_THRESHOLD: 0.4,   // 買い出来高比率がこれ以下 → 投げ売り
-    MIN_DATA_DAYS: 3,              // 方向性分析に必要な最低日数
-    // 出来高×方向性のスコア表（volumeRatio別）
+    LOOKBACK_DAYS: 5,
+    OBV_PERIOD: 10,
+    ACCUMULATION_THRESHOLD: 0.6,
+    DISTRIBUTION_THRESHOLD: 0.4,
+    MIN_DATA_DAYS: 3,
     SCORES: {
-      HIGH_VOLUME: { accumulation: 10, neutral: 7, distribution: 3 },   // ratio >= 2.0
-      MEDIUM_VOLUME: { accumulation: 8, neutral: 6, distribution: 3 },  // ratio >= 1.5
-      NORMAL_VOLUME: { accumulation: 6, neutral: 5, distribution: 4 },  // ratio >= 1.0
+      HIGH_VOLUME: { accumulation: 10, neutral: 7, distribution: 3 },
+      MEDIUM_VOLUME: { accumulation: 8, neutral: 6, distribution: 3 },
+      NORMAL_VOLUME: { accumulation: 6, neutral: 5, distribution: 4 },
     },
   },
 
