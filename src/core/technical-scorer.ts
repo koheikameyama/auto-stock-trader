@@ -16,6 +16,7 @@ import type { OHLCVData } from "./technical-analysis";
 import type { ChartPatternResult, ChartPatternRank } from "../lib/chart-patterns";
 import type { PatternResult } from "../lib/candlestick-patterns";
 import type { WeeklyTrendResult } from "../lib/technical-indicators";
+import { calculateMACD } from "../lib/technical-indicators";
 import { SCORING } from "../lib/constants";
 
 // ========================================
@@ -180,21 +181,27 @@ export function scoreRSI(rsi: number | null): number {
   return 0;
 }
 
-/** MACD スコア（0-5点） */
-function scoreMACD(summary: TechnicalSummary): number {
+/** MACD スコア（0-7点）— 加速度判定付き */
+export function scoreMACD(summary: TechnicalSummary, prevHistogram: number | null): number {
   const macd = summary.macd;
-  if (!macd || macd.macd == null || macd.signal == null || macd.histogram == null) return 2;
-
-  const max = SCORING.SUB_MAX.MACD;
-
-  // ゴールデンクロス + ヒストグラム正 → 最高得点
-  if (macd.macd > macd.signal && macd.histogram > 0) return max; // 5点
-  // MACDがシグナル上だがヒストグラム縮小中
-  if (macd.macd > macd.signal) return 3;
-  // デッドクロスだがヒストグラムが小さい（底打ち気配）
-  if (macd.macd <= macd.signal && macd.histogram > -0.5) return 1;
-  // デッドクロス
+  if (!macd || macd.macd == null || macd.signal == null || macd.histogram == null) return 0;
+  if (macd.macd > macd.signal) {
+    if (macd.histogram > 0) {
+      return (prevHistogram !== null && macd.histogram > prevHistogram) ? 7 : 5;
+    }
+    return 3;
+  }
+  if (prevHistogram !== null && macd.histogram > prevHistogram) return 1;
   return 0;
+}
+
+/** 1本前のヒストグラムを取得（MACD加速度判定用） */
+export function getPrevHistogram(historicalData: OHLCVData[]): number | null {
+  if (historicalData.length < 36) return null;
+  const prevData = historicalData.slice(1);
+  const prices = prevData.map((d) => ({ close: d.close }));
+  const result = calculateMACD(prices);
+  return result.histogram;
 }
 
 /** 移動平均線 / 乖離率 スコア（0-18点） */
@@ -578,7 +585,8 @@ export function scoreTechnicals(input: LogicScoreInput): LogicScore {
     maScore = Math.max(0, maScore + weeklyTrendPenalty);
   }
 
-  const macdScore = scoreMACD(summary);
+  const prevHistogram = getPrevHistogram(historicalData);
+  const macdScore = scoreMACD(summary, prevHistogram);
   const technicalTotal = rsiScore + maScore + volumeChangeScore + macdScore;
 
   // カテゴリ2: チャート・ローソク足パターン（20点）
