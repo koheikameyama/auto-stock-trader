@@ -34,18 +34,19 @@ Railway DB容量上限は500MB。現在の年間データ増加量は約104MBで
 ### 新規ファイル
 
 ```
-src/lib/constants/retention.ts           ← リテンションポリシー定数
-src/jobs/data-cleanup.ts                 ← クリーンアップ実行ロジック
-.github/workflows/data-cleanup.yml       ← GA週次cron（npm run直接実行）
+src/lib/constants/retention.ts                ← リテンションポリシー定数
+src/jobs/data-cleanup.ts                      ← クリーンアップ実行ロジック
+.github/workflows/scheduled_data-cleanup.yml  ← GA週次cron（npm run直接実行）
 ```
 
 ### 変更ファイル
 
 ```
-src/web/routes/cron.ts                   ← data-cleanup ジョブ登録（requiresMarketDay: false）
+src/web/routes/cron.ts                   ← data-cleanup ジョブ登録（requiresMarketDay: false）※手動実行用
 src/jobs/news-collector.ts               ← クリーンアップ処理を削除
 src/lib/constants/news.ts                ← NEWS_RETENTION定数を削除
 src/lib/constants/index.ts               ← retention.ts のバレルエクスポート追加
+package.json                             ← "data-cleanup" スクリプト追加
 docs/specs/batch-processing.md           ← data-cleanup追記
 ```
 
@@ -94,9 +95,9 @@ interface DataCleanupResult {
 
 **削除条件の注意**: `lt`（strictly less than）を使い、リテンション境界日のデータは保持する。これにより contrarian analyzer（90日ルックバック）等が境界日のデータを参照できる。
 
-### 3. cronルート登録（`src/web/routes/cron.ts`）
+### 3. cronルート登録（`src/web/routes/cron.ts`）— 手動実行用
 
-既存の cronルーティングに `data-cleanup` ジョブを追加。
+既存の cronルーティングに `data-cleanup` ジョブを追加。GA workflowからは `npm run data-cleanup` で直接実行するため、このルートは手動テスト・将来のcron-job.org移行用。
 
 ```typescript
 "data-cleanup": { fn: runDataCleanup, requiresMarketDay: false }
@@ -104,29 +105,35 @@ interface DataCleanupResult {
 
 `requiresMarketDay: false` により、市場休日・システム非アクティブ時でも実行される。
 
-### 4. GA Workflow（`.github/workflows/data-cleanup.yml`）
+### 4. GA Workflow（`.github/workflows/scheduled_data-cleanup.yml`）
 
-既存のGA-cronジョブ（weekly-review, jpx-delisting-sync）と同じ直接実行パターンを使用。
+既存のGA-cronジョブ（`scheduled_weekly-review.yml`, `scheduled_jpx-delisting-sync.yml`）と同じ直接実行パターンを使用。
 
 - スケジュール: 毎週日曜 18:00 UTC（JST 月曜 3:00）
-- `npm ci` → `npx prisma generate` → cron APIエンドポイント呼び出し
+- `npm ci` → `npx prisma generate` → `npm run data-cleanup`
+- concurrency group: `data-cleanup`（重複実行防止）
 - 成功/失敗のSlack通知
+
+`package.json` に追加:
+```json
+"data-cleanup": "tsx src/jobs/data-cleanup.ts"
+```
 
 ### 5. news-collectorからの移管
 
 - `src/jobs/news-collector.ts` の `[3/3] クリーンアップ中...` セクション（L276-292のNewsArticle/NewsAnalysis deleteMany）を削除
 - `src/lib/constants/news.ts` から `NEWS_RETENTION` 定数を削除
-- `news-collector.ts` のimport文から `NEWS_RETENTION` を削除（クリーンアップコード自体がなくなるため代替importは不要）
+- `news-collector.ts` のimport文から `NEWS_RETENTION` を削除（クリーンアップコード自体がなくなるため代替importは不要。`getDaysAgoForDB` は重複チェック（L96）で引き続き使用するため残す）
 
 ## データフロー
 
 ```
 GA cron (毎週日曜 18:00 UTC / JST 月曜 3:00)
   → checkout, npm ci, prisma generate
-  → POST /api/cron/data-cleanup (CRON_SECRET認証)
+  → npm run data-cleanup
     → runDataCleanup()
       → 各テーブル deleteMany (date < retentionDate)
-      → 削除件数サマリ返却
+      → 削除件数をログ出力
   → Slack通知（成功/失敗）
 ```
 
