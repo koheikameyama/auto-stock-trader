@@ -62,16 +62,17 @@ async function buildCandidateMap(): Promise<CandidateMapResult> {
   });
 
   // ScoringRecordが空 or 蓄積期間が短い場合はフォールバック
-  const scoringMonths = oldest
-    ? dayjs().diff(dayjs(oldest.date), "month")
+  // dayjs().diff(date, "month") は切り捨てで誤判定するため日数で比較
+  const scoringDays = oldest
+    ? dayjs().diff(dayjs(oldest.date), "day")
     : 0;
-  const needsFallback =
-    !oldest || scoringMonths < DAILY_BACKTEST.MIN_SCORING_RECORD_MONTHS;
+  const minDays = DAILY_BACKTEST.MIN_SCORING_RECORD_MONTHS * 30;
+  const needsFallback = !oldest || scoringDays < minDays;
 
   if (needsFallback) {
     const reason = !oldest
       ? "ScoringRecord が空"
-      : `ScoringRecord 蓄積期間が短い (${scoringMonths}ヶ月 < ${DAILY_BACKTEST.MIN_SCORING_RECORD_MONTHS}ヶ月)`;
+      : `ScoringRecord 蓄積期間が短い (${scoringDays}日 < ${minDays}日)`;
     console.log(
       `[daily-backtest] ${reason} → Stockテーブルから出来高上位銘柄を使用（${DAILY_BACKTEST.LOOKBACK_MONTHS}ヶ月ルックバック）`,
     );
