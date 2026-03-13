@@ -95,8 +95,12 @@ export function checkPositionExit(
   }
 
   // 4. タイムストップ（スイングのみ — デイトレは別途強制決済）
+  //    トレーリングストップ発動中は利益を伸ばすためタイムストップを適用しない
   if (exitPrice === null && position.strategy !== "day_trade") {
-    if (position.holdingBusinessDays >= TIME_STOP.MAX_HOLDING_DAYS) {
+    if (
+      position.holdingBusinessDays >= TIME_STOP.MAX_HOLDING_DAYS &&
+      !trailingResult.isActivated
+    ) {
       exitPrice = bar.close;
       exitReason = "time_stop";
     }
