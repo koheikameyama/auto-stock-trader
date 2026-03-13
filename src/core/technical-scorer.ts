@@ -1,10 +1,10 @@
 /**
  * ロジックスコアリングエンジン（4カテゴリ100点満点）
  *
- * カテゴリ1: テクニカル指標（40点） — RSI, MA, 出来高変化, MACD
- * カテゴリ2: チャート・ローソク足パターン（20点）
- * カテゴリ3: 流動性（25点） — 売買代金, 値幅率, 安定性
- * カテゴリ4: ファンダメンタルズ（15点） — PER, PBR, 収益性, 時価総額
+ * カテゴリ1: テクニカル指標（65点） — RSI, MA, 出来高変化, MACD, 相対強度(RS)
+ * カテゴリ2: チャート・ローソク足パターン（15点）
+ * カテゴリ3: 流動性（10点） — 売買代金, 値幅率, 安定性
+ * カテゴリ4: ファンダメンタルズ（10点） — PER, PBR, 収益性, 時価総額
  *
  * 即死ルール: 1つでも該当 → 即0点
  *
@@ -169,7 +169,7 @@ function checkDisqualify(input: LogicScoreInput): DisqualifyResult {
 }
 
 // ========================================
-// カテゴリ1: テクニカル指標（40点）
+// カテゴリ1: テクニカル指標（65点）
 // ========================================
 
 /** RSI スコア（0-12点）— 区分線形: RSI 50-65 に最高得点 */
@@ -374,7 +374,7 @@ export function scoreVolumeChange(
 }
 
 // ========================================
-// カテゴリ2: チャート・ローソク足パターン（20点）
+// カテゴリ2: チャート・ローソク足パターン（15点）
 // ========================================
 
 /** チャートパターン スコア（0-10点） */
@@ -452,7 +452,7 @@ export function scoreCandlestick(pattern: PatternResult | null): number {
 }
 
 // ========================================
-// カテゴリ3: 流動性（25点）
+// カテゴリ3: 流動性（10点）
 // ========================================
 
 /** 売買代金スコア（0-5点） */
@@ -492,7 +492,7 @@ export function scoreStability(historicalData: OHLCVData[]): number {
     (d) => d.close * d.volume,
   );
   const mean = tradingValues.reduce((s, v) => s + v, 0) / tradingValues.length;
-  if (mean === 0) return 1;
+  if (mean === 0) return 0;
 
   const variance =
     tradingValues.reduce((s, v) => s + (v - mean) ** 2, 0) / tradingValues.length;
@@ -508,7 +508,7 @@ export function scoreStability(historicalData: OHLCVData[]): number {
 }
 
 // ========================================
-// カテゴリ4: ファンダメンタルズ（15点）
+// カテゴリ4: ファンダメンタルズ（10点）
 // ========================================
 
 /** PER スコア（0-4点） */
@@ -577,7 +577,7 @@ function getTechnicalSignal(
 /**
  * 4カテゴリスコアリング（100点満点）
  *
- * 即死ルール → テクニカル(40) + パターン(20) + 流動性(25) + ファンダ(15)
+ * 即死ルール → テクニカル(65) + パターン(15) + 流動性(10) + ファンダ(10)
  */
 export function scoreTechnicals(input: LogicScoreInput): LogicScore {
   const {
@@ -608,7 +608,7 @@ export function scoreTechnicals(input: LogicScoreInput): LogicScore {
     };
   }
 
-  // カテゴリ1: テクニカル指標（40点）
+  // カテゴリ1: テクニカル指標（65点）
   const rsiScore = scoreRSI(summary.rsi);
   let maScore = scoreMA(summary);
   const volumeDir = calculateVolumeDirection(historicalData);
@@ -633,18 +633,18 @@ export function scoreTechnicals(input: LogicScoreInput): LogicScore {
   const rsScoreValue = scoreRS(input.rsScore);
   const technicalTotal = rsiScore + maScore + volumeChangeScore + macdScore + rsScoreValue;
 
-  // カテゴリ2: チャート・ローソク足パターン（20点）
+  // カテゴリ2: チャート・ローソク足パターン（15点）
   const { score: chartScore, topPattern } = scoreChartPattern(chartPatterns);
   const candlestickScore = scoreCandlestick(candlestickPattern);
   const patternTotal = chartScore + candlestickScore;
 
-  // カテゴリ3: 流動性（25点）
+  // カテゴリ3: 流動性（10点）
   const tradingValueScore = scoreTradingValue(latestPrice, latestVolume);
   const spreadProxyScore = scoreSpreadProxy(historicalData);
   const stabilityScore = scoreStability(historicalData);
   const liquidityTotal = tradingValueScore + spreadProxyScore + stabilityScore;
 
-  // カテゴリ4: ファンダメンタルズ（15点）
+  // カテゴリ4: ファンダメンタルズ（10点）
   const perScore = scorePER(fundamentals?.per ?? null);
   const pbrScore = scorePBR(fundamentals?.pbr ?? null);
   const profitabilityScore = scoreProfitability(
