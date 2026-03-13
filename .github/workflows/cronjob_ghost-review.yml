@@ -1,9 +1,9 @@
-name: "[Scheduled] Defensive Exit Follow-Up"
+name: "[cron-job.org] Ghost Review"
 
 on:
-  schedule:
-    # 16:20 JST = 07:20 UTC
-    - cron: "20 7 * * 1-5"
+  # schedule:
+  #   # 16:10 JST = 07:10 UTC
+  #   - cron: "10 7 * * 1-5"
   workflow_dispatch:
     inputs:
       skip_market_day_check:
@@ -12,12 +12,14 @@ on:
         default: false
 
 concurrency:
-  group: defensive-exit-followup
+  group: ghost-review
   cancel-in-progress: false
 
 env:
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  MARKET_DATA_PROVIDER: yahoo
 
 jobs:
   check-market-day:
@@ -50,7 +52,7 @@ jobs:
             echo "should_run=$CHECK" >> "$GITHUB_OUTPUT"
           fi
 
-  defensive-exit-followup:
+  ghost-review:
     needs: check-market-day
     if: needs.check-market-day.outputs.should_run == 'true'
     runs-on: ubuntu-latest
@@ -63,10 +65,10 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npx prisma generate
-      - run: npm run defensive-followup
+      - run: npm run ghost
 
   notify-success:
-    needs: defensive-exit-followup
+    needs: ghost-review
     if: success()
     runs-on: ubuntu-latest
     steps:
@@ -74,13 +76,13 @@ jobs:
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "Defensive Exit Follow-Up 完了"
-          SLACK_MESSAGE: "ディフェンシブモード妥当性追跡が正常に完了しました"
+          SLACK_TITLE: "Ghost Review 完了"
+          SLACK_MESSAGE: "ゴースト・トレード分析が正常に完了しました"
           SLACK_COLOR: good
           SLACK_FOOTER: "Stock Buddy"
 
   notify-failure:
-    needs: defensive-exit-followup
+    needs: ghost-review
     if: failure()
     runs-on: ubuntu-latest
     steps:
@@ -88,9 +90,9 @@ jobs:
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "Defensive Exit Follow-Up 失敗"
+          SLACK_TITLE: "Ghost Review 失敗"
           SLACK_MESSAGE: |
-            ディフェンシブモード妥当性追跡が失敗しました。
+            ゴースト・トレード分析が失敗しました。
             詳細はGitHub Actionsログを確認してください。
           SLACK_COLOR: danger
           SLACK_FOOTER: "Stock Buddy"

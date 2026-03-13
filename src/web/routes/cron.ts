@@ -22,6 +22,8 @@ import { main as runDailyBacktest } from "../../jobs/daily-backtest";
 import { main as runDelistingSync } from "../../jobs/jpx-delisting-sync";
 import { main as runMarketScanner } from "../../jobs/market-scanner";
 import { main as runGhostReview } from "../../jobs/ghost-review";
+import { main as runDefensiveExitFollowup } from "../../jobs/defensive-exit-followup";
+import { main as runUnfilledOrderFollowup } from "../../jobs/unfilled-order-followup";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -43,6 +45,8 @@ const JOBS: Record<string, JobDef> = {
   "daily-backtest": { fn: runDailyBacktest, requiresMarketDay: true },
   "market-scanner": { fn: runMarketScanner, requiresMarketDay: true },
   "ghost-review": { fn: runGhostReview, requiresMarketDay: true },
+  "defensive-exit-followup": { fn: runDefensiveExitFollowup, requiresMarketDay: true },
+  "unfilled-order-followup": { fn: runUnfilledOrderFollowup, requiresMarketDay: true },
   "jpx-delisting-sync": { fn: runDelistingSync, requiresMarketDay: false },
 };
 

@@ -1,9 +1,9 @@
-name: "[Scheduled] Daily Backtest"
+name: "[cron-job.org] Defensive Exit Follow-Up"
 
 on:
-  schedule:
-    # 16:30 JST = 07:30 UTC
-    - cron: "30 7 * * 1-5"
+  # schedule:
+  #   # 16:20 JST = 07:20 UTC
+  #   - cron: "20 7 * * 1-5"
   workflow_dispatch:
     inputs:
       skip_market_day_check:
@@ -12,14 +12,12 @@ on:
         default: false
 
 concurrency:
-  group: daily-backtest
+  group: defensive-exit-followup
   cancel-in-progress: false
 
 env:
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
-  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-  MARKET_DATA_PROVIDER: yahoo
 
 jobs:
   check-market-day:
@@ -52,11 +50,11 @@ jobs:
             echo "should_run=$CHECK" >> "$GITHUB_OUTPUT"
           fi
 
-  daily-backtest:
+  defensive-exit-followup:
     needs: check-market-day
     if: needs.check-market-day.outputs.should_run == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -65,10 +63,10 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npx prisma generate
-      - run: npm run daily-backtest
+      - run: npm run defensive-followup
 
   notify-success:
-    needs: daily-backtest
+    needs: defensive-exit-followup
     if: success()
     runs-on: ubuntu-latest
     steps:
@@ -76,13 +74,13 @@ jobs:
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "✅ daily-backtest 完了"
-          SLACK_MESSAGE: "日次バックテストが正常に完了しました"
+          SLACK_TITLE: "Defensive Exit Follow-Up 完了"
+          SLACK_MESSAGE: "ディフェンシブモード妥当性追跡が正常に完了しました"
           SLACK_COLOR: good
           SLACK_FOOTER: "Stock Buddy"
 
   notify-failure:
-    needs: daily-backtest
+    needs: defensive-exit-followup
     if: failure()
     runs-on: ubuntu-latest
     steps:
@@ -90,9 +88,9 @@ jobs:
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "❌ daily-backtest 失敗"
+          SLACK_TITLE: "Defensive Exit Follow-Up 失敗"
           SLACK_MESSAGE: |
-            日次バックテストが失敗しました。
+            ディフェンシブモード妥当性追跡が失敗しました。
             詳細はGitHub Actionsログを確認してください。
           SLACK_COLOR: danger
           SLACK_FOOTER: "Stock Buddy"

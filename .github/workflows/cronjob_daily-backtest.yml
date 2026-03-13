@@ -1,9 +1,9 @@
-name: "[Scheduled] Ghost Review"
+name: "[cron-job.org] Daily Backtest"
 
 on:
-  schedule:
-    # 16:10 JST = 07:10 UTC
-    - cron: "10 7 * * 1-5"
+  # schedule:
+  #   # 16:30 JST = 07:30 UTC
+  #   - cron: "30 7 * * 1-5"
   workflow_dispatch:
     inputs:
       skip_market_day_check:
@@ -12,7 +12,7 @@ on:
         default: false
 
 concurrency:
-  group: ghost-review
+  group: daily-backtest
   cancel-in-progress: false
 
 env:
@@ -52,11 +52,11 @@ jobs:
             echo "should_run=$CHECK" >> "$GITHUB_OUTPUT"
           fi
 
-  ghost-review:
+  daily-backtest:
     needs: check-market-day
     if: needs.check-market-day.outputs.should_run == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -65,10 +65,10 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npx prisma generate
-      - run: npm run ghost
+      - run: npm run daily-backtest
 
   notify-success:
-    needs: ghost-review
+    needs: daily-backtest
     if: success()
     runs-on: ubuntu-latest
     steps:
@@ -76,13 +76,13 @@ jobs:
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "Ghost Review 完了"
-          SLACK_MESSAGE: "ゴースト・トレード分析が正常に完了しました"
+          SLACK_TITLE: "✅ daily-backtest 完了"
+          SLACK_MESSAGE: "日次バックテストが正常に完了しました"
           SLACK_COLOR: good
           SLACK_FOOTER: "Stock Buddy"
 
   notify-failure:
-    needs: ghost-review
+    needs: daily-backtest
     if: failure()
     runs-on: ubuntu-latest
     steps:
@@ -90,9 +90,9 @@ jobs:
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "Ghost Review 失敗"
+          SLACK_TITLE: "❌ daily-backtest 失敗"
           SLACK_MESSAGE: |
-            ゴースト・トレード分析が失敗しました。
+            日次バックテストが失敗しました。
             詳細はGitHub Actionsログを確認してください。
           SLACK_COLOR: danger
           SLACK_FOOTER: "Stock Buddy"
