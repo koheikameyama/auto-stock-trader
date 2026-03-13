@@ -21,6 +21,10 @@ export interface BacktestConfig {
   cooldownDays: number;
   overrideTpSl: boolean;
   trailMultiplier?: number;
+  /** トレンドプレフィルター: Price > SMA25 && SMA25 > SMA75 を要求 */
+  trendFilterEnabled: boolean;
+  /** プルバックエントリー: RSI < 60 OR SMA25乖離 <= 2% */
+  pullbackFilterEnabled: boolean;
   outputFile?: string;
   verbose: boolean;
 }

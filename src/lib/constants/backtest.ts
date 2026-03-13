@@ -14,13 +14,27 @@ interface ParameterOverrideCondition extends BaseCondition {
   overrideTpSl?: boolean;
 }
 
-export type ParameterCondition = BaseCondition | ParameterOverrideCondition;
+interface MultiOverrideCondition extends BaseCondition {
+  overrides: Record<string, number | boolean>;
+}
+
+export type ParameterCondition =
+  | BaseCondition
+  | ParameterOverrideCondition
+  | MultiOverrideCondition;
 
 /** パラメータオーバーライドを持つ条件かどうか */
 export function hasParamOverride(
   c: ParameterCondition,
 ): c is ParameterOverrideCondition {
   return "param" in c;
+}
+
+/** 複数パラメータオーバーライドを持つ条件かどうか */
+export function hasMultiOverride(
+  c: ParameterCondition,
+): c is MultiOverrideCondition {
+  return "overrides" in c;
 }
 
 export const DAILY_BACKTEST = {
@@ -31,7 +45,7 @@ export const DAILY_BACKTEST = {
     maxPositions: 3,
   },
 
-  /** パラメータ条件（1ベースライン + 4軸×3値 = 13条件） */
+  /** パラメータ条件（1ベースライン + 4軸×3値 + フィルター3 = 16条件） */
   PARAMETER_CONDITIONS: [
     // ベースライン（本番ロジック）
     { key: "baseline", label: "ベースライン" },
@@ -55,6 +69,11 @@ export const DAILY_BACKTEST = {
     { key: "trail_0.8", label: "トレール0.8", param: "trailMultiplier", value: 0.8 },
     { key: "trail_1.0", label: "トレール1.0", param: "trailMultiplier", value: 1.0 },
     { key: "trail_1.5", label: "トレール1.5", param: "trailMultiplier", value: 1.5 },
+
+    // トレンド＆プルバックフィルター
+    { key: "trend_on", label: "トレンドF", overrides: { trendFilterEnabled: true } },
+    { key: "pullback_on", label: "プルバックF", overrides: { pullbackFilterEnabled: true } },
+    { key: "trend_pullback", label: "トレンド+PB", overrides: { trendFilterEnabled: true, pullbackFilterEnabled: true } },
   ] satisfies ParameterCondition[],
 
   /** シミュレーション期間（ローリング） */
@@ -81,6 +100,14 @@ export const DAILY_BACKTEST = {
     strategy: "swing" as const,
     overrideTpSl: false,      // false = 本番ロジック（calculateEntryCondition の値をそのまま使用）
     cooldownDays: 5,          // ストップアウト後の同一銘柄再エントリー禁止日数
+  },
+
+  /** トレンド＆プルバックフィルターの閾値 */
+  TREND_FILTER: {
+    /** プルバックエントリー: RSI上限 */
+    MAX_RSI_FOR_ENTRY: 60,
+    /** プルバックエントリー: SMA25からの最大乖離率(%) */
+    MAX_DEVIATION_FROM_SMA25: 2.0,
   },
 
   /** トレンド表示の日数 */

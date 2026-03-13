@@ -16,7 +16,7 @@ import {
   aggregateDailyToWeekly,
   analyzeWeeklyTrend,
 } from "../lib/technical-indicators";
-import { TECHNICAL_MIN_DATA, SCORING, DEFENSIVE_MODE } from "../lib/constants";
+import { TECHNICAL_MIN_DATA, SCORING, DEFENSIVE_MODE, DAILY_BACKTEST } from "../lib/constants";
 import { checkPositionExit } from "../core/exit-checker";
 import { checkBuyLimitFill } from "../core/order-executor";
 import { determineMarketRegime } from "../core/market-regime";
@@ -556,6 +556,32 @@ function evaluateTickers(
     // テクニカル分析（newest-first を期待）
     const newestFirst = [...window].reverse();
     const summary = analyzeTechnicals(newestFirst);
+    const latest = window[window.length - 1];
+
+    // トレンドプレフィルター: 上昇トレンドでない株をスキップ
+    if (config.trendFilterEnabled) {
+      if (
+        summary.sma25 == null ||
+        summary.sma75 == null ||
+        latest.close <= summary.sma25 ||
+        summary.sma25 <= summary.sma75
+      ) {
+        continue;
+      }
+    }
+
+    // プルバックエントリー: 高値掴み防止（RSI < 60 OR SMA25乖離 <= 2%）
+    if (config.pullbackFilterEnabled) {
+      const { MAX_RSI_FOR_ENTRY, MAX_DEVIATION_FROM_SMA25 } =
+        DAILY_BACKTEST.TREND_FILTER;
+      const rsiOk =
+        summary.rsi != null && summary.rsi < MAX_RSI_FOR_ENTRY;
+      const nearSma25 =
+        summary.sma25 != null &&
+        Math.abs((latest.close - summary.sma25) / summary.sma25) * 100 <=
+          MAX_DEVIATION_FROM_SMA25;
+      if (!rsiOk && !nearSma25) continue;
+    }
 
     // チャートパターン（oldest-first を期待）
     const chartPatterns = detectChartPatterns(
@@ -567,9 +593,6 @@ function evaluateTickers(
         close: d.close,
       })),
     );
-
-    // ローソク足パターン（最新の1本）
-    const latest = window[window.length - 1];
     const candlestickPattern = analyzeSingleCandle({
       date: latest.date,
       open: latest.open,

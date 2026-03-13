@@ -13,6 +13,7 @@ import {
   DAILY_BACKTEST,
   type ParameterCondition,
   hasParamOverride,
+  hasMultiOverride,
   getSectorGroup,
 } from "../lib/constants";
 import { fetchMultipleBacktestData, fetchVixData } from "./data-fetcher";
@@ -215,6 +216,8 @@ export async function runDailyBacktest(): Promise<DailyBacktestRunResult> {
       overrideTpSl: DEFAULT_PARAMS.overrideTpSl,
       priceLimitEnabled: true,
       gapRiskEnabled: true,
+      trendFilterEnabled: false,
+      pullbackFilterEnabled: false,
       verbose: false,
     };
 
@@ -227,6 +230,10 @@ export async function runDailyBacktest(): Promise<DailyBacktestRunResult> {
       }
       if (condition.overrideTpSl) {
         config.overrideTpSl = true;
+      }
+    } else if (hasMultiOverride(condition)) {
+      for (const [key, val] of Object.entries(condition.overrides)) {
+        (config as unknown as Record<string, unknown>)[key] = val;
       }
     }
 

@@ -32,6 +32,9 @@ const CONDITION_COLORS: Record<string, string> = {
   "trail_0.8": "#d8b4fe",
   "trail_1.0": "#a855f7",
   "trail_1.5": "#7e22ce",
+  trend_on: "#f472b6",
+  pullback_on: "#fb923c",
+  trend_pullback: "#ef4444",
 };
 
 app.get("/", async (c) => {
