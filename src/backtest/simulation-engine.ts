@@ -70,6 +70,13 @@ export function runBacktest(
   for (let dayIdx = 0; dayIdx < tradingDays.length; dayIdx++) {
     const today = tradingDays[dayIdx];
 
+    // 0. VIXレジーム判定（フィル判定・新規エントリーの両方で使用）
+    const todayVix = vixData?.get(today);
+    const todayRegime: RegimeLevel =
+      todayVix != null ? determineMarketRegime(todayVix).level : "normal";
+    const regime = todayVix != null ? determineMarketRegime(todayVix) : null;
+    const regimeMaxPositions = regime ? regime.maxPositions : config.maxPositions;
+
     // 1. ペンディング注文のフィル判定（前日に出した注文）
     const filledOrders: FilledOrder[] = [];
     const remainingOrders: PendingOrder[] = [];
@@ -86,7 +93,7 @@ export function runBacktest(
       // 本番 order-executor.ts の checkBuyLimitFill を直接呼出
       const fillPrice = checkBuyLimitFill(order.limitPrice, todayBar.low, todayBar.open);
       if (fillPrice !== null) {
-        if (openPositions.length < config.maxPositions && cash >= fillPrice * order.quantity) {
+        if (openPositions.length < regimeMaxPositions && cash >= fillPrice * order.quantity) {
           const hasExisting = openPositions.some((p) => p.ticker === order.ticker);
           if (!hasExisting) {
             filledOrders.push({ ...order, fillPrice });
@@ -277,9 +284,6 @@ export function runBacktest(
     // 2.5. ディフェンシブモード（本番の position-monitor と同等）
     //   crisis → 全ポジション即時決済
     //   high   → 含み益ポジション微益撤退
-    const todayVix = vixData?.get(today);
-    const todayRegime: RegimeLevel =
-      todayVix != null ? determineMarketRegime(todayVix).level : "normal";
 
     if (
       (todayRegime === "crisis" || todayRegime === "high") &&
@@ -364,9 +368,10 @@ export function runBacktest(
       if (config.verbose) {
         console.log(`  [${today}] VIX=${todayVix?.toFixed(1)} → crisis: 新規エントリースキップ`);
       }
-    } else if (openPositions.length < config.maxPositions && cash > 0) {
+    } else if (openPositions.length < regimeMaxPositions && cash > 0) {
       // candidateMapがある場合、当日の候補銘柄のみ評価（生存者バイアス除去）
       const todayCandidates = candidateMap?.get(today);
+      const minRank = regime?.minRank ?? null;
       const candidates = evaluateTickers(
         config,
         allData,
@@ -376,11 +381,12 @@ export function runBacktest(
         todayCandidates,
         lastExitDayIdx,
         dayIdx,
+        minRank,
       );
 
       // スコア上位から注文を作成
       for (const candidate of candidates) {
-        if (openPositions.length + pendingOrders.length >= config.maxPositions) break;
+        if (openPositions.length + pendingOrders.length >= regimeMaxPositions) break;
         if (cash < candidate.entry.limitPrice * candidate.entry.quantity) break;
 
         const hasDuplicate =
@@ -481,6 +487,7 @@ function evaluateTickers(
   candidateTickers?: string[],
   lastExitDayIdxMap?: Map<string, number>,
   currentDayIdx?: number,
+  minRank?: "S" | "A" | "B" | null,
 ): EntryCandidate[] {
   const candidates: EntryCandidate[] = [];
 
@@ -580,6 +587,12 @@ function evaluateTickers(
     }
     if (score.isDisqualified) continue;
     if (score.totalScore < config.scoreThreshold) continue;
+
+    // レジームによるランク制限（本番 market-scanner.ts と同等）
+    if (minRank) {
+      const rankOrder: Record<string, number> = { S: 0, A: 1, B: 2, C: 3 };
+      if (rankOrder[score.rank] > rankOrder[minRank]) continue;
+    }
 
     // エントリー条件算出
     const maxPositionPct = 100;
