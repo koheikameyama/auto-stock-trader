@@ -375,21 +375,21 @@ export function scoreVolumeChange(
 // カテゴリ2: チャート・ローソク足パターン（20点）
 // ========================================
 
-/** チャートパターン スコア（0-14点） */
-function scoreChartPattern(
+/** チャートパターン スコア（0-10点） */
+export function scoreChartPattern(
   patterns: ChartPatternResult[],
 ): { score: number; topPattern: LogicScore["topPattern"] } {
   if (patterns.length === 0) {
     return { score: 0, topPattern: null };
   }
 
-  const max = SCORING.SUB_MAX.CHART_PATTERN;
+  const max = SCORING.SUB_MAX.CHART_PATTERN; // 10
   const rankScoreMap: Record<ChartPatternRank, number> = {
-    S: max,        // 14
-    A: 11,
-    B: 8,
-    C: 5,
-    D: 3,
+    S: max,  // 10
+    A: 8,
+    B: 6,
+    C: 4,
+    D: 2,
   };
 
   const buyPatterns = patterns.filter((p) => p.signal === "buy");
@@ -430,7 +430,7 @@ function scoreChartPattern(
   // neutral パターンのみ
   const best = patterns[0];
   return {
-    score: 6,
+    score: Math.round(max * 0.4), // 4
     topPattern: {
       name: best.patternName,
       rank: best.rank,
@@ -440,15 +440,13 @@ function scoreChartPattern(
   };
 }
 
-/** ローソク足パターン スコア（0-6点） */
-function scoreCandlestick(pattern: PatternResult | null): number {
-  const max = SCORING.SUB_MAX.CANDLESTICK;
-  const mid = Math.round(max / 2);
-  if (pattern == null) return mid;
-
+/** ローソク足パターン スコア（0-5点）— null=0, neutral=0 */
+export function scoreCandlestick(pattern: PatternResult | null): number {
+  const max = SCORING.SUB_MAX.CANDLESTICK; // 5
+  if (pattern == null) return 0;
   if (pattern.signal === "buy") return Math.round(pattern.strength * max / 100);
   if (pattern.signal === "sell") return Math.round((100 - pattern.strength) * max / 100);
-  return mid;
+  return 0;
 }
 
 // ========================================
