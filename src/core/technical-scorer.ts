@@ -43,6 +43,7 @@ export interface LogicScoreInput {
   fundamentals?: FundamentalInput;
   nextEarningsDate?: Date | null;
   exDividendDate?: Date | null;
+  rsScore?: number; // 0-15, caller pre-computes
 }
 
 export type VolumeDirection = "accumulation" | "distribution" | "neutral";
@@ -58,6 +59,7 @@ export interface LogicScore {
     volume: number;
     volumeDirection: VolumeDirection;
     macd: number;
+    rs: number; // NEW
   };
   pattern: {
     total: number;
@@ -594,7 +596,7 @@ export function scoreTechnicals(input: LogicScoreInput): LogicScore {
     return {
       totalScore: 0,
       rank: "C",
-      technical: { total: 0, rsi: 0, ma: 0, volume: 0, volumeDirection: "neutral", macd: 0 },
+      technical: { total: 0, rsi: 0, ma: 0, volume: 0, volumeDirection: "neutral", macd: 0, rs: 0 },
       pattern: { total: 0, chart: 0, candlestick: 0 },
       liquidity: { total: 0, tradingValue: 0, spreadProxy: 0, stability: 0 },
       fundamental: { total: 0, per: 0, pbr: 0, profitability: 0, marketCap: 0 },
@@ -628,7 +630,8 @@ export function scoreTechnicals(input: LogicScoreInput): LogicScore {
 
   const prevHistogram = getPrevHistogram(historicalData);
   const macdScore = scoreMACD(summary, prevHistogram);
-  const technicalTotal = rsiScore + maScore + volumeChangeScore + macdScore;
+  const rsScoreValue = scoreRS(input.rsScore);
+  const technicalTotal = rsiScore + maScore + volumeChangeScore + macdScore + rsScoreValue;
 
   // カテゴリ2: チャート・ローソク足パターン（20点）
   const { score: chartScore, topPattern } = scoreChartPattern(chartPatterns);
@@ -663,6 +666,7 @@ export function scoreTechnicals(input: LogicScoreInput): LogicScore {
       volume: volumeChangeScore,
       volumeDirection: volumeDir.direction,
       macd: macdScore,
+      rs: rsScoreValue,
     },
     pattern: {
       total: patternTotal,
