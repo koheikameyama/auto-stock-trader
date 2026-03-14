@@ -13,7 +13,7 @@
 
 import { prisma } from "../lib/prisma";
 import { getDaysAgoForDB } from "../lib/date-utils";
-import { SCORING, SCORING_ACCURACY_REPORT } from "../lib/constants";
+import { SCORING_V1 as SCORING, SCORING_ACCURACY_REPORT } from "../lib/constants";
 import { notifyScoringAccuracyReport } from "../lib/slack";
 import dayjs from "dayjs";
 

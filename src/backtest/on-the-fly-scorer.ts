@@ -20,7 +20,7 @@ import {
 } from "../lib/technical-indicators";
 import { getSectorGroup } from "../lib/constants/trading";
 import { TECHNICAL_MIN_DATA } from "../lib/constants/technical";
-import { SCORING } from "../lib/constants/scoring";
+import { SCORING_V1 as SCORING } from "../lib/constants/scoring";
 
 // ========================================
 // 型定義

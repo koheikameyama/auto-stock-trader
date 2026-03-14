@@ -22,8 +22,8 @@ import {
   YAHOO_FINANCE,
   JOB_CONCURRENCY,
   TECHNICAL_MIN_DATA,
-  SCORING,
-  GHOST_TRADING,
+  SCORING_V1 as SCORING,
+  SCORING_ACCURACY,
   UNIT_SHARES,
   TRADING_DEFAULTS,
   MARKET_INDEX,
@@ -654,11 +654,11 @@ ${sectorText || "  特になし"}`;
     }
   }
 
-  // Ghost追跡: filteredに入らなかったスコア60+の銘柄
+  // 精度追跡: filteredに入らなかったスコア60+の銘柄
   const filteredTickerSet = new Set(filtered.map((c) => c.tickerCode));
-  const ghostCandidates = qualified.filter(
+  const accuracyTrackingCandidates = qualified.filter(
     (c) =>
-      c.score.totalScore >= GHOST_TRADING.MIN_SCORE_FOR_TRACKING &&
+      c.score.totalScore >= SCORING_ACCURACY.MIN_SCORE_FOR_TRACKING &&
       !filteredTickerSet.has(c.tickerCode),
   );
 
@@ -745,10 +745,10 @@ ${sectorText || "  特になし"}`;
     console.log("[4/5] AIレビュー: スキップ（シャドウモード）");
     console.log("[5/5] シャドウスコアリング結果保存中...");
 
-    // filtered + ghostCandidates を全てmarket_haltedで記録
+    // filtered + accuracyTrackingCandidates を全てmarket_haltedで記録
     const shadowCandidates = [
       ...filtered,
-      ...ghostCandidates,
+      ...accuracyTrackingCandidates,
     ];
 
     const shadowRecords = shadowCandidates.map((c) => ({
@@ -863,8 +863,8 @@ ${sectorText || "  特になし"}`;
           rejectionReason: review?.decision === "no_go" ? "ai_no_go" : null,
         };
       }),
-      // Ghost追跡候補（スコア60+だがAI審査に送られなかった）
-      ...ghostCandidates.map((c) => ({
+      // 精度追跡候補（スコア60+だがAI審査に送られなかった）
+      ...accuracyTrackingCandidates.map((c) => ({
         ...buildScoringFields(c),
         aiDecision: null,
         aiReasoning: null,

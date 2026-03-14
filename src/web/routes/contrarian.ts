@@ -13,7 +13,7 @@ import { html } from "hono/html";
 import dayjs from "dayjs";
 import { prisma } from "../../lib/prisma";
 import { getTodayForDB, getDaysAgoForDB } from "../../lib/date-utils";
-import { CONTRARIAN, GHOST_TRADING, SCORING, getSectorGroup } from "../../lib/constants";
+import { CONTRARIAN, SCORING_ACCURACY, SCORING_V1 as SCORING, getSectorGroup } from "../../lib/constants";
 import { calculateContrarianBonus } from "../../core/contrarian-analyzer";
 import { layout } from "../views/layout";
 import {
@@ -116,11 +116,11 @@ app.get("/", async (c) => {
     },
   });
 
-  // 低スコア上昇銘柄: ghost追跡下限(60点)以上80点未満で ghostProfitPct > 0
+  // 低スコア上昇銘柄: 精度追跡下限(60点)以上80点未満で ghostProfitPct > 0
   const lowScoreWinners = await prisma.scoringRecord.findMany({
     where: {
       rejectionReason: { not: null },
-      totalScore: { gte: GHOST_TRADING.MIN_SCORE_FOR_TRACKING, lt: 80 },
+      totalScore: { gte: SCORING_ACCURACY.MIN_SCORE_FOR_TRACKING, lt: 80 },
       closingPrice: { not: null },
       ghostProfitPct: { gt: 0 },
       date: { gte: since90 },
@@ -884,7 +884,7 @@ app.get("/", async (c) => {
             ? html`
                 <div class="card">
                   <p style="font-size:0.8rem;color:#94a3b8;margin:0 0 0.75rem">
-                    低スコア上昇銘柄（${GHOST_TRADING.MIN_SCORE_FOR_TRACKING}〜79点）— ${lowScoreWinners.length}件
+                    低スコア上昇銘柄（${SCORING_ACCURACY.MIN_SCORE_FOR_TRACKING}〜79点）— ${lowScoreWinners.length}件
                     <span style="margin-left:0.5rem;font-size:0.75rem;color:#f59e0b">スコアリングが見逃した上昇パターン</span>
                   </p>
                   <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.5rem;margin-bottom:0.75rem;font-size:0.85rem">
@@ -950,7 +950,7 @@ app.get("/", async (c) => {
             : html`
                 <div class="card">
                   <p style="font-size:0.8rem;color:#94a3b8;margin:0">
-                    低スコア上昇銘柄（${GHOST_TRADING.MIN_SCORE_FOR_TRACKING}〜79点）— 該当なし
+                    低スコア上昇銘柄（${SCORING_ACCURACY.MIN_SCORE_FOR_TRACKING}〜79点）— 該当なし
                   </p>
                 </div>
               `}

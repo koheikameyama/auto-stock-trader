@@ -24,7 +24,7 @@ import {
   MACD_CONFIG,
   VOLUME_ANALYSIS,
   TECHNICAL_MIN_DATA,
-  SCORING,
+  SCORING_V1 as SCORING,
 } from "../lib/constants";
 import type { LogicScore } from "./technical-scorer";
 

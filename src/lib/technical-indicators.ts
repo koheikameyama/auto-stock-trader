@@ -10,7 +10,7 @@ import {
   SUPPORT_RESISTANCE,
   MA_ALIGNMENT,
   TRENDLINE_SCORE,
-  SCORING,
+  SCORING_V1 as SCORING,
 } from "./constants";
 
 interface PriceData {
