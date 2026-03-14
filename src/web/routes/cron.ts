@@ -24,6 +24,7 @@ import { main as runMarketScanner } from "../../jobs/market-scanner";
 import { main as runGhostReview } from "../../jobs/ghost-review";
 import { main as runDefensiveExitFollowup } from "../../jobs/defensive-exit-followup";
 import { main as runUnfilledOrderFollowup } from "../../jobs/unfilled-order-followup";
+import { main as runDataCleanup } from "../../jobs/data-cleanup";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -48,6 +49,7 @@ const JOBS: Record<string, JobDef> = {
   "defensive-exit-followup": { fn: runDefensiveExitFollowup, requiresMarketDay: true },
   "unfilled-order-followup": { fn: runUnfilledOrderFollowup, requiresMarketDay: true },
   "jpx-delisting-sync": { fn: runDelistingSync, requiresMarketDay: false },
+  "data-cleanup": { fn: runDataCleanup, requiresMarketDay: false },
 };
 
 function nowJST(): string {
