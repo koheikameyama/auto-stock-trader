@@ -1,0 +1,58 @@
+name: "[Scheduled] Data Cleanup"
+
+on:
+  schedule:
+    # 日曜 18:00 UTC = 月曜 3:00 JST
+    - cron: "0 18 * * 0"
+  workflow_dispatch:
+
+concurrency:
+  group: data-cleanup
+  cancel-in-progress: false
+
+env:
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+jobs:
+  data-cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run data-cleanup
+
+  notify-success:
+    needs: data-cleanup
+    if: success()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on success
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "Data Cleanup 完了"
+          SLACK_MESSAGE: "週次データクリーンアップが正常に完了しました"
+          SLACK_COLOR: good
+          SLACK_FOOTER: "Stock Buddy"
+
+  notify-failure:
+    needs: data-cleanup
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on failure
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "Data Cleanup 失敗"
+          SLACK_MESSAGE: |
+            週次データクリーンアップが失敗しました。
+            詳細はGitHub Actionsログを確認してください。
+          SLACK_COLOR: danger
+          SLACK_FOOTER: "Stock Buddy"
