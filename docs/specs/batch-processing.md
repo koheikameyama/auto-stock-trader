@@ -353,26 +353,37 @@ checkOrderFill(order, currentHigh, currentLow):
 ## 6. Weekly Review（src/jobs/weekly-review.ts）
 
 **実行**: 土曜 10:00 JST
-**役割**: 週間パフォーマンス分析と戦略レビュー
+**役割**: 週間パフォーマンス分析と戦略レビュー、DB保存
 
 ### 処理フロー
 
-1. 過去7日の TradingDailySummary を集計
-2. 週間メトリクス算出:
+1. **週の範囲算出**: 実行日から直近の月曜〜金曜を算出（`jstDateAsUTC`）
+2. 過去7日の TradingDailySummary を集計
+3. 週間メトリクス算出:
    - 合計取引数、勝敗数、勝率
    - 合計損益
    - 最新ポートフォリオ価値・キャッシュ残高
-3. 過去7日のクローズポジションを取得
-4. AI戦略レビュー生成（200文字、パフォーマンス評価・改善提案）
-5. **Slack通知**: 詳細な週次レポート
+4. 過去7日のクローズポジションを取得
+5. **AI構造化レビュー生成**（OpenAI structured output）:
+   - `performance`: パフォーマンス評価
+   - `strengths`: 良かった点
+   - `improvements`: 改善すべき点
+   - `nextWeekStrategy`: 来週の戦略
+6. **TradingWeeklySummary upsert**: weekEnd をキーに週次サマリーをDB保存
+7. **Slack通知**: 構造化レビューの各項目を含む詳細な週次レポート
 
 ### DB操作
 
 - **Read**: `TradingDailySummary`（7日分）, `TradingPosition`（7日分クローズ）, `TradingOrder`（7日分約定）
+- **Write**: `TradingWeeklySummary`（upsert）
+
+### UI表示
+
+- **`/weekly` ページ**: 最新週サマリー、AIレビュー（4セクション）、累積損益チャート、過去の週次一覧テーブル
 
 ### 外部API
 
-- OpenAI GPT-4o（週次レビュー）
+- OpenAI GPT-4o（週次レビュー、構造化出力）
 
 ---
 

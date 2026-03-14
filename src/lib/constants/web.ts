@@ -19,6 +19,7 @@ export const QUERY_LIMITS = {
   POSITIONS_CLOSED: 20,
   HISTORY_SUMMARIES: 30,
   SCORING_RECORDS: 50,
+  WEEKLY_SUMMARIES: 12,
 } as const;
 
 // ルートのルックバック日数

@@ -16,7 +16,7 @@ import {
   aggregateDailyToWeekly,
   analyzeWeeklyTrend,
 } from "../lib/technical-indicators";
-import { TECHNICAL_MIN_DATA, SCORING, DEFENSIVE_MODE, DAILY_BACKTEST } from "../lib/constants";
+import { TECHNICAL_MIN_DATA, SCORING_V1 as SCORING, DEFENSIVE_MODE, DAILY_BACKTEST } from "../lib/constants";
 import { checkPositionExit } from "../core/exit-checker";
 import { checkBuyLimitFill } from "../core/order-executor";
 import { determineMarketRegime } from "../core/market-regime";

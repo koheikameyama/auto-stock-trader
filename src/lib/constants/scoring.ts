@@ -1,14 +1,14 @@
 /**
  * スコアリング・損切り検証の定数
  *
- * 4カテゴリ100点満点:
- * - テクニカル指標: 65点
- * - チャート・ローソク足パターン: 15点
- * - 流動性: 10点
- * - ファンダメンタルズ: 10点
+ * 新3カテゴリ100点満点:
+ * - トレンド品質: 40点
+ * - エントリータイミング: 35点
+ * - リスク品質: 25点
  */
 
-export const SCORING = {
+/** @deprecated 旧4カテゴリ定数（移行完了後に削除） */
+export const SCORING_V1 = {
   CATEGORY_MAX: {
     TECHNICAL: 65,
     PATTERN: 15,
@@ -110,6 +110,98 @@ export const SCORING = {
 
   MAX_CANDIDATES_FOR_AI: 20,
   MIN_CANDIDATES_FOR_AI: 5,
+} as const;
+
+/** 新3カテゴリ + ゲート スコアリング定数 */
+export const SCORING = {
+  /** カテゴリ最大点数 */
+  CATEGORY_MAX: {
+    TREND_QUALITY: 40,
+    ENTRY_TIMING: 35,
+    RISK_QUALITY: 25,
+  },
+
+  /** サブスコア最大点数 */
+  SUB_MAX: {
+    // トレンド品質 (40)
+    MA_ALIGNMENT: 18,
+    WEEKLY_TREND: 12,
+    TREND_CONTINUITY: 10,
+    // エントリータイミング (35)
+    PULLBACK_DEPTH: 15,
+    BREAKOUT: 12,
+    CANDLESTICK_SIGNAL: 8,
+    // リスク品質 (25)
+    ATR_STABILITY: 10,
+    RANGE_CONTRACTION: 8,
+    VOLUME_STABILITY: 7,
+  },
+
+  /** ランク閾値 */
+  THRESHOLDS: {
+    S_RANK: 80,
+    A_RANK: 65,
+    B_RANK: 50,
+    C_RANK: 35,
+  },
+
+  /** ゲート（即死ルール） */
+  GATES: {
+    MIN_AVG_VOLUME_25: 50_000,
+    MAX_PRICE: 3000,
+    MIN_ATR_PCT: 1.5,
+    EARNINGS_DAYS_BEFORE: 5,
+    EX_DIVIDEND_DAYS_BEFORE: 3,
+  },
+
+  /** トレンド品質パラメータ */
+  TREND: {
+    CONTINUITY_SWEET_MIN: 10,
+    CONTINUITY_SWEET_MAX: 30,
+    CONTINUITY_MATURE_MAX: 50,
+    WEEKLY_SMA13_FLAT_THRESHOLD: 0.5,
+  },
+
+  /** エントリータイミングパラメータ */
+  ENTRY: {
+    PULLBACK_NEAR_MIN: -1,
+    PULLBACK_NEAR_MAX: 2,
+    PULLBACK_DEEP_THRESHOLD: -3,
+    BREAKOUT_VOLUME_RATIO: 1.5,
+    BREAKOUT_LOOKBACK_20: 20,
+    BREAKOUT_LOOKBACK_10: 10,
+  },
+
+  /** リスク品質パラメータ */
+  RISK: {
+    ATR_CV_EXCELLENT: 0.15,
+    ATR_CV_GOOD: 0.25,
+    ATR_CV_FAIR: 0.35,
+    BB_SQUEEZE_STRONG: 20,
+    BB_SQUEEZE_MODERATE: 40,
+    BB_WIDTH_LOOKBACK: 60,
+    VOLUME_CV_STABLE: 0.5,
+    VOLUME_CV_MODERATE: 0.8,
+    VOLUME_CV_PERIOD: 25,
+  },
+
+  MAX_CANDIDATES_FOR_AI: 20,
+  MIN_CANDIDATES_FOR_AI: 5,
+} as const;
+
+export const SCORING_ACCURACY = {
+  /** 追跡対象の最低スコア */
+  MIN_SCORE_FOR_TRACKING: 60,
+  /** FN分析（見逃し）の最大件数/日 */
+  MAX_AI_FN_ANALYSIS: 5,
+  /** FP分析（誤買い）の最大件数/日 */
+  MAX_AI_FP_ANALYSIS: 5,
+  /** FN分析トリガーの最低利益率(%) */
+  MIN_PROFIT_PCT_FOR_FN_ANALYSIS: 1.0,
+  /** FP分析トリガーの最低損失率(%) */
+  MIN_LOSS_PCT_FOR_FP_ANALYSIS: 1.0,
+  /** AI並列数 */
+  AI_CONCURRENCY: 3,
 } as const;
 
 export const GHOST_TRADING = {

@@ -14,6 +14,7 @@ import backtestRoute from "./routes/backtest";
 import contrarianRoute from "./routes/contrarian";
 import newsRoute from "./routes/news";
 import scoringRoute from "./routes/scoring";
+import weeklyRoute from "./routes/weekly";
 import apiRoute from "./routes/api";
 import cronRoute from "./routes/cron";
 
@@ -133,6 +134,7 @@ app.route("/backtest", backtestRoute);
 app.route("/contrarian", contrarianRoute);
 app.route("/news", newsRoute);
 app.route("/scoring", scoringRoute);
+app.route("/weekly", weeklyRoute);
 
 // API routes (authenticated)
 app.route("/api", apiRoute);

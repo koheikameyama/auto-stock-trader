@@ -23,7 +23,7 @@ const JST = "Asia/Tokyo"
  * JSTの日付をそのままUTC 00:00のDateオブジェクトとして返す
  * PostgreSQLの date 型に正しいJST日付が保存される
  */
-function jstDateAsUTC(d: dayjs.Dayjs): Date {
+export function jstDateAsUTC(d: dayjs.Dayjs): Date {
   return new Date(Date.UTC(d.year(), d.month(), d.date()))
 }
 

@@ -17,7 +17,7 @@ import type { ChartPatternResult, ChartPatternRank } from "../lib/chart-patterns
 import type { PatternResult } from "../lib/candlestick-patterns";
 import type { WeeklyTrendResult } from "../lib/technical-indicators";
 import { calculateMACD } from "../lib/technical-indicators";
-import { SCORING } from "../lib/constants";
+import { SCORING_V1 as SCORING } from "../lib/constants";
 
 // ========================================
 // 型定義
