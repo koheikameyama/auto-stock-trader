@@ -5,7 +5,7 @@
 
 import dayjs from "dayjs";
 import { prisma } from "../src/lib/prisma";
-import { DAILY_BACKTEST, SCREENING } from "../src/lib/constants";
+import { DAILY_BACKTEST, SCREENING, hasParamOverride, hasMultiOverride } from "../src/lib/constants";
 import { fetchMultipleBacktestData, fetchVixData } from "../src/backtest/data-fetcher";
 import { runBacktest } from "../src/backtest/simulation-engine";
 import {
@@ -133,25 +133,27 @@ async function main() {
     sectorMap.set(s.tickerCode, getSectorGroup(s.jpxSectorName) ?? "その他");
   }
 
+  const { DEFAULT_PARAMS, FIXED_BUDGET } = DAILY_BACKTEST;
   const config: BacktestConfig = {
     tickers: allTickers,
     startDate,
     endDate,
-    initialBudget: 300_000,
-    maxPositions: 3,
-    maxPrice: DAILY_BACKTEST.FIXED_BUDGET.maxPrice,
-    scoreThreshold: DAILY_BACKTEST.DEFAULT_PARAMS.scoreThreshold,
-    takeProfitRatio: DAILY_BACKTEST.DEFAULT_PARAMS.takeProfitRatio,
-    stopLossRatio: DAILY_BACKTEST.DEFAULT_PARAMS.stopLossRatio,
-    atrMultiplier: DAILY_BACKTEST.DEFAULT_PARAMS.atrMultiplier,
-    trailingActivationMultiplier: DAILY_BACKTEST.DEFAULT_PARAMS.trailingActivationMultiplier,
-    strategy: "swing",
+    initialBudget: FIXED_BUDGET.budget,
+    maxPositions: FIXED_BUDGET.maxPositions,
+    maxPrice: FIXED_BUDGET.maxPrice,
+    scoreThreshold: DEFAULT_PARAMS.scoreThreshold,
+    takeProfitRatio: DEFAULT_PARAMS.takeProfitRatio,
+    stopLossRatio: DEFAULT_PARAMS.stopLossRatio,
+    atrMultiplier: DEFAULT_PARAMS.atrMultiplier,
+    trailingActivationMultiplier: DEFAULT_PARAMS.trailingActivationMultiplier,
+    trailMultiplier: DEFAULT_PARAMS.trailMultiplier,
+    strategy: DEFAULT_PARAMS.strategy,
     costModelEnabled: true,
-    cooldownDays: 5,
-    overrideTpSl: false,
+    cooldownDays: DEFAULT_PARAMS.cooldownDays,
+    overrideTpSl: DEFAULT_PARAMS.overrideTpSl,
     priceLimitEnabled: true,
     gapRiskEnabled: true,
-    trendFilterEnabled: false,
+    trendFilterEnabled: true,
     pullbackFilterEnabled: false,
     volatilityFilterEnabled: true,
     rsFilterEnabled: false,
@@ -277,6 +279,56 @@ async function main() {
     const sign = (t.pnlPct ?? 0) >= 0 ? "+" : "";
     console.log(
       `    ${t.entryDate}→${t.exitDate} ${t.ticker} ${t.rank}:${t.score}pt ¥${t.entryPrice}→¥${t.exitPrice} ${sign}${t.pnlPct}% (${t.exitReason}, ${t.holdingDays}日, ${t.regime})`
+    );
+  }
+
+  // === 全条件サマリー ===
+  console.log("\n=== 全条件サマリー ===");
+  const conditions = DAILY_BACKTEST.PARAMETER_CONDITIONS;
+  for (const condition of conditions) {
+    const condConfig: BacktestConfig = { ...config };
+    if (hasParamOverride(condition)) {
+      if (condition.param === "trailMultiplier") {
+        condConfig.trailMultiplier = condition.value;
+      } else {
+        (condConfig as unknown as Record<string, unknown>)[condition.param] = condition.value;
+      }
+      if (condition.overrideTpSl) condConfig.overrideTpSl = true;
+    } else if (hasMultiOverride(condition)) {
+      for (const [key, val] of Object.entries(condition.overrides)) {
+        (condConfig as unknown as Record<string, unknown>)[key] = val;
+      }
+    }
+    const condResult = runBacktest(condConfig, allData, vixData, candidateMap, sectorMap);
+    const m = condResult.metrics;
+    const sign2 = m.totalReturnPct >= 0 ? "+" : "";
+    console.log(
+      `  ${condition.label.padEnd(12)} | ${m.totalTrades}件 勝率${String(m.winRate).padStart(5)}% PF${String(m.profitFactor).padStart(5)} ${sign2}${m.totalReturnPct}% maxDD${m.maxDrawdownPct}%`
+    );
+  }
+
+  // === 組み合わせテスト ===
+  console.log("\n=== 組み合わせテスト ===");
+  const comboTests: { label: string; overrides: Partial<BacktestConfig> }[] = [
+    { label: "トレンドF+スコア70", overrides: { trendFilterEnabled: true, scoreThreshold: 70 } },
+    { label: "トレンドF+PB", overrides: { trendFilterEnabled: true, pullbackFilterEnabled: true } },
+    { label: "トレンドF+PB+スコア70", overrides: { trendFilterEnabled: true, pullbackFilterEnabled: true, scoreThreshold: 70 } },
+    { label: "トレンドF+RS", overrides: { trendFilterEnabled: true, rsFilterEnabled: true } },
+    { label: "トレンドF+保有15日", overrides: { trendFilterEnabled: true, maxHoldingDays: 15 } },
+    { label: "トレンドF+保有20日", overrides: { trendFilterEnabled: true, maxHoldingDays: 20 } },
+    { label: "スコア70+保有15日", overrides: { scoreThreshold: 70, maxHoldingDays: 15 } },
+    { label: "トレンドF+スコア70+保有15", overrides: { trendFilterEnabled: true, scoreThreshold: 70, maxHoldingDays: 15 } },
+    { label: "TS起動1.5", overrides: { trailingActivationMultiplier: 1.5 } },
+    { label: "TS起動1.5+トレール1.5", overrides: { trailingActivationMultiplier: 1.5, trailMultiplier: 1.5 } },
+    { label: "トレンドF+TS1.5+トレール1.5", overrides: { trendFilterEnabled: true, trailingActivationMultiplier: 1.5, trailMultiplier: 1.5 } },
+  ];
+  for (const combo of comboTests) {
+    const comboConfig: BacktestConfig = { ...config, ...(combo.overrides as Partial<BacktestConfig>) };
+    const comboResult = runBacktest(comboConfig, allData, vixData, candidateMap, sectorMap);
+    const m = comboResult.metrics;
+    const sign2 = m.totalReturnPct >= 0 ? "+" : "";
+    console.log(
+      `  ${combo.label.padEnd(20)} | ${m.totalTrades}件 勝率${String(m.winRate).padStart(5)}% PF${String(m.profitFactor).padStart(5)} ${sign2}${m.totalReturnPct}% maxDD${m.maxDrawdownPct}%`
     );
   }
 

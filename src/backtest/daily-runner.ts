@@ -444,7 +444,7 @@ export async function runDailyBacktest(
       overrideTpSl: DEFAULT_PARAMS.overrideTpSl,
       priceLimitEnabled: true,
       gapRiskEnabled: true,
-      trendFilterEnabled: false,
+      trendFilterEnabled: true,
       pullbackFilterEnabled: false,
       volatilityFilterEnabled: true,
       rsFilterEnabled: false,
