@@ -2,18 +2,63 @@
  * 週次レビュー（土曜 10:00 JST）
  *
  * 1. 週間パフォーマンス集計
- * 2. AIによる戦略レビュー
- * 3. Slackにレポート送信
+ * 2. AIによる戦略レビュー（構造化出力）
+ * 3. DB保存
+ * 4. Slackにレポート送信
  */
 
 import { prisma } from "../lib/prisma";
 import { OPENAI_CONFIG, WEEKLY_REVIEW } from "../lib/constants";
 import { getOpenAIClient } from "../lib/openai";
 import { notifySlack } from "../lib/slack";
+import { jstDateAsUTC } from "../lib/date-utils";
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+const JST = "Asia/Tokyo";
+
+const WEEKLY_REVIEW_SCHEMA = {
+  type: "json_schema" as const,
+  json_schema: {
+    name: "weekly_review",
+    strict: true,
+    schema: {
+      type: "object",
+      properties: {
+        performance: { type: "string", description: "今週のパフォーマンス評価（50文字以内）" },
+        strengths: { type: "string", description: "良かった点（50文字以内）" },
+        improvements: { type: "string", description: "改善すべき点（50文字以内）" },
+        nextWeekStrategy: { type: "string", description: "来週の戦略提案（50文字以内）" },
+      },
+      required: ["performance", "strengths", "improvements", "nextWeekStrategy"],
+      additionalProperties: false,
+    },
+  },
+};
+
+type WeeklyAIReview = {
+  performance: string;
+  strengths: string;
+  improvements: string;
+  nextWeekStrategy: string;
+};
 
 export async function main() {
   console.log("=== Weekly Review 開始 ===");
+
+  // 直前の月〜金を対象とする（土曜実行前提、他の曜日でも安全）
+  const now = dayjs().tz(JST);
+  // 直近の金曜を確実に取得: 金曜以降ならそのまま、それ以外は前週の金曜
+  const friday = now.day() >= 5
+    ? now.day(5)
+    : now.subtract(1, "week").day(5);
+  const monday = friday.day(1); // 同じ週の月曜
+  const weekStart = jstDateAsUTC(monday);
+  const weekEnd = jstDateAsUTC(friday);
 
   // 直近7日間のサマリーを取得
   const weekAgo = dayjs().subtract(WEEKLY_REVIEW.LOOKBACK_DAYS, "day").toDate();
@@ -81,12 +126,13 @@ export async function main() {
     })
     .join("\n");
 
-  let aiReview = "";
+  let aiReview: WeeklyAIReview | null = null;
   try {
     const openai = getOpenAIClient();
     const response = await openai.chat.completions.create({
       model: OPENAI_CONFIG.MODEL,
       temperature: 0.5,
+      response_format: WEEKLY_REVIEW_SCHEMA,
       messages: [
         {
           role: "user",
@@ -103,26 +149,64 @@ export async function main() {
 【クローズポジション詳細】
 ${positionSummary || "なし"}
 
-以下を200文字以内で簡潔に述べてください:
-1. 今週のパフォーマンス評価
-2. 良かった点・改善すべき点
-3. 来週の戦略提案`,
+各項目を50文字以内で簡潔に述べてください。`,
         },
       ],
       max_tokens: 500,
     });
 
-    aiReview = response.choices[0].message.content ?? "";
+    aiReview = JSON.parse(response.choices[0].message.content ?? "{}");
   } catch (error) {
     console.error("AIレビュー生成エラー:", error);
   }
 
+  // DB保存
+  try {
+    await prisma.tradingWeeklySummary.upsert({
+      where: { weekEnd },
+      create: {
+        weekStart,
+        weekEnd,
+        tradingDays,
+        totalTrades,
+        wins: totalWins,
+        losses: totalLosses,
+        totalPnl,
+        portfolioValue,
+        cashBalance,
+        aiReview: aiReview ?? {},
+      },
+      update: {
+        weekStart,
+        tradingDays,
+        totalTrades,
+        wins: totalWins,
+        losses: totalLosses,
+        totalPnl,
+        portfolioValue,
+        cashBalance,
+        aiReview: aiReview ?? {},
+      },
+    });
+    console.log("  週次サマリーをDBに保存しました");
+  } catch (error) {
+    console.error("DB保存エラー:", error);
+  }
+
   // Slack通知
   const pnlEmoji = totalPnl >= 0 ? "📈" : "📉";
+  const slackMessage = aiReview
+    ? [
+        `📊 ${aiReview.performance}`,
+        `💪 ${aiReview.strengths}`,
+        `🔧 ${aiReview.improvements}`,
+        `🎯 ${aiReview.nextWeekStrategy}`,
+      ].join("\n")
+    : "AIレビューの生成に失敗しました";
 
   await notifySlack({
-    title: `📊 週次レビュー（${dayjs().subtract(WEEKLY_REVIEW.LOOKBACK_DAYS, "day").format("MM/DD")}〜${dayjs().format("MM/DD")}）`,
-    message: aiReview,
+    title: `📊 週次レビュー（${monday.format("MM/DD")}〜${friday.format("MM/DD")}）`,
+    message: slackMessage,
     color: totalPnl >= 0 ? "good" : "danger",
     fields: [
       {
