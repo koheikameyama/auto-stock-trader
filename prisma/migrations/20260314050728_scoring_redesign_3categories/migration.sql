@@ -1,34 +1,28 @@
-/*
-  Warnings:
+-- AlterTable: Drop old 4-category columns and add new 3-category columns
+-- Handle existing data by adding columns with defaults first, then removing defaults
 
-  - You are about to drop the column `fundamentalBreakdown` on the `ScoringRecord` table. All the data in the column will be lost.
-  - You are about to drop the column `fundamentalScore` on the `ScoringRecord` table. All the data in the column will be lost.
-  - You are about to drop the column `liquidityBreakdown` on the `ScoringRecord` table. All the data in the column will be lost.
-  - You are about to drop the column `liquidityScore` on the `ScoringRecord` table. All the data in the column will be lost.
-  - You are about to drop the column `patternBreakdown` on the `ScoringRecord` table. All the data in the column will be lost.
-  - You are about to drop the column `patternScore` on the `ScoringRecord` table. All the data in the column will be lost.
-  - You are about to drop the column `technicalBreakdown` on the `ScoringRecord` table. All the data in the column will be lost.
-  - You are about to drop the column `technicalScore` on the `ScoringRecord` table. All the data in the column will be lost.
-  - Added the required column `entryTimingBreakdown` to the `ScoringRecord` table without a default value. This is not possible if the table is not empty.
-  - Added the required column `entryTimingScore` to the `ScoringRecord` table without a default value. This is not possible if the table is not empty.
-  - Added the required column `riskQualityBreakdown` to the `ScoringRecord` table without a default value. This is not possible if the table is not empty.
-  - Added the required column `riskQualityScore` to the `ScoringRecord` table without a default value. This is not possible if the table is not empty.
-  - Added the required column `trendQualityBreakdown` to the `ScoringRecord` table without a default value. This is not possible if the table is not empty.
-  - Added the required column `trendQualityScore` to the `ScoringRecord` table without a default value. This is not possible if the table is not empty.
+ALTER TABLE "ScoringRecord" DROP COLUMN IF EXISTS "fundamentalBreakdown",
+DROP COLUMN IF EXISTS "fundamentalScore",
+DROP COLUMN IF EXISTS "liquidityBreakdown",
+DROP COLUMN IF EXISTS "liquidityScore",
+DROP COLUMN IF EXISTS "patternBreakdown",
+DROP COLUMN IF EXISTS "patternScore",
+DROP COLUMN IF EXISTS "technicalBreakdown",
+DROP COLUMN IF EXISTS "technicalScore";
 
-*/
--- AlterTable
-ALTER TABLE "ScoringRecord" DROP COLUMN "fundamentalBreakdown",
-DROP COLUMN "fundamentalScore",
-DROP COLUMN "liquidityBreakdown",
-DROP COLUMN "liquidityScore",
-DROP COLUMN "patternBreakdown",
-DROP COLUMN "patternScore",
-DROP COLUMN "technicalBreakdown",
-DROP COLUMN "technicalScore",
-ADD COLUMN     "entryTimingBreakdown" JSONB NOT NULL,
-ADD COLUMN     "entryTimingScore" INTEGER NOT NULL,
-ADD COLUMN     "riskQualityBreakdown" JSONB NOT NULL,
-ADD COLUMN     "riskQualityScore" INTEGER NOT NULL,
-ADD COLUMN     "trendQualityBreakdown" JSONB NOT NULL,
-ADD COLUMN     "trendQualityScore" INTEGER NOT NULL;
+ALTER TABLE "ScoringRecord"
+ADD COLUMN "entryTimingBreakdown" JSONB NOT NULL DEFAULT '{}',
+ADD COLUMN "entryTimingScore" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN "riskQualityBreakdown" JSONB NOT NULL DEFAULT '{}',
+ADD COLUMN "riskQualityScore" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN "trendQualityBreakdown" JSONB NOT NULL DEFAULT '{}',
+ADD COLUMN "trendQualityScore" INTEGER NOT NULL DEFAULT 0;
+
+-- Remove defaults (schema expects no defaults, these were just for migration)
+ALTER TABLE "ScoringRecord"
+ALTER COLUMN "entryTimingBreakdown" DROP DEFAULT,
+ALTER COLUMN "entryTimingScore" DROP DEFAULT,
+ALTER COLUMN "riskQualityBreakdown" DROP DEFAULT,
+ALTER COLUMN "riskQualityScore" DROP DEFAULT,
+ALTER COLUMN "trendQualityBreakdown" DROP DEFAULT,
+ALTER COLUMN "trendQualityScore" DROP DEFAULT;
