@@ -132,4 +132,10 @@ export const DAILY_BACKTEST = {
 
   /** トレンド表示の日数 */
   TREND_DAYS: 30,
+
+  /** オンザフライスコアリングモード設定 */
+  ON_THE_FLY: {
+    /** スコアリング用のOHLCVルックバック（カレンダー日数） */
+    LOOKBACK_CALENDAR_DAYS: 200,
+  },
 } as const;

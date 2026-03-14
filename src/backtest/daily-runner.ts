@@ -1,16 +1,17 @@
 /**
  * 日次自動バックテスト実行エンジン
  *
- * 1. ScoringRecordから日付別S/Aランク銘柄マップを構築（生存者バイアス除去）
- * 2. Yahoo Financeからデータを一括取得（1回のみ）
- * 3. 13のパラメータ条件でシミュレーション実行
- * 4. 結果を返す（DB保存・通知は呼び出し側で行う）
+ * 候補銘柄マップの構築方法:
+ *   - scoring-record: ScoringRecordテーブルから読み込み（既存）
+ *   - on-the-fly: メモリ内でスコアリング計算（DB容量ゼロ、長期間対応）
+ *   - auto: ScoringRecord十分→scoring-record、不足→on-the-fly
  */
 
 import dayjs from "dayjs";
 import { prisma } from "../lib/prisma";
 import {
   DAILY_BACKTEST,
+  SCREENING,
   type ParameterCondition,
   hasParamOverride,
   hasMultiOverride,
@@ -18,6 +19,10 @@ import {
 } from "../lib/constants";
 import { fetchMultipleBacktestData, fetchVixData } from "./data-fetcher";
 import { runBacktest } from "./simulation-engine";
+import {
+  buildCandidateMapOnTheFly,
+  type StockFundamentals,
+} from "./on-the-fly-scorer";
 import type { BacktestConfig, PerformanceMetrics } from "./types";
 
 export interface DailyBacktestConditionResult {
@@ -34,6 +39,15 @@ export interface DailyBacktestRunResult {
   periodEnd: string;
   conditionResults: DailyBacktestConditionResult[];
   dataFetchTimeMs: number;
+}
+
+export type CandidateMode = "scoring-record" | "on-the-fly" | "auto";
+
+export interface DailyBacktestOptions {
+  /** 候補銘柄マップの構築方法（default: "auto"） */
+  candidateMode?: CandidateMode;
+  /** on-the-fly時のバックテスト期間（月数、default: LOOKBACK_MONTHS） */
+  lookbackMonths?: number;
 }
 
 interface CandidateMapResult {
@@ -147,21 +161,188 @@ async function buildCandidateMap(): Promise<CandidateMapResult> {
 }
 
 /**
- * 日次バックテストを実行
+ * 候補銘柄マップの構築モードを自動判定
  */
-export async function runDailyBacktest(): Promise<DailyBacktestRunResult> {
-  // 1. 日付別候補銘柄マップを構築（生存者バイアス除去）
+async function resolveCandidateMode(
+  requested: CandidateMode,
+): Promise<"scoring-record" | "on-the-fly"> {
+  if (requested !== "auto") return requested;
+
+  const oldest = await prisma.scoringRecord.findFirst({
+    where: { isDisqualified: false },
+    orderBy: { date: "asc" },
+    select: { date: true },
+  });
+  const scoringDays = oldest
+    ? dayjs().diff(dayjs(oldest.date), "day")
+    : 0;
+  const minDays = DAILY_BACKTEST.MIN_SCORING_RECORD_MONTHS * 30;
+
+  if (!oldest || scoringDays < minDays) {
+    const reason = !oldest
+      ? "ScoringRecord が空"
+      : `ScoringRecord 蓄積期間が短い (${scoringDays}日 < ${minDays}日)`;
+    console.log(`[daily-backtest] ${reason} → オンザフライモードを使用`);
+    return "on-the-fly";
+  }
+
+  console.log(
+    `[daily-backtest] ScoringRecord十分 (${scoringDays}日) → ScoringRecordモード`,
+  );
+  return "scoring-record";
+}
+
+/**
+ * オンザフライモード: メモリ内でスコアリング → candidateMap構築
+ */
+async function runOnTheFlyMode(
+  lookbackMonths: number,
+): Promise<{
+  candidateMap: Map<string, string[]>;
+  allTickers: string[];
+  allData: Map<string, import("../core/technical-analysis").OHLCVData[]>;
+  vixData: Map<string, number>;
+  sectorMap: Map<string, string>;
+  startDate: string;
+  endDate: string;
+  dataFetchTimeMs: number;
+}> {
+  const endDate = dayjs().format("YYYY-MM-DD");
+  const startDate = dayjs()
+    .subtract(lookbackMonths, "month")
+    .format("YYYY-MM-DD");
+
+  console.log(
+    `[daily-backtest] オンザフライモード: ${startDate}〜${endDate} (${lookbackMonths}ヶ月)`,
+  );
+
+  // 1. アクティブ銘柄 + ファンダメンタルを取得
+  const stocks = await prisma.stock.findMany({
+    where: {
+      isDelisted: false,
+      isActive: true,
+      isRestricted: false,
+      latestPrice: { not: null, gte: SCREENING.MIN_PRICE },
+      latestVolume: { not: null, gte: SCREENING.MIN_DAILY_VOLUME },
+    },
+    select: {
+      tickerCode: true,
+      jpxSectorName: true,
+      latestPrice: true,
+      latestVolume: true,
+      volatility: true,
+      per: true,
+      pbr: true,
+      eps: true,
+      marketCap: true,
+      nextEarningsDate: true,
+      exDividendDate: true,
+    },
+  });
+
+  const stockTickers = stocks.map((s) => s.tickerCode);
+  console.log(`[daily-backtest] アクティブ銘柄: ${stocks.length}件`);
+
+  // 2. OHLCV一括取得（スコアリング用の長めのルックバック）
+  const fetchStart = Date.now();
+  const { ON_THE_FLY } = DAILY_BACKTEST;
+  const [allData, vixData] = await Promise.all([
+    fetchMultipleBacktestData(
+      stockTickers,
+      startDate,
+      endDate,
+      ON_THE_FLY.LOOKBACK_CALENDAR_DAYS,
+    ),
+    fetchVixData(startDate, endDate).catch((err: unknown) => {
+      console.warn("[daily-backtest] VIXデータ取得失敗（レジーム集計なし）:", err);
+      return new Map<string, number>();
+    }),
+  ]);
+  const dataFetchTimeMs = Date.now() - fetchStart;
+
+  if (allData.size === 0) {
+    throw new Error("ヒストリカルデータを取得できませんでした");
+  }
+
+  console.log(
+    `[daily-backtest] データ取得完了: ${allData.size}銘柄 VIX${vixData.size}件 (${(dataFetchTimeMs / 1000).toFixed(1)}秒)`,
+  );
+
+  // 3. ファンダメンタルマップ構築
+  const fundamentalsMap = new Map<string, StockFundamentals>();
+  for (const s of stocks) {
+    fundamentalsMap.set(s.tickerCode, {
+      per: s.per ? Number(s.per) : null,
+      pbr: s.pbr ? Number(s.pbr) : null,
+      eps: s.eps ? Number(s.eps) : null,
+      marketCap: s.marketCap ? Number(s.marketCap) : null,
+      latestPrice: s.latestPrice ? Number(s.latestPrice) : 0,
+      volatility: s.volatility ? Number(s.volatility) : null,
+      nextEarningsDate: s.nextEarningsDate,
+      exDividendDate: s.exDividendDate,
+      latestVolume: s.latestVolume ? Number(s.latestVolume) : 0,
+      jpxSectorName: s.jpxSectorName,
+    });
+  }
+
+  // 4. オンザフライでcandidateMap構築
+  const { TARGET_RANKS, FALLBACK_RANKS, MIN_TICKERS } =
+    DAILY_BACKTEST.TICKER_SELECTION;
+
+  const scoringStart = Date.now();
+  const { candidateMap, allTickers } = buildCandidateMapOnTheFly(
+    allData,
+    fundamentalsMap,
+    stocks,
+    startDate,
+    endDate,
+    TARGET_RANKS,
+    FALLBACK_RANKS,
+    MIN_TICKERS,
+  );
+  console.log(
+    `[daily-backtest] スコアリング完了 (${((Date.now() - scoringStart) / 1000).toFixed(1)}秒)`,
+  );
+
+  // 5. セクターマップ構築
+  const sectorMap = new Map<string, string>();
+  for (const s of stocks) {
+    sectorMap.set(s.tickerCode, getSectorGroup(s.jpxSectorName) ?? "その他");
+  }
+
+  return {
+    candidateMap,
+    allTickers,
+    allData,
+    vixData,
+    sectorMap,
+    startDate,
+    endDate,
+    dataFetchTimeMs,
+  };
+}
+
+/**
+ * ScoringRecordモード: DBからcandidateMap読み込み（既存ロジック）
+ */
+async function runScoringRecordMode(): Promise<{
+  candidateMap: Map<string, string[]> | null;
+  allTickers: string[];
+  allData: Map<string, import("../core/technical-analysis").OHLCVData[]>;
+  vixData: Map<string, number>;
+  sectorMap: Map<string, string>;
+  startDate: string;
+  endDate: string;
+  dataFetchTimeMs: number;
+}> {
   const { candidateMap, allTickers, startDate } = await buildCandidateMap();
   if (allTickers.length === 0) {
     throw new Error("バックテスト対象銘柄が0件です");
   }
 
   console.log(`[daily-backtest] 対象銘柄: ${allTickers.length}件`);
-
-  // 2. 期間設定（ScoringRecord蓄積量に基づく動的期間）
   const endDate = dayjs().format("YYYY-MM-DD");
 
-  // 3. データ一括取得（全条件共通）
   const fetchStart = Date.now();
   const [allData, vixData] = await Promise.all([
     fetchMultipleBacktestData(allTickers, startDate, endDate),
@@ -180,7 +361,6 @@ export async function runDailyBacktest(): Promise<DailyBacktestRunResult> {
     `[daily-backtest] データ取得完了: ${allData.size}銘柄 VIX${vixData.size}件 (${(dataFetchTimeMs / 1000).toFixed(1)}秒)`,
   );
 
-  // 3.5. セクターデータ取得（RS計算用）
   const stocks = await prisma.stock.findMany({
     where: { tickerCode: { in: allTickers } },
     select: { tickerCode: true, jpxSectorName: true },
@@ -191,14 +371,55 @@ export async function runDailyBacktest(): Promise<DailyBacktestRunResult> {
   }
   console.log(`[daily-backtest] セクターデータ: ${sectorMap.size}銘柄`);
 
-  // 4. 各パラメータ条件でシミュレーション実行
+  return {
+    candidateMap,
+    allTickers,
+    allData,
+    vixData,
+    sectorMap,
+    startDate,
+    endDate,
+    dataFetchTimeMs,
+  };
+}
+
+/**
+ * 日次バックテストを実行
+ */
+export async function runDailyBacktest(
+  options?: DailyBacktestOptions,
+): Promise<DailyBacktestRunResult> {
+  const requestedMode = options?.candidateMode ?? "auto";
+  const lookbackMonths =
+    options?.lookbackMonths ?? DAILY_BACKTEST.LOOKBACK_MONTHS;
+
+  // 1. モード判定 & データ取得 + candidateMap構築
+  const mode = await resolveCandidateMode(requestedMode);
+  const {
+    candidateMap,
+    allTickers,
+    allData,
+    vixData,
+    sectorMap,
+    startDate,
+    endDate,
+    dataFetchTimeMs,
+  } =
+    mode === "on-the-fly"
+      ? await runOnTheFlyMode(lookbackMonths)
+      : await runScoringRecordMode();
+
+  if (allTickers.length === 0) {
+    throw new Error("バックテスト対象銘柄が0件です");
+  }
+
+  // 2. 各パラメータ条件でシミュレーション実行
   const conditionResults: DailyBacktestConditionResult[] = [];
   const { DEFAULT_PARAMS, FIXED_BUDGET, PARAMETER_CONDITIONS } = DAILY_BACKTEST;
 
   for (const condition of PARAMETER_CONDITIONS) {
     const condStart = Date.now();
 
-    // ベースconfig: デフォルトパラメータ + 固定予算
     const config: BacktestConfig = {
       tickers: allTickers,
       startDate,
@@ -224,12 +445,12 @@ export async function runDailyBacktest(): Promise<DailyBacktestRunResult> {
       verbose: false,
     };
 
-    // 条件のパラメータオーバーライドを適用
     if (hasParamOverride(condition)) {
       if (condition.param === "trailMultiplier") {
         config.trailMultiplier = condition.value;
       } else {
-        (config as unknown as Record<string, unknown>)[condition.param] = condition.value;
+        (config as unknown as Record<string, unknown>)[condition.param] =
+          condition.value;
       }
       if (condition.overrideTpSl) {
         config.overrideTpSl = true;

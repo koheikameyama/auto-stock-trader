@@ -14,6 +14,7 @@ import {
 } from "../lib/market-data-provider";
 
 const LOOKBACK_CALENDAR_DAYS = 120;
+const DOWNLOAD_BATCH_SIZE = 200;
 
 /**
  * 単一銘柄のヒストリカルデータを取得
@@ -92,66 +93,75 @@ export async function fetchMultipleBacktestData(
   tickers: string[],
   startDate: string,
   endDate: string,
+  lookbackCalendarDays?: number,
 ): Promise<Map<string, OHLCVData[]>> {
   const results = new Map<string, OHLCVData[]>();
   const symbols = tickers.map(normalizeTickerCode);
+  const lookback = lookbackCalendarDays ?? LOOKBACK_CALENDAR_DAYS;
 
   const adjustedStart = dayjs(startDate)
-    .subtract(LOOKBACK_CALENDAR_DAYS, "day")
+    .subtract(lookback, "day")
     .format("YYYY-MM-DD");
   const adjustedEnd = dayjs(endDate).add(1, "day").format("YYYY-MM-DD");
 
   console.log(`[backtest] ${tickers.length}銘柄のデータを yf.download バッチ取得中...`);
 
-  try {
-    const batchResult = await providerFetchHistoricalBatch(
-      symbols,
-      adjustedStart,
-      adjustedEnd,
-    );
+  // バッチごとに分割して取得（大量銘柄のタイムアウト防止）
+  for (let batchStart = 0; batchStart < symbols.length; batchStart += DOWNLOAD_BATCH_SIZE) {
+    const batchSymbols = symbols.slice(batchStart, batchStart + DOWNLOAD_BATCH_SIZE);
+    const batchTickers = tickers.slice(batchStart, batchStart + DOWNLOAD_BATCH_SIZE);
 
-    for (let i = 0; i < tickers.length; i++) {
-      const ticker = tickers[i];
-      const symbol = symbols[i];
-      const bars = batchResult[symbol];
-      if (bars && bars.length > 0) {
-        const data = bars
-          .filter(
-            (bar) =>
-              bar.open != null &&
-              bar.high != null &&
-              bar.low != null &&
-              bar.close != null,
-          )
-          .map((bar) => ({
-            date: bar.date,
-            open: bar.open,
-            high: bar.high,
-            low: bar.low,
-            close: bar.close,
-            volume: bar.volume ?? 0,
-          }))
-          .sort((a, b) => a.date.localeCompare(b.date));
-        if (data.length > 0) {
-          results.set(ticker, data);
-          console.log(`  ${ticker}: ${data.length}本取得`);
-        }
-      } else {
-        console.warn(`  ${ticker}: データなし`);
-      }
+    if (symbols.length > DOWNLOAD_BATCH_SIZE) {
+      console.log(
+        `  バッチ ${Math.floor(batchStart / DOWNLOAD_BATCH_SIZE) + 1}/${Math.ceil(symbols.length / DOWNLOAD_BATCH_SIZE)}: ${batchSymbols.length}銘柄`,
+      );
     }
-  } catch (error) {
-    console.error(`[backtest] バッチ取得失敗、個別取得にフォールバック:`, error);
-    // フォールバック: 個別取得
-    for (const ticker of tickers) {
-      try {
-        const data = await fetchBacktestData(ticker, startDate, endDate);
-        if (data.length > 0) {
-          results.set(ticker, data);
-          console.log(`  ${ticker}: ${data.length}本取得 (個別)`);
+
+    try {
+      const batchResult = await providerFetchHistoricalBatch(
+        batchSymbols,
+        adjustedStart,
+        adjustedEnd,
+      );
+
+      for (let i = 0; i < batchTickers.length; i++) {
+        const ticker = batchTickers[i];
+        const symbol = batchSymbols[i];
+        const bars = batchResult[symbol];
+        if (bars && bars.length > 0) {
+          const data = bars
+            .filter(
+              (bar) =>
+                bar.open != null &&
+                bar.high != null &&
+                bar.low != null &&
+                bar.close != null,
+            )
+            .map((bar) => ({
+              date: bar.date,
+              open: bar.open,
+              high: bar.high,
+              low: bar.low,
+              close: bar.close,
+              volume: bar.volume ?? 0,
+            }))
+            .sort((a, b) => a.date.localeCompare(b.date));
+          if (data.length > 0) {
+            results.set(ticker, data);
+          }
         }
-      } catch (e) {
-        console.error(`  ${ticker}: 取得失敗`, e);
+      }
+    } catch (error) {
+      console.error(`[backtest] バッチ取得失敗、個別取得にフォールバック:`, error);
+      for (const ticker of batchTickers) {
+        try {
+          const data = await fetchBacktestData(ticker, startDate, endDate);
+          if (data.length > 0) {
+            results.set(ticker, data);
+          }
+        } catch (e) {
+          console.error(`  ${ticker}: 取得失敗`, e);
+        }
       }
     }
   }
