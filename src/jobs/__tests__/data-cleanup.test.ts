@@ -1,17 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DATA_RETENTION } from "../../lib/constants/retention";
 
-// Prisma をモック（テーブルごとに個別のモック関数）
-const mockScoringDelete = vi.fn().mockResolvedValue({ count: 0 });
-const mockBacktestDelete = vi.fn().mockResolvedValue({ count: 0 });
-const mockMarketDelete = vi.fn().mockResolvedValue({ count: 0 });
-const mockArticleDelete = vi.fn().mockResolvedValue({ count: 0 });
-const mockAnalysisDelete = vi.fn().mockResolvedValue({ count: 0 });
-const mockSummaryDelete = vi.fn().mockResolvedValue({ count: 0 });
-const mockStatusLogDelete = vi.fn().mockResolvedValue({ count: 0 });
-const mockEventLogDelete = vi.fn().mockResolvedValue({ count: 0 });
-const mockDefensiveDelete = vi.fn().mockResolvedValue({ count: 0 });
-const mockUnfilledDelete = vi.fn().mockResolvedValue({ count: 0 });
+// vi.hoisted で mock 関数を定義（vi.mock のホイスティングに対応）
+const {
+  mockScoringDelete, mockBacktestDelete, mockMarketDelete,
+  mockArticleDelete, mockAnalysisDelete, mockSummaryDelete,
+  mockStatusLogDelete, mockEventLogDelete, mockDefensiveDelete, mockUnfilledDelete,
+} = vi.hoisted(() => ({
+  mockScoringDelete: vi.fn().mockResolvedValue({ count: 0 }),
+  mockBacktestDelete: vi.fn().mockResolvedValue({ count: 0 }),
+  mockMarketDelete: vi.fn().mockResolvedValue({ count: 0 }),
+  mockArticleDelete: vi.fn().mockResolvedValue({ count: 0 }),
+  mockAnalysisDelete: vi.fn().mockResolvedValue({ count: 0 }),
+  mockSummaryDelete: vi.fn().mockResolvedValue({ count: 0 }),
+  mockStatusLogDelete: vi.fn().mockResolvedValue({ count: 0 }),
+  mockEventLogDelete: vi.fn().mockResolvedValue({ count: 0 }),
+  mockDefensiveDelete: vi.fn().mockResolvedValue({ count: 0 }),
+  mockUnfilledDelete: vi.fn().mockResolvedValue({ count: 0 }),
+}));
 
 vi.mock("../../lib/prisma", () => ({
   prisma: {
