@@ -66,9 +66,11 @@ import dayjs from "dayjs";
 const JST = "Asia/Tokyo";
 const now = dayjs().tz(JST);
 
-// ジョブは土曜実行前提。手動実行時も直前の月〜金を対象とする
-// dayjs.day() は locale=en で日曜=0, 土曜=6
-const friday = now.subtract(1, "day").day(5); // 直前の金曜（日曜実行時も正しく前週金曜を取得）
+// 直前の月〜金を対象とする（土曜実行前提、他の曜日でも安全）
+// 直近の金曜を確実に取得: 金曜以降ならそのまま、それ以外は前週の金曜
+const friday = now.day() >= 5
+  ? now.day(5)
+  : now.subtract(1, "week").day(5);
 const monday = friday.day(1); // 同じ週の月曜
 
 const weekStart = jstDateAsUTC(monday);
