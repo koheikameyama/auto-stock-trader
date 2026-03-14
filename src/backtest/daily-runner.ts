@@ -48,6 +48,8 @@ export interface DailyBacktestOptions {
   candidateMode?: CandidateMode;
   /** on-the-fly時のバックテスト期間（月数、default: LOOKBACK_MONTHS） */
   lookbackMonths?: number;
+  /** on-the-fly時の最大銘柄数（出来高上位N件、default: 全件） */
+  maxStocks?: number;
 }
 
 interface CandidateMapResult {
@@ -197,6 +199,7 @@ async function resolveCandidateMode(
  */
 async function runOnTheFlyMode(
   lookbackMonths: number,
+  maxStocks?: number,
 ): Promise<{
   candidateMap: Map<string, string[]>;
   allTickers: string[];
@@ -225,6 +228,8 @@ async function runOnTheFlyMode(
       latestPrice: { not: null, gte: SCREENING.MIN_PRICE },
       latestVolume: { not: null, gte: SCREENING.MIN_DAILY_VOLUME },
     },
+    orderBy: { latestVolume: "desc" },
+    ...(maxStocks ? { take: maxStocks } : {}),
     select: {
       tickerCode: true,
       jpxSectorName: true,
@@ -406,7 +411,7 @@ export async function runDailyBacktest(
     dataFetchTimeMs,
   } =
     mode === "on-the-fly"
-      ? await runOnTheFlyMode(lookbackMonths)
+      ? await runOnTheFlyMode(lookbackMonths, options?.maxStocks)
       : await runScoringRecordMode();
 
   if (allTickers.length === 0) {
@@ -440,7 +445,7 @@ export async function runDailyBacktest(
       gapRiskEnabled: true,
       trendFilterEnabled: false,
       pullbackFilterEnabled: false,
-      volatilityFilterEnabled: false,
+      volatilityFilterEnabled: true,
       rsFilterEnabled: false,
       verbose: false,
     };

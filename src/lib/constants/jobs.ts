@@ -43,7 +43,7 @@ export const TRAILING_STOP = {
   // アクティベーション閾値（エントリー価格からATR×N上昇で発動）
   ACTIVATION_ATR_MULTIPLIER: {
     day_trade: 1.2,  // 0.5 → 1.2（trail=0.8より大きく設定しBE保証不要に）
-    swing: 2.0,      // 1.5 → 2.0（バックテスト感度分析でPF 1.18→1.49に改善確認）
+    swing: 1.5,      // 2.0 → 1.5（24ヶ月BT: PF 1.06, 勝率26%。+ボラフィルタでPF 1.07）
   },
   // トレール幅（最高値 - ATR×N がストップライン）
   TRAIL_ATR_MULTIPLIER: {
@@ -51,7 +51,7 @@ export const TRAILING_STOP = {
     swing: 1.0,      // 1.2 → 1.0（1日の平均変動幅分の余裕を確保）
   },
   // ATR不明時のフォールバック（%ベース）— 同じ制約: ACTIVATION > TRAIL
-  ACTIVATION_PCT: { day_trade: 0.015, swing: 0.04 },   // 0.03 → 0.04（ATR倍率2.0に合わせて調整）
+  ACTIVATION_PCT: { day_trade: 0.015, swing: 0.03 },   // 0.04 → 0.03（ATR倍率1.5に合わせて調整）
   TRAIL_PCT: { day_trade: 0.01, swing: 0.02 },
 } as const;
 

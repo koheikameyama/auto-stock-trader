@@ -50,8 +50,8 @@ export const DAILY_BACKTEST = {
     // ベースライン（本番ロジック）
     { key: "baseline", label: "ベースライン" },
 
-    // TS起動ATR倍率
-    { key: "ts_act_1.5", label: "TS起動1.5", param: "trailingActivationMultiplier", value: 1.5 },
+    // TS起動ATR倍率（ベースライン=1.5）
+    { key: "ts_act_1.0", label: "TS起動1.0", param: "trailingActivationMultiplier", value: 1.0 },
     { key: "ts_act_2.0", label: "TS起動2.0", param: "trailingActivationMultiplier", value: 2.0 },
     { key: "ts_act_2.5", label: "TS起動2.5", param: "trailingActivationMultiplier", value: 2.5 },
 
@@ -75,17 +75,17 @@ export const DAILY_BACKTEST = {
     { key: "pullback_on", label: "プルバックF", overrides: { pullbackFilterEnabled: true } },
     { key: "trend_pullback", label: "トレンド+PB", overrides: { trendFilterEnabled: true, pullbackFilterEnabled: true } },
 
-    // ボラティリティ＆RSフィルター
-    { key: "vol_filter", label: "ボラF", overrides: { volatilityFilterEnabled: true } },
+    // ボラティリティ＆RSフィルター（ベースライン=ボラON）
+    { key: "vol_off", label: "ボラOFF", overrides: { volatilityFilterEnabled: false } },
     { key: "rs_filter", label: "RSフィルタ", overrides: { rsFilterEnabled: true } },
-    { key: "vol_rs", label: "ボラ+RS", overrides: { volatilityFilterEnabled: true, rsFilterEnabled: true } },
+    { key: "vol_off_rs", label: "ボラOFF+RS", overrides: { volatilityFilterEnabled: false, rsFilterEnabled: true } },
 
     // タイムストップ延長
     { key: "hold_15", label: "保有15日", overrides: { maxHoldingDays: 15 } },
     { key: "hold_20", label: "保有20日", overrides: { maxHoldingDays: 20 } },
 
-    // 複合: ボラ+RS+保有15日
-    { key: "vol_rs_hold15", label: "ボラRS15日", overrides: { volatilityFilterEnabled: true, rsFilterEnabled: true, maxHoldingDays: 15 } },
+    // 複合: RS+保有15日
+    { key: "rs_hold15", label: "RS+15日", overrides: { rsFilterEnabled: true, maxHoldingDays: 15 } },
   ] satisfies ParameterCondition[],
 
   /** シミュレーション期間（ローリング） */
@@ -98,8 +98,8 @@ export const DAILY_BACKTEST = {
   TICKER_SELECTION: {
     LOOKBACK_DAYS: 30,
     MIN_TICKERS: 5,
-    TARGET_RANKS: ["S"],
-    FALLBACK_RANKS: ["S", "A"],
+    TARGET_RANKS: ["S", "A"],
+    FALLBACK_RANKS: ["S", "A", "B"],
   },
 
   /** デフォルトシミュレーションパラメータ */
@@ -108,7 +108,7 @@ export const DAILY_BACKTEST = {
     takeProfitRatio: 1.50,    // overrideTpSl=true 時のみ使用
     stopLossRatio: 0.98,      // overrideTpSl=true 時のみ使用
     atrMultiplier: 1.0,       // overrideTpSl=true 時のみ使用
-    trailingActivationMultiplier: 2.0,  // TRAILING_STOP.ACTIVATION_ATR_MULTIPLIER.swing と同期
+    trailingActivationMultiplier: 1.5,  // TRAILING_STOP.ACTIVATION_ATR_MULTIPLIER.swing と同期
     strategy: "swing" as const,
     overrideTpSl: false,      // false = 本番ロジック（calculateEntryCondition の値をそのまま使用）
     cooldownDays: 5,          // ストップアウト後の同一銘柄再エントリー禁止日数
