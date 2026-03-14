@@ -1,0 +1,18 @@
+/**
+ * データリテンションポリシー（保持日数）
+ *
+ * 週次クリーンアップジョブ（data-cleanup）で使用。
+ * 各テーブルの date < getDaysAgoForDB(DAYS) のデータを削除する。
+ */
+export const DATA_RETENTION = {
+  SCORING_RECORD_DAYS: 365,
+  BACKTEST_DAILY_RESULT_DAYS: 365,
+  MARKET_ASSESSMENT_DAYS: 90,
+  NEWS_ARTICLE_DAYS: 90,
+  NEWS_ANALYSIS_DAYS: 90,
+  TRADING_DAILY_SUMMARY_DAYS: 365,
+  STOCK_STATUS_LOG_DAYS: 180,
+  CORPORATE_EVENT_LOG_DAYS: 365,
+  DEFENSIVE_EXIT_FOLLOWUP_DAYS: 90,
+  UNFILLED_ORDER_FOLLOWUP_DAYS: 90,
+} as const;
