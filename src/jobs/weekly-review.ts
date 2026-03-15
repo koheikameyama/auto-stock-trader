@@ -86,8 +86,6 @@ export async function main() {
     (s, d) => s + Number(d.totalPnl),
     0,
   );
-  const winRate =
-    totalTrades > 0 ? Math.round((totalWins / totalTrades) * 100) : 0;
   const tradingDays = dailySummaries.length;
 
   const latestSummary = dailySummaries[dailySummaries.length - 1];
@@ -141,7 +139,6 @@ export async function main() {
 【週間サマリー】
 - 取引日数: ${tradingDays}日
 - 取引数: ${totalTrades}件（${totalWins}勝 ${totalLosses}敗）
-- 勝率: ${winRate}%
 - 確定損益: ¥${totalPnl.toLocaleString()}
 - ポートフォリオ時価: ¥${portfolioValue.toLocaleString()}
 - 現金残高: ¥${cashBalance.toLocaleString()}
@@ -215,8 +212,8 @@ ${positionSummary || "なし"}
         short: true,
       },
       {
-        title: "勝率",
-        value: `${totalWins}勝${totalLosses}敗 (${winRate}%)`,
+        title: "勝敗",
+        value: `${totalWins}勝${totalLosses}敗`,
         short: true,
       },
       {
