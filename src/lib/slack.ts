@@ -206,10 +206,6 @@ export async function notifyDailyReport(data: {
   cashBalance: number;
   aiReview?: string;
 }): Promise<void> {
-  const winRate =
-    data.totalTrades > 0
-      ? Math.round((data.wins / data.totalTrades) * 100)
-      : 0;
   const pnlEmoji = data.totalPnl >= 0 ? "📈" : "📉";
 
   await notifySlack({
@@ -223,8 +219,8 @@ export async function notifyDailyReport(data: {
         short: true,
       },
       {
-        title: "勝率",
-        value: `${data.wins}勝${data.losses}敗 (${winRate}%)`,
+        title: "勝敗",
+        value: `${data.wins}勝${data.losses}敗`,
         short: true,
       },
       {
