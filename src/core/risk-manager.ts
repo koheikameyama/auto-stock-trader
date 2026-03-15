@@ -378,23 +378,10 @@ export function validateStopLoss(
       reason = `損切りが遠すぎる(ATR*${STOP_LOSS.ATR_MAX_MULTIPLIER}超過)。ATR*${STOP_LOSS.ATR_ADJUSTED_MULTIPLIER}に引き下げ`;
     }
 
-    // ルール4: サポートライン考慮
-    if (supports.length > 0) {
-      const nearestSupport = supports
-        .filter((s) => s < entryPrice)
-        .sort((a, b) => b - a)[0];
-
-      if (nearestSupport) {
-        const supportBasedStop =
-          nearestSupport - atr14 * STOP_LOSS.SUPPORT_BUFFER_ATR;
-        // サポートベースの損切りがより高い（タイトな）場合のみ採用
-        if (supportBasedStop > validatedPrice) {
-          validatedPrice = supportBasedStop;
-          wasOverridden = true;
-          reason = `サポートライン(${nearestSupport})考慮。サポート - ATR*${STOP_LOSS.SUPPORT_BUFFER_ATR}に設定`;
-        }
-      }
-    }
+    // ルール4: サポートライン考慮（無効化）
+    // サポートベースSLはタイトすぎてノイズで損切りされるため、
+    // シンプルなATRベースSLの方がPF・勝率ともに優秀（バックテスト検証済み）
+    // if (supports.length > 0) { ... }
   }
 
   // ルール5: 最終チェック（最大損失率を再確認）
