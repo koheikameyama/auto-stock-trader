@@ -46,6 +46,7 @@ app.get("/", async (c) => {
         totalReturnPct: true,
         profitFactor: true,
         totalTrades: true,
+        fullResult: true,
       },
     }),
   ]);
@@ -108,6 +109,28 @@ app.get("/", async (c) => {
     ),
   );
 
+  // 条件比較チャート用データ
+  const comparisonData = sortedLatest.map((r) => {
+    const fr = r.fullResult as Record<string, unknown> | null;
+    return {
+      label: r.conditionLabel,
+      key: r.conditionKey,
+      expectancy: fr?.expectancy != null ? Number(fr.expectancy) : null,
+      profitFactor: Number(r.profitFactor) >= 999 ? null : Number(r.profitFactor),
+      riskRewardRatio: fr?.riskRewardRatio != null ? Number(fr.riskRewardRatio) : null,
+    };
+  });
+
+  // 時系列チャート用データ
+  const trendChartData = trendData.map((r) => {
+    const fr = (r as unknown as { fullResult: Record<string, unknown> | null }).fullResult;
+    return {
+      date: dayjs(r.date).format("M/D"),
+      expectancy: fr?.expectancy != null ? Number(fr.expectancy) : null,
+      profitFactor: Number(r.profitFactor) >= 999 ? null : Number(r.profitFactor),
+    };
+  });
+
   const content = html`
     <!-- 最新結果 -->
     <p class="section-title">
@@ -167,6 +190,26 @@ app.get("/", async (c) => {
           </div>
         `
       : html`<div class="card">${emptyState("バックテスト結果なし")}</div>`}
+
+    <!-- 条件比較チャート -->
+    ${comparisonData.length > 1
+      ? html`
+          <p class="section-title">条件比較チャート</p>
+          <div class="card" style="padding:16px;overflow-x:auto">
+            <div id="comparison-chart"></div>
+          </div>
+        `
+      : ""}
+
+    <!-- 時系列推移チャート -->
+    ${trendChartData.length > 1
+      ? html`
+          <p class="section-title">推移チャート（ベースライン）</p>
+          <div class="card" style="padding:16px">
+            <div id="trend-chart"></div>
+          </div>
+        `
+      : ""}
 
     <!-- 履歴テーブル（ベースラインのみ） -->
     <p class="section-title">バックテスト履歴（ベースライン）</p>
@@ -484,6 +527,173 @@ app.get("/", async (c) => {
 
         container.innerHTML = svg;
       }
+
+      // --- 条件比較チャート ---
+      (function() {
+        var el = document.getElementById('comparison-chart');
+        if (!el) return;
+        var data = ${raw(JSON.stringify(comparisonData))};
+        if (data.length < 2) return;
+
+        var metrics = [
+          { key: 'expectancy', label: '期待値(%)', target: 0, targetLabel: '0%', fmt: function(v) { return (v > 0 ? '+' : '') + v.toFixed(2); } },
+          { key: 'profitFactor', label: 'PF', target: 1.3, targetLabel: '1.3', fmt: function(v) { return v.toFixed(2); } },
+          { key: 'riskRewardRatio', label: 'RR比', target: 1.5, targetLabel: '1.5', fmt: function(v) { return v.toFixed(2); } },
+        ];
+
+        var barH = 20, gap = 4, labelW = 80, valueW = 50, chartW = 300;
+        var svgs = '';
+
+        metrics.forEach(function(m) {
+          var vals = data.map(function(d) { return d[m.key]; }).filter(function(v) { return v != null; });
+          if (vals.length === 0) return;
+          var minV = Math.min.apply(null, vals.concat([m.target]));
+          var maxV = Math.max.apply(null, vals.concat([m.target]));
+          var range = maxV - minV || 1;
+          var pad = range * 0.1;
+          minV -= pad; maxV += pad; range = maxV - minV;
+
+          var totalW = labelW + chartW + valueW;
+          var totalH = data.length * (barH + gap) + 30;
+
+          var s = '<div style="margin-bottom:16px"><div style="font-size:13px;font-weight:600;margin-bottom:8px;color:${COLORS.text}">' + m.label + '</div>';
+          s += '<svg viewBox="0 0 ' + totalW + ' ' + totalH + '" style="width:100%;max-width:' + totalW + 'px">';
+
+          // 目標ライン
+          var targetX = labelW + ((m.target - minV) / range) * chartW;
+          s += '<line x1="' + targetX.toFixed(1) + '" y1="0" x2="' + targetX.toFixed(1) + '" y2="' + (totalH - 20) + '" stroke="#64748b" stroke-dasharray="4" stroke-width="1" />';
+          s += '<text x="' + targetX.toFixed(1) + '" y="' + (totalH - 6) + '" text-anchor="middle" fill="#64748b" font-size="9">' + m.targetLabel + '</text>';
+
+          data.forEach(function(d, i) {
+            var v = d[m.key];
+            var y = i * (barH + gap);
+            var isBaseline = d.key === 'baseline';
+
+            // ラベル
+            s += '<text x="' + (labelW - 4) + '" y="' + (y + barH / 2 + 4) + '" text-anchor="end" fill="' + (isBaseline ? '${COLORS.text}' : '${COLORS.textDim}') + '" font-size="' + (isBaseline ? '11' : '10') + '" font-weight="' + (isBaseline ? '700' : '400') + '">' + d.label + '</text>';
+
+            if (v == null) {
+              s += '<text x="' + (labelW + 4) + '" y="' + (y + barH / 2 + 4) + '" fill="${COLORS.textDim}" font-size="10">N/A</text>';
+              return;
+            }
+
+            // バー
+            var zeroX = labelW + ((0 - minV) / range) * chartW;
+            var barX = labelW + ((v - minV) / range) * chartW;
+            var color;
+            if (m.key === 'expectancy') {
+              color = v >= 1.0 ? '#22c55e' : v >= 0.5 ? '#3b82f6' : v >= 0 ? '#f59e0b' : '#ef4444';
+            } else if (m.key === 'riskRewardRatio') {
+              color = v >= 1.5 ? '#22c55e' : v >= 1.0 ? '#f59e0b' : '#ef4444';
+            } else {
+              color = v >= 1.3 ? '#22c55e' : v >= 1.0 ? '#f59e0b' : '#ef4444';
+            }
+
+            if (m.key === 'expectancy') {
+              var x0 = Math.min(zeroX, barX);
+              var w = Math.abs(barX - zeroX);
+              s += '<rect x="' + x0.toFixed(1) + '" y="' + y + '" width="' + Math.max(w, 1).toFixed(1) + '" height="' + barH + '" rx="3" fill="' + color + '" fill-opacity="0.7" />';
+            } else {
+              s += '<rect x="' + labelW + '" y="' + y + '" width="' + Math.max(barX - labelW, 1).toFixed(1) + '" height="' + barH + '" rx="3" fill="' + color + '" fill-opacity="0.7" />';
+            }
+
+            // 値ラベル
+            s += '<text x="' + (labelW + chartW + 4) + '" y="' + (y + barH / 2 + 4) + '" fill="' + color + '" font-size="10" font-weight="600">' + m.fmt(v) + '</text>';
+          });
+
+          s += '</svg></div>';
+          svgs += s;
+        });
+
+        el.innerHTML = svgs;
+      })();
+
+      // --- 時系列推移チャート ---
+      (function() {
+        var el = document.getElementById('trend-chart');
+        if (!el) return;
+        var data = ${raw(JSON.stringify(trendChartData))};
+        if (data.length < 2) return;
+
+        var W = 640, H = 240;
+        var pad = { top: 20, right: 55, bottom: 30, left: 50 };
+        var cw = W - pad.left - pad.right;
+        var ch = H - pad.top - pad.bottom;
+        var len = data.length;
+
+        // 期待値の範囲
+        var expVals = data.map(function(d) { return d.expectancy; }).filter(function(v) { return v != null; });
+        var pfVals = data.map(function(d) { return d.profitFactor; }).filter(function(v) { return v != null; });
+
+        if (expVals.length < 2 && pfVals.length < 2) return;
+
+        var expMin = Math.min.apply(null, expVals.concat([0]));
+        var expMax = Math.max.apply(null, expVals.concat([0]));
+        var expRange = expMax - expMin || 1;
+        expMin -= expRange * 0.1; expMax += expRange * 0.1; expRange = expMax - expMin;
+
+        var pfMin = Math.min.apply(null, pfVals.concat([1.0]));
+        var pfMax = Math.max.apply(null, pfVals.concat([1.3]));
+        var pfRange = pfMax - pfMin || 1;
+        pfMin -= pfRange * 0.1; pfMax += pfRange * 0.1; pfRange = pfMax - pfMin;
+
+        function xPos(i) { return pad.left + (i / (len - 1)) * cw; }
+        function yExp(v) { return pad.top + ch - ((v - expMin) / expRange) * ch; }
+        function yPf(v) { return pad.top + ch - ((v - pfMin) / pfRange) * ch; }
+
+        // パス生成
+        function buildPath(arr, yFn) {
+          var pts = [];
+          arr.forEach(function(d, i) {
+            var v = yFn === yExp ? d.expectancy : d.profitFactor;
+            if (v != null) pts.push((pts.length === 0 ? 'M' : 'L') + xPos(i).toFixed(1) + ',' + yFn(v).toFixed(1));
+          });
+          return pts.join(' ');
+        }
+
+        var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;max-width:' + W + 'px">';
+
+        // 期待値0ライン
+        var zeroY = yExp(0);
+        svg += '<line x1="' + pad.left + '" y1="' + zeroY.toFixed(1) + '" x2="' + (W - pad.right) + '" y2="' + zeroY.toFixed(1) + '" stroke="#64748b" stroke-dasharray="4" stroke-width="1" />';
+        svg += '<text x="' + (pad.left - 4) + '" y="' + (zeroY + 3).toFixed(1) + '" text-anchor="end" fill="#64748b" font-size="9">0%</text>';
+
+        // PF 1.3目標ライン
+        var pf13Y = yPf(1.3);
+        svg += '<line x1="' + pad.left + '" y1="' + pf13Y.toFixed(1) + '" x2="' + (W - pad.right) + '" y2="' + pf13Y.toFixed(1) + '" stroke="#f59e0b" stroke-dasharray="4" stroke-width="1" stroke-opacity="0.5" />';
+        svg += '<text x="' + (W - pad.right + 4) + '" y="' + (pf13Y + 3).toFixed(1) + '" text-anchor="start" fill="#f59e0b" font-size="9">PF1.3</text>';
+
+        // 期待値ライン（青）
+        if (expVals.length >= 2) {
+          svg += '<path d="' + buildPath(data, yExp) + '" fill="none" stroke="#3b82f6" stroke-width="2" />';
+        }
+
+        // PFライン（緑）
+        if (pfVals.length >= 2) {
+          svg += '<path d="' + buildPath(data, yPf) + '" fill="none" stroke="#22c55e" stroke-width="2" />';
+        }
+
+        // Y軸ラベル（左: 期待値）
+        svg += '<text x="' + (pad.left - 4) + '" y="' + (pad.top + 4) + '" text-anchor="end" fill="#3b82f6" font-size="9">' + expMax.toFixed(1) + '%</text>';
+        svg += '<text x="' + (pad.left - 4) + '" y="' + (pad.top + ch + 4) + '" text-anchor="end" fill="#3b82f6" font-size="9">' + expMin.toFixed(1) + '%</text>';
+
+        // Y軸ラベル（右: PF）
+        svg += '<text x="' + (W - pad.right + 4) + '" y="' + (pad.top + 4) + '" text-anchor="start" fill="#22c55e" font-size="9">' + pfMax.toFixed(2) + '</text>';
+        svg += '<text x="' + (W - pad.right + 4) + '" y="' + (pad.top + ch + 4) + '" text-anchor="start" fill="#22c55e" font-size="9">' + pfMin.toFixed(2) + '</text>';
+
+        // X軸ラベル
+        svg += '<text x="' + pad.left + '" y="' + (H - 4) + '" text-anchor="start" fill="#64748b" font-size="9">' + data[0].date + '</text>';
+        svg += '<text x="' + (W - pad.right) + '" y="' + (H - 4) + '" text-anchor="end" fill="#64748b" font-size="9">' + data[len - 1].date + '</text>';
+
+        // 凡例
+        svg += '<rect x="' + (pad.left + 10) + '" y="6" width="10" height="3" rx="1" fill="#3b82f6" />';
+        svg += '<text x="' + (pad.left + 24) + '" y="10" fill="#3b82f6" font-size="9">期待値</text>';
+        svg += '<rect x="' + (pad.left + 60) + '" y="6" width="10" height="3" rx="1" fill="#22c55e" />';
+        svg += '<text x="' + (pad.left + 74) + '" y="10" fill="#22c55e" font-size="9">PF</text>';
+
+        svg += '</svg>';
+        el.innerHTML = svg;
+      })();
 
       document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape' && document.querySelector('#backtest-detail-modal .modal-overlay')) {
