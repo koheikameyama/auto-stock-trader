@@ -239,6 +239,7 @@ app.get("/", async (c) => {
     wins: number;
     losses: number;
     profitSum: number;
+    totalPnlSum: number;
   }
   const sectorBuckets = new Map<string, SectorBucket>();
   for (const r of analyzedRecords) {
@@ -246,12 +247,14 @@ app.get("/", async (c) => {
     const sector = getSectorGroup(jpxSector ?? null) ?? "その他";
     let b = sectorBuckets.get(sector);
     if (!b) {
-      b = { wins: 0, losses: 0, profitSum: 0 };
+      b = { wins: 0, losses: 0, profitSum: 0, totalPnlSum: 0 };
       sectorBuckets.set(sector, b);
     }
-    if (r.ghostProfitPct != null && Number(r.ghostProfitPct) > 0) {
+    const pnl = r.ghostProfitPct != null ? Number(r.ghostProfitPct) : 0;
+    b.totalPnlSum += pnl;
+    if (pnl > 0) {
       b.wins++;
-      b.profitSum += Number(r.ghostProfitPct);
+      b.profitSum += pnl;
     } else {
       b.losses++;
     }
@@ -261,21 +264,23 @@ app.get("/", async (c) => {
       sector,
       total: b.wins + b.losses,
       wins: b.wins,
-      winRate: b.wins + b.losses > 0
-        ? Math.round((b.wins / (b.wins + b.losses)) * 100)
-        : 0,
+      expectancy: b.wins + b.losses > 0
+        ? b.totalPnlSum / (b.wins + b.losses)
+        : null,
       avgProfitPct: b.wins > 0 ? b.profitSum / b.wins : null,
     }))
     .sort((a, b) => b.total - a.total)
     .slice(0, 10);
 
   // ランク分布集計
-  const rankDist = { S: { wins: 0, total: 0 }, A: { wins: 0, total: 0 }, B: { wins: 0, total: 0 } } as Record<string, { wins: number; total: number }>;
+  const rankDist = { S: { wins: 0, total: 0, pnlSum: 0 }, A: { wins: 0, total: 0, pnlSum: 0 }, B: { wins: 0, total: 0, pnlSum: 0 } } as Record<string, { wins: number; total: number; pnlSum: number }>;
   for (const r of analyzedRecords) {
     const rank = r.rank as string;
-    if (!rankDist[rank]) rankDist[rank] = { wins: 0, total: 0 };
+    if (!rankDist[rank]) rankDist[rank] = { wins: 0, total: 0, pnlSum: 0 };
     rankDist[rank].total++;
-    if (r.ghostProfitPct != null && Number(r.ghostProfitPct) > 0) {
+    const pnl = r.ghostProfitPct != null ? Number(r.ghostProfitPct) : 0;
+    rankDist[rank].pnlSum += pnl;
+    if (pnl > 0) {
       rankDist[rank].wins++;
     }
   }
@@ -406,7 +411,7 @@ app.get("/", async (c) => {
                   <th>TN</th>
                   <th>${tt("Precision", "承認銘柄の正解率")}</th>
                   <th>出現</th>
-                  <th>勝率</th>
+                  <th>${tt("期待値", "1トレードあたりの平均損益率(%)")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -415,7 +420,7 @@ app.get("/", async (c) => {
                   .map(
                     ([rank, v]) => {
                       const rd = rankDist[rank];
-                      const wr = rd && rd.total > 0 ? Math.round((rd.wins / rd.total) * 100) : null;
+                      const exp = rd && rd.total > 0 ? rd.pnlSum / rd.total : null;
                       return html`
                         <tr>
                           <td>${rankBadge(rank)}</td>
@@ -427,8 +432,8 @@ app.get("/", async (c) => {
                             ${v.precision != null ? `${v.precision.toFixed(0)}%` : "-"}
                           </td>
                           <td>${rd ? `${rd.total}回` : "-"}</td>
-                          <td style="font-weight:600;color:${wr != null && wr >= 50 ? "#22c55e" : wr != null ? "#ef4444" : "#64748b"}">
-                            ${wr != null ? `${wr}%` : "-"}
+                          <td style="font-weight:600;color:${exp != null ? (exp >= 1.0 ? "#22c55e" : exp >= 0 ? "#3b82f6" : "#ef4444") : "#64748b"}">
+                            ${exp != null ? `${exp > 0 ? "+" : ""}${exp.toFixed(2)}%` : "-"}
                           </td>
                         </tr>
                       `;
@@ -698,7 +703,7 @@ app.get("/", async (c) => {
                         <th>セクター</th>
                         <th>出現</th>
                         <th>勝ち</th>
-                        <th>勝率</th>
+                        <th>期待値</th>
                         <th>勝ち平均利益率</th>
                       </tr>
                     </thead>
@@ -716,9 +721,9 @@ app.get("/", async (c) => {
                             <td>${s.total}回</td>
                             <td>${s.wins}回</td>
                             <td
-                              style="font-weight:600;color:${lowSample ? "#64748b" : s.winRate >= 50 ? "#22c55e" : "#ef4444"}"
+                              style="font-weight:600;color:${lowSample ? "#64748b" : s.expectancy != null ? (s.expectancy >= 1.0 ? "#22c55e" : s.expectancy >= 0 ? "#3b82f6" : "#ef4444") : "#64748b"}"
                             >
-                              ${s.winRate}%${lowSample ? html`<span style="font-size:0.7rem"> ※</span>` : ""}
+                              ${s.expectancy != null ? `${s.expectancy > 0 ? "+" : ""}${s.expectancy.toFixed(2)}%` : "-"}${lowSample ? html`<span style="font-size:0.7rem"> ※</span>` : ""}
                             </td>
                             <td>
                               ${s.avgProfitPct != null
