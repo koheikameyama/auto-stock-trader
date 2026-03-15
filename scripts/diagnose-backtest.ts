@@ -303,7 +303,7 @@ async function main() {
     const m = condResult.metrics;
     const sign2 = m.totalReturnPct >= 0 ? "+" : "";
     console.log(
-      `  ${condition.label.padEnd(12)} | ${m.totalTrades}件 勝率${String(m.winRate).padStart(5)}% PF${String(m.profitFactor).padStart(5)} ${sign2}${m.totalReturnPct}% maxDD${m.maxDrawdownPct}%`
+      `  ${condition.label.padEnd(12)} | ${m.totalTrades}件 勝率${String(m.winRate).padStart(5)}% PF${String(m.profitFactor).padStart(5)} ${sign2}${m.totalReturnPct}% maxDD-${m.maxDrawdown}%`
     );
   }
 
@@ -328,7 +328,7 @@ async function main() {
     const m = comboResult.metrics;
     const sign2 = m.totalReturnPct >= 0 ? "+" : "";
     console.log(
-      `  ${combo.label.padEnd(20)} | ${m.totalTrades}件 勝率${String(m.winRate).padStart(5)}% PF${String(m.profitFactor).padStart(5)} ${sign2}${m.totalReturnPct}% maxDD${m.maxDrawdownPct}%`
+      `  ${combo.label.padEnd(20)} | ${m.totalTrades}件 勝率${String(m.winRate).padStart(5)}% PF${String(m.profitFactor).padStart(5)} ${sign2}${m.totalReturnPct}% maxDD-${m.maxDrawdown}%`
     );
   }
 

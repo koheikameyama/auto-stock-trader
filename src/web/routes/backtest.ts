@@ -20,9 +20,9 @@ const app = new Hono();
 /** Chart.js 条件別カラー */
 const CONDITION_COLORS: Record<string, string> = {
   baseline: "#ffffff",
-  "ts_act_1.5": "#93c5fd",
-  "ts_act_2.0": "#3b82f6",
-  "ts_act_2.5": "#1d4ed8",
+  "ts_act_2.0": "#93c5fd",
+  "ts_act_2.5": "#3b82f6",
+  "ts_act_3.5": "#1d4ed8",
   score_60: "#86efac",
   score_65: "#22c55e",
   score_70: "#15803d",

@@ -50,10 +50,10 @@ export const DAILY_BACKTEST = {
     // ベースライン（本番ロジック）
     { key: "baseline", label: "ベースライン" },
 
-    // TS起動ATR倍率（ベースライン=2.0）
-    { key: "ts_act_1.5", label: "TS起動1.5", param: "trailingActivationMultiplier", value: 1.5 },
+    // TS起動ATR倍率（ベースライン=3.0）
+    { key: "ts_act_2.0", label: "TS起動2.0", param: "trailingActivationMultiplier", value: 2.0 },
     { key: "ts_act_2.5", label: "TS起動2.5", param: "trailingActivationMultiplier", value: 2.5 },
-    { key: "ts_act_3.0", label: "TS起動3.0", param: "trailingActivationMultiplier", value: 3.0 },
+    { key: "ts_act_3.5", label: "TS起動3.5", param: "trailingActivationMultiplier", value: 3.5 },
 
     // スコア閾値（ベースライン=70）
     { key: "score_60", label: "スコア60", param: "scoreThreshold", value: 60 },
@@ -108,7 +108,7 @@ export const DAILY_BACKTEST = {
     takeProfitRatio: 1.50,    // overrideTpSl=true 時のみ使用
     stopLossRatio: 0.98,      // overrideTpSl=true 時のみ使用
     atrMultiplier: 1.0,       // overrideTpSl=true 時のみ使用
-    trailingActivationMultiplier: 2.0,  // TS発動閾値（ATR×N上昇で発動）
+    trailingActivationMultiplier: 3.0,  // TS発動閾値（ATR×N上昇で発動）— PF 1.97実績
     trailMultiplier: 2.0,               // トレール幅（最高値 - ATR×N、発動時=ブレイクイーブン）
     strategy: "swing" as const,
     overrideTpSl: false,      // false = 本番ロジック（calculateEntryCondition の値をそのまま使用）
