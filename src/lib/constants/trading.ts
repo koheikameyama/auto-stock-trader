@@ -261,3 +261,15 @@ export const SCREENING = {
   MIN_DAILY_VOLUME: 100_000, // 最低出来高（株）
   MIN_PRICE: 100, // 最低株価（円）
 } as const;
+
+// ========================================
+// 週末・連休リスク管理
+// ========================================
+
+export const WEEKEND_RISK = {
+  SIZE_REDUCTION_THRESHOLD: 2,       // 非営業日N日以上でポジションサイズ縮小
+  POSITION_SIZE_MULTIPLIER: 0.5,     // ポジションサイズ50%
+
+  TRAILING_TIGHTEN_THRESHOLD: 3,     // 非営業日N日以上でトレーリングストップ引き締め
+  TRAILING_TIGHTEN_MULTIPLIER: 0.7,  // ATR倍率を70%に縮小（例: 2.0 → 1.4）
+} as const;
