@@ -478,7 +478,7 @@ app.get("/", async (c) => {
           // 入力データ
           var s = data.inputStats;
           document.getElementById('mc-input-stats').textContent =
-            '入力: 勝率' + s.winRate + '% / 平均利益+' + s.avgWinPct.toFixed(2) + '% / 平均損失' + s.avgLossPct.toFixed(2) + '% / サンプル' + s.totalTrades + 'トレード / 期待値' + s.expectancy.toFixed(2) + '%';
+            '入力: 期待値' + s.expectancy.toFixed(2) + '% / 平均利益+' + s.avgWinPct.toFixed(2) + '% / 平均損失' + s.avgLossPct.toFixed(2) + '% / サンプル' + s.totalTrades + 'トレード';
 
           results.style.display = 'block';
         } catch (e) {
