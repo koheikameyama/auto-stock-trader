@@ -957,7 +957,7 @@ app.get("/", async (c) => {
         `}
   `;
 
-  return c.html(layout("見送り分析", "/contrarian", content));
+  return c.html(layout("精度分析", "/accuracy", content));
 });
 
 export default app;
