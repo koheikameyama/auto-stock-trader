@@ -434,7 +434,7 @@ app.get("/", async (c) => {
     ${missedStocks.length > 0
       ? html`
           <div class="card table-wrap">
-            <table>
+            <table style="table-layout:fixed">
               <thead>
                 <tr>
                   <th>日付</th>
@@ -483,7 +483,7 @@ app.get("/", async (c) => {
     ${fpStocks.length > 0
       ? html`
           <div class="card table-wrap">
-            <table>
+            <table style="table-layout:fixed">
               <thead>
                 <tr>
                   <th>日付</th>
