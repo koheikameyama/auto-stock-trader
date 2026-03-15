@@ -109,9 +109,9 @@ export const DAILY_BACKTEST = {
     stopLossRatio: 0.98,      // overrideTpSl=true 時のみ使用
     atrMultiplier: 1.0,       // overrideTpSl=true 時のみ使用
     trailingActivationMultiplier: 3.0,  // TS発動閾値（ATR×N上昇で発動）— PF 1.97実績
-    trailMultiplier: 2.0,               // トレール幅（最高値 - ATR×N、発動時=ブレイクイーブン）
+    trailMultiplier: 1.0,               // トレール幅（最高値 - ATR×N、発動時=ブレイクイーブン）— WF検証でOOS PF 1.74
     strategy: "swing" as const,
-    overrideTpSl: false,      // false = 本番ロジック（calculateEntryCondition の値をそのまま使用）
+    overrideTpSl: true,       // ATRベースSL（ATR×1.0）— WF検証でOOS PF 1.74
     cooldownDays: 5,          // ストップアウト後の同一銘柄再エントリー禁止日数
   },
 

@@ -305,7 +305,20 @@ async function main() {
 
   // --- 条件ループ ---
 
-  const conditions = DAILY_BACKTEST.PARAMETER_CONDITIONS;
+  // コンボ条件: 堅牢条件の組み合わせ効果を検証
+  const comboConditions = [
+    { key: "atr1.0_trail1.0", label: "ATR1.0+トレール1.0", overrides: { atrMultiplier: 1.0, overrideTpSl: true, trailMultiplier: 1.0 } },
+    { key: "atr1.0_trail1.2", label: "ATR1.0+トレール1.2", overrides: { atrMultiplier: 1.0, overrideTpSl: true, trailMultiplier: 1.2 } },
+    { key: "atr1.5_trail1.0", label: "ATR1.5+トレール1.0", overrides: { atrMultiplier: 1.5, overrideTpSl: true, trailMultiplier: 1.0 } },
+    { key: "atr1.5_trail1.2", label: "ATR1.5+トレール1.2", overrides: { atrMultiplier: 1.5, overrideTpSl: true, trailMultiplier: 1.2 } },
+    { key: "atr1.0_trail1.0_ts2.0", label: "ATR1.0+トレール1.0+TS2.0", overrides: { atrMultiplier: 1.0, overrideTpSl: true, trailMultiplier: 1.0, trailingActivationMultiplier: 2.0 } },
+    { key: "atr1.5_trail1.0_ts2.0", label: "ATR1.5+トレール1.0+TS2.0", overrides: { atrMultiplier: 1.5, overrideTpSl: true, trailMultiplier: 1.0, trailingActivationMultiplier: 2.0 } },
+  ] as const;
+
+  const conditions = [
+    ...DAILY_BACKTEST.PARAMETER_CONDITIONS,
+    ...comboConditions,
+  ];
   const allSummaries: ConditionSummary[] = [];
 
   console.log(`全${conditions.length}条件 × ${windows.length}ウィンドウ × 2 = ${conditions.length * windows.length * 2}回のバックテストを実行...\n`);
