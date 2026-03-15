@@ -78,6 +78,7 @@ app.get("/", async (c) => {
   const detailDataJson = JSON.stringify(
     sortedLatest.reduce(
       (acc, r) => {
+        const fr = r.fullResult as Record<string, unknown> | null;
         acc[r.conditionKey] = {
           label: r.conditionLabel,
           initialBudget: r.initialBudget,
@@ -95,6 +96,11 @@ app.get("/", async (c) => {
           periodStart: r.periodStart,
           periodEnd: r.periodEnd,
           executionTimeMs: r.executionTimeMs,
+          totalTrades: r.totalTrades,
+          expectancy: fr?.expectancy != null ? Number(fr.expectancy) : null,
+          riskRewardRatio: fr?.riskRewardRatio != null ? Number(fr.riskRewardRatio) : null,
+          avgWinPct: fr?.avgWinPct != null ? Number(fr.avgWinPct) : null,
+          avgLossPct: fr?.avgLossPct != null ? Number(fr.avgLossPct) : null,
         };
         return acc;
       },
@@ -117,8 +123,8 @@ app.get("/", async (c) => {
                   <th>${tt("勝率", "取引のうち利益が出た割合")}</th>
                   <th>${tt("PF", "プロフィットファクター。総利益÷総損失（1超が黒字）")}</th>
                   <th>${tt("リターン", "期間中の総収益率")}</th>
-                  <th>${tt("DD", "最大ドローダウン。期間中の最大下落率")}</th>
-                  <th>取引</th>
+                  <th>${tt("期待値", "1トレードあたりの期待収益率(%)。(勝率×平均利益)+(敗率×平均損失)")}</th>
+                  <th>${tt("RR", "リスクリワード比。平均利益÷平均損失（1.5以上が目標）")}</th>
                   <th></th>
                 </tr>
               </thead>
@@ -138,10 +144,20 @@ app.get("/", async (c) => {
                           : Number(r.profitFactor)}
                       </td>
                       <td>${pnlPercent(Number(r.totalReturnPct))}</td>
-                      <td style="color:#ef4444">
-                        -${Number(r.maxDrawdown)}%
-                      </td>
-                      <td>${r.totalTrades}</td>
+                      <td>${(() => {
+                        const fr = r.fullResult as Record<string, unknown> | null;
+                        const exp = fr?.expectancy != null ? Number(fr.expectancy) : null;
+                        if (exp == null) return "N/A";
+                        const color = exp > 0 ? "#22c55e" : exp < 0 ? "#ef4444" : COLORS.text;
+                        return html`<span style="color:${color}">${exp > 0 ? "+" : ""}${exp.toFixed(2)}%</span>`;
+                      })()}</td>
+                      <td>${(() => {
+                        const fr = r.fullResult as Record<string, unknown> | null;
+                        const rr = fr?.riskRewardRatio != null ? Number(fr.riskRewardRatio) : null;
+                        if (rr == null) return "N/A";
+                        const color = rr >= 1.5 ? "#22c55e" : rr >= 1.0 ? "#f59e0b" : "#ef4444";
+                        return html`<span style="color:${color}">${rr.toFixed(2)}</span>`;
+                      })()}</td>
                       <td><span class="ticker-link" onclick="openBacktestDetail('${r.conditionKey}')">詳細</span></td>
                     </tr>
                   `,
@@ -305,7 +321,12 @@ app.get("/", async (c) => {
           + '<div class="modal-row"><span class="modal-row-label">累計損益</span><span class="' + pnlCls + '">' + pnlSign + '&yen;' + fmt(Math.abs(d.totalPnl)) + '</span></div>'
           + '<div class="modal-row"><span class="modal-row-label">リターン</span><span class="' + retCls + '">' + retSign + d.totalReturnPct.toFixed(2) + '%</span></div>'
           + '<div class="modal-row"><span class="modal-row-label">PF</span><span>' + (d.profitFactor >= 999 ? '&infin;' : d.profitFactor) + '</span></div>'
+          + '<div class="modal-row"><span class="modal-row-label">期待値</span><span style="color:' + (d.expectancy > 0 ? '#22c55e' : d.expectancy < 0 ? '#ef4444' : 'inherit') + '">' + (d.expectancy != null ? (d.expectancy > 0 ? '+' : '') + d.expectancy.toFixed(2) + '%' : 'N/A') + '</span></div>'
+          + '<div class="modal-row"><span class="modal-row-label">RR比</span><span style="color:' + (d.riskRewardRatio >= 1.5 ? '#22c55e' : d.riskRewardRatio >= 1.0 ? '#f59e0b' : '#ef4444') + '">' + (d.riskRewardRatio != null ? d.riskRewardRatio.toFixed(2) : 'N/A') + '</span></div>'
+          + '<div class="modal-row"><span class="modal-row-label">平均利益</span><span style="color:#22c55e">' + (d.avgWinPct != null ? '+' + d.avgWinPct.toFixed(2) + '%' : 'N/A') + '</span></div>'
+          + '<div class="modal-row"><span class="modal-row-label">平均損失</span><span style="color:#ef4444">' + (d.avgLossPct != null ? d.avgLossPct.toFixed(2) + '%' : 'N/A') + '</span></div>'
           + '<div class="modal-row"><span class="modal-row-label">最大DD</span><span style="color:#ef4444">-' + d.maxDrawdown + '%</span></div>'
+          + '<div class="modal-row"><span class="modal-row-label">取引数</span><span>' + d.totalTrades + '</span></div>'
           + '<div class="modal-row"><span class="modal-row-label">シャープレシオ</span><span>' + (d.sharpeRatio != null ? d.sharpeRatio : 'N/A') + '</span></div>'
           + '<div class="modal-row"><span class="modal-row-label">平均保有日数</span><span>' + d.avgHoldingDays + '日</span></div>'
           + '<div class="modal-row"><span class="modal-row-label">対象銘柄数</span><span>' + d.tickerCount + '</span></div>'
