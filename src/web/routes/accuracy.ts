@@ -244,14 +244,37 @@ app.get("/", async (c) => {
   }
 
   const content = html`
-    <!-- セクション0: 判断整合性 -->
+    <!-- セクション1: 判断整合性サマリー -->
     <p class="section-title">${latestDateLabel}の判断整合性</p>
     ${audit == null
       ? html`<div class="card">
-          ${emptyState("ゴーストレビュー後に更新されます（16:10 JST 以降）")}
+          ${emptyState("scoring-accuracy 実行後に更新されます（16:10 JST 以降）")}
         </div>`
       : html`
           <div class="card">
+            <!-- Precision / Recall / F1 概要 -->
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1rem;padding-bottom:1rem;border-bottom:1px solid #1e293b">
+              <div style="text-align:center">
+                <p style="font-size:0.75rem;color:#94a3b8;margin:0 0 0.25rem">${tt("Precision", "承認銘柄のうち実際に上昇した割合")}</p>
+                <p style="font-size:1.2rem;font-weight:700;margin:0;color:${audit.confusionMatrix.precision != null && audit.confusionMatrix.precision >= 60 ? "#22c55e" : audit.confusionMatrix.precision != null ? "#ef4444" : "#64748b"}">
+                  ${audit.confusionMatrix.precision != null ? `${audit.confusionMatrix.precision.toFixed(1)}%` : "-"}
+                </p>
+              </div>
+              <div style="text-align:center">
+                <p style="font-size:0.75rem;color:#94a3b8;margin:0 0 0.25rem">${tt("Recall", "上昇銘柄のうち承認できた割合")}</p>
+                <p style="font-size:1.2rem;font-weight:700;margin:0;color:${audit.confusionMatrix.recall != null && audit.confusionMatrix.recall >= 50 ? "#22c55e" : audit.confusionMatrix.recall != null ? "#ef4444" : "#64748b"}">
+                  ${audit.confusionMatrix.recall != null ? `${audit.confusionMatrix.recall.toFixed(1)}%` : "-"}
+                </p>
+              </div>
+              <div style="text-align:center">
+                <p style="font-size:0.75rem;color:#94a3b8;margin:0 0 0.25rem">${tt("F1", "PrecisionとRecallの調和平均")}</p>
+                <p style="font-size:1.2rem;font-weight:700;margin:0;color:${audit.confusionMatrix.f1 != null && audit.confusionMatrix.f1 >= 50 ? "#22c55e" : audit.confusionMatrix.f1 != null ? "#ef4444" : "#64748b"}">
+                  ${audit.confusionMatrix.f1 != null ? `${audit.confusionMatrix.f1.toFixed(1)}%` : "-"}
+                </p>
+              </div>
+            </div>
+
+            <!-- 既存の判断整合性 3カラム -->
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1rem">
               <!-- 市場停止判断 -->
               <div>
@@ -272,9 +295,6 @@ app.get("/", async (c) => {
                           (${audit.marketHalt.risingCount}/${audit.marketHalt.totalScored}件)
                         </span>
                       </p>
-                      ${audit.marketHalt.risingRate != null && audit.marketHalt.risingRate > 50 && audit.marketHalt.wasHalted
-                        ? html`<p style="font-size:0.72rem;color:#f59e0b;margin:0.25rem 0 0">⚠ 過剰な停止判断の可能性</p>`
-                        : ""}
                     `
                   : html`<p style="font-size:0.82rem;color:#64748b;margin:0">市場評価データなし</p>`}
               </div>
@@ -312,50 +332,65 @@ app.get("/", async (c) => {
                 </p>`
               : ""}
           </div>
-        `}
 
-    <!-- セクション1: 今日の上昇確認銘柄 -->
-    <p class="section-title">
-      今日の上昇確認銘柄${isNoTradeDay
-        ? html`<span style="margin-left:0.5rem;font-size:0.75rem;color:#f59e0b;background:#f59e0b20;padding:2px 8px;border-radius:9999px">市場停止日</span>`
-        : ""}
-    </p>
-    ${todayCandidates.length > 0
-      ? html`
+          <!-- セクション2: 4象限詳細 -->
+          <p class="section-title">4象限分析</p>
+
+          <!-- 2a. 混同行列 -->
+          <div class="card" style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">
+            <div style="text-align:center;padding:1rem;background:#22c55e15;border-radius:8px">
+              <p style="font-size:0.72rem;color:#94a3b8;margin:0 0 0.25rem">TP（正しく承認）</p>
+              <p style="font-size:1.5rem;font-weight:700;color:#22c55e;margin:0">${audit.confusionMatrix.tp}</p>
+            </div>
+            <div style="text-align:center;padding:1rem;background:#ef444415;border-radius:8px">
+              <p style="font-size:0.72rem;color:#94a3b8;margin:0 0 0.25rem">FP（誤って承認）</p>
+              <p style="font-size:1.5rem;font-weight:700;color:#ef4444;margin:0">${audit.confusionMatrix.fp}</p>
+            </div>
+            <div style="text-align:center;padding:1rem;background:#f59e0b15;border-radius:8px">
+              <p style="font-size:0.72rem;color:#94a3b8;margin:0 0 0.25rem">FN（見逃し）</p>
+              <p style="font-size:1.5rem;font-weight:700;color:#f59e0b;margin:0">${audit.confusionMatrix.fn}</p>
+            </div>
+            <div style="text-align:center;padding:1rem;background:#64748b15;border-radius:8px">
+              <p style="font-size:0.72rem;color:#94a3b8;margin:0 0 0.25rem">TN（正しく棄却）</p>
+              <p style="font-size:1.5rem;font-weight:700;color:#64748b;margin:0">${audit.confusionMatrix.tn}</p>
+            </div>
+          </div>
+
+          <!-- 2b. ランク別精度 -->
           <div class="card table-wrap">
+            <p style="font-size:0.8rem;color:#94a3b8;margin:0 0 0.75rem">ランク別精度</p>
             <table>
               <thead>
                 <tr>
-                  <th>銘柄</th>
-                  <th>${tt("スコア", "トレンド品質・エントリータイミング・リスク品質を合算した100点満点のスコア")}</th>
                   <th>ランク</th>
-                  <th>${tt("エントリー", "仮想エントリー価格（市場停止日の始値）")}</th>
-                  <th>終値</th>
-                  <th>${tt("騰落率", "エントリー価格に対する終値の変化率")}</th>
+                  <th>TP</th>
+                  <th>FP</th>
+                  <th>FN</th>
+                  <th>TN</th>
+                  <th>${tt("Precision", "承認銘柄の正解率")}</th>
                 </tr>
               </thead>
               <tbody>
-                ${todayCandidates.map(
-                  (r) => html`
-                    <tr>
-                      <td>${tickerLink(r.tickerCode)}</td>
-                      <td>${r.totalScore}</td>
-                      <td>${rankBadge(r.rank)}</td>
-                      <td>¥${formatYen(Number(r.entryPrice))}</td>
-                      <td>¥${formatYen(Number(r.closingPrice))}</td>
-                      <td>${pnlPercent(Number(r.ghostProfitPct))}</td>
-                    </tr>
-                  `,
-                )}
+                ${Object.entries(audit.byRank)
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(
+                    ([rank, v]) => html`
+                      <tr>
+                        <td>${rankBadge(rank)}</td>
+                        <td style="color:#22c55e">${v.tp}</td>
+                        <td style="color:#ef4444">${v.fp}</td>
+                        <td style="color:#f59e0b">${v.fn}</td>
+                        <td style="color:#64748b">${v.tn}</td>
+                        <td style="font-weight:600;color:${v.precision != null && v.precision >= 60 ? "#22c55e" : v.precision != null ? "#ef4444" : "#64748b"}">
+                          ${v.precision != null ? `${v.precision.toFixed(0)}%` : "-"}
+                        </td>
+                      </tr>
+                    `,
+                  )}
               </tbody>
             </table>
           </div>
-        `
-      : html`<div class="card">
-          ${emptyState(
-            `${latestDateLabel}の上昇確認銘柄はありません（ゴーストレビュー後に更新されます）`,
-          )}
-        </div>`}
+        `}
 
     <!-- セクション2: 見逃し銘柄 -->
     <p class="section-title">見逃し銘柄（スキップしたが上昇）</p>
