@@ -12,9 +12,9 @@ import { Hono } from "hono";
 import { html } from "hono/html";
 import dayjs from "dayjs";
 import { prisma } from "../../lib/prisma";
+import { Prisma } from "@prisma/client";
 import { getTodayForDB, getDaysAgoForDB } from "../../lib/date-utils";
-import { CONTRARIAN, SCORING_ACCURACY, SCORING, getSectorGroup } from "../../lib/constants";
-import { calculateContrarianBonus } from "../../core/contrarian-analyzer";
+import { CONTRARIAN, SCORING, getSectorGroup } from "../../lib/constants";
 import { layout } from "../views/layout";
 import {
   formatYen,
@@ -30,37 +30,81 @@ const app = new Hono();
 app.get("/", async (c) => {
   const since90 = getDaysAgoForDB(CONTRARIAN.LOOKBACK_DAYS);
 
-  // 最新のmarketAssessment日付を取得（休日・祝日でもデータがある日を表示）
-  const latestAssessment = await prisma.marketAssessment.findFirst({
+  // 最新の decisionAudit 日付を取得
+  // 注: 現行は MarketAssessment から latestDate を取得しているが、
+  // 精度分析ページでは decisionAudit の存在する最新日を基準にする（意図的な変更）
+  const latestSummary = await prisma.tradingDailySummary.findFirst({
+    where: { decisionAudit: { not: Prisma.DbNull } },
     orderBy: { date: "desc" },
-    select: { date: true },
+    select: { date: true, decisionAudit: true },
   });
-  const latestDate = latestAssessment?.date ?? getTodayForDB();
+  const latestDate = latestSummary?.date ?? getTodayForDB();
   const latestDateLabel = dayjs(latestDate).format("M月D日");
 
+  // decisionAudit を型付きで取得
+  type DecisionAuditData = {
+    scoringSummary: {
+      totalScored: number;
+      aiApproved: number;
+      rankBreakdown: Record<string, number>;
+    };
+    marketHalt: {
+      wasHalted: boolean;
+      sentiment: string;
+      nikkeiChange: number | null;
+      totalScored: number;
+      risingCount: number;
+      risingRate: number | null;
+    } | null;
+    aiRejection: {
+      total: number;
+      correctlyRejected: number;
+      falselyRejected: number;
+      accuracy: number | null;
+    };
+    scoreThreshold: {
+      total: number;
+      rising: number;
+      avgRisingPct: number | null;
+    };
+    confusionMatrix: {
+      tp: number;
+      fp: number;
+      fn: number;
+      tn: number;
+      precision: number | null;
+      recall: number | null;
+      f1: number | null;
+    };
+    byRank: Record<string, {
+      tp: number;
+      fp: number;
+      fn: number;
+      tn: number;
+      precision: number | null;
+    }>;
+    fpAnalysis: Array<{
+      tickerCode: string;
+      score: number;
+      rank: string;
+      profitPct: number;
+      misjudgmentType: string;
+    }>;
+    overallVerdict: string;
+  };
+  const audit = latestSummary?.decisionAudit
+    ? (latestSummary.decisionAudit as unknown as DecisionAuditData)
+    : null;
+
   const [
-    todayAssessment,
-    todayCandidates,
     missedStocks,
-    recentBonusRecords,
-    allHaltedRecords,
-    todaySummary,
+    fpStocks,
+    highScoreTrendRecords,
   ] = await Promise.all([
-    prisma.marketAssessment.findUnique({ where: { date: latestDate } }),
-    // 最新日の上昇確認銘柄: scoring-accuracy 後に ghostProfitPct > 0 のもののみ表示
+    // FN: 全棄却理由で上昇した銘柄（直近30件）
     prisma.scoringRecord.findMany({
       where: {
-        date: latestDate,
-        rejectionReason: "market_halted",
-        entryPrice: { not: null },
-        ghostProfitPct: { gt: 0 },
-      },
-      orderBy: { ghostProfitPct: "desc" },
-    }),
-    // 見逃し銘柄: AI却下 or スコア不足だが上がった銘柄（直近30件）
-    prisma.scoringRecord.findMany({
-      where: {
-        rejectionReason: { in: ["ai_no_go", "below_threshold"] },
+        rejectionReason: { not: null },
         ghostProfitPct: { gt: 0 },
         closingPrice: { not: null },
         entryPrice: { not: null },
@@ -68,19 +112,29 @@ app.get("/", async (c) => {
       orderBy: { date: "desc" },
       take: 30,
     }),
-    prisma.scoringRecord.findMany({
-      where: { contrarianBonus: { gt: 0 } },
-      orderBy: { date: "desc" },
-      take: 50,
-    }),
-    // ランキング用: market_halted 銘柄のみ（逆行実績ランキング）
+    // FP: 承認したが下落した銘柄（直近30件）
+    // 注: rejectionReason IS NULL で承認済みを判定（aiDecision は使わない — spec準拠）
     prisma.scoringRecord.findMany({
       where: {
-        rejectionReason: "market_halted",
+        rejectionReason: null,
+        ghostProfitPct: { lt: 0 },
+        closingPrice: { not: null },
+      },
+      orderBy: { date: "desc" },
+      take: 30,
+    }),
+    // 傾向分析: Bランク以上で購入しなかった全銘柄
+    // 注: 現行は nextDayProfitPct を select に含めていたが、翌日継続率を削除するため除外
+    prisma.scoringRecord.findMany({
+      where: {
+        rejectionReason: { not: null },
+        totalScore: { gte: SCORING.THRESHOLDS.B_RANK },
+        closingPrice: { not: null },
         date: { gte: since90 },
       },
       select: {
         tickerCode: true,
+        date: true,
         ghostProfitPct: true,
         totalScore: true,
         trendQualityScore: true,
@@ -88,137 +142,20 @@ app.get("/", async (c) => {
         riskQualityScore: true,
         rank: true,
         closingPrice: true,
+        rejectionReason: true,
       },
     }),
-    prisma.tradingDailySummary.findUnique({ where: { date: latestDate } }),
   ]);
 
-  // 傾向分析用: Bランク以上で購入しなかった全銘柄（ランク妥当性検証のため広めに取得）
-  const highScoreTrendRecords = await prisma.scoringRecord.findMany({
-    where: {
-      rejectionReason: { not: null },
-      totalScore: { gte: SCORING.THRESHOLDS.B_RANK },
-      closingPrice: { not: null },
-      date: { gte: since90 },
-    },
-    select: {
-      tickerCode: true,
-      date: true,
-      ghostProfitPct: true,
-      nextDayProfitPct: true,
-      totalScore: true,
-      trendQualityScore: true,
-      entryTimingScore: true,
-      riskQualityScore: true,
-      rank: true,
-      closingPrice: true,
-      rejectionReason: true,
-    },
-  });
-
-  // 低スコア上昇銘柄: 精度追跡下限(60点)以上80点未満で ghostProfitPct > 0
-  const lowScoreWinners = await prisma.scoringRecord.findMany({
-    where: {
-      rejectionReason: { not: null },
-      totalScore: { gte: SCORING_ACCURACY.MIN_SCORE_FOR_TRACKING, lt: 80 },
-      closingPrice: { not: null },
-      ghostProfitPct: { gt: 0 },
-      date: { gte: since90 },
-    },
-    select: {
-      tickerCode: true,
-      date: true,
-      ghostProfitPct: true,
-      totalScore: true,
-      trendQualityScore: true,
-      entryTimingScore: true,
-      riskQualityScore: true,
-      rank: true,
-      rejectionReason: true,
-    },
-    orderBy: { ghostProfitPct: "desc" },
-  });
-
-  // ベースライン比較用: 低スコア上昇銘柄の日付に対応する日経変化率を取得
-  const lowScoreDates = [...new Set(lowScoreWinners.map((r) => r.date.toISOString()))];
-  const marketAssessments = lowScoreDates.length > 0
-    ? await prisma.marketAssessment.findMany({
-        where: { date: { in: lowScoreWinners.map((r) => r.date) } },
-        select: { date: true, nikkeiChange: true },
-      })
-    : [];
-  const nikkeiChangeMap = new Map(
-    marketAssessments
-      .filter((a) => a.nikkeiChange != null)
-      .map((a) => [a.date.toISOString(), Number(a.nikkeiChange)]),
-  );
-  // 低スコア上昇銘柄の日付の日経平均変化率（ベースライン）
-  const baselineNikkeiAvg = lowScoreWinners.length > 0
-    ? (() => {
-        const changes = lowScoreWinners
-          .map((r) => nikkeiChangeMap.get(r.date.toISOString()))
-          .filter((v): v is number => v != null);
-        return changes.length > 0
-          ? changes.reduce((s, v) => s + v, 0) / changes.length
-          : null;
-      })()
-    : null;
-
   // 傾向分析用: Stock テーブルからセクター情報を一括取得（N+1 回避）
-  const trendTickers = [
-    ...new Set([
-      ...highScoreTrendRecords.map((r) => r.tickerCode),
-      ...lowScoreWinners.map((r) => r.tickerCode),
-    ]),
-  ];
+  const trendTickers = [...new Set(highScoreTrendRecords.map((r) => r.tickerCode))];
   const stocksForTrend = await prisma.stock.findMany({
     where: { tickerCode: { in: trendTickers } },
     select: { tickerCode: true, jpxSectorName: true, sector: true },
   });
   const sectorMap = new Map(stocksForTrend.map((s) => [s.tickerCode, s.jpxSectorName ?? s.sector]));
 
-  const isNoTradeDay = todayAssessment?.shouldTrade === false;
-
-  // --- セクション2: 逆行実績ランキング集計 ---
-  const buckets = new Map<
-    string,
-    { wins: number; totalDays: number; profitSum: number; scoreSum: number }
-  >();
-
-  for (const r of allHaltedRecords) {
-    const pct = r.ghostProfitPct != null ? Number(r.ghostProfitPct) : null;
-    let bucket = buckets.get(r.tickerCode);
-    if (!bucket) {
-      bucket = { wins: 0, totalDays: 0, profitSum: 0, scoreSum: 0 };
-      buckets.set(r.tickerCode, bucket);
-    }
-    bucket.totalDays++;
-    bucket.scoreSum += r.totalScore;
-    if (pct != null && pct >= CONTRARIAN.MIN_PROFIT_PCT) {
-      bucket.wins++;
-      bucket.profitSum += pct;
-    }
-  }
-
-  const ranking = [...buckets.entries()]
-    .map(([ticker, b]) => ({
-      tickerCode: ticker,
-      wins: b.wins,
-      totalDays: b.totalDays,
-      winRate: b.wins > 0 ? Math.round((b.wins / b.totalDays) * 100) : null,
-      avgProfitPct: b.wins > 0 ? b.profitSum / b.wins : null,
-      avgScore: Math.round(b.scoreSum / b.totalDays),
-      bonus: calculateContrarianBonus(b.wins, b.totalDays),
-    }))
-    .sort(
-      (a, b) =>
-        b.wins - a.wins ||
-        (b.avgProfitPct ?? 0) - (a.avgProfitPct ?? 0) ||
-        b.avgScore - a.avgScore,
-    )
-    .slice(0, 30);
-
-  // --- セクション5: 傾向分析 ---
+  // --- 傾向分析 ---
   // スコア80点以上・購入しなかった全銘柄（closingPrice は既にフィルタ済み）
   const analyzedRecords = highScoreTrendRecords;
   const winners = analyzedRecords.filter(
@@ -244,16 +181,6 @@ app.get("/", async (c) => {
         records.length
       : null;
 
-  // 翌日継続: winners のうち nextDayProfitPct > 0 の件数
-  const winnersWithNextDay = winners.filter((r) => r.nextDayProfitPct != null);
-  const nextDayContinued = winnersWithNextDay.filter(
-    (r) => Number(r.nextDayProfitPct) > 0,
-  );
-  const nextDayContinuationRate =
-    winnersWithNextDay.length >= 5
-      ? Math.round((nextDayContinued.length / winnersWithNextDay.length) * 100)
-      : null;
-
   const trendSummary = {
     analyzed: analyzedRecords.length,
     winners: winners.length,
@@ -268,8 +195,6 @@ app.get("/", async (c) => {
     loserAvgRisk: avgOf(losers, "riskQualityScore"),
     winnerAvgPct: avgPct(winners),
     loserAvgPct: avgPct(losers),
-    nextDayContinuationRate,
-    nextDaySampleSize: winnersWithNextDay.length,
   };
 
   // セクター分布集計
@@ -317,74 +242,6 @@ app.get("/", async (c) => {
       rankDist[rank].wins++;
     }
   }
-
-  // 低スコア上昇銘柄のセクター集計
-  interface LowScoreSectorBucket { count: number; profitSum: number }
-  const lowScoreSectorBuckets = new Map<string, LowScoreSectorBucket>();
-  for (const r of lowScoreWinners) {
-    const jpxSector = sectorMap.get(r.tickerCode);
-    const sector = getSectorGroup(jpxSector ?? null) ?? "その他";
-    let b = lowScoreSectorBuckets.get(sector);
-    if (!b) {
-      b = { count: 0, profitSum: 0 };
-      lowScoreSectorBuckets.set(sector, b);
-    }
-    b.count++;
-    b.profitSum += Number(r.ghostProfitPct);
-  }
-  const lowScoreSectorStats = [...lowScoreSectorBuckets.entries()]
-    .map(([sector, b]) => ({
-      sector,
-      count: b.count,
-      avgProfitPct: b.profitSum / b.count,
-    }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 8);
-
-  const lowScoreAvgTrend =
-    lowScoreWinners.length > 0
-      ? Math.round(lowScoreWinners.reduce((s, r) => s + r.trendQualityScore, 0) / lowScoreWinners.length)
-      : null;
-  const lowScoreAvgEntry =
-    lowScoreWinners.length > 0
-      ? Math.round(lowScoreWinners.reduce((s, r) => s + r.entryTimingScore, 0) / lowScoreWinners.length)
-      : null;
-  const lowScoreAvgRisk =
-    lowScoreWinners.length > 0
-      ? Math.round(lowScoreWinners.reduce((s, r) => s + r.riskQualityScore, 0) / lowScoreWinners.length)
-      : null;
-  const lowScoreAvgPct =
-    lowScoreWinners.length > 0
-      ? lowScoreWinners.reduce((s, r) => s + Number(r.ghostProfitPct), 0) / lowScoreWinners.length
-      : null;
-
-  // decisionAudit を型付きで取得
-  type DecisionAuditData = {
-    marketHalt: {
-      wasHalted: boolean;
-      sentiment: string;
-      nikkeiChange: number | null;
-      totalScored: number;
-      risingCount: number;
-      risingRate: number | null;
-    } | null;
-    aiRejection: {
-      total: number;
-      correctlyRejected: number;
-      falselyRejected: number;
-      accuracy: number | null;
-    };
-    scoreThreshold: {
-      total: number;
-      rising: number;
-      avgRisingPct: number | null;
-    };
-    overallVerdict: string;
-  };
-  const audit =
-    todaySummary?.decisionAudit != null
-      ? (todaySummary.decisionAudit as unknown as DecisionAuditData)
-      : null;
 
   const content = html`
     <!-- セクション0: 判断整合性 -->
