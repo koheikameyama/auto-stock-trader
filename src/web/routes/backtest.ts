@@ -28,7 +28,7 @@ app.get("/", async (c) => {
 
   const conditionCount = DAILY_BACKTEST.PARAMETER_CONDITIONS.length;
 
-  const [latestResults, trendData, conditionKeys] = await Promise.all([
+  const [latestResults, trendData] = await Promise.all([
     // 最新日の結果（全条件）
     prisma.backtestDailyResult.findMany({
       orderBy: { date: "desc" },
@@ -48,19 +48,18 @@ app.get("/", async (c) => {
         totalTrades: true,
       },
     }),
-    // 条件キー一覧（モンテカルロ用）
-    prisma.backtestDailyResult.findMany({
-      orderBy: { date: "desc" },
-      take: conditionCount,
-      distinct: ["conditionKey"],
-      select: { conditionKey: true, conditionLabel: true },
-    }),
   ]);
 
   const latestDate =
     latestResults.length > 0
       ? dayjs(latestResults[0].date).format("YYYY/M/D")
       : null;
+
+  // 条件キー一覧（モンテカルロ用、latestResultsから導出）
+  const conditionKeys = latestResults.map((r) => ({
+    conditionKey: r.conditionKey,
+    conditionLabel: r.conditionLabel,
+  }));
 
   // 条件定義順にソート
   const conditionOrder = DAILY_BACKTEST.PARAMETER_CONDITIONS.map((c) => c.key);
@@ -364,7 +363,6 @@ app.get("/", async (c) => {
 
           var finalEq = data.finalEquityPercentiles.p50;
           var budget = Number(document.getElementById('mc-budget').value);
-          var retPct = ((finalEq - budget) / budget * 100).toFixed(1);
           var fEl = document.getElementById('mc-final-eq');
           fEl.textContent = '¥' + finalEq.toLocaleString('ja-JP');
           fEl.style.color = finalEq >= budget ? '#22c55e' : '#ef4444';
@@ -375,7 +373,7 @@ app.get("/", async (c) => {
             ['10%', data.thresholdBreachRates.dd10],
             ['20%', data.thresholdBreachRates.dd20],
             ['30%', data.thresholdBreachRates.dd30],
-            ['50% (=破産)', data.thresholdBreachRates.dd50],
+            ['50%' + (Number(document.getElementById('mc-ruin').value) === 50 ? ' (=破産)' : ''), data.thresholdBreachRates.dd50],
           ].map(function(row) {
             return '<tr><td>' + row[0] + '</td><td>' + (row[1] * 100).toFixed(1) + '%</td></tr>';
           }).join('');
@@ -481,7 +479,10 @@ app.post("/api/monte-carlo", async (c) => {
   }>();
 
   const conditionKey = body.conditionKey ?? "baseline";
-  const initialBudget = body.initialBudget ?? 300000;
+  const initialBudget = Math.min(
+    Math.max(body.initialBudget ?? 300000, 100000),
+    10_000_000,
+  );
   const numPaths = Math.min(Math.max(body.numPaths ?? 10000, 1000), 100000);
   const tradesPerPath = Math.min(
     Math.max(body.tradesPerPath ?? 1000, 100),
@@ -497,7 +498,7 @@ app.post("/api/monte-carlo", async (c) => {
   );
 
   // パラメータ上限チェック
-  if (numPaths * tradesPerPath > 500_000_000) {
+  if (numPaths * tradesPerPath >= 500_000_000) {
     return c.json(
       { error: "パラメータが大きすぎます。パス数またはトレード数を減らしてください" },
       400,
