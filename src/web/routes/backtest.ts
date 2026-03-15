@@ -8,12 +8,17 @@ import dayjs from "dayjs";
 import { prisma } from "../../lib/prisma";
 import { DAILY_BACKTEST } from "../../lib/constants";
 import { layout } from "../views/layout";
+import { COLORS } from "../views/styles";
 import {
   formatYen,
   pnlPercent,
   emptyState,
   tt,
 } from "../views/components";
+import {
+  runMonteCarloSimulation,
+  type MonteCarloConfig,
+} from "../../core/monte-carlo";
 
 const app = new Hono();
 
@@ -49,6 +54,12 @@ app.get("/", async (c) => {
     latestResults.length > 0
       ? dayjs(latestResults[0].date).format("YYYY/M/D")
       : null;
+
+  // 条件キー一覧（モンテカルロ用、latestResultsから導出）
+  const conditionKeys = latestResults.map((r) => ({
+    conditionKey: r.conditionKey,
+    conditionLabel: r.conditionLabel,
+  }));
 
   // 条件定義順にソート
   const conditionOrder = DAILY_BACKTEST.PARAMETER_CONDITIONS.map((c) => c.key);
@@ -171,6 +182,94 @@ app.get("/", async (c) => {
         `
       : html`<div class="card">${emptyState("履歴なし")}</div>`}
 
+    <!-- モンテカルロシミュレーション -->
+    <p class="section-title">モンテカルロシミュレーション（破産確率）</p>
+    <div class="card" style="padding:16px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:12px">
+        <label style="font-size:12px;color:${COLORS.textDim}">
+          条件
+          <select id="mc-condition" style="width:100%;margin-top:4px;padding:6px;background:${COLORS.bg};color:${COLORS.text};border:1px solid ${COLORS.border};border-radius:6px">
+            ${conditionKeys.map(
+              (k) =>
+                html`<option value="${k.conditionKey}" ${k.conditionKey === "baseline" ? "selected" : ""}>
+                  ${k.conditionLabel}
+                </option>`,
+            )}
+          </select>
+        </label>
+        <label style="font-size:12px;color:${COLORS.textDim}">
+          初期資金
+          <input id="mc-budget" type="number" value="300000" min="100000" max="10000000" step="100000"
+            style="width:100%;margin-top:4px;padding:6px;background:${COLORS.bg};color:${COLORS.text};border:1px solid ${COLORS.border};border-radius:6px" />
+        </label>
+        <label style="font-size:12px;color:${COLORS.textDim}">
+          パス数
+          <input id="mc-paths" type="number" value="10000" min="1000" max="100000" step="1000"
+            style="width:100%;margin-top:4px;padding:6px;background:${COLORS.bg};color:${COLORS.text};border:1px solid ${COLORS.border};border-radius:6px" />
+        </label>
+        <label style="font-size:12px;color:${COLORS.textDim}">
+          トレード数
+          <input id="mc-trades" type="number" value="1000" min="100" max="5000" step="100"
+            style="width:100%;margin-top:4px;padding:6px;background:${COLORS.bg};color:${COLORS.text};border:1px solid ${COLORS.border};border-radius:6px" />
+        </label>
+        <label style="font-size:12px;color:${COLORS.textDim}">
+          破産閾値(%)
+          <input id="mc-ruin" type="number" value="50" min="10" max="90" step="5"
+            style="width:100%;margin-top:4px;padding:6px;background:${COLORS.bg};color:${COLORS.text};border:1px solid ${COLORS.border};border-radius:6px" />
+        </label>
+        <label style="font-size:12px;color:${COLORS.textDim}">
+          リスク率(%)
+          <input id="mc-risk" type="number" value="2" min="0.5" max="5" step="0.5"
+            style="width:100%;margin-top:4px;padding:6px;background:${COLORS.bg};color:${COLORS.text};border:1px solid ${COLORS.border};border-radius:6px" />
+        </label>
+      </div>
+      <button id="mc-run" onclick="runMonteCarlo()"
+        style="padding:8px 20px;background:${COLORS.accent};color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">
+        シミュレーション実行
+      </button>
+
+      <!-- 結果エリア（初期は非表示） -->
+      <div id="mc-results" style="display:none;margin-top:16px">
+        <!-- サマリカード -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+          <div style="text-align:center;padding:12px;background:${COLORS.bg};border-radius:8px;border:1px solid ${COLORS.border}">
+            <div style="font-size:11px;color:${COLORS.textDim}">破産確率</div>
+            <div id="mc-ruin-prob" style="font-size:24px;font-weight:700;margin-top:4px">-</div>
+          </div>
+          <div style="text-align:center;padding:12px;background:${COLORS.bg};border-radius:8px;border:1px solid ${COLORS.border}">
+            <div style="font-size:11px;color:${COLORS.textDim}">最大DD(95%)</div>
+            <div id="mc-max-dd" style="font-size:24px;font-weight:700;margin-top:4px;color:${COLORS.loss}">-</div>
+          </div>
+          <div style="text-align:center;padding:12px;background:${COLORS.bg};border-radius:8px;border:1px solid ${COLORS.border}">
+            <div style="font-size:11px;color:${COLORS.textDim}">最終資産中央値</div>
+            <div id="mc-final-eq" style="font-size:24px;font-weight:700;margin-top:4px">-</div>
+          </div>
+        </div>
+
+        <!-- DD到達率テーブル -->
+        <div class="table-wrap" style="margin-bottom:16px">
+          <table>
+            <thead><tr><th>ドローダウン</th><th>到達確率</th></tr></thead>
+            <tbody id="mc-dd-table"></tbody>
+          </table>
+        </div>
+
+        <!-- ファンチャート -->
+        <div id="mc-chart" style="margin-bottom:16px"></div>
+
+        <!-- 入力データ -->
+        <div id="mc-input-stats" style="font-size:12px;color:${COLORS.textDim}"></div>
+      </div>
+
+      <!-- ローディング -->
+      <div id="mc-loading" style="display:none;text-align:center;padding:24px;color:${COLORS.textDim}">
+        シミュレーション実行中...
+      </div>
+
+      <!-- エラー -->
+      <div id="mc-error" style="display:none;padding:12px;color:${COLORS.loss};background:rgba(239,68,68,0.1);border-radius:8px;margin-top:12px"></div>
+    </div>
+
     <!-- 詳細モーダル -->
     <div id="backtest-detail-modal"></div>
 
@@ -212,6 +311,152 @@ app.get("/", async (c) => {
         document.getElementById('backtest-detail-modal').innerHTML = '';
       }
 
+      // --- モンテカルロシミュレーション ---
+      async function runMonteCarlo() {
+        var results = document.getElementById('mc-results');
+        var loading = document.getElementById('mc-loading');
+        var errorEl = document.getElementById('mc-error');
+        var btn = document.getElementById('mc-run');
+
+        results.style.display = 'none';
+        errorEl.style.display = 'none';
+        loading.style.display = 'block';
+        btn.disabled = true;
+
+        try {
+          var resp = await fetch('/backtest/api/monte-carlo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              conditionKey: document.getElementById('mc-condition').value,
+              initialBudget: Number(document.getElementById('mc-budget').value),
+              numPaths: Number(document.getElementById('mc-paths').value),
+              tradesPerPath: Number(document.getElementById('mc-trades').value),
+              ruinThreshold: Number(document.getElementById('mc-ruin').value),
+              riskPerTrade: Number(document.getElementById('mc-risk').value),
+            }),
+          });
+
+          var data = await resp.json();
+
+          if (!resp.ok) {
+            errorEl.textContent = data.error || 'エラーが発生しました';
+            errorEl.style.display = 'block';
+            return;
+          }
+
+          // サマリ更新
+          var ruinPct = (data.ruinProbability * 100).toFixed(1);
+          var ruinEl = document.getElementById('mc-ruin-prob');
+          ruinEl.textContent = ruinPct + '%';
+          if (data.ruinProbability < 0.01) {
+            ruinEl.style.color = '#22c55e';
+          } else if (data.ruinProbability < 0.05) {
+            ruinEl.style.color = '#3b82f6';
+          } else if (data.ruinProbability < 0.10) {
+            ruinEl.style.color = '#f59e0b';
+          } else {
+            ruinEl.style.color = '#ef4444';
+          }
+
+          document.getElementById('mc-max-dd').textContent = '-' + data.maxDrawdownPercentiles.p95 + '%';
+
+          var finalEq = data.finalEquityPercentiles.p50;
+          var budget = Number(document.getElementById('mc-budget').value);
+          var fEl = document.getElementById('mc-final-eq');
+          fEl.textContent = '¥' + finalEq.toLocaleString('ja-JP');
+          fEl.style.color = finalEq >= budget ? '#22c55e' : '#ef4444';
+
+          // DD到達率テーブル
+          var tbody = document.getElementById('mc-dd-table');
+          tbody.innerHTML = [
+            ['10%', data.thresholdBreachRates.dd10],
+            ['20%', data.thresholdBreachRates.dd20],
+            ['30%', data.thresholdBreachRates.dd30],
+            ['50%' + (Number(document.getElementById('mc-ruin').value) === 50 ? ' (=破産)' : ''), data.thresholdBreachRates.dd50],
+          ].map(function(row) {
+            return '<tr><td>' + row[0] + '</td><td>' + (row[1] * 100).toFixed(1) + '%</td></tr>';
+          }).join('');
+
+          // ファンチャート描画
+          drawFanChart(data, budget);
+
+          // 入力データ
+          var s = data.inputStats;
+          document.getElementById('mc-input-stats').textContent =
+            '入力: 勝率' + s.winRate + '% / 平均利益+' + s.avgWinPct.toFixed(2) + '% / 平均損失' + s.avgLossPct.toFixed(2) + '% / サンプル' + s.totalTrades + 'トレード / 期待値' + s.expectancy.toFixed(2) + '%';
+
+          results.style.display = 'block';
+        } catch (e) {
+          errorEl.textContent = 'ネットワークエラーが発生しました';
+          errorEl.style.display = 'block';
+        } finally {
+          loading.style.display = 'none';
+          btn.disabled = false;
+        }
+      }
+
+      function drawFanChart(data, budget) {
+        var container = document.getElementById('mc-chart');
+        var W = 640, H = 280;
+        var pad = { top: 20, right: 20, bottom: 30, left: 60 };
+        var cw = W - pad.left - pad.right;
+        var ch = H - pad.top - pad.bottom;
+
+        var curves = data.equityCurves;
+        var len = curves.p50.length;
+
+        // Y軸範囲
+        var allVals = curves.p5.concat(curves.p95);
+        var minY = Math.min.apply(null, allVals.concat([0]));
+        var maxY = Math.max.apply(null, allVals);
+        var rangeY = maxY - minY || 1;
+
+        function x(i) { return pad.left + (i / (len - 1)) * cw; }
+        function y(v) { return pad.top + ch - ((v - minY) / rangeY) * ch; }
+
+        // SVGパスを生成
+        function pathD(arr) {
+          return arr.map(function(v, i) {
+            return (i === 0 ? 'M' : 'L') + x(i).toFixed(1) + ',' + y(v).toFixed(1);
+          }).join(' ');
+        }
+
+        // 帯（area）を生成
+        function areaD(upper, lower) {
+          var fwd = upper.map(function(v, i) { return x(i).toFixed(1) + ',' + y(v).toFixed(1); });
+          var rev = lower.slice().reverse().map(function(v, i) {
+            var idx = lower.length - 1 - i;
+            return x(idx).toFixed(1) + ',' + y(v).toFixed(1);
+          });
+          return 'M' + fwd.join(' L') + ' L' + rev.join(' L') + ' Z';
+        }
+
+        var ruinLevel = budget * (1 - Number(document.getElementById('mc-ruin').value) / 100);
+
+        var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;max-width:' + W + 'px">'
+          // p5-p95 帯
+          + '<path d="' + areaD(curves.p95, curves.p5) + '" fill="#3b82f6" fill-opacity="0.12" />'
+          // p25-p75 帯
+          + '<path d="' + areaD(curves.p75, curves.p25) + '" fill="#3b82f6" fill-opacity="0.25" />'
+          // p50 中央線
+          + '<path d="' + pathD(curves.p50) + '" fill="none" stroke="#3b82f6" stroke-width="2" />'
+          // 破産ライン
+          + '<line x1="' + pad.left + '" y1="' + y(ruinLevel).toFixed(1) + '" x2="' + (W - pad.right) + '" y2="' + y(ruinLevel).toFixed(1) + '" stroke="#ef4444" stroke-dasharray="6,4" stroke-width="1" />'
+          + '<text x="' + (W - pad.right - 4) + '" y="' + (y(ruinLevel) - 4).toFixed(1) + '" text-anchor="end" fill="#ef4444" font-size="9">破産ライン</text>'
+          // 初期資金ライン
+          + '<line x1="' + pad.left + '" y1="' + y(budget).toFixed(1) + '" x2="' + (W - pad.right) + '" y2="' + y(budget).toFixed(1) + '" stroke="#334155" stroke-dasharray="4" stroke-width="1" />'
+          // Y軸ラベル
+          + '<text x="' + (pad.left - 4) + '" y="' + (pad.top + 4) + '" text-anchor="end" fill="#64748b" font-size="9">¥' + maxY.toLocaleString('ja-JP') + '</text>'
+          + '<text x="' + (pad.left - 4) + '" y="' + (pad.top + ch + 4) + '" text-anchor="end" fill="#64748b" font-size="9">¥' + Math.max(0, minY).toLocaleString('ja-JP') + '</text>'
+          // X軸ラベル
+          + '<text x="' + pad.left + '" y="' + (H - 4) + '" text-anchor="start" fill="#64748b" font-size="9">0</text>'
+          + '<text x="' + (W - pad.right) + '" y="' + (H - 4) + '" text-anchor="end" fill="#64748b" font-size="9">' + (len - 1) + ' trades</text>'
+          + '</svg>';
+
+        container.innerHTML = svg;
+      }
+
       document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape' && document.querySelector('#backtest-detail-modal .modal-overlay')) {
           closeBacktestDetail();
@@ -221,6 +466,92 @@ app.get("/", async (c) => {
   `;
 
   return c.html(layout("バックテスト", "/backtest", content));
+});
+
+app.post("/api/monte-carlo", async (c) => {
+  const body = await c.req.json<{
+    conditionKey?: string;
+    initialBudget?: number;
+    numPaths?: number;
+    tradesPerPath?: number;
+    ruinThreshold?: number;
+    riskPerTrade?: number;
+  }>();
+
+  const conditionKey = body.conditionKey ?? "baseline";
+  const initialBudget = Math.min(
+    Math.max(body.initialBudget ?? 300000, 100000),
+    10_000_000,
+  );
+  const numPaths = Math.min(Math.max(body.numPaths ?? 10000, 1000), 100000);
+  const tradesPerPath = Math.min(
+    Math.max(body.tradesPerPath ?? 1000, 100),
+    5000,
+  );
+  const ruinThreshold = Math.min(
+    Math.max(body.ruinThreshold ?? 50, 10),
+    90,
+  );
+  const riskPerTrade = Math.min(
+    Math.max(body.riskPerTrade ?? 2, 0.5),
+    5,
+  );
+
+  // パラメータ上限チェック
+  if (numPaths * tradesPerPath >= 500_000_000) {
+    return c.json(
+      { error: "パラメータが大きすぎます。パス数またはトレード数を減らしてください" },
+      400,
+    );
+  }
+
+  // 最新のバックテスト結果を取得
+  const latest = await prisma.backtestDailyResult.findFirst({
+    where: { conditionKey },
+    orderBy: { date: "desc" },
+    select: { fullResult: true },
+  });
+
+  if (!latest) {
+    return c.json(
+      { error: "指定された条件キーが見つかりません" },
+      400,
+    );
+  }
+
+  const fullResult = latest.fullResult as Record<string, unknown> | null;
+  const tradeReturns = fullResult?.tradeReturns as number[] | undefined;
+
+  if (!tradeReturns || !Array.isArray(tradeReturns)) {
+    return c.json(
+      { error: "トレードデータがありません。バックテストを再実行してください" },
+      400,
+    );
+  }
+
+  if (tradeReturns.length < 30) {
+    return c.json(
+      { error: "統計的に有意なシミュレーションには最低30トレードが必要です" },
+      400,
+    );
+  }
+
+  // avgStopLossPct = abs(avgLossPct)
+  const avgLossPct = (fullResult?.avgLossPct as number) ?? 0;
+  const avgStopLossPct = Math.abs(avgLossPct) || 3; // フォールバック 3%
+
+  const config: MonteCarloConfig = {
+    tradeReturns,
+    initialBudget,
+    numPaths,
+    tradesPerPath,
+    ruinThresholdPct: ruinThreshold,
+    riskPerTradePct: riskPerTrade,
+    avgStopLossPct,
+  };
+
+  const result = runMonteCarloSimulation(config);
+  return c.json(result);
 });
 
 export default app;
