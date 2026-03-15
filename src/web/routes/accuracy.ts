@@ -462,6 +462,59 @@ app.get("/", async (c) => {
           ${emptyState("見逃し銘柄はまだありません")}
         </div>`}
 
+    <!-- セクション4: FP分析（誤エントリー） -->
+    <p class="section-title">誤エントリー（承認したが下落）</p>
+    ${fpStocks.length > 0
+      ? html`
+          <div class="card table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>日付</th>
+                  <th>銘柄</th>
+                  <th>スコア</th>
+                  <th>ランク</th>
+                  <th>騰落率</th>
+                  <th>${tt("誤判断タイプ", "AI分析による誤判断の分類")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${fpStocks.map((r) => {
+                  const ghost = parseGhostAnalysis(r.ghostAnalysis);
+                  return html`
+                    <tr>
+                      <td>${dayjs(r.date).format("M/D")}</td>
+                      <td>${tickerLink(r.tickerCode)}</td>
+                      <td>${r.totalScore}</td>
+                      <td>${rankBadge(r.rank)}</td>
+                      <td>
+                        ${pnlPercent(Number(r.ghostProfitPct))}
+                        ${ghost ? html`<span class="ghost-toggle" onclick="toggleGhost(this)" style="cursor:pointer;margin-left:4px">💡</span>` : ""}
+                      </td>
+                      <td>
+                        ${ghost?.misjudgmentType
+                          ? html`<span class="badge" style="background:#ef444420;color:#ef4444">${ghost.misjudgmentType}</span>`
+                          : html`<span style="color:#64748b">-</span>`}
+                      </td>
+                    </tr>
+                    ${ghost ? html`
+                      <tr class="ghost-detail" style="display:none">
+                        <td colspan="6" style="background:#1e293b;padding:0.75rem;font-size:0.82rem;line-height:1.6">
+                          <p style="margin:0 0 0.5rem;color:#cbd5e1">${ghost.analysis}</p>
+                          ${ghost.recommendation ? html`<p style="margin:0;color:#94a3b8"><strong>改善提案:</strong> ${ghost.recommendation}</p>` : ""}
+                        </td>
+                      </tr>
+                    ` : ""}
+                  `;
+                })}
+              </tbody>
+            </table>
+          </div>
+        `
+      : html`<div class="card">
+          ${emptyState("誤エントリーはまだありません")}
+        </div>`}
+
     <!-- セクション3: 逆行実績ランキング -->
     <p class="section-title">
       逆行実績ランキング（過去${CONTRARIAN.LOOKBACK_DAYS}日）
@@ -876,6 +929,16 @@ app.get("/", async (c) => {
                 </div>
               `}
         `}
+
+    <script>
+    function toggleGhost(el) {
+      var row = el.closest('tr');
+      var detail = row.nextElementSibling;
+      if (detail && detail.classList.contains('ghost-detail')) {
+        detail.style.display = detail.style.display === 'none' ? '' : 'none';
+      }
+    }
+    </script>
   `;
 
   return c.html(layout("精度分析", "/accuracy", content));
