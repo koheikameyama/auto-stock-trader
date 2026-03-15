@@ -8,7 +8,7 @@
  * 4. shouldTrade = true → 銘柄選定
  *    a. 対象銘柄のヒストリカルデータ取得
  *    b. テクニカル分析
- *    c. 3カテゴリスコアリング（0-100）→ 上位10-20銘柄に絞り込み
+ *    c. 4カテゴリスコアリング（0-100）→ 上位10-20銘柄に絞り込み
  *    d. AIレビュー（Go/No-Go）
  *    e. MarketAssessment に結果を保存
  *    f. Slackに候補銘柄通知
@@ -30,6 +30,7 @@ import {
   STRATEGY_SWITCHING,
   getSectorGroup,
 } from "../lib/constants";
+import { SECTOR_MOMENTUM_SCORING } from "../lib/constants/scoring";
 import {
   fetchMarketData,
   fetchHistoricalData,
@@ -443,6 +444,14 @@ ${sectorText || "  特になし"}`;
 
   console.log(`  スクリーニング通過: ${candidates.length}銘柄`);
 
+  // セクターモメンタムを事前計算（スコアリングで使用）
+  const nikkeiWeekChange = marketData.nikkei.changePercent;
+  const sectorMomentum = await calculateSectorMomentum(nikkeiWeekChange);
+  const sectorMomentumMap = new Map(
+    sectorMomentum.map((s) => [s.sectorGroup, s]),
+  );
+  // sectorMomentum 配列はAI審判コンテキスト（.find()）で引き続き使用
+
   // テクニカル分析 + スコアリング（並列、バッチ制御）
   const limit = pLimit(JOB_CONCURRENCY.MARKET_SCANNER);
   const scoredCandidates: ScoredCandidate[] = [];
@@ -464,7 +473,15 @@ ${sectorText || "  特になし"}`;
             // テクニカル分析
             const summary = analyzeTechnicals(historical);
 
-            // スコアリング（3カテゴリ: トレンド品質+エントリータイミング+リスク品質）
+            // セクター相対強度を取得
+            const sectorGroup = getSectorGroup(stock.jpxSectorName);
+            const sectorInfo = sectorGroup ? sectorMomentumMap.get(sectorGroup) : null;
+            const sectorRelativeStrength =
+              sectorInfo && sectorInfo.stockCount >= SECTOR_MOMENTUM_SCORING.MIN_SECTOR_STOCK_COUNT
+                ? sectorInfo.relativeStrength
+                : null;
+
+            // スコアリング（4カテゴリ: トレンド品質+エントリータイミング+リスク品質+セクターモメンタム）
             const score = scoreStock({
               historicalData: historical,
               latestPrice: Number(stock.latestPrice),
@@ -474,6 +491,7 @@ ${sectorText || "  特になし"}`;
               exDividendDate: stock.exDividendDate,
               avgVolume25: summary.volumeAnalysis.avgVolume20,
               summary,
+              sectorRelativeStrength,
             });
 
             return {
@@ -569,46 +587,6 @@ ${sectorText || "  特になし"}`;
     }
   }
 
-  // セクターモメンタムフィルタ（弱セクター銘柄を除外）
-  const nikkeiWeekChange = marketData.nikkei.changePercent;
-  const sectorMomentum = await calculateSectorMomentum(nikkeiWeekChange);
-  const newsSentiment = await getNewsSectorSentiment();
-  const newsNegativeSectors = new Set(
-    newsSentiment.filter((s) => s.isNewsNegative).map((s) => s.sectorGroup),
-  );
-
-  // テクニカル弱 OR ニュース連続ネガティブ → 弱セクター
-  const weakSectors = new Set(
-    sectorMomentum
-      .filter((s) => s.isWeak || newsNegativeSectors.has(s.sectorGroup))
-      .map((s) => s.sectorGroup),
-  );
-
-  if (weakSectors.size > 0) {
-    console.log(`  弱セクター: ${[...weakSectors].join(", ")}`);
-    if (newsNegativeSectors.size > 0) {
-      console.log(`    うちニュース起因: ${[...newsNegativeSectors].join(", ")}`);
-    }
-    const beforeCount = filtered.length;
-    filtered = filtered.filter((c) => {
-      const stock = candidates.find((s) => s.tickerCode === c.tickerCode);
-      const sectorGroup = getSectorGroup(stock?.jpxSectorName ?? null);
-      if (sectorGroup && weakSectors.has(sectorGroup)) {
-        const reason = newsNegativeSectors.has(sectorGroup) && !sectorMomentum.find((s) => s.sectorGroup === sectorGroup)?.isWeak
-          ? "ニュース連続ネガティブ"
-          : "テクニカル弱";
-        console.log(`  弱セクター除外: ${c.tickerCode}（${sectorGroup} / ${reason}）`);
-        return false;
-      }
-      return true;
-    });
-    if (filtered.length < beforeCount) {
-      console.log(
-        `  セクターフィルタ: ${beforeCount} → ${filtered.length}銘柄`,
-      );
-    }
-  }
-
   // 精度追跡: filteredに入らなかったスコア60+の銘柄
   const filteredTickerSet = new Set(filtered.map((c) => c.tickerCode));
   const accuracyTrackingCandidates = qualified.filter(
@@ -664,6 +642,7 @@ ${sectorText || "  特になし"}`;
     trendQualityScore: c.score.trendQuality.total,
     entryTimingScore: c.score.entryTiming.total,
     riskQualityScore: c.score.riskQuality.total,
+    sectorMomentumScore: c.score.sectorMomentumScore,
     trendQualityBreakdown: {
       maAlignment: c.score.trendQuality.maAlignment,
       weeklyTrend: c.score.trendQuality.weeklyTrend,
@@ -715,6 +694,9 @@ ${sectorText || "  特になし"}`;
   } else {
     // === 通常モード: AIレビュー + 結果保存 ===
     console.log("[4/5] AIレビュー中...");
+    // AI審判コンテキスト用（フィルタとしては使わない）
+    const newsSentiment = await getNewsSectorSentiment();
+
     const reviewCandidates: StockReviewCandidateInput[] = filtered.map((c) => {
       const stock = candidates.find((s) => s.tickerCode === c.tickerCode);
       const sectorGroup = getSectorGroup(stock?.jpxSectorName ?? null);
