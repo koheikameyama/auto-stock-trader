@@ -151,10 +151,9 @@ app.get("/", async (c) => {
               <thead>
                 <tr>
                   <th>${tt("条件", "パラメータ条件")}</th>
-                  <th>${tt("勝率", "取引のうち利益が出た割合")}</th>
+                  <th>${tt("期待値", "1トレードあたりの期待収益率(%)。(勝率×平均利益)+(敗率×平均損失)")}</th>
                   <th>${tt("PF", "プロフィットファクター。総利益÷総損失（1超が黒字）")}</th>
                   <th>${tt("リターン", "期間中の総収益率")}</th>
-                  <th>${tt("期待値", "1トレードあたりの期待収益率(%)。(勝率×平均利益)+(敗率×平均損失)")}</th>
                   <th>${tt("RR", "リスクリワード比。平均利益÷平均損失（1.5以上が目標）")}</th>
                   <th></th>
                 </tr>
@@ -168,13 +167,6 @@ app.get("/", async (c) => {
                           ? tt(r.conditionLabel, conditionTooltips[r.conditionKey])
                           : r.conditionLabel}
                       </td>
-                      <td>${Number(r.winRate)}%</td>
-                      <td>
-                        ${Number(r.profitFactor) >= 999
-                          ? "∞"
-                          : Number(r.profitFactor)}
-                      </td>
-                      <td>${pnlPercent(Number(r.totalReturnPct))}</td>
                       <td>${(() => {
                         const fr = r.fullResult as Record<string, unknown> | null;
                         const exp = fr?.expectancy != null ? Number(fr.expectancy) : null;
@@ -182,6 +174,12 @@ app.get("/", async (c) => {
                         const color = exp >= 1.0 ? "#22c55e" : exp >= 0.5 ? "#3b82f6" : exp >= 0 ? "#f59e0b" : "#ef4444";
                         return html`<span style="color:${color}">${exp > 0 ? "+" : ""}${exp.toFixed(2)}%</span>`;
                       })()}</td>
+                      <td>
+                        ${Number(r.profitFactor) >= 999
+                          ? "∞"
+                          : Number(r.profitFactor)}
+                      </td>
+                      <td>${pnlPercent(Number(r.totalReturnPct))}</td>
                       <td>${(() => {
                         const fr = r.fullResult as Record<string, unknown> | null;
                         const rr = fr?.riskRewardRatio != null ? Number(fr.riskRewardRatio) : null;
