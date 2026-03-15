@@ -62,6 +62,11 @@ app.get("/", async (c) => {
   }));
 
   // 条件定義順にソート
+  const conditionTooltips: Record<string, string> = {
+    paper_new: "現行ロジック（ATR1.0ベース損切り＋トレール1.0）で前方追跡",
+    paper_old: "旧ロジック（固定損切り＋トレール2.0）で前方追跡",
+  };
+
   const conditionOrder = DAILY_BACKTEST.PARAMETER_CONDITIONS.map((c) => c.key);
   const sortedLatest = [...latestResults].sort(
     (a, b) =>
@@ -122,7 +127,9 @@ app.get("/", async (c) => {
                   (r) => html`
                     <tr>
                       <td style="font-weight:${r.conditionKey === "baseline" ? "700" : "400"}">
-                        ${r.conditionLabel}
+                        ${conditionTooltips[r.conditionKey]
+                          ? tt(r.conditionLabel, conditionTooltips[r.conditionKey])
+                          : r.conditionLabel}
                       </td>
                       <td>${Number(r.winRate)}%</td>
                       <td>
