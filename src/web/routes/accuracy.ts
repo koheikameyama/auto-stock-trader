@@ -1,11 +1,11 @@
 /**
- * 見送り分析ページ（GET /contrarian）
+ * 精度分析ページ（GET /accuracy）
  *
- * 1. 逆行候補: 市場停止日にスコアリングされた銘柄
- * 2. 見逃し銘柄: 個別にスキップしたが上がった銘柄（ai_no_go / below_threshold）
- * 3. 逆行実績ランキング
- * 4. 逆行ボーナス適用銘柄
- * 5. 傾向分析: 勝ち vs 負け比較 / セクター分布 / スコア内訳
+ * 1. 判断整合性サマリー: Precision/Recall/F1 + 市場停止・AI却下・閾値未達
+ * 2. 4象限詳細: 混同行列 + ランク別精度
+ * 3. FN分析: 棄却したが上昇した銘柄
+ * 4. FP分析: 承認したが下落した銘柄
+ * 5. 傾向分析: 勝ち vs 負け比較 / ランク別勝率 / セクター分布
  */
 
 import { Hono } from "hono";
@@ -515,112 +515,14 @@ app.get("/", async (c) => {
           ${emptyState("誤エントリーはまだありません")}
         </div>`}
 
-    <!-- セクション3: 逆行実績ランキング -->
-    <p class="section-title">
-      逆行実績ランキング（過去${CONTRARIAN.LOOKBACK_DAYS}日）
-    </p>
-    ${ranking.length > 0
-      ? html`
-          <div class="card table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>銘柄</th>
-                  <th>${tt("出現", "市場停止日にスコアリングされた回数")}</th>
-                  <th>平均スコア</th>
-                  <th>${tt("逆行勝ち", "市場停止日に実際に上昇した回数")}</th>
-                  <th>${tt("勝率", "市場停止日の上昇確率")}</th>
-                  <th>平均利益率</th>
-                  <th>${tt("ボーナス", "逆行実績に基づきスコアに加算されるポイント")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${ranking.map(
-                  (r) => html`
-                    <tr>
-                      <td>${tickerLink(r.tickerCode)}</td>
-                      <td>${r.totalDays}回</td>
-                      <td>${r.avgScore}</td>
-                      <td>${r.wins > 0 ? `${r.wins}回` : "-"}</td>
-                      <td>
-                        ${r.winRate != null
-                          ? `${r.winRate}%`
-                          : html`<span style="color:#64748b">未確定</span>`}
-                      </td>
-                      <td>
-                        ${r.avgProfitPct != null
-                          ? pnlPercent(r.avgProfitPct)
-                          : html`<span style="color:#64748b">-</span>`}
-                      </td>
-                      <td>
-                        ${r.bonus > 0
-                          ? html`<span class="pnl-positive"
-                              >+${r.bonus}点</span
-                            >`
-                          : "-"}
-                      </td>
-                    </tr>
-                  `,
-                )}
-              </tbody>
-            </table>
-          </div>
-        `
-      : html`<div class="card">
-          ${emptyState("逆行実績のある銘柄はまだありません")}
-        </div>`}
-
-    <!-- セクション3: 逆行ボーナス適用銘柄 -->
-    <p class="section-title">直近の逆行ボーナス適用銘柄</p>
-    ${recentBonusRecords.length > 0
-      ? html`
-          <div class="card table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>日付</th>
-                  <th>銘柄</th>
-                  <th>ベース</th>
-                  <th>ボーナス</th>
-                  <th>合計</th>
-                  <th>ランク</th>
-                  <th>勝ち数</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${recentBonusRecords.map(
-                  (r) => html`
-                    <tr>
-                      <td>${dayjs(r.date).format("M/D")}</td>
-                      <td>${tickerLink(r.tickerCode)}</td>
-                      <td>${r.totalScore - r.contrarianBonus}</td>
-                      <td>
-                        <span class="pnl-positive"
-                          >+${r.contrarianBonus}</span
-                        >
-                      </td>
-                      <td style="font-weight:600">${r.totalScore}</td>
-                      <td>${rankBadge(r.rank)}</td>
-                      <td>${r.contrarianWins}回</td>
-                    </tr>
-                  `,
-                )}
-              </tbody>
-            </table>
-          </div>
-        `
-      : html`<div class="card">
-          ${emptyState("逆行ボーナスが適用された銘柄はまだありません")}
-        </div>`}
-
     <!-- セクション5: 傾向分析 -->
     <p class="section-title">
-      傾向分析（過去${CONTRARIAN.LOOKBACK_DAYS}日 / スコア80点以上・未購入）
+      傾向分析（過去${CONTRARIAN.LOOKBACK_DAYS}日 / Bランク以上・未購入）
     </p>
     ${trendSummary.analyzed === 0
       ? html`<div class="card">
           ${emptyState(
-            "分析データが蓄積されるまでお待ちください（市場停止日のゴーストレビュー後に表示されます）",
+            "分析データが蓄積されるまでお待ちください",
           )}
         </div>`
       : html`
@@ -643,14 +545,6 @@ app.get("/", async (c) => {
                       ${trendSummary.winnerAvgPct != null
                         ? `+${trendSummary.winnerAvgPct.toFixed(2)}%`
                         : "-"}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="color:#94a3b8">翌日継続率</td>
-                    <td style="font-weight:600;color:${trendSummary.nextDayContinuationRate != null && trendSummary.nextDayContinuationRate >= 50 ? "#22c55e" : "#94a3b8"}">
-                      ${trendSummary.nextDayContinuationRate != null
-                        ? `${trendSummary.nextDayContinuationRate}% (n=${trendSummary.nextDaySampleSize})`
-                        : html`<span style="color:#64748b">データ蓄積中</span>`}
                     </td>
                   </tr>
                   <tr>
@@ -853,81 +747,6 @@ app.get("/", async (c) => {
             </table>
           </div>
 
-          <!-- 低スコア上昇銘柄 -->
-          ${lowScoreWinners.length > 0
-            ? html`
-                <div class="card">
-                  <p style="font-size:0.8rem;color:#94a3b8;margin:0 0 0.75rem">
-                    低スコア上昇銘柄（${SCORING_ACCURACY.MIN_SCORE_FOR_TRACKING}〜79点）— ${lowScoreWinners.length}件
-                    <span style="margin-left:0.5rem;font-size:0.75rem;color:#f59e0b">スコアリングが見逃した上昇パターン</span>
-                  </p>
-                  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.5rem;margin-bottom:0.75rem;font-size:0.85rem">
-                    <div style="text-align:center">
-                      <div style="color:#94a3b8;font-size:0.75rem">平均利益率</div>
-                      <div style="font-weight:700;color:#22c55e">
-                        ${lowScoreAvgPct != null ? `+${lowScoreAvgPct.toFixed(2)}%` : "-"}
-                      </div>
-                    </div>
-                    <div style="text-align:center">
-                      <div style="color:#94a3b8;font-size:0.75rem">日経avg</div>
-                      <div style="font-weight:600;color:#94a3b8">
-                        ${baselineNikkeiAvg != null
-                          ? `${baselineNikkeiAvg >= 0 ? "+" : ""}${baselineNikkeiAvg.toFixed(2)}%`
-                          : "-"}
-                      </div>
-                    </div>
-                    <div style="text-align:center">
-                      <div style="color:#94a3b8;font-size:0.75rem">トレンドavg</div>
-                      <div style="font-weight:600">${lowScoreAvgTrend ?? "-"}</div>
-                    </div>
-                    <div style="text-align:center">
-                      <div style="color:#94a3b8;font-size:0.75rem">エントリーavg</div>
-                      <div style="font-weight:600">${lowScoreAvgEntry ?? "-"}</div>
-                    </div>
-                    <div style="text-align:center">
-                      <div style="color:#94a3b8;font-size:0.75rem">リスクavg</div>
-                      <div style="font-weight:600">${lowScoreAvgRisk ?? "-"}</div>
-                    </div>
-                  </div>
-                  ${baselineNikkeiAvg != null && lowScoreAvgPct != null
-                    ? html`<p style="font-size:0.75rem;color:${lowScoreAvgPct > baselineNikkeiAvg ? "#22c55e" : "#94a3b8"};margin:0 0 0.75rem">
-                        ${lowScoreAvgPct > baselineNikkeiAvg
-                          ? `▲ 日経比 +${(lowScoreAvgPct - baselineNikkeiAvg).toFixed(2)}pt のアルファあり`
-                          : `日経と同等（アルファなし）`}
-                      </p>`
-                    : ""}
-                  <!-- セクター分布 -->
-                  ${lowScoreSectorStats.length > 0
-                    ? html`
-                        <div class="table-wrap">
-                          <table style="font-size:0.82rem">
-                            <thead>
-                              <tr><th>セクター</th><th>件数</th><th>平均利益率</th></tr>
-                            </thead>
-                            <tbody>
-                              ${lowScoreSectorStats.map(
-                                (s) => html`
-                                  <tr>
-                                    <td style="font-weight:600">${s.sector}</td>
-                                    <td>${s.count}件</td>
-                                    <td>${pnlPercent(s.avgProfitPct)}</td>
-                                  </tr>
-                                `,
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-                      `
-                    : ""}
-                </div>
-              `
-            : html`
-                <div class="card">
-                  <p style="font-size:0.8rem;color:#94a3b8;margin:0">
-                    低スコア上昇銘柄（${SCORING_ACCURACY.MIN_SCORE_FOR_TRACKING}〜79点）— 該当なし
-                  </p>
-                </div>
-              `}
         `}
 
     <script>
