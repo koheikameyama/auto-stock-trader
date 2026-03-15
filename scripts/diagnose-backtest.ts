@@ -310,17 +310,41 @@ async function main() {
   // === 組み合わせテスト ===
   console.log("\n=== 組み合わせテスト ===");
   const comboTests: { label: string; overrides: Partial<BacktestConfig> }[] = [
-    { label: "トレンドF+スコア70", overrides: { trendFilterEnabled: true, scoreThreshold: 70 } },
-    { label: "トレンドF+PB", overrides: { trendFilterEnabled: true, pullbackFilterEnabled: true } },
-    { label: "トレンドF+PB+スコア70", overrides: { trendFilterEnabled: true, pullbackFilterEnabled: true, scoreThreshold: 70 } },
-    { label: "トレンドF+RS", overrides: { trendFilterEnabled: true, rsFilterEnabled: true } },
-    { label: "トレンドF+保有15日", overrides: { trendFilterEnabled: true, maxHoldingDays: 15 } },
-    { label: "トレンドF+保有20日", overrides: { trendFilterEnabled: true, maxHoldingDays: 20 } },
-    { label: "スコア70+保有15日", overrides: { scoreThreshold: 70, maxHoldingDays: 15 } },
-    { label: "トレンドF+スコア70+保有15", overrides: { trendFilterEnabled: true, scoreThreshold: 70, maxHoldingDays: 15 } },
-    { label: "TS起動1.5", overrides: { trailingActivationMultiplier: 1.5 } },
-    { label: "TS起動1.5+トレール1.5", overrides: { trailingActivationMultiplier: 1.5, trailMultiplier: 1.5 } },
-    { label: "トレンドF+TS1.5+トレール1.5", overrides: { trendFilterEnabled: true, trailingActivationMultiplier: 1.5, trailMultiplier: 1.5 } },
+    // スコア閾値の緩和（60がPF2.06で有望）
+    { label: "スコア60", overrides: { scoreThreshold: 60 } },
+    { label: "スコア65", overrides: { scoreThreshold: 65 } },
+    { label: "スコア55", overrides: { scoreThreshold: 55 } },
+
+    // ATR SL幅（ATR0.8がPF2.60で最良）— overrideTpSlで効果確認
+    { label: "ATR0.8+override", overrides: { atrMultiplier: 0.8, overrideTpSl: true } },
+    { label: "ATR0.7+override", overrides: { atrMultiplier: 0.7, overrideTpSl: true } },
+    { label: "ATR0.6+override", overrides: { atrMultiplier: 0.6, overrideTpSl: true } },
+
+    // スコア60 + ATR組み合わせ
+    { label: "スコア60+ATR0.8", overrides: { scoreThreshold: 60, atrMultiplier: 0.8, overrideTpSl: true } },
+    { label: "スコア60+ATR0.7", overrides: { scoreThreshold: 60, atrMultiplier: 0.7, overrideTpSl: true } },
+    { label: "スコア65+ATR0.8", overrides: { scoreThreshold: 65, atrMultiplier: 0.8, overrideTpSl: true } },
+
+    // TS起動 + トレール幅の最適化
+    { label: "TS3.0+トレール1.5", overrides: { trailMultiplier: 1.5 } },
+    { label: "TS3.0+トレール2.5", overrides: { trailMultiplier: 2.5 } },
+    { label: "TS3.5+トレール1.5", overrides: { trailingActivationMultiplier: 3.5, trailMultiplier: 1.5 } },
+
+    // 保有日数延長（トレンド追従を伸ばす）
+    { label: "保有15日", overrides: { maxHoldingDays: 15 } },
+    { label: "保有20日", overrides: { maxHoldingDays: 20 } },
+
+    // 有望組み合わせ: ATR0.8 + スコア + 保有日数
+    { label: "ATR0.8+スコア60+15日", overrides: { scoreThreshold: 60, atrMultiplier: 0.8, overrideTpSl: true, maxHoldingDays: 15 } },
+    { label: "ATR0.8+スコア60+20日", overrides: { scoreThreshold: 60, atrMultiplier: 0.8, overrideTpSl: true, maxHoldingDays: 20 } },
+
+    // クールダウン調整
+    { label: "クールダウン3日", overrides: { cooldownDays: 3 } },
+    { label: "クールダウン0日", overrides: { cooldownDays: 0 } },
+
+    // フィルター組み合わせ
+    { label: "トレンドF+PB", overrides: { pullbackFilterEnabled: true } },
+    { label: "トレンドF+RS", overrides: { rsFilterEnabled: true } },
   ];
   for (const combo of comboTests) {
     const comboConfig: BacktestConfig = { ...config, ...(combo.overrides as Partial<BacktestConfig>) };
