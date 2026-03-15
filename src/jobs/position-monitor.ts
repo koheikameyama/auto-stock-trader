@@ -15,9 +15,12 @@ import {
   POSITION_DEFAULTS,
   DEFENSIVE_MODE,
   STOP_LOSS,
+  WEEKEND_RISK,
+  TRAILING_STOP,
 } from "../lib/constants";
 import { validateStopLoss } from "../core/risk-manager";
 import { fetchStockQuote } from "../core/market-data";
+import { countNonTradingDaysAhead } from "../lib/market-calendar";
 import {
   checkOrderFill,
   fillOrder,
@@ -242,6 +245,16 @@ export async function main() {
   // コーポレートイベント（配当落ち・株式分割）チェック
   await applyCorporateEventAdjustments(openPositions);
 
+  // 連休前リスク管理: トレーリングストップ引き締め判定
+  const nonTradingDays = countNonTradingDaysAhead();
+  const isPreLongHoliday = nonTradingDays >= WEEKEND_RISK.TRAILING_TIGHTEN_THRESHOLD;
+  if (isPreLongHoliday) {
+    const tightenedMultiplier = TRAILING_STOP.TRAIL_ATR_MULTIPLIER.swing * WEEKEND_RISK.TRAILING_TIGHTEN_MULTIPLIER;
+    console.log(
+      `  連休前リスク管理: トレーリングストップ引き締め（ATR倍率 ${TRAILING_STOP.TRAIL_ATR_MULTIPLIER.swing} → ${tightenedMultiplier.toFixed(1)}、非営業日: ${nonTradingDays}日）`,
+    );
+  }
+
   for (const position of openPositions) {
     if (!(await isSystemActive())) {
       console.log("  → システム停止中のため終了");
@@ -299,6 +312,12 @@ export async function main() {
       );
     }
 
+    // スイングポジションのみ引き締め（デイトレは当日決済のため不要）
+    const trailOverride =
+      isPreLongHoliday && position.strategy === "swing"
+        ? TRAILING_STOP.TRAIL_ATR_MULTIPLIER.swing * WEEKEND_RISK.TRAILING_TIGHTEN_MULTIPLIER
+        : undefined;
+
     // 共通出口判定（バックテストと同一ロジック）
     const exitResult = checkPositionExit(
       {
@@ -314,6 +333,7 @@ export async function main() {
           : null,
         strategy: position.strategy as "day_trade" | "swing",
         holdingBusinessDays,
+        trailMultiplierOverride: trailOverride,
       },
       { open: quote.open, high: quote.high, low: quote.low, close: quote.price },
     );

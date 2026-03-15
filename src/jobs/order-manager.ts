@@ -20,7 +20,9 @@ import {
   TECHNICAL_MIN_DATA,
   JOB_CONCURRENCY,
   DEFENSIVE_MODE,
+  WEEKEND_RISK,
 } from "../lib/constants";
+import { countNonTradingDaysAhead } from "../lib/market-calendar";
 import { fetchStockQuote, fetchHistoricalData } from "../core/market-data";
 import { analyzeTechnicals } from "../core/technical-analysis";
 import type { TechnicalSummary } from "../core/technical-analysis";
@@ -157,6 +159,15 @@ export async function main() {
   // =========================================
   console.log(`\n  [フェーズ1] 並列分析開始（同時実行数: ${JOB_CONCURRENCY.ORDER_MANAGER}）`);
 
+  // 週末リスク: 金曜/連休前はポジションサイズを縮小
+  const nonTradingDays = countNonTradingDaysAhead();
+  const isWeekendRisk = nonTradingDays >= WEEKEND_RISK.SIZE_REDUCTION_THRESHOLD;
+  if (isWeekendRisk) {
+    console.log(
+      `  週末リスク: ポジションサイズ50%に縮小（非営業日: ${nonTradingDays}日）`,
+    );
+  }
+
   const limit = pLimit(JOB_CONCURRENCY.ORDER_MANAGER);
 
   const analysisResults = await Promise.all(
@@ -220,12 +231,16 @@ export async function main() {
 
         const strategy = selected.strategy as "day_trade" | "swing";
 
+        const budgetForSizing = isWeekendRisk
+          ? cashBalance * WEEKEND_RISK.POSITION_SIZE_MULTIPLIER
+          : cashBalance;
+
         const entryCondition = calculateEntryCondition(
           quote.price,
           techSummary,
           score,
           strategy,
-          cashBalance,
+          budgetForSizing,
           maxPositionPct,
           historical,
         );

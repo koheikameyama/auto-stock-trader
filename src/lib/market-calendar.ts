@@ -42,3 +42,27 @@ export function isMarketDay(date?: Date): boolean {
 
   return true;
 }
+
+const MAX_LOOKAHEAD_DAYS = 30;
+
+/**
+ * 指定日の翌日から次の営業日までの連続非営業日数を返す
+ *
+ * @param date - 判定日（デフォルト: 現在のJST日付）
+ * @returns 連続非営業日数（0 = 翌日が営業日）
+ */
+export function countNonTradingDaysAhead(date?: Date): number {
+  const d = dayjs(date).tz(JST);
+  let count = 0;
+  let check = d.add(1, "day");
+
+  while (count < MAX_LOOKAHEAD_DAYS) {
+    if (isMarketDay(check.toDate())) {
+      return count;
+    }
+    count++;
+    check = check.add(1, "day");
+  }
+
+  return count;
+}

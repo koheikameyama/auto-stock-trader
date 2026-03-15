@@ -10,7 +10,8 @@ import { analyzeTechnicals } from "../core/technical-analysis";
 import { scoreStock } from "../core/scoring";
 import type { NewLogicScore } from "../core/scoring";
 import { calculateEntryCondition } from "../core/entry-calculator";
-import { TECHNICAL_MIN_DATA, DEFENSIVE_MODE, DAILY_BACKTEST } from "../lib/constants";
+import { TECHNICAL_MIN_DATA, DEFENSIVE_MODE, DAILY_BACKTEST, WEEKEND_RISK, TRAILING_STOP } from "../lib/constants";
+import { countNonTradingDaysAhead } from "../lib/market-calendar";
 import { checkPositionExit } from "../core/exit-checker";
 import { checkBuyLimitFill } from "../core/order-executor";
 import { determineMarketRegime } from "../core/market-regime";
@@ -163,6 +164,16 @@ export function runBacktest(
         continue;
       }
 
+      // 連休前リスク管理: 感度分析の固定値がなければ週末リスクで引き締め
+      const posSimDate = new Date(tradingDays[dayIdx] + "T00:00:00+09:00");
+      const posNonTradingDays = countNonTradingDaysAhead(posSimDate);
+      const isPreLongHoliday = posNonTradingDays >= WEEKEND_RISK.TRAILING_TIGHTEN_THRESHOLD;
+
+      let trailOverride = config.trailMultiplier;
+      if (trailOverride == null && isPreLongHoliday && config.strategy === "swing") {
+        trailOverride = TRAILING_STOP.TRAIL_ATR_MULTIPLIER.swing * WEEKEND_RISK.TRAILING_TIGHTEN_MULTIPLIER;
+      }
+
       // 共通出口判定（本番 position-monitor.ts と同一ロジック）
       const exitResult = checkPositionExit(
         {
@@ -175,7 +186,7 @@ export function runBacktest(
           strategy: config.strategy,
           holdingBusinessDays: holdingDays,
           activationMultiplierOverride: config.trailingActivationMultiplier,
-          trailMultiplierOverride: config.trailMultiplier,
+          trailMultiplierOverride: trailOverride,
           maxHoldingDaysOverride: config.maxHoldingDays,
         },
         { open: todayBar.open, high: todayBar.high, low: todayBar.low, close: todayBar.close },
@@ -609,6 +620,13 @@ function evaluateTickers(
       if ((rankOrder[score.rank] ?? 4) > rankOrder[minRank]) continue;
     }
 
+    // 週末リスク: 金曜/連休前はポジションサイズを縮小
+    const simDate = new Date(today + "T00:00:00+09:00");
+    const simNonTradingDays = countNonTradingDaysAhead(simDate);
+    const budgetForSizing = simNonTradingDays >= WEEKEND_RISK.SIZE_REDUCTION_THRESHOLD
+      ? cash * WEEKEND_RISK.POSITION_SIZE_MULTIPLIER
+      : cash;
+
     // エントリー条件算出
     const maxPositionPct = 100;
     const entry = calculateEntryCondition(
@@ -616,7 +634,7 @@ function evaluateTickers(
       summary,
       score as any,
       config.strategy,
-      cash,
+      budgetForSizing,
       maxPositionPct,
       config.gapRiskEnabled ? newestFirst : undefined,
     );
