@@ -274,6 +274,21 @@ export const CSS = `
     line-height: 1.6;
   }
 
+  /* Chart tab */
+  .chart-tab {
+    padding: 4px 12px;
+    border: 1px solid ${COLORS.border};
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    background: transparent;
+    color: ${COLORS.textDim};
+    transition: all 0.2s;
+  }
+  .chart-tab:hover { border-color: ${COLORS.accent}; color: ${COLORS.accent}; }
+  .chart-tab.active { background: ${COLORS.accent}; color: #fff; border-color: ${COLORS.accent}; }
+
   /* Toggle button */
   .btn-toggle {
     padding: 4px 12px;
