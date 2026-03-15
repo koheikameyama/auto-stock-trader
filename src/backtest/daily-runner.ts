@@ -29,6 +29,7 @@ export interface DailyBacktestConditionResult {
   condition: ParameterCondition;
   config: BacktestConfig;
   metrics: PerformanceMetrics;
+  tradeReturns: number[];
   tickerCount: number;
   executionTimeMs: number;
 }
@@ -527,6 +528,9 @@ export async function runDailyBacktest(
       condition,
       config,
       metrics: result.metrics,
+      tradeReturns: result.trades
+        .filter((t) => t.pnlPct !== null)
+        .map((t) => t.pnlPct as number),
       tickerCount: allData.size,
       executionTimeMs: Date.now() - condStart,
     });
@@ -613,6 +617,9 @@ export async function runDailyBacktest(
         condition: { key: "paper_new", label: "新ベースライン" },
         config: newConfig,
         metrics: newResult.metrics,
+        tradeReturns: newResult.trades
+          .filter((t) => t.pnlPct !== null)
+          .map((t) => t.pnlPct as number),
         tickerCount: allData.size,
         executionTimeMs: ptMs,
       },
@@ -620,6 +627,9 @@ export async function runDailyBacktest(
         condition: { key: "paper_old", label: "旧ベースライン" },
         config: oldConfig,
         metrics: oldResult.metrics,
+        tradeReturns: oldResult.trades
+          .filter((t) => t.pnlPct !== null)
+          .map((t) => t.pnlPct as number),
         tickerCount: allData.size,
         executionTimeMs: ptMs,
       },
