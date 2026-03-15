@@ -405,24 +405,34 @@ app.get("/", async (c) => {
                   <th>FN</th>
                   <th>TN</th>
                   <th>${tt("Precision", "承認銘柄の正解率")}</th>
+                  <th>出現</th>
+                  <th>勝率</th>
                 </tr>
               </thead>
               <tbody>
                 ${Object.entries(audit.byRank)
                   .sort(([a], [b]) => a.localeCompare(b))
                   .map(
-                    ([rank, v]) => html`
-                      <tr>
-                        <td>${rankBadge(rank)}</td>
-                        <td style="color:#22c55e">${v.tp}</td>
-                        <td style="color:#ef4444">${v.fp}</td>
-                        <td style="color:#f59e0b">${v.fn}</td>
-                        <td style="color:#64748b">${v.tn}</td>
-                        <td style="font-weight:600;color:${v.precision != null && v.precision >= 60 ? "#22c55e" : v.precision != null ? "#ef4444" : "#64748b"}">
-                          ${v.precision != null ? `${v.precision.toFixed(0)}%` : "-"}
-                        </td>
-                      </tr>
-                    `,
+                    ([rank, v]) => {
+                      const rd = rankDist[rank];
+                      const wr = rd && rd.total > 0 ? Math.round((rd.wins / rd.total) * 100) : null;
+                      return html`
+                        <tr>
+                          <td>${rankBadge(rank)}</td>
+                          <td style="color:#22c55e">${v.tp}</td>
+                          <td style="color:#ef4444">${v.fp}</td>
+                          <td style="color:#f59e0b">${v.fn}</td>
+                          <td style="color:#64748b">${v.tn}</td>
+                          <td style="font-weight:600;color:${v.precision != null && v.precision >= 60 ? "#22c55e" : v.precision != null ? "#ef4444" : "#64748b"}">
+                            ${v.precision != null ? `${v.precision.toFixed(0)}%` : "-"}
+                          </td>
+                          <td>${rd ? `${rd.total}回` : "-"}</td>
+                          <td style="font-weight:600;color:${wr != null && wr >= 50 ? "#22c55e" : wr != null ? "#ef4444" : "#64748b"}">
+                            ${wr != null ? `${wr}%` : "-"}
+                          </td>
+                        </tr>
+                      `;
+                    },
                   )}
               </tbody>
             </table>
@@ -724,44 +734,6 @@ app.get("/", async (c) => {
                 </div>
               `
             : ""}
-
-          <!-- ランク分布 -->
-          <div class="card table-wrap">
-            <p style="font-size:0.8rem;color:#94a3b8;margin:0 0 0.75rem">ランク別勝率</p>
-            <table>
-              <thead>
-                <tr>
-                  <th>ランク</th>
-                  <th>出現</th>
-                  <th>勝ち</th>
-                  <th>勝率</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${Object.entries(rankDist)
-                  .filter(([, v]) => v.total > 0)
-                  .sort(([a], [b]) => a.localeCompare(b))
-                  .map(([rank, v]) => {
-                    const wr =
-                      v.total > 0
-                        ? Math.round((v.wins / v.total) * 100)
-                        : 0;
-                    return html`
-                      <tr>
-                        <td>${rankBadge(rank)}</td>
-                        <td>${v.total}回</td>
-                        <td>${v.wins}回</td>
-                        <td
-                          style="font-weight:600;color:${wr >= 50 ? "#22c55e" : "#ef4444"}"
-                        >
-                          ${wr}%
-                        </td>
-                      </tr>
-                    `;
-                  })}
-              </tbody>
-            </table>
-          </div>
 
         `}
 
