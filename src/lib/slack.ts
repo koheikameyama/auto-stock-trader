@@ -269,6 +269,24 @@ export async function notifyBacktestResult(data: {
     totalTrades: number;
     maxDrawdown: number;
   }>;
+  paperTradeResult?: {
+    newLabel: string;
+    oldLabel: string;
+    newPf: number;
+    newWinRate: number;
+    newReturnPct: number;
+    newMaxDd: number;
+    newTrades: number;
+    oldPf: number;
+    oldWinRate: number;
+    oldReturnPct: number;
+    oldMaxDd: number;
+    oldTrades: number;
+    elapsedDays: number;
+    targetDays: number;
+    judgment: "go" | "tracking" | "no_go";
+    judgmentReasons: string[];
+  };
 }): Promise<void> {
   const lines: string[] = [];
 
@@ -296,6 +314,33 @@ export async function notifyBacktestResult(data: {
       })
       .join(" | ");
     lines.push(condLine);
+  }
+
+  // ペーパートレード追跡セクション
+  if (data.paperTradeResult) {
+    const pt = data.paperTradeResult;
+    lines.push("");
+
+    const icon = pt.judgment === "go" ? "🎯" : pt.judgment === "no_go" ? "⚠️" : "📊";
+    const judgmentLabel = pt.judgment === "go" ? "✅ Go" : pt.judgment === "no_go" ? "❌ No-Go" : "追跡中";
+    lines.push(`${icon} ペーパートレード追跡（${pt.elapsedDays}/${pt.targetDays}営業日）`);
+
+    const fmtPf = (pf: number) => (pf === Infinity ? "∞" : pf.toFixed(2));
+    const fmtSign = (v: number) => (v >= 0 ? "+" : "");
+
+    lines.push(
+      `${pt.newLabel}: PF ${fmtPf(pt.newPf)} | 勝率${pt.newWinRate}% | ${fmtSign(pt.newReturnPct)}${pt.newReturnPct}% | DD -${pt.newMaxDd}% | ${pt.newTrades}件`,
+    );
+    lines.push(
+      `${pt.oldLabel}: PF ${fmtPf(pt.oldPf)} | 勝率${pt.oldWinRate}% | ${fmtSign(pt.oldReturnPct)}${pt.oldReturnPct}% | DD -${pt.oldMaxDd}% | ${pt.oldTrades}件`,
+    );
+    lines.push(`Go判定: ${judgmentLabel}（${pt.judgmentReasons.join(" ")}）`);
+
+    if (pt.judgment === "go") {
+      lines.push("→ 本番投入を推奨");
+    } else if (pt.judgment === "no_go") {
+      lines.push("→ パラメータ再検討を推奨");
+    }
   }
 
   await notifySlack({

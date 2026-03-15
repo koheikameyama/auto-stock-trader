@@ -12,6 +12,7 @@ import { prisma } from "../lib/prisma";
 import { getTodayForDB } from "../lib/date-utils";
 import { notifyBacktestResult } from "../lib/slack";
 import { runDailyBacktest } from "../backtest/daily-runner";
+import { DAILY_BACKTEST } from "../lib/constants";
 
 export async function main() {
   console.log("=== Daily Backtest 開始 ===");
@@ -84,6 +85,73 @@ export async function main() {
     });
   }
 
+  // 2.5. ペーパートレード結果の保存
+  if (result.paperTradeResult) {
+    console.log("[paper-trade] DB保存中...");
+    for (const cr of [
+      result.paperTradeResult.newBaseline,
+      result.paperTradeResult.oldBaseline,
+    ]) {
+      const pf =
+        cr.metrics.profitFactor === Infinity ? 999.99 : cr.metrics.profitFactor;
+
+      await prisma.backtestDailyResult.upsert({
+        where: {
+          date_conditionKey: {
+            date: today,
+            conditionKey: cr.condition.key,
+          },
+        },
+        create: {
+          date: today,
+          conditionKey: cr.condition.key,
+          conditionLabel: cr.condition.label,
+          initialBudget: cr.config.initialBudget,
+          maxPrice: cr.config.maxPrice,
+          maxPositions: cr.config.maxPositions,
+          tickerCount: cr.tickerCount,
+          totalTrades: cr.metrics.totalTrades,
+          wins: cr.metrics.wins,
+          losses: cr.metrics.losses,
+          winRate: cr.metrics.winRate,
+          profitFactor: pf,
+          maxDrawdown: cr.metrics.maxDrawdown,
+          sharpeRatio: cr.metrics.sharpeRatio,
+          totalPnl: cr.metrics.totalPnl,
+          totalReturnPct: cr.metrics.totalReturnPct,
+          avgHoldingDays: cr.metrics.avgHoldingDays,
+          byRank: cr.metrics.byRank as object,
+          fullResult: cr.metrics as object,
+          periodStart: result.paperTradeResult.periodStart,
+          periodEnd: result.paperTradeResult.periodEnd,
+          executionTimeMs: cr.executionTimeMs,
+        },
+        update: {
+          conditionLabel: cr.condition.label,
+          initialBudget: cr.config.initialBudget,
+          maxPrice: cr.config.maxPrice,
+          maxPositions: cr.config.maxPositions,
+          tickerCount: cr.tickerCount,
+          totalTrades: cr.metrics.totalTrades,
+          wins: cr.metrics.wins,
+          losses: cr.metrics.losses,
+          winRate: cr.metrics.winRate,
+          profitFactor: pf,
+          maxDrawdown: cr.metrics.maxDrawdown,
+          sharpeRatio: cr.metrics.sharpeRatio,
+          totalPnl: cr.metrics.totalPnl,
+          totalReturnPct: cr.metrics.totalReturnPct,
+          avgHoldingDays: cr.metrics.avgHoldingDays,
+          byRank: cr.metrics.byRank as object,
+          fullResult: cr.metrics as object,
+          periodStart: result.paperTradeResult.periodStart,
+          periodEnd: result.paperTradeResult.periodEnd,
+          executionTimeMs: cr.executionTimeMs,
+        },
+      });
+    }
+  }
+
   // 3. Slack通知
   console.log("[daily-backtest] Slack通知中...");
   await notifyBacktestResult({
@@ -101,6 +169,26 @@ export async function main() {
       totalTrades: cr.metrics.totalTrades,
       maxDrawdown: cr.metrics.maxDrawdown,
     })),
+    paperTradeResult: result.paperTradeResult
+      ? {
+          newLabel: "新(ATR1.0+トレール1.0)",
+          oldLabel: "旧(固定SL+トレール2.0)",
+          newPf: result.paperTradeResult.newBaseline.metrics.profitFactor,
+          newWinRate: result.paperTradeResult.newBaseline.metrics.winRate,
+          newReturnPct: result.paperTradeResult.newBaseline.metrics.totalReturnPct,
+          newMaxDd: result.paperTradeResult.newBaseline.metrics.maxDrawdown,
+          newTrades: result.paperTradeResult.newBaseline.metrics.totalTrades,
+          oldPf: result.paperTradeResult.oldBaseline.metrics.profitFactor,
+          oldWinRate: result.paperTradeResult.oldBaseline.metrics.winRate,
+          oldReturnPct: result.paperTradeResult.oldBaseline.metrics.totalReturnPct,
+          oldMaxDd: result.paperTradeResult.oldBaseline.metrics.maxDrawdown,
+          oldTrades: result.paperTradeResult.oldBaseline.metrics.totalTrades,
+          elapsedDays: result.paperTradeResult.elapsedTradingDays,
+          targetDays: DAILY_BACKTEST.PAPER_TRADE.DURATION_TRADING_DAYS,
+          judgment: result.paperTradeResult.judgment,
+          judgmentReasons: result.paperTradeResult.judgmentReasons,
+        }
+      : undefined,
   });
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);

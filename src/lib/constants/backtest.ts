@@ -139,4 +139,36 @@ export const DAILY_BACKTEST = {
     /** スコアリング用のOHLCVルックバック（カレンダー日数） */
     LOOKBACK_CALENDAR_DAYS: 200,
   },
+
+  /** ペーパートレード前方追跡 */
+  PAPER_TRADE: {
+    /** 前方追跡の開始日。null で無効化 */
+    TRACKING_START_DATE: "2026-03-17" as string | null,
+    /** Go判定に必要な営業日数 */
+    DURATION_TRADING_DAYS: 40,
+    /** Go/No-Go 判定基準 */
+    GO_CRITERIA: {
+      /** 最低 Profit Factor */
+      minPf: 1.2,
+      /** 最大ドローダウン（%） */
+      maxDd: 10,
+      /** 最低トレード数 */
+      minTrades: 30,
+      /** No-Go 判定を開始する最低営業日数 */
+      minDaysForNoGo: 10,
+      /** No-Go 相対比較の最低トレード数（両条件とも） */
+      minTradesForComparison: 10,
+      /** No-Go PF閾値（これ未満で No-Go） */
+      noGoPf: 1.0,
+      /** No-Go DD閾値（%。これ以上で No-Go） */
+      noGoDd: 15,
+      /** No-Go 相対劣後閾値（新PF < 旧PF × この値で No-Go） */
+      relativeDeclineRatio: 0.8,
+    },
+    /** 旧ベースラインのパラメータ（変更前の DEFAULT_PARAMS との差分） */
+    OLD_BASELINE: {
+      overrideTpSl: false,
+      trailMultiplier: 2.0,
+    },
+  },
 } as const;

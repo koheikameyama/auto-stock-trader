@@ -33,12 +33,23 @@ export interface DailyBacktestConditionResult {
   executionTimeMs: number;
 }
 
+export interface PaperTradeResult {
+  newBaseline: DailyBacktestConditionResult;
+  oldBaseline: DailyBacktestConditionResult;
+  periodStart: string;
+  periodEnd: string;
+  elapsedTradingDays: number;
+  judgment: "go" | "tracking" | "no_go";
+  judgmentReasons: string[];
+}
+
 export interface DailyBacktestRunResult {
   tickers: string[];
   periodStart: string;
   periodEnd: string;
   conditionResults: DailyBacktestConditionResult[];
   dataFetchTimeMs: number;
+  paperTradeResult?: PaperTradeResult;
 }
 
 export type CandidateMode = "scoring-record" | "on-the-fly" | "auto";
@@ -388,6 +399,48 @@ async function runScoringRecordMode(): Promise<{
   };
 }
 
+function judgePaperTrade(
+  newMetrics: PerformanceMetrics,
+  oldMetrics: PerformanceMetrics,
+  elapsedDays: number,
+): { judgment: "go" | "tracking" | "no_go"; reasons: string[] } {
+  const { GO_CRITERIA } = DAILY_BACKTEST.PAPER_TRADE;
+  const reasons: string[] = [];
+  const newPf = newMetrics.profitFactor === Infinity ? 999 : newMetrics.profitFactor;
+  const oldPf = oldMetrics.profitFactor === Infinity ? 999 : oldMetrics.profitFactor;
+
+  const pfOk = newPf >= GO_CRITERIA.minPf;
+  const ddOk = newMetrics.maxDrawdown < GO_CRITERIA.maxDd;
+  const tradesOk = newMetrics.totalTrades >= GO_CRITERIA.minTrades;
+  const daysOk = elapsedDays >= DAILY_BACKTEST.PAPER_TRADE.DURATION_TRADING_DAYS;
+
+  reasons.push(`PF≥${GO_CRITERIA.minPf}: ${pfOk ? "✅" : "❌"} (${newPf === 999 ? "∞" : newPf.toFixed(2)})`);
+  reasons.push(`DD<${GO_CRITERIA.maxDd}%: ${ddOk ? "✅" : "❌"} (-${newMetrics.maxDrawdown.toFixed(1)}%)`);
+  reasons.push(`件数≥${GO_CRITERIA.minTrades}: ${tradesOk ? "✅" : "❌"} (${newMetrics.totalTrades}件)`);
+  reasons.push(`経過${DAILY_BACKTEST.PAPER_TRADE.DURATION_TRADING_DAYS}日: ${daysOk ? "✅" : "❌"} (${elapsedDays}日)`);
+
+  // No-Go チェック（最低日数経過後のみ）
+  if (elapsedDays >= GO_CRITERIA.minDaysForNoGo) {
+    if (newPf < GO_CRITERIA.noGoPf) return { judgment: "no_go", reasons };
+    if (newMetrics.maxDrawdown >= GO_CRITERIA.noGoDd) return { judgment: "no_go", reasons };
+  }
+
+  // No-Go: 旧より明確に劣る（両方トレード数十分な場合のみ）
+  if (
+    newMetrics.totalTrades >= GO_CRITERIA.minTradesForComparison &&
+    oldMetrics.totalTrades >= GO_CRITERIA.minTradesForComparison &&
+    newPf < oldPf * GO_CRITERIA.relativeDeclineRatio
+  ) {
+    reasons.push(`新PF < 旧PF×${GO_CRITERIA.relativeDeclineRatio}: ❌ (${newPf.toFixed(2)} < ${(oldPf * GO_CRITERIA.relativeDeclineRatio).toFixed(2)})`);
+    return { judgment: "no_go", reasons };
+  }
+
+  // Go チェック
+  if (daysOk && pfOk && ddOk && tradesOk) return { judgment: "go", reasons };
+
+  return { judgment: "tracking", reasons };
+}
+
 /**
  * 日次バックテストを実行
  */
@@ -484,11 +537,106 @@ export async function runDailyBacktest(
     );
   }
 
+  // --- ペーパートレード前方追跡 ---
+  let paperTradeResult: PaperTradeResult | undefined;
+  const trackingStartDate = DAILY_BACKTEST.PAPER_TRADE.TRACKING_START_DATE;
+
+  if (trackingStartDate) {
+    console.log(`[paper-trade] 前方追跡: ${trackingStartDate} → ${endDate}`);
+
+    const { DEFAULT_PARAMS, FIXED_BUDGET, PAPER_TRADE } = DAILY_BACKTEST;
+
+    // 新ベースライン: DEFAULT_PARAMS そのまま
+    const newConfig: BacktestConfig = {
+      tickers: allTickers,
+      startDate: trackingStartDate,
+      endDate,
+      initialBudget: FIXED_BUDGET.budget,
+      maxPositions: FIXED_BUDGET.maxPositions,
+      maxPrice: FIXED_BUDGET.maxPrice,
+      scoreThreshold: DEFAULT_PARAMS.scoreThreshold,
+      takeProfitRatio: DEFAULT_PARAMS.takeProfitRatio,
+      stopLossRatio: DEFAULT_PARAMS.stopLossRatio,
+      atrMultiplier: DEFAULT_PARAMS.atrMultiplier,
+      trailingActivationMultiplier: DEFAULT_PARAMS.trailingActivationMultiplier,
+      trailMultiplier: DEFAULT_PARAMS.trailMultiplier,
+      strategy: DEFAULT_PARAMS.strategy,
+      costModelEnabled: true,
+      cooldownDays: DEFAULT_PARAMS.cooldownDays,
+      overrideTpSl: DEFAULT_PARAMS.overrideTpSl,
+      priceLimitEnabled: true,
+      gapRiskEnabled: true,
+      trendFilterEnabled: true,
+      pullbackFilterEnabled: false,
+      volatilityFilterEnabled: true,
+      rsFilterEnabled: false,
+      verbose: false,
+    };
+
+    // 旧ベースライン: OLD_BASELINE でオーバーライド
+    const oldConfig: BacktestConfig = {
+      ...newConfig,
+      overrideTpSl: PAPER_TRADE.OLD_BASELINE.overrideTpSl,
+      trailMultiplier: PAPER_TRADE.OLD_BASELINE.trailMultiplier,
+    };
+
+    const ptStart = Date.now();
+    const newResult = runBacktest(newConfig, allData, vixData, candidateMap, sectorMap);
+    const oldResult = runBacktest(oldConfig, allData, vixData, candidateMap, sectorMap);
+    const ptMs = Date.now() - ptStart;
+
+    // 経過営業日数: allData 内の取引日をカウント
+    const sampleTicker = allData.keys().next().value;
+    const sampleData = sampleTicker ? allData.get(sampleTicker) ?? [] : [];
+    const elapsedTradingDays = sampleData.filter(
+      (d) => d.date >= trackingStartDate && d.date <= endDate,
+    ).length;
+
+    const { judgment, reasons } = judgePaperTrade(
+      newResult.metrics,
+      oldResult.metrics,
+      elapsedTradingDays,
+    );
+
+    const newSign = newResult.metrics.totalReturnPct >= 0 ? "+" : "";
+    const oldSign = oldResult.metrics.totalReturnPct >= 0 ? "+" : "";
+    console.log(
+      `[paper-trade] 新: PF${newResult.metrics.profitFactor === Infinity ? "∞" : newResult.metrics.profitFactor.toFixed(2)} 勝率${newResult.metrics.winRate}% ${newSign}${newResult.metrics.totalReturnPct}% (${newResult.metrics.totalTrades}件)`,
+    );
+    console.log(
+      `[paper-trade] 旧: PF${oldResult.metrics.profitFactor === Infinity ? "∞" : oldResult.metrics.profitFactor.toFixed(2)} 勝率${oldResult.metrics.winRate}% ${oldSign}${oldResult.metrics.totalReturnPct}% (${oldResult.metrics.totalTrades}件)`,
+    );
+    console.log(`[paper-trade] 判定: ${judgment} (${elapsedTradingDays}/${DAILY_BACKTEST.PAPER_TRADE.DURATION_TRADING_DAYS}営業日) ${ptMs}ms`);
+
+    paperTradeResult = {
+      newBaseline: {
+        condition: { key: "paper_new", label: "新ベースライン" },
+        config: newConfig,
+        metrics: newResult.metrics,
+        tickerCount: allData.size,
+        executionTimeMs: ptMs,
+      },
+      oldBaseline: {
+        condition: { key: "paper_old", label: "旧ベースライン" },
+        config: oldConfig,
+        metrics: oldResult.metrics,
+        tickerCount: allData.size,
+        executionTimeMs: ptMs,
+      },
+      periodStart: trackingStartDate,
+      periodEnd: endDate,
+      elapsedTradingDays,
+      judgment,
+      judgmentReasons: reasons,
+    };
+  }
+
   return {
     tickers: allTickers,
     periodStart: startDate,
     periodEnd: endDate,
     conditionResults,
     dataFetchTimeMs,
+    paperTradeResult,
   };
 }
