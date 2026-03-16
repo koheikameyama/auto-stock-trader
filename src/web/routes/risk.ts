@@ -101,7 +101,11 @@ app.get("/", async (c) => {
       </div>
       ${detailRow(
         tt("連敗数", "連続して発生した損失トレードの回数"),
-        `${drawdown.consecutiveLosses}`,
+        drawdown.isRecoveryMode
+          ? `${drawdown.consecutiveLosses}連敗後 回復中 ${drawdown.consecutiveWins}/${DRAWDOWN.RECOVERY_WINS_REQUIRED}連勝`
+          : drawdown.consecutiveWins > 0
+            ? `${drawdown.consecutiveWins}連勝中`
+            : `${drawdown.consecutiveLosses}`,
       )}
       ${detailRow(tt("ピークエクイティ", "運用開始以来の資産最高値"), `¥${formatYen(drawdown.peakEquity)}`)}
     </div>
