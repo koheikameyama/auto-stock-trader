@@ -475,7 +475,7 @@ app.get("/", async (c) => {
                     </tr>
                     ${ghost ? html`
                       <tr class="ghost-detail" style="display:none">
-                        <td colspan="6" style="background:#1e293b;padding:0.75rem;font-size:0.82rem;line-height:1.6;word-break:break-word;max-width:0">
+                        <td colspan="6" style="background:#1e293b;padding:0.75rem;font-size:0.82rem;line-height:1.6;word-break:break-word;white-space:normal">
                           <p style="margin:0 0 0.5rem;color:#cbd5e1">${ghost.analysis}</p>
                           ${ghost.recommendation ? html`<p style="margin:0;color:#94a3b8"><strong>改善提案:</strong> ${recommendationLabels[ghost.recommendation] ?? ghost.recommendation}</p>` : ""}
                         </td>
@@ -528,7 +528,7 @@ app.get("/", async (c) => {
                     </tr>
                     ${ghost ? html`
                       <tr class="ghost-detail" style="display:none">
-                        <td colspan="6" style="background:#1e293b;padding:0.75rem;font-size:0.82rem;line-height:1.6;word-break:break-word;max-width:0">
+                        <td colspan="6" style="background:#1e293b;padding:0.75rem;font-size:0.82rem;line-height:1.6;word-break:break-word;white-space:normal">
                           <p style="margin:0 0 0.5rem;color:#cbd5e1">${ghost.analysis}</p>
                           ${ghost.recommendation ? html`<p style="margin:0;color:#94a3b8"><strong>改善提案:</strong> ${recommendationLabels[ghost.recommendation] ?? ghost.recommendation}</p>` : ""}
                         </td>
