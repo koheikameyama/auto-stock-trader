@@ -223,6 +223,7 @@ async function main(): Promise<void> {
       allOhlcv,
       fundamentalsMap,
       stocks,
+      undefined,
     );
 
     if (dayRecords.length === 0) continue;

@@ -185,13 +185,17 @@ async function main() {
     sectorMap.set(s.tickerCode, getSectorGroup(s.jpxSectorName) ?? "その他");
   }
 
-  // 2. データ一括取得
+  // 2. データ一括取得（日経225含む）
   const stockTickers = stocks.map((s) => s.tickerCode);
+  const allTickersWithNikkei = [...stockTickers, "^N225"];
   console.log("データ取得中...");
-  const [allData, vixData] = await Promise.all([
-    fetchMultipleBacktestData(stockTickers, startDate, endDate, DAILY_BACKTEST.ON_THE_FLY.LOOKBACK_CALENDAR_DAYS),
+  const [allDataWithNikkei, vixData] = await Promise.all([
+    fetchMultipleBacktestData(allTickersWithNikkei, startDate, endDate, DAILY_BACKTEST.ON_THE_FLY.LOOKBACK_CALENDAR_DAYS),
     fetchVixData(startDate, endDate).catch(() => new Map<string, number>()),
   ]);
+  const nikkei225Ohlcv = allDataWithNikkei.get("^N225");
+  allDataWithNikkei.delete("^N225");
+  const allData = allDataWithNikkei;
   console.log(`データ: ${allData.size}銘柄, VIX ${vixData.size}件\n`);
 
   // 3. candidateMap事前構築（12マップ）
@@ -212,6 +216,7 @@ async function main() {
       const result = buildCandidateMapOnTheFly(
         allData, fundamentalsMap, stocks, period.start, period.end,
         TARGET_RANKS, FALLBACK_RANKS, MIN_TICKERS,
+        nikkei225Ohlcv ? [...nikkei225Ohlcv] : undefined,
       );
       candidateMaps.set(period.key, result);
       process.stdout.write(".");

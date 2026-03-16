@@ -60,7 +60,7 @@ describe("scoreStock", () => {
     expect(result.gate.passed).toBe(false);
   });
 
-  it("3カテゴリの合計が totalScore と一致", () => {
+  it("4カテゴリの合計が totalScore と一致", () => {
     const result = scoreStock({
       historicalData: makeOHLCV(100),
       latestPrice: 100,
@@ -69,7 +69,7 @@ describe("scoreStock", () => {
       summary: makeSummary(),
       avgVolume25: 100000,
     });
-    const expected = result.trendQuality.total + result.entryTiming.total + result.riskQuality.total;
+    const expected = result.trendQuality.total + result.entryTiming.total + result.riskQuality.total + result.sectorMomentumScore;
     expect(result.totalScore).toBe(expected);
   });
 

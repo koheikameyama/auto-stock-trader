@@ -17,6 +17,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { getDaysAgoForDB } from "../lib/date-utils";
 import { SCORING as SCORING_V2, SCORING_ACCURACY_REPORT } from "../lib/constants";
+import { SECTOR_MOMENTUM_SCORING } from "../lib/constants/scoring";
 import { notifyScoringAccuracyReport } from "../lib/slack";
 import dayjs from "dayjs";
 
@@ -25,6 +26,7 @@ interface ScoringRecordRow {
   trendQualityScore: number;
   entryTimingScore: number;
   riskQualityScore: number;
+  sectorMomentumScore: number;
   rejectionReason: string | null;
   ghostProfitPct: number; // Number()済み
 }
@@ -37,6 +39,7 @@ function toRows(
     trendQualityScore: r.trendQualityScore,
     entryTimingScore: r.entryTimingScore,
     riskQualityScore: r.riskQualityScore,
+    sectorMomentumScore: r.sectorMomentumScore,
     rejectionReason: r.rejectionReason,
     ghostProfitPct: Number(r.ghostProfitPct),
   }));
@@ -59,6 +62,11 @@ function analyzeCategoryWeakness(missedStocks: ScoringRecordRow[]) {
       key: "リスク品質",
       maxScore: SCORING_V2.CATEGORY_MAX.RISK_QUALITY,
       getScore: (r: ScoringRecordRow) => r.riskQualityScore,
+    },
+    {
+      key: "セクターモメンタム",
+      maxScore: SECTOR_MOMENTUM_SCORING.CATEGORY_MAX,
+      getScore: (r: ScoringRecordRow) => r.sectorMomentumScore,
     },
   ];
 

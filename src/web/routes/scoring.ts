@@ -194,6 +194,7 @@ app.get("/", async (c) => {
                   趨<span style="color:#e2e8f0;font-weight:600">${r.trendQualityScore}</span>
                   入<span style="color:#e2e8f0;font-weight:600;margin-left:0.35rem">${r.entryTimingScore}</span>
                   危<span style="color:#e2e8f0;font-weight:600;margin-left:0.35rem">${r.riskQualityScore}</span>
+                  業<span style="color:#e2e8f0;font-weight:600;margin-left:0.35rem">${r.sectorMomentumScore ?? 0}</span>
                 </div>
                 <div style="display:flex;align-items:center;gap:0.35rem">
                   ${aiDecisionBadge(r.aiDecision)}
@@ -274,6 +275,7 @@ app.get("/:tickerCode", async (c) => {
                   趨<span style="color:#e2e8f0;font-weight:600">${r.trendQualityScore}</span>
                   入<span style="color:#e2e8f0;font-weight:600;margin-left:0.35rem">${r.entryTimingScore}</span>
                   危<span style="color:#e2e8f0;font-weight:600;margin-left:0.35rem">${r.riskQualityScore}</span>
+                  業<span style="color:#e2e8f0;font-weight:600;margin-left:0.35rem">${r.sectorMomentumScore ?? 0}</span>
                 </div>
                 <div style="display:flex;align-items:center;gap:0.35rem">
                   ${aiDecisionBadge(r.aiDecision)}

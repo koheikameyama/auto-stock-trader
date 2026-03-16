@@ -50,6 +50,7 @@ interface RecordWithPnl {
   trendQualityBreakdown: unknown;
   entryTimingBreakdown: unknown;
   riskQualityBreakdown: unknown;
+  sectorMomentumScore: number;
   entryPrice: number;
   closingPrice: number;
   pnlPct: number;
@@ -64,6 +65,7 @@ function buildFnAnalysisPrompt(record: {
   trendQualityBreakdown: unknown;
   entryTimingBreakdown: unknown;
   riskQualityBreakdown: unknown;
+  sectorMomentumScore: number;
   entryPrice: number;
   closingPrice: number;
   pnlPct: number;
@@ -84,6 +86,7 @@ ${record.aiReasoning ? `【AIの否決理由】${record.aiReasoning}` : ""}
   トレンド品質: ${JSON.stringify(record.trendQualityBreakdown)}
   エントリータイミング: ${JSON.stringify(record.entryTimingBreakdown)}
   リスク品質: ${JSON.stringify(record.riskQualityBreakdown)}
+  セクターモメンタム: ${record.sectorMomentumScore}/5
 【スコアリング時株価】¥${record.entryPrice.toLocaleString()}
 【終値】¥${record.closingPrice.toLocaleString()}
 【仮想損益】+${record.pnlPct.toFixed(2)}%
@@ -99,6 +102,7 @@ function buildFpAnalysisPrompt(record: {
   trendQualityBreakdown: unknown;
   entryTimingBreakdown: unknown;
   riskQualityBreakdown: unknown;
+  sectorMomentumScore: number;
   entryPrice: number;
   closingPrice: number;
   pnlPct: number;
@@ -112,6 +116,7 @@ ${record.aiReasoning ? `【AIの承認理由】${record.aiReasoning}` : ""}
   トレンド品質: ${JSON.stringify(record.trendQualityBreakdown)}
   エントリータイミング: ${JSON.stringify(record.entryTimingBreakdown)}
   リスク品質: ${JSON.stringify(record.riskQualityBreakdown)}
+  セクターモメンタム: ${record.sectorMomentumScore}/5
 【スコアリング時株価】¥${record.entryPrice.toLocaleString()}
 【終値】¥${record.closingPrice.toLocaleString()}
 【損益】${record.pnlPct.toFixed(2)}%
@@ -221,6 +226,7 @@ export async function main() {
         trendQualityBreakdown: r.trendQualityBreakdown,
         entryTimingBreakdown: r.entryTimingBreakdown,
         riskQualityBreakdown: r.riskQualityBreakdown,
+        sectorMomentumScore: r.sectorMomentumScore,
         entryPrice,
         closingPrice,
         pnlPct,

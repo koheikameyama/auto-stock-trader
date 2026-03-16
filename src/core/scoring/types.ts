@@ -25,6 +25,8 @@ export interface ScoringInput {
   avgVolume25?: number | null;
   /** テクニカルサマリー（analyzeTechnicals() の出力） */
   summary: TechnicalSummary;
+  /** セクター相対強度（対日経225、%） */
+  sectorRelativeStrength?: number | null;
 }
 
 /** 新スコアリング結果 */
@@ -50,6 +52,7 @@ export interface NewLogicScore {
     rangeContraction: number;
     volumeStability: number;
   };
+  sectorMomentumScore: number;
   isDisqualified: boolean;
   disqualifyReason: string | null;
 }

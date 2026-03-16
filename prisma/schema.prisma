@@ -133,10 +133,11 @@ model ScoringRecord {
   totalScore   Int
   rank         String   // S / A / B / C
 
-  // カテゴリ別スコア（新3カテゴリ構造）
-  trendQualityScore  Int   // 0-40
-  entryTimingScore   Int   // 0-35
-  riskQualityScore   Int   // 0-25
+  // カテゴリ別スコア（4カテゴリ構造）
+  trendQualityScore    Int   // 0-40
+  entryTimingScore     Int   // 0-35
+  riskQualityScore     Int   // 0-20
+  sectorMomentumScore  Int   @default(0) // 0-5
 
   // カテゴリ内訳（JSON）
   trendQualityBreakdown  Json  // { maAlignment, weeklyTrend, trendContinuity }

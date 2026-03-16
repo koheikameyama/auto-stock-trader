@@ -260,12 +260,13 @@ async function runOnTheFlyMode(
   const stockTickers = stocks.map((s) => s.tickerCode);
   console.log(`[daily-backtest] アクティブ銘柄: ${stocks.length}件`);
 
-  // 2. OHLCV一括取得（スコアリング用の長めのルックバック）
+  // 2. OHLCV一括取得（スコアリング用の長めのルックバック、日経225含む）
   const fetchStart = Date.now();
   const { ON_THE_FLY } = DAILY_BACKTEST;
-  const [allData, vixData] = await Promise.all([
+  const allTickersWithNikkei = [...stockTickers, "^N225"];
+  const [allDataWithNikkei, vixData] = await Promise.all([
     fetchMultipleBacktestData(
-      stockTickers,
+      allTickersWithNikkei,
       startDate,
       endDate,
       ON_THE_FLY.LOOKBACK_CALENDAR_DAYS,
@@ -276,6 +277,10 @@ async function runOnTheFlyMode(
     }),
   ]);
   const dataFetchTimeMs = Date.now() - fetchStart;
+
+  const nikkei225Ohlcv = allDataWithNikkei.get("^N225");
+  allDataWithNikkei.delete("^N225");
+  const allData = allDataWithNikkei;
 
   if (allData.size === 0) {
     throw new Error("ヒストリカルデータを取得できませんでした");
@@ -316,6 +321,7 @@ async function runOnTheFlyMode(
     TARGET_RANKS,
     FALLBACK_RANKS,
     MIN_TICKERS,
+    nikkei225Ohlcv ? [...nikkei225Ohlcv] : undefined,
   );
   console.log(
     `[daily-backtest] スコアリング完了 (${((Date.now() - scoringStart) / 1000).toFixed(1)}秒)`,

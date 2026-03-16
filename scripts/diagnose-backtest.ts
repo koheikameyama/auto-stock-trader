@@ -51,12 +51,16 @@ async function main() {
 
   console.log(`対象銘柄: ${stocks.length}件 (出来高上位500)`);
 
-  // 2. データ取得
+  // 2. データ取得（日経225含む）
   const stockTickers = stocks.map((s) => s.tickerCode);
-  const [allData, vixData] = await Promise.all([
-    fetchMultipleBacktestData(stockTickers, startDate, endDate, 200),
+  const allTickersWithNikkei = [...stockTickers, "^N225"];
+  const [allDataWithNikkei, vixData] = await Promise.all([
+    fetchMultipleBacktestData(allTickersWithNikkei, startDate, endDate, 200),
     fetchVixData(startDate, endDate).catch(() => new Map<string, number>()),
   ]);
+  const nikkei225Ohlcv = allDataWithNikkei.get("^N225");
+  allDataWithNikkei.delete("^N225");
+  const allData = allDataWithNikkei;
 
   console.log(`データ: ${allData.size}銘柄, VIX${vixData.size}件\n`);
 
@@ -85,10 +89,10 @@ async function main() {
   const allScores: number[] = [];
   const rankCounts: Record<string, number> = { S: 0, A: 0, B: 0, C: 0, D: 0 };
   const disqualified = { count: 0, reasons: {} as Record<string, number> };
-  const categoryTotals = { trend: 0, entry: 0, risk: 0, count: 0 };
+  const categoryTotals = { trend: 0, entry: 0, risk: 0, sector: 0, count: 0 };
 
   for (const day of recentDays) {
-    const records = scoreDayForAllStocks(day, allData, fundamentalsMap, stocks);
+    const records = scoreDayForAllStocks(day, allData, fundamentalsMap, stocks, nikkei225Ohlcv ? [...nikkei225Ohlcv] : undefined);
     for (const r of records) {
       if (r.isDisqualified) {
         disqualified.count++;
@@ -100,6 +104,7 @@ async function main() {
         categoryTotals.trend += r.trendQualityScore;
         categoryTotals.entry += r.entryTimingScore;
         categoryTotals.risk += r.riskQualityScore;
+        categoryTotals.sector += r.sectorMomentumScore;
         categoryTotals.count++;
       }
     }
@@ -116,7 +121,7 @@ async function main() {
   console.log(`  失格理由: ${JSON.stringify(disqualified.reasons)}`);
   console.log(`  スコア: avg=${avg.toFixed(1)} p25=${p25} p50=${p50} p75=${p75} p90=${p90}`);
   console.log(`  ランク: S=${rankCounts.S} A=${rankCounts.A} B=${rankCounts.B} C=${rankCounts.C} D=${rankCounts.D}`);
-  console.log(`  カテゴリ平均: トレンド=${(categoryTotals.trend / categoryTotals.count).toFixed(1)}/40 エントリー=${(categoryTotals.entry / categoryTotals.count).toFixed(1)}/35 リスク=${(categoryTotals.risk / categoryTotals.count).toFixed(1)}/25`);
+  console.log(`  カテゴリ平均: トレンド=${(categoryTotals.trend / categoryTotals.count).toFixed(1)}/40 エントリー=${(categoryTotals.entry / categoryTotals.count).toFixed(1)}/35 リスク=${(categoryTotals.risk / categoryTotals.count).toFixed(1)}/20 セクター=${(categoryTotals.sector / categoryTotals.count).toFixed(1)}/5`);
 
   // 4. ベースラインバックテストのトレード詳細分析
   console.log("\n=== ベースラインのトレード詳細 ===");
@@ -126,6 +131,7 @@ async function main() {
   const { candidateMap, allTickers } = buildCandidateMapOnTheFly(
     allData, fundamentalsMap, stocks, startDate, endDate,
     TARGET_RANKS, FALLBACK_RANKS, MIN_TICKERS,
+    nikkei225Ohlcv ? [...nikkei225Ohlcv] : undefined,
   );
 
   const sectorMap = new Map<string, string>();

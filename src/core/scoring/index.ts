@@ -4,7 +4,7 @@ import {
   aggregateDailyToWeekly,
 } from "../../lib/technical-indicators";
 import { calculateBBWidthPercentile } from "../../lib/technical-indicators/bb-width-history";
-import { SCORING } from "../../lib/constants/scoring";
+import { SCORING, SECTOR_MOMENTUM_SCORING } from "../../lib/constants/scoring";
 import { checkGates } from "./gates";
 import { scoreTrendQuality, countDaysAboveSma25 } from "./trend-quality";
 import { scoreEntryTiming } from "./entry-timing";
@@ -13,6 +13,7 @@ import {
   calculateAtrCv,
   calculateVolumeCv,
 } from "./risk-quality";
+import { scoreSectorMomentum } from "./sector-momentum";
 import { getRank } from "./types";
 import type { ScoringInput, NewLogicScore } from "./types";
 
@@ -21,7 +22,7 @@ export { getRank } from "./types";
 
 /**
  * メインスコアリング関数
- * 3カテゴリ（トレンド品質40 + エントリータイミング35 + リスク品質25）= 100点満点
+ * 4カテゴリ（トレンド品質40 + エントリータイミング35 + リスク品質20 + セクターモメンタム5）= 100点満点
  */
 export function scoreStock(input: ScoringInput): NewLogicScore {
   const { historicalData, latestPrice, summary, avgVolume25 } = input;
@@ -48,6 +49,7 @@ export function scoreStock(input: ScoringInput): NewLogicScore {
     trendQuality: { total: 0, maAlignment: 0, weeklyTrend: 0, trendContinuity: 0 },
     entryTiming: { total: 0, pullbackDepth: 0, breakout: 0, candlestickSignal: 0 },
     riskQuality: { total: 0, atrStability: 0, rangeContraction: 0, volumeStability: 0 },
+    sectorMomentumScore: 0,
     isDisqualified: true,
     disqualifyReason: gate.failedGate,
   };
@@ -126,8 +128,11 @@ export function scoreStock(input: ScoringInput): NewLogicScore {
     volumeCv,
   });
 
+  // --- sector momentum ---
+  const sectorMomentumScore = scoreSectorMomentum(input.sectorRelativeStrength);
+
   // --- 9. 合計 & ランク ---
-  const totalScore = trendQuality.total + entryTiming.total + riskQuality.total;
+  const totalScore = trendQuality.total + entryTiming.total + riskQuality.total + sectorMomentumScore;
 
   return {
     totalScore,
@@ -136,6 +141,7 @@ export function scoreStock(input: ScoringInput): NewLogicScore {
     trendQuality,
     entryTiming,
     riskQuality,
+    sectorMomentumScore,
     isDisqualified: false,
     disqualifyReason: null,
   };
@@ -197,6 +203,9 @@ export function formatScoreForAI(
   lines.push(`    ATR安定性: ${score.riskQuality.atrStability}/${SCORING.SUB_MAX.ATR_STABILITY}`);
   lines.push(`    レンジ収束: ${score.riskQuality.rangeContraction}/${SCORING.SUB_MAX.RANGE_CONTRACTION}`);
   lines.push(`    出来高安定: ${score.riskQuality.volumeStability}/${SCORING.SUB_MAX.VOLUME_STABILITY}`);
+
+  // セクターモメンタム（5点）
+  lines.push(`  セクターモメンタム: ${score.sectorMomentumScore}/${SECTOR_MOMENTUM_SCORING.CATEGORY_MAX}`);
 
   // テクニカル参考値
   const refParts: string[] = [];

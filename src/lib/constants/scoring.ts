@@ -1,19 +1,20 @@
 /**
  * スコアリング・損切り検証の定数
  *
- * 新3カテゴリ100点満点:
+ * 4カテゴリ100点満点:
  * - トレンド品質: 40点
  * - エントリータイミング: 35点
- * - リスク品質: 25点
+ * - リスク品質: 20点
+ * - セクターモメンタム: 5点
  */
 
-/** 新3カテゴリ + ゲート スコアリング定数 */
+/** 4カテゴリ + ゲート スコアリング定数 */
 export const SCORING = {
   /** カテゴリ最大点数 */
   CATEGORY_MAX: {
     TREND_QUALITY: 40,
     ENTRY_TIMING: 35,
-    RISK_QUALITY: 25,
+    RISK_QUALITY: 20,
   },
 
   /** サブスコア最大点数 */
@@ -26,10 +27,10 @@ export const SCORING = {
     PULLBACK_DEPTH: 15,
     BREAKOUT: 12,
     CANDLESTICK_SIGNAL: 8,
-    // リスク品質 (25)
+    // リスク品質 (20)
     ATR_STABILITY: 10,
     RANGE_CONTRACTION: 8,
-    VOLUME_STABILITY: 7,
+    VOLUME_STABILITY: 2,
   },
 
   /** ランク閾値 */
@@ -82,6 +83,19 @@ export const SCORING = {
 
   MAX_CANDIDATES_FOR_AI: 20,
   MIN_CANDIDATES_FOR_AI: 5,
+} as const;
+
+export const SECTOR_MOMENTUM_SCORING = {
+  CATEGORY_MAX: 5,
+  TIERS: [
+    { min: 3.0, score: 5 },
+    { min: 1.5, score: 4 },
+    { min: 0.5, score: 3 },
+    { min: -0.5, score: 2 },
+    { min: -2.0, score: 1 },
+  ],
+  DEFAULT_SCORE: 2,
+  MIN_SECTOR_STOCK_COUNT: 3,
 } as const;
 
 export const SCORING_ACCURACY = {
