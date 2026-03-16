@@ -289,6 +289,19 @@ export const CSS = `
   .chart-tab:hover { border-color: ${COLORS.accent}; color: ${COLORS.accent}; }
   .chart-tab.active { background: ${COLORS.accent}; color: #fff; border-color: ${COLORS.accent}; }
 
+  /* Nikkei chart widget */
+  .nikkei-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+  }
+  .nikkei-tabs { display: flex; gap: 4px; flex-shrink: 0; }
+  @media (max-width: 430px) {
+    .nikkei-header { flex-direction: column; gap: 8px; }
+    .nikkei-tabs { align-self: flex-end; }
+  }
+
   /* Toggle button */
   .btn-toggle {
     padding: 4px 12px;

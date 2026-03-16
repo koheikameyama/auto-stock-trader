@@ -219,6 +219,38 @@ export async function yfFetchNews(
 }
 
 /**
+ * インデックスのチャートデータを取得（イントラデイ対応）
+ */
+export interface YfIndexChartBar {
+  datetime: string;
+  close: number;
+}
+
+export interface YfIndexChartMeta {
+  price: number;
+  previousClose: number;
+  change: number;
+  changePercent: number;
+  high: number;
+  low: number;
+}
+
+export interface YfIndexChartResponse {
+  bars: YfIndexChartBar[];
+  meta: YfIndexChartMeta;
+}
+
+export async function yfFetchIndexChart(
+  symbol: string,
+  period: string,
+  interval: string,
+): Promise<YfIndexChartResponse> {
+  return yfinanceFetch<YfIndexChartResponse>(
+    `/index/chart?symbol=${encodeURIComponent(symbol)}&period=${period}&interval=${interval}`,
+  );
+}
+
+/**
  * ヘルスチェック（サイドカーが起動しているか確認）
  */
 export async function yfHealthCheck(): Promise<boolean> {

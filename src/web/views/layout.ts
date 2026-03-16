@@ -262,6 +262,32 @@ export function layout(
             if (e.key === 'Escape') closeStockModal();
           });
 
+          // Nikkei 225 chart period switching
+          var nikkeiLabels = { '1d': '1日', '5d': '1週', '1mo': '1月', '3mo': '3月' };
+          function switchNikkeiPeriod(period) {
+            var tabs = document.querySelectorAll('.nikkei-tabs .chart-tab');
+            tabs.forEach(function(t) {
+              t.classList.toggle('active', t.textContent.trim() === nikkeiLabels[period]);
+            });
+            var body = document.getElementById('nikkei-chart-body');
+            if (body) body.innerHTML = '<div class="empty" style="padding:40px 0">読み込み中...</div>';
+            var params = new URLSearchParams(window.location.search);
+            var token = params.get('token') || '';
+            fetch('/api/nikkei/chart-html?period=' + period + '&token=' + encodeURIComponent(token))
+              .then(function(r) { return r.ok ? r.text() : null; })
+              .then(function(h) {
+                if (h && body) body.innerHTML = h;
+                else if (body) body.innerHTML = '<div class="empty">データ取得失敗</div>';
+              })
+              .catch(function() {
+                if (body) body.innerHTML = '<div class="empty">データ取得失敗</div>';
+              });
+          }
+          // Auto-load 1d chart on page load
+          if (document.getElementById('nikkei-chart-body')) {
+            switchNikkeiPeriod('1d');
+          }
+
           // 株価を非同期取得してDOM更新
           (function() {
             var rows = document.querySelectorAll('[data-quote-row]');

@@ -5,7 +5,7 @@
 import { html } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { COLORS } from "./styles";
-import { CHART_PADDING, CHART_LABEL_THRESHOLD } from "../../lib/constants";
+import { CHART_PADDING, CHART_LABEL_THRESHOLD, NIKKEI_CHART_PERIODS } from "../../lib/constants";
 
 type HtmlContent = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -142,6 +142,196 @@ export function detailRow(
     <span class="detail-label">${label}</span>
     <span>${value}</span>
   </div>`;
+}
+
+/** 日経225チャート ボディ（SVGライン + メタ情報） */
+export interface NikkeiChartData {
+  bars: { datetime: string; close: number }[];
+  meta: {
+    price: number;
+    previousClose: number;
+    change: number;
+    changePercent: number;
+    high: number;
+    low: number;
+  } | null;
+}
+
+export function nikkeiChartBody(
+  data: NikkeiChartData,
+  activePeriod: string,
+): HtmlContent {
+  const meta = data.meta;
+  const isPositive = meta ? meta.change >= 0 : true;
+  const lineColor = isPositive ? COLORS.profit : COLORS.loss;
+
+  if (!data.bars || data.bars.length < 2) {
+    return html`
+      ${meta ? nikkeiMetaHtml(meta, isPositive) : ""}
+      ${emptyState("チャートデータなし")}
+    `;
+  }
+
+  const isIntraday = activePeriod === "1d" || activePeriod === "5d";
+
+  // SVG dimensions
+  const W = 388;
+  const H = 160;
+  const padT = 12;
+  const padB = 20;
+  const padL = 48;
+  const padR = 8;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+
+  const closes = data.bars.map((b) => b.close);
+  const minP = Math.min(...closes);
+  const maxP = Math.max(...closes);
+  const rangeP = maxP - minP || 1;
+
+  const yPrice = (v: number) =>
+    padT + chartH - ((v - minP) / rangeP) * chartH;
+  const xPos = (i: number) =>
+    padL + (i / (data.bars.length - 1)) * chartW;
+
+  const points = data.bars.map((b, i) => `${xPos(i)},${yPrice(b.close)}`);
+
+  // Gradient fill polygon
+  const fillPoints = [
+    `${xPos(0)},${padT + chartH}`,
+    ...points,
+    `${xPos(data.bars.length - 1)},${padT + chartH}`,
+  ].join(" ");
+
+  // X-axis labels (5 points)
+  const labelCount = 5;
+  const step = Math.floor(data.bars.length / (labelCount - 1));
+  const labelIndices = Array.from(
+    { length: labelCount },
+    (_, i) => Math.min(i * step, data.bars.length - 1),
+  );
+
+  function formatLabel(datetime: string): string {
+    if (isIntraday) {
+      const match = datetime.match(/T(\d{2}):(\d{2})/);
+      return match ? `${match[1]}:${match[2]}` : "";
+    }
+    const match = datetime.match(/(\d{2})-(\d{2})/);
+    return match ? `${parseInt(match[1])}/${parseInt(match[2])}` : "";
+  }
+
+  // Previous close reference line (1d only)
+  const prevCloseY =
+    meta && activePeriod === "1d" ? yPrice(meta.previousClose) : null;
+  const showPrevLine =
+    prevCloseY != null && prevCloseY > padT && prevCloseY < padT + chartH;
+
+  return html`
+    ${meta ? nikkeiMetaHtml(meta, isPositive) : ""}
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%">
+      <defs>
+        <linearGradient id="nkGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${lineColor}" stop-opacity="0.2" />
+          <stop offset="100%" stop-color="${lineColor}" stop-opacity="0.02" />
+        </linearGradient>
+      </defs>
+      ${showPrevLine
+        ? html`<line
+            x1="${padL}"
+            y1="${prevCloseY}"
+            x2="${W - padR}"
+            y2="${prevCloseY}"
+            stroke="${COLORS.border}"
+            stroke-dasharray="4"
+            stroke-width="0.8"
+          />`
+        : ""}
+      <polygon points="${fillPoints}" fill="url(#nkGrad)" />
+      <polyline
+        fill="none"
+        stroke="${lineColor}"
+        stroke-width="1.5"
+        points="${points.join(" ")}"
+      />
+      <text
+        x="${padL - 4}"
+        y="${padT + 4}"
+        text-anchor="end"
+        fill="${COLORS.textDim}"
+        font-size="9"
+      >
+        ¥${formatYen(maxP)}
+      </text>
+      <text
+        x="${padL - 4}"
+        y="${padT + chartH + 4}"
+        text-anchor="end"
+        fill="${COLORS.textDim}"
+        font-size="9"
+      >
+        ¥${formatYen(minP)}
+      </text>
+      ${labelIndices.map(
+        (idx) =>
+          html`<text
+            x="${xPos(idx)}"
+            y="${H - 2}"
+            text-anchor="middle"
+            fill="${COLORS.textDim}"
+            font-size="8"
+          >
+            ${formatLabel(data.bars[idx].datetime)}
+          </text>`,
+      )}
+    </svg>
+  `;
+}
+
+function nikkeiMetaHtml(
+  meta: NonNullable<NikkeiChartData["meta"]>,
+  isPositive: boolean,
+): HtmlContent {
+  return html`
+    <div class="card-value">¥${formatYen(meta.price)}</div>
+    <div class="card-sub" style="margin-bottom:8px">
+      <span class="${isPositive ? "pnl-positive" : "pnl-negative"}">
+        ${isPositive ? "+" : ""}¥${formatYen(Math.abs(meta.change))}
+        (${isPositive ? "+" : ""}${meta.changePercent.toFixed(2)}%)
+      </span>
+      <span style="margin-left:8px;color:${COLORS.textDim}">
+        高 ¥${formatYen(meta.high)} / 安 ¥${formatYen(meta.low)}
+      </span>
+    </div>
+  `;
+}
+
+/** 日経225チャート ウィジェットシェル（初回レンダリング用） */
+export function nikkeiChartShell(): HtmlContent {
+  const periods = Object.entries(NIKKEI_CHART_PERIODS);
+  return html`
+    <div class="card" id="nikkei-chart-card">
+      <div class="nikkei-header">
+        <div>
+          <div class="card-title">日経225</div>
+          <div class="card-value" style="color:${COLORS.textDim}">...</div>
+        </div>
+        <div class="nikkei-tabs">
+          ${periods.map(
+            ([key, { label }], i) =>
+              html`<button
+                class="chart-tab ${i === 0 ? "active" : ""}"
+                onclick="switchNikkeiPeriod('${key}')"
+              >
+                ${label}
+              </button>`,
+          )}
+        </div>
+      </div>
+      <div id="nikkei-chart-body">
+        <div class="empty" style="padding:40px 0">読み込み中...</div>
+      </div>
+    </div>
+  `;
 }
 
 /** SVG 折れ線チャート（累積PnL） */

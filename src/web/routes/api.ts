@@ -14,6 +14,9 @@ import { analyzeTechnicals } from "../../core/technical-analysis";
 import { generatePatternsResponse } from "../../lib/candlestick-patterns";
 import { stockModal } from "../views/stock-modal";
 import type { ModalAnalysis, ModalPositionInfo } from "../views/stock-modal";
+import { yfFetchIndexChart } from "../../lib/yfinance-client";
+import { nikkeiChartBody } from "../views/components";
+import { NIKKEI_CHART_PERIODS } from "../../lib/constants";
 
 const app = new Hono();
 
@@ -273,6 +276,23 @@ app.get("/quotes", async (c) => {
  */
 app.get("/health", (c) => {
   return c.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+/**
+ * GET /api/nikkei/chart-html - 日経225チャートHTMLフラグメント
+ */
+app.get("/nikkei/chart-html", async (c) => {
+  const period = c.req.query("period") || "1d";
+  const config = NIKKEI_CHART_PERIODS[period];
+  if (!config) return c.text("Invalid period", 400);
+
+  try {
+    const data = await yfFetchIndexChart("^N225", period, config.interval);
+    return c.html(nikkeiChartBody(data, period));
+  } catch (e) {
+    console.error("[nikkei/chart-html] Error:", e);
+    return c.html(`<div class="empty">データ取得失敗</div>`);
+  }
 });
 
 export default app;

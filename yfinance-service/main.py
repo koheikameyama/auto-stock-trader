@@ -615,6 +615,56 @@ async def get_market():
         return result
 
 
+@app.get("/index/chart")
+async def get_index_chart(symbol: str, period: str = "1d", interval: str = "5m"):
+    """インデックスのチャートデータを取得（イントラデイ対応）"""
+    valid_combos: dict[str, list[str]] = {
+        "1d": ["1m", "2m", "5m", "15m"],
+        "5d": ["5m", "15m", "1d"],
+        "1mo": ["1d"],
+        "3mo": ["1d"],
+    }
+    if period not in valid_combos or interval not in valid_combos[period]:
+        raise HTTPException(status_code=400, detail=f"Invalid period/interval: {period}/{interval}")
+
+    try:
+        def _fetch(session: CurlSession):
+            ticker = yf.Ticker(symbol, session=session)
+            df = ticker.history(period=period, interval=interval, auto_adjust=True)
+            # メタ情報も取得
+            try:
+                info = ticker.info
+                if not isinstance(info, dict):
+                    info = _build_info_from_fast_info(ticker)
+            except Exception:
+                info = _build_info_from_fast_info(ticker)
+            return df, info
+
+        df, info = await throttled_with_retry(_fetch)
+
+        bars = []
+        if df is not None and not df.empty:
+            _flatten_columns(df)
+            for ts, row in df.iterrows():
+                c = safe_float_or_none(row.get("Close"))
+                if c is None:
+                    continue
+                dt_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+                bars.append({
+                    "datetime": dt_str,
+                    "close": c,
+                })
+
+        meta = parse_index_quote_from_info(info)
+        meta["high"] = safe_float(info.get("dayHigh") or info.get("regularMarketDayHigh"))
+        meta["low"] = safe_float(info.get("dayLow") or info.get("regularMarketDayLow"))
+
+        return {"bars": bars, "meta": meta}
+    except Exception as e:
+        logger.error(f"Failed to fetch index chart for {symbol}: {e}")
+        raise HTTPException(status_code=_error_status(e), detail=_error_detail(e))
+
+
 @app.get("/events")
 async def get_events(symbol: str):
     """コーポレートイベント情報を取得"""

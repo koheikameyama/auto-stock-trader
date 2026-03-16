@@ -19,6 +19,7 @@ import {
   detailRow,
   tickerLink,
   tt,
+  nikkeiChartShell,
 } from "../views/components";
 import { isMarketDay } from "../../lib/market-calendar";
 import { determineMarketRegime } from "../../core/market-regime";
@@ -137,6 +138,9 @@ app.get("/", async (c) => {
         <div class="card-sub">予算: ¥${formatYen(totalBudget)}</div>
       </div>
     </div>
+
+    <!-- Nikkei 225 Chart -->
+    ${nikkeiChartShell()}
 
     <!-- Market Assessment + Trading Verdict -->
     <div class="card">

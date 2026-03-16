@@ -22,6 +22,14 @@ export const QUERY_LIMITS = {
   WEEKLY_SUMMARIES: 12,
 } as const;
 
+// 日経225チャートの期間→インターバルマッピング
+export const NIKKEI_CHART_PERIODS: Record<string, { interval: string; label: string }> = {
+  "1d": { interval: "5m", label: "1日" },
+  "5d": { interval: "15m", label: "1週" },
+  "1mo": { interval: "1d", label: "1月" },
+  "3mo": { interval: "1d", label: "3月" },
+};
+
 // ルートのルックバック日数
 export const ROUTE_LOOKBACK_DAYS = {
   POSITIONS_CLOSED: 7,
