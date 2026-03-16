@@ -25,6 +25,7 @@ export interface ModalAnalysis {
     trendQualityScore: number;
     entryTimingScore: number;
     riskQualityScore: number;
+    sectorMomentumScore: number;
     isDisqualified: boolean;
     disqualifyReason: string | null;
     aiDecision: string | null;
@@ -419,7 +420,8 @@ function scoringSection(
     </div>
     ${scoreBar(tt("トレンド品質", "MA整列・週足トレンド・トレンド継続性の評価"), scoring.trendQualityScore, 40, "#3b82f6")}
     ${scoreBar(tt("エントリー", "押し目深さ・ブレイクアウト・ローソク足シグナルの評価"), scoring.entryTimingScore, 35, "#a855f7")}
-    ${scoreBar(tt("リスク品質", "ATR安定性・レンジ収束・出来高安定性の評価"), scoring.riskQualityScore, 25, "#22c55e")}`;
+    ${scoreBar(tt("リスク品質", "ATR安定性・レンジ収束・出来高安定性の評価"), scoring.riskQualityScore, 20, "#22c55e")}
+    ${scoreBar(tt("セクター", "セクター相対強度スコア"), scoring.sectorMomentumScore, 5, "#f59e0b")}`;
 }
 
 // ========================================
