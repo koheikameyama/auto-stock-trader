@@ -297,6 +297,9 @@ export async function providerFetchMarket(): Promise<YfMarketData> {
       const symbols = {
         nikkei: "^N225",
         sp500: "^GSPC",
+        nasdaq: "^IXIC",
+        dow: "^DJI",
+        sox: "^SOX",
         vix: "^VIX",
         usdjpy: "JPY=X",
         cmeFutures: "NKD=F",

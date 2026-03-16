@@ -68,7 +68,7 @@ Dockerfile               # Railwayデプロイ用
 
 ```
 8:30  market-scanner
-      ├─ 市場指標取得（日経225, S&P500, VIX, USD/JPY, CME先物）
+      ├─ 市場指標取得（日経225, S&P500, NASDAQ, ダウ, SOX半導体指数, VIX, USD/JPY, CME先物）
       ├─ AI市場評価 → shouldTrade?
       ├─ NO → 保存して終了
       └─ YES → 銘柄スクリーニング → テクニカル分析 → AI銘柄選定

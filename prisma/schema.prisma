@@ -95,6 +95,9 @@ model MarketAssessment {
   nikkeiPrice     Decimal? @db.Decimal(10, 2)
   nikkeiChange    Decimal? @db.Decimal(8, 4) // 前日比%
   sp500Change     Decimal? @db.Decimal(8, 4)
+  nasdaqChange    Decimal? @db.Decimal(8, 4) // NASDAQ前日比%
+  dowChange       Decimal? @db.Decimal(8, 4) // ダウ前日比%
+  soxChange       Decimal? @db.Decimal(8, 4) // SOX半導体指数前日比%
   vix             Decimal? @db.Decimal(8, 2)
   nikkeiVi        Decimal? @db.Decimal(8, 2)
   usdjpy          Decimal? @db.Decimal(8, 4)

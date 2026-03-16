@@ -36,6 +36,9 @@ export interface MarketDataInput {
   nikkeiPrice: number;
   nikkeiChange: number;
   sp500Change: number;
+  nasdaqChange: number;
+  dowChange: number;
+  soxChange: number;
   vix: number;
   usdJpy: number;
   cmeFuturesPrice: number;
@@ -106,14 +109,23 @@ export async function assessMarket(
 ): Promise<MarketAssessmentResult> {
   const openai = getOpenAIClient();
 
+  const fmt = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
+
   let userPrompt = `以下の市場データに基づいて、今日の日本株取引を行うべきか評価してください。
 
-【市場指標】
-- 日経225: ${data.nikkeiPrice.toLocaleString()}円（前日比: ${data.nikkeiChange >= 0 ? "+" : ""}${data.nikkeiChange.toFixed(2)}%）
-- S&P500 前日比: ${data.sp500Change >= 0 ? "+" : ""}${data.sp500Change.toFixed(2)}%
+【日本市場】
+- 日経225: ${data.nikkeiPrice.toLocaleString()}円（前日比: ${fmt(data.nikkeiChange)}）
+- CME日経先物: ${data.cmeFuturesPrice.toLocaleString()}円（前日比: ${fmt(data.cmeFuturesChange)}）
+
+【米国市場（前日終値）】
+- S&P500: ${fmt(data.sp500Change)}
+- NASDAQ: ${fmt(data.nasdaqChange)}
+- ダウ: ${fmt(data.dowChange)}
+- SOX半導体指数: ${fmt(data.soxChange)}
+
+【リスク指標】
 - VIX: ${data.vix.toFixed(2)}
-- USD/JPY: ${data.usdJpy.toFixed(2)}
-- CME日経先物: ${data.cmeFuturesPrice.toLocaleString()}円（前日比: ${data.cmeFuturesChange >= 0 ? "+" : ""}${data.cmeFuturesChange.toFixed(2)}%）`;
+- USD/JPY: ${data.usdJpy.toFixed(2)}`;
 
   if (data.newsSummary) {
     userPrompt += `\n\n${data.newsSummary}`;

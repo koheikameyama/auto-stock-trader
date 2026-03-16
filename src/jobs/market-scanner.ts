@@ -83,6 +83,22 @@ interface ScoredCandidate {
   newsContext?: string;
 }
 
+/** MarketAssessment保存用の市場指標フィールドを構築する */
+function buildMarketFields(marketData: Awaited<ReturnType<typeof fetchMarketData>>) {
+  return {
+    nikkeiPrice: marketData.nikkei!.price,
+    nikkeiChange: marketData.nikkei!.changePercent,
+    sp500Change: marketData.sp500?.changePercent,
+    nasdaqChange: marketData.nasdaq?.changePercent,
+    dowChange: marketData.dow?.changePercent,
+    soxChange: marketData.sox?.changePercent,
+    vix: marketData.vix?.price,
+    nikkeiVi: null as null,
+    usdjpy: marketData.usdjpy?.price,
+    cmeFuturesPrice: marketData.cmeFutures?.price,
+  };
+}
+
 export async function main() {
   console.log("=== Market Scanner 開始 ===");
   let isShadowMode = false;
@@ -107,6 +123,16 @@ export async function main() {
       message: "VIXが取得できませんでした。手動確認してください。",
     });
     throw new Error("市場データの取得に失敗しました（vix が null）");
+  }
+
+  // 米国市場オーバーナイトデータログ
+  const usLog = [
+    marketData.nasdaq ? `NASDAQ ${marketData.nasdaq.changePercent >= 0 ? "+" : ""}${marketData.nasdaq.changePercent.toFixed(2)}%` : null,
+    marketData.dow ? `ダウ ${marketData.dow.changePercent >= 0 ? "+" : ""}${marketData.dow.changePercent.toFixed(2)}%` : null,
+    marketData.sox ? `SOX ${marketData.sox.changePercent >= 0 ? "+" : ""}${marketData.sox.changePercent.toFixed(2)}%` : null,
+  ].filter(Boolean);
+  if (usLog.length > 0) {
+    console.log(`  米国市場（前日）: ${usLog.join(", ")}`);
   }
 
   // 1.5. ニュース分析データ取得
@@ -161,13 +187,7 @@ ${sectorText || "  特になし"}`;
         message: preMarket.reason!,
       });
       const assessmentData = {
-        nikkeiPrice: marketData.nikkei.price,
-        nikkeiChange: marketData.nikkei.changePercent,
-        sp500Change: marketData.sp500?.changePercent,
-        vix: marketData.vix?.price,
-        nikkeiVi: null,
-        usdjpy: marketData.usdjpy?.price,
-        cmeFuturesPrice: marketData.cmeFutures?.price,
+        ...buildMarketFields(marketData),
         sentiment: "crisis" as const,
         shouldTrade: false,
         reasoning: `[CME先物乖離率キルスイッチ] ${preMarket.reason}`,
@@ -234,12 +254,7 @@ ${sectorText || "  特になし"}`;
       message: regime.reason,
     });
     const assessmentData = {
-      nikkeiPrice: marketData.nikkei.price,
-      nikkeiChange: marketData.nikkei.changePercent,
-      sp500Change: marketData.sp500?.changePercent,
-      vix: marketData.vix.price,
-      usdjpy: marketData.usdjpy?.price,
-      cmeFuturesPrice: marketData.cmeFutures?.price,
+      ...buildMarketFields(marketData),
       sentiment: "crisis" as const,
       shouldTrade: false,
       reasoning: `[VIXレジーム自動停止] ${regime.reason}`,
@@ -266,13 +281,7 @@ ${sectorText || "  特になし"}`;
       message: reason,
     });
     const assessmentData = {
-      nikkeiPrice: marketData.nikkei.price,
-      nikkeiChange: marketData.nikkei.changePercent,
-      sp500Change: marketData.sp500?.changePercent,
-      vix: marketData.vix?.price,
-      nikkeiVi: null,
-      usdjpy: marketData.usdjpy?.price,
-      cmeFuturesPrice: marketData.cmeFutures?.price,
+      ...buildMarketFields(marketData),
       sentiment: "crisis" as const,
       shouldTrade: false,
       reasoning: `[日経平均キルスイッチ] ${reason}`,
@@ -316,13 +325,7 @@ ${sectorText || "  特になし"}`;
       `  → ドローダウン停止時のsentiment: ${drawdownSentiment}（AI市場評価を維持）`,
     );
     const drawdownAssessmentData = {
-      nikkeiPrice: marketData.nikkei.price,
-      nikkeiChange: marketData.nikkei.changePercent,
-      sp500Change: marketData.sp500?.changePercent,
-      vix: marketData.vix?.price,
-      nikkeiVi: null,
-      usdjpy: marketData.usdjpy?.price,
-      cmeFuturesPrice: marketData.cmeFutures?.price,
+      ...buildMarketFields(marketData),
       sentiment: drawdownSentiment,
       shouldTrade: false,
       reasoning: `[ドローダウン自動停止] ${drawdown.reason}（sentiment=${drawdownSentiment}はAI市場評価を維持）`,
@@ -346,6 +349,9 @@ ${sectorText || "  特になし"}`;
       nikkeiPrice: marketData.nikkei.price,
       nikkeiChange: marketData.nikkei.changePercent,
       sp500Change: marketData.sp500?.changePercent ?? 0,
+      nasdaqChange: marketData.nasdaq?.changePercent ?? 0,
+      dowChange: marketData.dow?.changePercent ?? 0,
+      soxChange: marketData.sox?.changePercent ?? 0,
       vix: marketData.vix.price,
       usdJpy: marketData.usdjpy?.price ?? 0,
       cmeFuturesPrice: marketData.cmeFutures?.price ?? 0,
@@ -371,13 +377,7 @@ ${sectorText || "  特になし"}`;
     if (!assessment.shouldTrade) {
       console.log("取引見送り。MarketAssessment を保存してシャドウスコアリングへ");
       const noTradeData = {
-        nikkeiPrice: marketData.nikkei.price,
-        nikkeiChange: marketData.nikkei.changePercent,
-        sp500Change: marketData.sp500?.changePercent,
-        vix: marketData.vix?.price,
-        nikkeiVi: null,
-        usdjpy: marketData.usdjpy?.price,
-        cmeFuturesPrice: marketData.cmeFutures?.price,
+        ...buildMarketFields(marketData),
         sentiment: assessment.sentiment,
         shouldTrade: false,
         reasoning: assessment.reasoning,
@@ -769,13 +769,7 @@ ${sectorText || "  特になし"}`;
     });
 
     const tradeAssessmentData = {
-      nikkeiPrice: marketData.nikkei.price,
-      nikkeiChange: marketData.nikkei.changePercent,
-      sp500Change: marketData.sp500?.changePercent,
-      vix: marketData.vix?.price,
-      nikkeiVi: null,
-      usdjpy: marketData.usdjpy?.price,
-      cmeFuturesPrice: marketData.cmeFutures?.price,
+      ...buildMarketFields(marketData),
       sentiment: assessment!.sentiment,
       shouldTrade: true,
       reasoning: assessment!.reasoning,

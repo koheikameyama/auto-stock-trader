@@ -80,6 +80,26 @@ export const VIX_THRESHOLDS = {
   NORMAL: 20, // Elevated: 20-25（最大2ポジション、S/Aランク）
 } as const;
 
+// 米国市場オーバーナイト指標
+// 前日の米国市場終値を翌朝の日本株判断に使用する
+export const US_OVERNIGHT = {
+  // 米国市場が全面安と判断する閾値（3指数すべてがこの値以下）
+  BROAD_SELLOFF_THRESHOLD: -1.5,
+  // SOX半導体指数の急落閾値（日本の半導体セクターに直接波及）
+  SOX_CRASH_THRESHOLD: -3.0,
+  // NASDAQ急落閾値（テック・グロース系に波及）
+  NASDAQ_CRASH_THRESHOLD: -3.0,
+} as const;
+
+// 米国セクター → 日本セクターグループ の相関マッピング
+// 米国セクターの前日動向を日本の対応セクターの追加シグナルとして使用
+export const US_JP_SECTOR_CORRELATION = {
+  // SOX半導体指数 → 半導体・電子部品（最重要: 東京エレクトロン、アドバンテスト等に直結）
+  sox: ["半導体・電子部品"] as readonly string[],
+  // NASDAQ → IT・グロース系
+  nasdaq: ["IT・サービス", "半導体・電子部品"] as readonly string[],
+} as const;
+
 // CMEナイトセッション乖離率閾値
 export const CME_NIGHT_DIVERGENCE = {
   CRITICAL: -3.0, // crisis（取引停止、前場でギャップダウン必至）

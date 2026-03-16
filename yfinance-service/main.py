@@ -546,6 +546,9 @@ async def get_historical_batch(req: HistoricalBatchRequest):
 MARKET_SYMBOLS = {
     "nikkei": "^N225",
     "sp500": "^GSPC",
+    "nasdaq": "^IXIC",
+    "dow": "^DJI",
+    "sox": "^SOX",
     "vix": "^VIX",
     "usdjpy": "JPY=X",
     "cmeFutures": "NKD=F",
