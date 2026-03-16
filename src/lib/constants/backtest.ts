@@ -80,12 +80,12 @@ export const DAILY_BACKTEST = {
     { key: "rs_filter", label: "RSフィルタ", overrides: { rsFilterEnabled: true } },
     { key: "vol_off_rs", label: "ボラOFF+RS", overrides: { volatilityFilterEnabled: false, rsFilterEnabled: true } },
 
-    // タイムストップ延長
-    { key: "hold_15", label: "保有15日", overrides: { maxHoldingDays: 15 } },
-    { key: "hold_20", label: "保有20日", overrides: { maxHoldingDays: 20 } },
+    // タイムストップ延長（含み益時のハードキャップ変更）
+    { key: "hold_15", label: "上限15日", overrides: { maxHoldingDays: 15 } },
+    { key: "hold_20", label: "上限20日", overrides: { maxHoldingDays: 20 } },
 
-    // 複合: RS+保有15日
-    { key: "rs_hold15", label: "RS+15日", overrides: { rsFilterEnabled: true, maxHoldingDays: 15 } },
+    // 複合: RS+上限15日
+    { key: "rs_hold15", label: "RS+上限15日", overrides: { rsFilterEnabled: true, maxHoldingDays: 15 } },
   ] satisfies ParameterCondition[],
 
   /** シミュレーション期間（ローリング） */

@@ -77,5 +77,6 @@ export const WEEKLY_REVIEW = {
 
 // タイムストップ
 export const TIME_STOP = {
-  MAX_HOLDING_DAYS: 10, // 最大保有営業日数
+  MAX_HOLDING_DAYS: 10,          // 含み損/横ばい時の強制退場日数
+  MAX_EXTENDED_HOLDING_DAYS: 15, // 含み益時のハードキャップ（延長上限）
 } as const;

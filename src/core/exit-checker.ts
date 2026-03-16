@@ -97,11 +97,15 @@ export function checkPositionExit(
 
   // 4. タイムストップ（スイングのみ — デイトレは別途強制決済）
   //    トレーリングストップ発動中は利益を伸ばすためタイムストップを適用しない
-  if (exitPrice === null && position.strategy !== "day_trade") {
-    if (
-      position.holdingBusinessDays >= (position.maxHoldingDaysOverride ?? TIME_STOP.MAX_HOLDING_DAYS) &&
-      !trailingResult.isActivated
-    ) {
+  //    含み益がある場合は延長し、ハードキャップ（MAX_EXTENDED_HOLDING_DAYS）まで待つ
+  if (exitPrice === null && position.strategy !== "day_trade" && !trailingResult.isActivated) {
+    const hardCap = position.maxHoldingDaysOverride ?? TIME_STOP.MAX_EXTENDED_HOLDING_DAYS;
+    const inProfit = bar.close > position.entryPrice;
+    const hitHardCap = position.holdingBusinessDays >= hardCap;
+    const hitBaseLimitWithNoProfit =
+      position.holdingBusinessDays >= TIME_STOP.MAX_HOLDING_DAYS && !inProfit;
+
+    if (hitHardCap || hitBaseLimitWithNoProfit) {
       exitPrice = bar.close;
       exitReason = "time_stop";
     }
