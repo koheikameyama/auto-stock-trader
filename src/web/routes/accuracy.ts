@@ -1,7 +1,7 @@
 /**
  * 精度分析ページ（GET /accuracy）
  *
- * 1. 判断整合性サマリー: Precision/Recall/F1 + 市場停止・AI却下・閾値未達
+ * 1. 判断整合性サマリー: Precision/Recall/F1 + 取引見送り・AI却下・閾値未達
  * 2. 4象限詳細: 混同行列 + ランク別精度
  * 3. FN分析: 棄却したが上昇した銘柄
  * 4. FP分析: 承認したが下落した銘柄
@@ -31,7 +31,7 @@ function rejectionBadge(reason: string | null) {
   const map: Record<string, { label: string; bg: string; color: string }> = {
     ai_no_go: { label: "AI却下", bg: "#ef444420", color: "#ef4444" },
     below_threshold: { label: "スコア不足", bg: "#f59e0b20", color: "#f59e0b" },
-    market_halted: { label: "市場停止", bg: "#fb923c20", color: "#fb923c" },
+    market_halted: { label: "取引見送り", bg: "#fb923c20", color: "#fb923c" },
     disqualified: { label: "即死", bg: "#a855f720", color: "#a855f7" },
   };
   const info = map[reason] ?? { label: reason, bg: "#64748b20", color: "#64748b" };
@@ -316,9 +316,9 @@ app.get("/", async (c) => {
 
             <!-- 既存の判断整合性 3カラム -->
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1rem">
-              <!-- 市場停止判断 -->
+              <!-- 取引見送り判断 -->
               <div>
-                <p style="font-size:0.75rem;color:#94a3b8;margin:0 0 0.25rem">市場停止判断</p>
+                <p style="font-size:0.75rem;color:#94a3b8;margin:0 0 0.25rem">取引見送り判断</p>
                 ${audit.marketHalt != null
                   ? html`
                       <p style="font-size:0.85rem;font-weight:600;margin:0 0 0.25rem">

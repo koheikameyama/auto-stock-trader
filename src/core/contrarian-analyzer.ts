@@ -1,7 +1,7 @@
 /**
  * 逆行ウィナー分析モジュール
  *
- * 市場停止日（shouldTrade=false）に上昇した銘柄を特定・追跡し、
+ * 取引見送り日（shouldTrade=false）に上昇した銘柄を特定・追跡し、
  * スコアリングへのボーナス加点を算出する。
  */
 
@@ -26,7 +26,7 @@ export interface ContrarianHistory {
   tickerCode: string;
   /** 逆行勝ち回数 */
   wins: number;
-  /** 市場停止日にスコアリングされた回数 */
+  /** 取引見送り日にスコアリングされた回数 */
   totalNoTradeDays: number;
   /** 勝ち日の平均利益率(%) */
   avgProfitPct: number;
@@ -48,7 +48,7 @@ export async function isNoTradeDay(date?: Date): Promise<boolean> {
 }
 
 /**
- * 当日の逆行ウィナー（市場停止日に上昇した銘柄）を取得する。
+ * 当日の逆行ウィナー（取引見送り日に上昇した銘柄）を取得する。
  * Ghost Review が ghostProfitPct を更新した後に呼ぶこと。
  */
 export async function getTodayContrarianWinners(): Promise<
@@ -83,7 +83,7 @@ export async function getTodayContrarianWinners(): Promise<
 
 /**
  * 複数銘柄の逆行実績をバッチ取得する（N+1回避）。
- * 過去90日間の市場停止日で、MIN_PROFIT_PCT以上上昇した回数を集計。
+ * 過去90日間の取引見送り日で、MIN_PROFIT_PCT以上上昇した回数を集計。
  */
 export async function getContrarianHistoryBatch(
   tickerCodes: string[],

@@ -539,10 +539,10 @@ export async function main() {
 - Precision: ${precision?.toFixed(1) ?? "N/A"}% | Recall: ${recall?.toFixed(1) ?? "N/A"}% | F1: ${f1?.toFixed(1) ?? "N/A"}%
 - TP=${tp.length} FP=${fp.length} FN=${fn.length} TN=${tn.length}
 
-【市場停止判断】
+【取引見送り判断】
 ${auditData.marketHalt ? `- 判定: ${auditData.marketHalt.wasHalted ? "取引停止" : "取引実行"}（センチメント: ${auditData.marketHalt.sentiment}）
 - 日経変化率: ${auditData.marketHalt.nikkeiChange != null ? `${auditData.marketHalt.nikkeiChange.toFixed(2)}%` : "不明"}
-- 市場停止による見送り: ${auditData.marketHalt.totalScored}件のうち上昇 ${auditData.marketHalt.risingCount}件 (${auditData.marketHalt.risingRate ?? "-"}%)` : "- 市場評価データなし"}
+- 取引見送り: ${auditData.marketHalt.totalScored}件のうち上昇 ${auditData.marketHalt.risingCount}件 (${auditData.marketHalt.risingRate ?? "-"}%)` : "- 市場評価データなし"}
 
 【AI却下精度】
 ${auditData.aiRejection.total > 0 ? `- 却下銘柄: ${auditData.aiRejection.total}件
@@ -587,7 +587,7 @@ ${auditData.aiRejection.total > 0 ? `- 却下銘柄: ${auditData.aiRejection.tot
     console.error("  意思決定整合性評価エラー:", error);
   }
 
-  // 逆行ウィナー分析（市場停止日のみ）
+  // 逆行ウィナー分析（取引見送り日のみ）
   const noTrade = await isNoTradeDay();
   if (noTrade) {
     console.log("[9/9] 逆行ウィナー分析中...");

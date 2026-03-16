@@ -422,7 +422,7 @@ AIレビュー（Go/No-Go）
 
 ## 逆行ウィナーボーナス
 
-市場停止日（`shouldTrade=false`）に上昇した実績のある銘柄にボーナスポイントを加算。
+取引見送り日（`shouldTrade=false`）に上昇した実績のある銘柄にボーナスポイントを加算。
 
 | 条件 | ボーナス |
 |------|---------|
@@ -445,7 +445,7 @@ AIレビュー（Go/No-Go）
 |------|--------------------|
 | AI否決銘柄 | `ai_no_go` |
 | 閾値未達銘柄 | `below_threshold` |
-| 市場停止日銘柄 | `market_halted` |
+| 取引見送り日銘柄 | `market_halted` |
 | 即死棄却銘柄 | `disqualified` |
 
 ### 処理（ghost-review ジョブ / 16:10 JST）

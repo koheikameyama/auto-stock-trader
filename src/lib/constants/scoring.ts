@@ -118,7 +118,7 @@ export const CONTRARIAN = {
   LOOKBACK_DAYS: 90,
   /** 逆行勝ちとカウントする最低利益率(%) */
   MIN_PROFIT_PCT: 1.5,
-  /** ボーナス判定に必要な最低市場停止日数 */
+  /** ボーナス判定に必要な最低取引見送り日数 */
   MIN_SAMPLE_DAYS: 4,
   /** Slackレポートの最大表示件数 */
   MAX_REPORT_WINNERS: 10,

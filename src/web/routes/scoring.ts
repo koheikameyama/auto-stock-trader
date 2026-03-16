@@ -36,7 +36,7 @@ function aiDecisionBadge(decision: string | null) {
 function reasonBadge(reason: string | null) {
   if (!reason) return html`<span style="color:#64748b">-</span>`;
   const map: Record<string, { label: string; color: string }> = {
-    market_halted: { label: "市場停止", color: "#f59e0b" },
+    market_halted: { label: "取引見送り", color: "#f59e0b" },
     ai_no_go: { label: "AI却下", color: "#ef4444" },
     below_threshold: { label: "閾値未達", color: "#94a3b8" },
     disqualified: { label: "即死", color: "#dc2626" },

@@ -369,7 +369,7 @@ export async function notifyBacktestResult(data: {
   });
 }
 
-/** 逆行ウィナー通知（市場停止日に上昇した銘柄） */
+/** 逆行ウィナー通知（取引見送り日に上昇した銘柄） */
 export async function notifyContrarianWinners(data: {
   totalHalted: number;
   winners: Array<{
@@ -394,12 +394,12 @@ export async function notifyContrarianWinners(data: {
     .join("\n");
 
   await notifySlack({
-    title: `🦬 逆行ウィナー: ${data.winners.length}銘柄が市場停止日に上昇`,
+    title: `🦬 逆行ウィナー: ${data.winners.length}銘柄が取引見送り日に上昇`,
     message: winnerList,
     color: "#FF6B35",
     fields: [
       {
-        title: "市場停止銘柄数",
+        title: "見送り銘柄数",
         value: `${data.totalHalted}件`,
         short: true,
       },
@@ -461,7 +461,7 @@ export async function notifyScoringAccuracy(data: {
     below_threshold: "閾値未達",
     ai_no_go: "AI見送り",
     disqualified: "即死ルール",
-    market_halted: "市場停止",
+    market_halted: "取引見送り",
   };
 
   // FP注目銘柄
@@ -547,7 +547,7 @@ export async function notifyScoringAccuracyReport(data: {
     below_threshold: "閾値未達",
     ai_no_go: "AI見送り",
     disqualified: "即死ルール",
-    market_halted: "市場停止",
+    market_halted: "取引見送り",
   };
 
   // カテゴリ別弱点

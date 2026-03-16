@@ -211,7 +211,7 @@ export async function main() {
       if (disqualified > 0) noTradeContext += `- 即死ルール棄却: ${disqualified}件\n`;
       if (belowThreshold > 0) noTradeContext += `- スコア閾値未達: ${belowThreshold}件\n`;
       if (aiNoGo > 0) noTradeContext += `- AI却下: ${aiNoGo}件\n`;
-      if (marketHalted > 0) noTradeContext += `- 市場停止(シャドウ): ${marketHalted}件\n`;
+      if (marketHalted > 0) noTradeContext += `- 取引見送り(シャドウ): ${marketHalted}件\n`;
 
       // 上位銘柄のスコアを表示（最大3件）
       const topRecords = [...scoringRecords]
