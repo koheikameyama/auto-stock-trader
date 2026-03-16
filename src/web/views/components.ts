@@ -172,7 +172,7 @@ export function nikkeiChartBody(
     `;
   }
 
-  const isIntraday = activePeriod === "1d" || activePeriod === "5d";
+  const isIntraday = activePeriod === "1d";
 
   // SVG dimensions
   const W = 388;
@@ -216,7 +216,7 @@ export function nikkeiChartBody(
       const match = datetime.match(/T(\d{2}):(\d{2})/);
       return match ? `${match[1]}:${match[2]}` : "";
     }
-    const match = datetime.match(/(\d{2})-(\d{2})/);
+    const match = datetime.match(/\d{4}-(\d{2})-(\d{2})/);
     return match ? `${parseInt(match[1])}/${parseInt(match[2])}` : "";
   }
 
