@@ -11,6 +11,7 @@ import {
   hasParamOverride,
   hasMultiOverride,
   getSectorGroup,
+  type ParameterCondition,
 } from "../src/lib/constants";
 import {
   fetchMultipleBacktestData,
@@ -257,7 +258,7 @@ async function main() {
 
   function applyCondition(
     baseConfig: BacktestConfig,
-    condition: (typeof DAILY_BACKTEST.PARAMETER_CONDITIONS)[number],
+    condition: ParameterCondition,
   ): BacktestConfig {
     const config = { ...baseConfig };
     if (hasParamOverride(condition)) {
@@ -320,7 +321,7 @@ async function main() {
     { key: "atr1.5_trail1.0_ts2.0", label: "ATR1.5+トレール1.0+TS2.0", overrides: { atrMultiplier: 1.5, overrideTpSl: true, trailMultiplier: 1.0, trailingActivationMultiplier: 2.0 } },
   ] as const;
 
-  const conditions = [
+  const conditions: ParameterCondition[] = [
     ...DAILY_BACKTEST.PARAMETER_CONDITIONS,
     ...comboConditions,
   ];
