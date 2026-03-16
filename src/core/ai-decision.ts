@@ -73,7 +73,7 @@ export interface PositionInput {
 
 export interface MarketAssessmentResult {
   shouldTrade: boolean;
-  sentiment: "bullish" | "neutral" | "bearish" | "crisis";
+  sentiment: "bullish" | "neutral" | "cautious" | "bearish" | "crisis";
   reasoning: string;
 }
 
@@ -297,7 +297,7 @@ export interface MiddayReassessmentInput {
 }
 
 export interface MiddayReassessmentResult {
-  sentiment: "bullish" | "neutral" | "bearish" | "crisis";
+  sentiment: "bullish" | "neutral" | "cautious" | "bearish" | "crisis";
   reasoning: string;
 }
 

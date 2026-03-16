@@ -28,6 +28,7 @@ import {
   MARKET_INDEX,
   SECTOR_RISK,
   STRATEGY_SWITCHING,
+  CAUTIOUS_MODE,
   getSectorGroup,
 } from "../lib/constants";
 import { SECTOR_MOMENTUM_SCORING } from "../lib/constants/scoring";
@@ -308,6 +309,7 @@ ${sectorText || "  特になし"}`;
     const drawdownSentiment = (latestAssessment?.sentiment ?? "neutral") as
       | "bullish"
       | "neutral"
+      | "cautious"
       | "bearish"
       | "crisis";
     console.log(
@@ -739,10 +741,18 @@ ${sectorText || "  特になし"}`;
     });
 
     const reviews = await reviewStocks(assessment!, reviewCandidates, strategyDecision.strategy);
-    const goStocks = reviews.filter((r) => r.decision === "go");
+    let goStocks = reviews.filter((r) => r.decision === "go");
     console.log(
       `  → AIレビュー: ${reviews.length}銘柄中 ${goStocks.length}銘柄承認`,
     );
+
+    // cautiousモード: 新規注文をMAX_NEW_POSITIONSに制限
+    if (assessment!.sentiment === "cautious" && goStocks.length > CAUTIOUS_MODE.MAX_NEW_POSITIONS) {
+      console.log(
+        `  → cautiousモード: 新規注文を${CAUTIOUS_MODE.MAX_NEW_POSITIONS}件に制限（${goStocks.length} → ${CAUTIOUS_MODE.MAX_NEW_POSITIONS}）`,
+      );
+      goStocks = goStocks.slice(0, CAUTIOUS_MODE.MAX_NEW_POSITIONS);
+    }
 
     // 6. MarketAssessment + ScoringRecord に結果を保存
     console.log("[5/5] 結果保存中...");

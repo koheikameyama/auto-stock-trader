@@ -64,6 +64,15 @@ export const DEFENSIVE_MODE = {
   BEARISH_LOSS_CUT_PCT: 1.5,
 } as const;
 
+// cautiousモード（市場環境が徐々に悪化している場合のリスク制限）
+// neutral → bearish の中間段階。新規注文数を制限し、TSを引き締めるが既存ポジションは通常監視
+export const CAUTIOUS_MODE = {
+  // 新規注文の最大ポジション数制限
+  MAX_NEW_POSITIONS: 2,
+  // トレーリングストップ引き締め倍率（通常のswing trail幅に乗算）
+  TRAILING_TIGHTEN_MULTIPLIER: 0.8,
+} as const;
+
 // 昼休み再評価
 export const MIDDAY_REASSESSMENT = {
   SCHEDULED_HOUR: 12,
