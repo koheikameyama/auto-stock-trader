@@ -484,6 +484,12 @@ export async function main() {
         // bearish: 含み益ポジションのみ決済（利益確保）
         shouldDefensiveClose = true;
         defensiveReason = `bearish微益撤退（含み益 +${currentProfitPct.toFixed(2)}%）`;
+      } else if (
+        currentProfitPct <= -DEFENSIVE_MODE.BEARISH_LOSS_CUT_PCT
+      ) {
+        // bearish: 含み損が閾値超過 → SL引き締め（ギャップダウンリスク回避）
+        shouldDefensiveClose = true;
+        defensiveReason = `bearish含み損損切り（含み損 ${currentProfitPct.toFixed(2)}%、閾値: -${DEFENSIVE_MODE.BEARISH_LOSS_CUT_PCT}%）`;
       }
 
       if (shouldDefensiveClose) {
@@ -535,7 +541,7 @@ export async function main() {
         defensiveCloseCount++;
       } else {
         console.log(
-          `  → ${position.stock.tickerCode}: bearish維持（含み損益 ${currentProfitPct.toFixed(2)}% → 通常SL監視継続）`,
+          `  → ${position.stock.tickerCode}: bearish維持（含み損益 ${currentProfitPct.toFixed(2)}%、閾値未満のため通常SL監視継続）`,
         );
       }
     }

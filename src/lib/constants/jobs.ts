@@ -60,6 +60,8 @@ export const DEFENSIVE_MODE = {
   ENABLED_SENTIMENTS: ["bearish", "crisis"] as readonly string[],
   // 微益撤退の最低利益率（%）— 損小利大を維持するため手数料以上の利益を確保
   MIN_PROFIT_PCT_FOR_RETREAT: 1.0,
+  // bearish時の含み損損切り閾値（%）— ギャップダウンリスクを回避するため引き締め
+  BEARISH_LOSS_CUT_PCT: 1.5,
 } as const;
 
 // 昼休み再評価
