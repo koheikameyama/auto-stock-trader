@@ -1,11 +1,11 @@
 /**
- * 精度分析ページ（GET /accuracy）
+ * スコアリング精度ページ（GET /accuracy）
  *
- * 1. 判断整合性サマリー: Precision/Recall/F1 + 取引見送り・AI却下・閾値未達
- * 2. 4象限詳細: 混同行列 + ランク別精度
- * 3. FN分析: 棄却したが上昇した銘柄
- * 4. FP分析: 承認したが下落した銘柄
- * 5. 傾向分析: 勝ち vs 負け比較 / ランク別勝率 / セクター分布
+ * 1. ランク別パフォーマンス: S/A/B/C の勝率・期待値・序列チェック
+ * 2. スコア帯別パフォーマンス: 5段階のスコア帯ごとの成績
+ * 3. カテゴリ別予測力: トレンド/エントリー/リスク/セクターの予測力比較
+ * 4. スコアと損益の相関: ピアソン相関係数（全体 + カテゴリ別）
+ * 5. AI判断精度（縮小版）: Precision/Recall/F1 + FP/FN一覧
  */
 
 import { Hono } from "hono";
@@ -13,8 +13,8 @@ import { html } from "hono/html";
 import dayjs from "dayjs";
 import { prisma } from "../../lib/prisma";
 import { Prisma } from "@prisma/client";
-import { getTodayForDB, getDaysAgoForDB } from "../../lib/date-utils";
-import { CONTRARIAN, SCORING, getSectorGroup } from "../../lib/constants";
+import { getDaysAgoForDB } from "../../lib/date-utils";
+import { SCORING, SCORING_VALIDITY, SECTOR_MOMENTUM_SCORING } from "../../lib/constants";
 import { layout } from "../views/layout";
 import {
   pnlPercent,
@@ -25,6 +25,8 @@ import {
 } from "../views/components";
 
 const app = new Hono();
+
+// --- ヘルパー関数 ---
 
 function rejectionBadge(reason: string | null) {
   if (!reason) return html`<span style="color:#64748b">-</span>`;
@@ -56,21 +58,227 @@ function parseGhostAnalysis(raw: string | null): { analysis: string; recommendat
   return null;
 }
 
+function pearsonCorrelation(xs: number[], ys: number[]): number | null {
+  const n = xs.length;
+  if (n < 3) return null;
+  const meanX = xs.reduce((a, b) => a + b, 0) / n;
+  const meanY = ys.reduce((a, b) => a + b, 0) / n;
+  let num = 0, denX = 0, denY = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = xs[i] - meanX;
+    const dy = ys[i] - meanY;
+    num += dx * dy;
+    denX += dx * dx;
+    denY += dy * dy;
+  }
+  const den = Math.sqrt(denX * denY);
+  return den === 0 ? null : num / den;
+}
+
+function correlationLabel(r: number | null): { text: string; color: string } {
+  if (r == null) return { text: "N/A", color: "#64748b" };
+  if (r >= 0.3) return { text: "中程度の正の相関", color: "#22c55e" };
+  if (r >= 0.1) return { text: "弱い正の相関", color: "#f59e0b" };
+  if (r > -0.1) return { text: "相関なし", color: "#64748b" };
+  return { text: "負の相関", color: "#ef4444" };
+}
+
+function fmtR(r: number | null): string {
+  return r != null ? r.toFixed(3) : "N/A";
+}
+
 app.get("/", async (c) => {
-  const since90 = getDaysAgoForDB(CONTRARIAN.LOOKBACK_DAYS);
+  const since = getDaysAgoForDB(SCORING_VALIDITY.LOOKBACK_DAYS);
 
-  // 最新の decisionAudit 日付を取得
-  // 注: 現行は MarketAssessment から latestDate を取得しているが、
-  // 精度分析ページでは decisionAudit の存在する最新日を基準にする（意図的な変更）
-  const latestSummary = await prisma.tradingDailySummary.findFirst({
-    where: { decisionAudit: { not: Prisma.DbNull } },
-    orderBy: { date: "desc" },
-    select: { date: true, decisionAudit: true },
+  // --- データ取得（並列） ---
+  const [
+    allScoredRecords,
+    latestSummary,
+    fpStocks,
+    fnStocks,
+  ] = await Promise.all([
+    // セクション1-4用: 90日分の全ScoringRecord（結果確定済み）
+    prisma.scoringRecord.findMany({
+      where: {
+        closingPrice: { not: null },
+        ghostProfitPct: { not: null },
+        date: { gte: since },
+      },
+      select: {
+        tickerCode: true,
+        date: true,
+        totalScore: true,
+        rank: true,
+        trendQualityScore: true,
+        entryTimingScore: true,
+        riskQualityScore: true,
+        sectorMomentumScore: true,
+        ghostProfitPct: true,
+      },
+    }),
+    // セクション5用: 最新 decisionAudit
+    prisma.tradingDailySummary.findFirst({
+      where: { decisionAudit: { not: Prisma.DbNull } },
+      orderBy: { date: "desc" },
+      select: { date: true, decisionAudit: true },
+    }),
+    // FP一覧（承認+下落）
+    prisma.scoringRecord.findMany({
+      where: {
+        rejectionReason: null,
+        ghostProfitPct: { lt: 0 },
+        closingPrice: { not: null },
+      },
+      orderBy: { date: "desc" },
+      take: SCORING_VALIDITY.FP_FN_DISPLAY_LIMIT,
+    }),
+    // FN一覧（B_RANK以上+棄却+上昇）
+    prisma.scoringRecord.findMany({
+      where: {
+        totalScore: { gte: SCORING.THRESHOLDS.B_RANK },
+        rejectionReason: { not: null },
+        ghostProfitPct: { gt: 0 },
+        closingPrice: { not: null },
+      },
+      orderBy: { date: "desc" },
+      take: SCORING_VALIDITY.FP_FN_DISPLAY_LIMIT,
+    }),
+  ]);
+
+  // --- セクション1: ランク別パフォーマンス ---
+  interface RankPerf {
+    rank: string;
+    count: number;
+    wins: number;
+    winRate: number | null;
+    avgPnl: number | null;
+    expectancy: number | null;
+  }
+
+  const rankBuckets: Record<string, { count: number; wins: number; pnlSum: number }> = {
+    S: { count: 0, wins: 0, pnlSum: 0 },
+    A: { count: 0, wins: 0, pnlSum: 0 },
+    B: { count: 0, wins: 0, pnlSum: 0 },
+    C: { count: 0, wins: 0, pnlSum: 0 },
+  };
+
+  for (const r of allScoredRecords) {
+    const rank = r.rank as string;
+    if (!rankBuckets[rank]) rankBuckets[rank] = { count: 0, wins: 0, pnlSum: 0 };
+    const pnl = Number(r.ghostProfitPct);
+    rankBuckets[rank].count++;
+    rankBuckets[rank].pnlSum += pnl;
+    if (pnl > 0) rankBuckets[rank].wins++;
+  }
+
+  const rankPerfs: RankPerf[] = ["S", "A", "B", "C"].map((rank) => {
+    const b = rankBuckets[rank];
+    return {
+      rank,
+      count: b.count,
+      wins: b.wins,
+      winRate: b.count > 0 ? (b.wins / b.count) * 100 : null,
+      avgPnl: b.count > 0 ? b.pnlSum / b.count : null,
+      expectancy: b.count > 0 ? b.pnlSum / b.count : null,
+    };
   });
-  const latestDate = latestSummary?.date ?? getTodayForDB();
-  const latestDateLabel = dayjs(latestDate).format("M月D日");
 
-  // decisionAudit を型付きで取得
+  // 序列チェック: 期待値が S > A > B > C か
+  const inversions: string[] = [];
+  const rankOrder = ["S", "A", "B", "C"];
+  for (let i = 0; i < rankOrder.length - 1; i++) {
+    const higher = rankPerfs[i];
+    const lower = rankPerfs[i + 1];
+    if (
+      higher.expectancy != null && lower.expectancy != null &&
+      higher.count >= 5 && lower.count >= 5 &&
+      higher.expectancy < lower.expectancy
+    ) {
+      inversions.push(`${lower.rank} > ${higher.rank}`);
+    }
+  }
+
+  // --- セクション2: スコア帯別パフォーマンス ---
+  interface ScoreBandPerf {
+    label: string;
+    count: number;
+    wins: number;
+    winRate: number | null;
+    avgPnl: number | null;
+    expectancy: number | null;
+  }
+
+  const scoreBandPerfs: ScoreBandPerf[] = SCORING_VALIDITY.SCORE_BANDS.map((band) => {
+    const records = allScoredRecords.filter(
+      (r) => r.totalScore >= band.min && r.totalScore <= band.max,
+    );
+    const wins = records.filter((r) => Number(r.ghostProfitPct) > 0).length;
+    const pnlSum = records.reduce((s, r) => s + Number(r.ghostProfitPct), 0);
+    return {
+      label: band.label,
+      count: records.length,
+      wins,
+      winRate: records.length > 0 ? (wins / records.length) * 100 : null,
+      avgPnl: records.length > 0 ? pnlSum / records.length : null,
+      expectancy: records.length > 0 ? pnlSum / records.length : null,
+    };
+  });
+
+  // --- セクション3: カテゴリ別予測力 ---
+  const winners = allScoredRecords.filter((r) => Number(r.ghostProfitPct) > 0);
+  const losers = allScoredRecords.filter((r) => Number(r.ghostProfitPct) <= 0);
+
+  const avgScore = (
+    records: typeof allScoredRecords,
+    key: "totalScore" | "trendQualityScore" | "entryTimingScore" | "riskQualityScore" | "sectorMomentumScore",
+  ) =>
+    records.length > 0
+      ? records.reduce((s, r) => s + r[key], 0) / records.length
+      : null;
+
+  interface CategoryPrediction {
+    category: string;
+    maxScore: number;
+    winnerAvg: number | null;
+    loserAvg: number | null;
+    differential: number | null;
+    normalizedDiff: number | null;
+  }
+
+  const categoryPredictions: CategoryPrediction[] = [
+    { category: "トレンド品質", maxScore: SCORING.CATEGORY_MAX.TREND_QUALITY, key: "trendQualityScore" as const },
+    { category: "エントリータイミング", maxScore: SCORING.CATEGORY_MAX.ENTRY_TIMING, key: "entryTimingScore" as const },
+    { category: "リスク品質", maxScore: SCORING.CATEGORY_MAX.RISK_QUALITY, key: "riskQualityScore" as const },
+    { category: "セクターモメンタム", maxScore: SECTOR_MOMENTUM_SCORING.CATEGORY_MAX, key: "sectorMomentumScore" as const },
+  ].map(({ category, maxScore, key }) => {
+    const wAvg = avgScore(winners, key);
+    const lAvg = avgScore(losers, key);
+    const diff = wAvg != null && lAvg != null ? wAvg - lAvg : null;
+    return {
+      category,
+      maxScore,
+      winnerAvg: wAvg,
+      loserAvg: lAvg,
+      differential: diff,
+      normalizedDiff: diff != null ? (diff / maxScore) * 100 : null,
+    };
+  }).sort((a, b) => (b.normalizedDiff ?? -Infinity) - (a.normalizedDiff ?? -Infinity));
+
+  // --- セクション4: スコアと損益の相関 ---
+  const totalScores = allScoredRecords.map((r) => r.totalScore);
+  const pnlValues = allScoredRecords.map((r) => Number(r.ghostProfitPct));
+
+  const overallCorr = pearsonCorrelation(totalScores, pnlValues);
+
+  const categoryCorrelations = [
+    { category: "総合スコア", r: overallCorr },
+    { category: "トレンド品質", r: pearsonCorrelation(allScoredRecords.map((r) => r.trendQualityScore), pnlValues) },
+    { category: "エントリータイミング", r: pearsonCorrelation(allScoredRecords.map((r) => r.entryTimingScore), pnlValues) },
+    { category: "リスク品質", r: pearsonCorrelation(allScoredRecords.map((r) => r.riskQualityScore), pnlValues) },
+    { category: "セクターモメンタム", r: pearsonCorrelation(allScoredRecords.map((r) => r.sectorMomentumScore), pnlValues) },
+  ];
+
+  // --- セクション5: AI判断精度（decisionAudit） ---
   type DecisionAuditData = {
     scoringSummary: {
       totalScored: number;
@@ -121,6 +329,7 @@ app.get("/", async (c) => {
     }>;
     overallVerdict: string;
   };
+
   const auditRaw = latestSummary?.decisionAudit
     ? (latestSummary.decisionAudit as unknown as DecisionAuditData)
     : null;
@@ -132,190 +341,211 @@ app.get("/", async (c) => {
         fpAnalysis: auditRaw.fpAnalysis ?? [],
       }
     : null;
+  const latestDateLabel = latestSummary
+    ? dayjs(latestSummary.date).format("M月D日")
+    : null;
 
-  const [
-    missedStocks,
-    fpStocks,
-    highScoreTrendRecords,
-  ] = await Promise.all([
-    // FN: 全棄却理由で上昇した銘柄（直近30件）
-    prisma.scoringRecord.findMany({
-      where: {
-        rejectionReason: { not: null },
-        ghostProfitPct: { gt: 0 },
-        closingPrice: { not: null },
-        entryPrice: { not: null },
-      },
-      orderBy: { date: "desc" },
-      take: 30,
-    }),
-    // FP: 承認したが下落した銘柄（直近30件）
-    // 注: rejectionReason IS NULL で承認済みを判定（aiDecision は使わない — spec準拠）
-    prisma.scoringRecord.findMany({
-      where: {
-        rejectionReason: null,
-        ghostProfitPct: { lt: 0 },
-        closingPrice: { not: null },
-      },
-      orderBy: { date: "desc" },
-      take: 30,
-    }),
-    // 傾向分析: Bランク以上の全銘柄（リジェクト・承認問わず）
-    prisma.scoringRecord.findMany({
-      where: {
-        totalScore: { gte: SCORING.THRESHOLDS.B_RANK },
-        closingPrice: { not: null },
-        date: { gte: since90 },
-      },
-      select: {
-        tickerCode: true,
-        date: true,
-        ghostProfitPct: true,
-        totalScore: true,
-        trendQualityScore: true,
-        entryTimingScore: true,
-        riskQualityScore: true,
-        rank: true,
-        closingPrice: true,
-        rejectionReason: true,
-      },
-    }),
-  ]);
-
-  // 傾向分析用: Stock テーブルからセクター情報を一括取得（N+1 回避）
-  const trendTickers = [...new Set(highScoreTrendRecords.map((r) => r.tickerCode))];
-  const stocksForTrend = await prisma.stock.findMany({
-    where: { tickerCode: { in: trendTickers } },
-    select: { tickerCode: true, jpxSectorName: true, sector: true },
-  });
-  const sectorMap = new Map(stocksForTrend.map((s) => [s.tickerCode, s.jpxSectorName ?? s.sector]));
-
-  // --- 傾向分析 ---
-  // Bランク以上の全銘柄（closingPrice は既にフィルタ済み）
-  const analyzedRecords = highScoreTrendRecords;
-  const winners = analyzedRecords.filter(
-    (r) => r.ghostProfitPct != null && Number(r.ghostProfitPct) > 0,
-  );
-  const losers = analyzedRecords.filter(
-    (r) => r.ghostProfitPct != null && Number(r.ghostProfitPct) <= 0,
-  );
-
-  const avgOf = (
-    records: typeof analyzedRecords,
-    key: "totalScore" | "trendQualityScore" | "entryTimingScore" | "riskQualityScore",
-  ) =>
-    records.length > 0
-      ? Math.round(
-          records.reduce((s, r) => s + r[key], 0) / records.length,
-        )
-      : null;
-
-  const avgPct = (records: typeof analyzedRecords) =>
-    records.length > 0
-      ? records.reduce((s, r) => s + Number(r.ghostProfitPct), 0) /
-        records.length
-      : null;
-
-  const trendSummary = {
-    analyzed: analyzedRecords.length,
-    winners: winners.length,
-    losers: losers.length,
-    winnerAvgScore: avgOf(winners, "totalScore"),
-    loserAvgScore: avgOf(losers, "totalScore"),
-    winnerAvgTrend: avgOf(winners, "trendQualityScore"),
-    loserAvgTrend: avgOf(losers, "trendQualityScore"),
-    winnerAvgEntry: avgOf(winners, "entryTimingScore"),
-    loserAvgEntry: avgOf(losers, "entryTimingScore"),
-    winnerAvgRisk: avgOf(winners, "riskQualityScore"),
-    loserAvgRisk: avgOf(losers, "riskQualityScore"),
-    winnerAvgPct: avgPct(winners),
-    loserAvgPct: avgPct(losers),
-  };
-
-  // セクター分布集計
-  interface SectorBucket {
-    wins: number;
-    losses: number;
-    profitSum: number;
-    totalPnlSum: number;
-  }
-  const sectorBuckets = new Map<string, SectorBucket>();
-  for (const r of analyzedRecords) {
-    const jpxSector = sectorMap.get(r.tickerCode);
-    const sector = getSectorGroup(jpxSector ?? null) ?? "その他";
-    let b = sectorBuckets.get(sector);
-    if (!b) {
-      b = { wins: 0, losses: 0, profitSum: 0, totalPnlSum: 0 };
-      sectorBuckets.set(sector, b);
-    }
-    const pnl = r.ghostProfitPct != null ? Number(r.ghostProfitPct) : 0;
-    b.totalPnlSum += pnl;
-    if (pnl > 0) {
-      b.wins++;
-      b.profitSum += pnl;
-    } else {
-      b.losses++;
-    }
-  }
-  const sectorStats = [...sectorBuckets.entries()]
-    .map(([sector, b]) => ({
-      sector,
-      total: b.wins + b.losses,
-      wins: b.wins,
-      expectancy: b.wins + b.losses > 0
-        ? b.totalPnlSum / (b.wins + b.losses)
-        : null,
-      avgProfitPct: b.wins > 0 ? b.profitSum / b.wins : null,
-    }))
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 10);
-
-  // ランク分布集計
-  const rankDist = { S: { wins: 0, total: 0, pnlSum: 0 }, A: { wins: 0, total: 0, pnlSum: 0 }, B: { wins: 0, total: 0, pnlSum: 0 } } as Record<string, { wins: number; total: number; pnlSum: number }>;
-  for (const r of analyzedRecords) {
-    const rank = r.rank as string;
-    if (!rankDist[rank]) rankDist[rank] = { wins: 0, total: 0, pnlSum: 0 };
-    rankDist[rank].total++;
-    const pnl = r.ghostProfitPct != null ? Number(r.ghostProfitPct) : 0;
-    rankDist[rank].pnlSum += pnl;
-    if (pnl > 0) {
-      rankDist[rank].wins++;
-    }
-  }
-
+  // --- HTML ---
   const content = html`
-    <!-- セクション1: 判断整合性サマリー -->
-    <p class="section-title">${latestDateLabel}の判断整合性</p>
+    <!-- セクション1: ランク別パフォーマンス -->
+    <p class="section-title">${tt("ランク別パフォーマンス", "S/A/B/Cランクごとの過去90日の成績")}（過去${SCORING_VALIDITY.LOOKBACK_DAYS}日）</p>
+
+    ${allScoredRecords.length === 0
+      ? html`<div class="card">${emptyState("スコアリングデータが蓄積されるまでお待ちください")}</div>`
+      : html`
+          <div class="card" style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.5rem">
+            ${rankPerfs.map((rp) => {
+              const lowSample = rp.count < 10;
+              const dimStyle = lowSample ? "opacity:0.5" : "";
+              return html`
+                <div style="text-align:center;padding:0.75rem 0.25rem;${dimStyle}">
+                  <p style="margin:0 0 0.5rem">${rankBadge(rp.rank)}</p>
+                  <p style="font-size:0.72rem;color:#94a3b8;margin:0">${rp.count}件</p>
+                  <p style="font-size:0.85rem;font-weight:700;margin:0.25rem 0;color:${rp.winRate != null && rp.winRate >= 50 ? "#22c55e" : rp.winRate != null ? "#ef4444" : "#64748b"}">
+                    ${rp.winRate != null ? `${rp.winRate.toFixed(0)}%` : "-"}
+                  </p>
+                  <p style="font-size:0.72rem;color:#94a3b8;margin:0 0 0.25rem">${tt("期待値", "1トレードあたりの平均損益率(%)")}</p>
+                  <p style="font-size:0.95rem;font-weight:700;margin:0;color:${rp.expectancy != null ? (rp.expectancy >= 0.5 ? "#22c55e" : rp.expectancy >= 0 ? "#3b82f6" : "#ef4444") : "#64748b"}">
+                    ${rp.expectancy != null ? `${rp.expectancy > 0 ? "+" : ""}${rp.expectancy.toFixed(2)}%` : "-"}
+                  </p>
+                  ${lowSample ? html`<p style="font-size:0.65rem;color:#94a3b8;margin:0.25rem 0 0">n<10</p>` : ""}
+                </div>
+              `;
+            })}
+          </div>
+
+          ${inversions.length > 0
+            ? html`<div class="card" style="background:#f59e0b10;border:1px solid #f59e0b30;padding:0.75rem">
+                <p style="font-size:0.82rem;color:#f59e0b;margin:0;font-weight:600">
+                  序列逆転を検出: ${inversions.join(", ")}
+                </p>
+                <p style="font-size:0.72rem;color:#94a3b8;margin:0.25rem 0 0">
+                  上位ランクの期待値が下位を下回っています。スコアリングロジックの見直しを検討してください。
+                </p>
+              </div>`
+            : html`<div class="card" style="background:#22c55e10;border:1px solid #22c55e30;padding:0.75rem">
+                <p style="font-size:0.82rem;color:#22c55e;margin:0;font-weight:600">
+                  序列正常: S > A > B > C
+                </p>
+              </div>`}
+
+          <!-- セクション2: スコア帯別パフォーマンス -->
+          <p class="section-title">${tt("スコア帯別パフォーマンス", "スコアの点数帯ごとの成績")}</p>
+
+          <div class="card table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>スコア帯</th>
+                  <th>件数</th>
+                  <th>勝率</th>
+                  <th>平均損益</th>
+                  <th>${tt("期待値", "1トレードあたりの平均損益率(%)")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${scoreBandPerfs.map((sb) => {
+                  const lowSample = sb.count < 10;
+                  const rowStyle = lowSample ? "color:#64748b" : "";
+                  return html`
+                    <tr style="${rowStyle}">
+                      <td style="font-weight:600">${sb.label}${lowSample ? html`<span style="font-size:0.7rem;color:#94a3b8"> (n=${sb.count})</span>` : ""}</td>
+                      <td>${sb.count}件</td>
+                      <td style="font-weight:600;color:${!lowSample && sb.winRate != null ? (sb.winRate >= 50 ? "#22c55e" : "#ef4444") : "#64748b"}">
+                        ${sb.winRate != null ? `${sb.winRate.toFixed(0)}%` : "-"}
+                      </td>
+                      <td>
+                        ${sb.avgPnl != null
+                          ? html`<span style="color:${sb.avgPnl >= 0 ? "#22c55e" : "#ef4444"}">${sb.avgPnl > 0 ? "+" : ""}${sb.avgPnl.toFixed(2)}%</span>`
+                          : html`<span style="color:#64748b">-</span>`}
+                      </td>
+                      <td style="font-weight:600;color:${!lowSample && sb.expectancy != null ? (sb.expectancy >= 0.5 ? "#22c55e" : sb.expectancy >= 0 ? "#3b82f6" : "#ef4444") : "#64748b"}">
+                        ${sb.expectancy != null ? `${sb.expectancy > 0 ? "+" : ""}${sb.expectancy.toFixed(2)}%` : "-"}
+                        ${lowSample ? html`<span style="font-size:0.7rem"> ※</span>` : ""}
+                      </td>
+                    </tr>
+                  `;
+                })}
+              </tbody>
+            </table>
+            <p style="font-size:0.72rem;color:#94a3b8;margin:0.5rem 0 0">※ n<10 はサンプル不足のため参考値</p>
+          </div>
+
+          <!-- セクション3: カテゴリ別予測力 -->
+          <p class="section-title">${tt("カテゴリ別予測力", "勝ち銘柄と負け銘柄のスコア差分から各カテゴリの予測力を測定")}</p>
+
+          <div class="card table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>カテゴリ</th>
+                  <th>最大</th>
+                  <th style="color:#22c55e">勝ち平均</th>
+                  <th style="color:#ef4444">負け平均</th>
+                  <th>差分</th>
+                  <th>${tt("予測力", "正規化差分（差分/最大点×100）。大きいほど予測に寄与")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${categoryPredictions.map((cp) => {
+                  return html`
+                    <tr>
+                      <td style="font-weight:600">${cp.category}</td>
+                      <td style="color:#94a3b8">${cp.maxScore}</td>
+                      <td style="color:#22c55e">${cp.winnerAvg != null ? cp.winnerAvg.toFixed(1) : "-"}</td>
+                      <td style="color:#ef4444">${cp.loserAvg != null ? cp.loserAvg.toFixed(1) : "-"}</td>
+                      <td style="font-weight:600;color:${cp.differential != null && cp.differential > 0 ? "#22c55e" : cp.differential != null && cp.differential < 0 ? "#ef4444" : "#94a3b8"}">
+                        ${cp.differential != null ? `${cp.differential > 0 ? "+" : ""}${cp.differential.toFixed(1)}` : "-"}
+                      </td>
+                      <td style="font-weight:700;color:${cp.normalizedDiff != null && cp.normalizedDiff >= 5 ? "#22c55e" : cp.normalizedDiff != null && cp.normalizedDiff >= 2 ? "#3b82f6" : "#94a3b8"}">
+                        ${cp.normalizedDiff != null ? `${cp.normalizedDiff.toFixed(1)}%` : "-"}
+                      </td>
+                    </tr>
+                  `;
+                })}
+              </tbody>
+            </table>
+            <p style="font-size:0.72rem;color:#94a3b8;margin:0.5rem 0 0">
+              勝ち: ${winners.length}件 / 負け: ${losers.length}件（過去${SCORING_VALIDITY.LOOKBACK_DAYS}日・全ランク）
+            </p>
+          </div>
+
+          <!-- セクション4: スコアと損益の相関 -->
+          <p class="section-title">${tt("スコアと損益の相関", "ピアソン相関係数によるスコア予測力の定量評価")}</p>
+
+          <div class="card">
+            <div style="text-align:center;margin-bottom:1rem;padding-bottom:1rem;border-bottom:1px solid #1e293b">
+              <p style="font-size:0.75rem;color:#94a3b8;margin:0 0 0.25rem">総合スコア × 損益率</p>
+              <p style="font-size:1.5rem;font-weight:700;margin:0;color:${correlationLabel(overallCorr).color}">
+                r = ${fmtR(overallCorr)}
+              </p>
+              <p style="font-size:0.82rem;color:${correlationLabel(overallCorr).color};margin:0.25rem 0 0">
+                ${correlationLabel(overallCorr).text}
+              </p>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>カテゴリ</th>
+                    <th>${tt("相関係数 (r)", "+1に近いほど正の相関、0は無相関")}</th>
+                    <th>解釈</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${categoryCorrelations.map((cc) => {
+                    const label = correlationLabel(cc.r);
+                    return html`
+                      <tr>
+                        <td style="font-weight:600">${cc.category}</td>
+                        <td style="font-weight:700;color:${label.color}">${fmtR(cc.r)}</td>
+                        <td style="color:${label.color}">${label.text}</td>
+                      </tr>
+                    `;
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p style="font-size:0.72rem;color:#94a3b8;margin:0.5rem 0 0">
+              n=${allScoredRecords.length}件（過去${SCORING_VALIDITY.LOOKBACK_DAYS}日）
+            </p>
+          </div>
+        `}
+
+    <!-- セクション5: AI判断精度（縮小版） -->
+    <p class="section-title">AI判断精度${latestDateLabel ? `（${latestDateLabel}）` : ""}</p>
+
     ${audit == null
-      ? html`<div class="card">
-          ${emptyState("scoring-accuracy 実行後に更新されます（16:10 JST 以降）")}
-        </div>`
+      ? html`<div class="card">${emptyState("scoring-accuracy 実行後に更新されます（16:10 JST 以降）")}</div>`
       : html`
           <div class="card">
-            <!-- Precision / Recall / F1 概要 -->
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1rem;padding-bottom:1rem;border-bottom:1px solid #1e293b">
-              <div style="text-align:center">
-                <p style="font-size:0.75rem;color:#94a3b8;margin:0 0 0.25rem">${tt("Precision", "承認銘柄のうち実際に上昇した割合")}</p>
-                <p style="font-size:1.2rem;font-weight:700;margin:0;color:${audit.confusionMatrix.precision != null && audit.confusionMatrix.precision >= 60 ? "#22c55e" : audit.confusionMatrix.precision != null ? "#ef4444" : "#64748b"}">
+            <!-- Precision / Recall / F1 インライン -->
+            <div style="display:flex;gap:1.5rem;align-items:center;margin-bottom:1rem;padding-bottom:1rem;border-bottom:1px solid #1e293b;flex-wrap:wrap">
+              <div>
+                <span style="font-size:0.72rem;color:#94a3b8">${tt("Precision", "承認銘柄のうち実際に上昇した割合")}</span>
+                <span style="font-weight:700;margin-left:0.5rem;color:${audit.confusionMatrix.precision != null && audit.confusionMatrix.precision >= 60 ? "#22c55e" : audit.confusionMatrix.precision != null ? "#ef4444" : "#64748b"}">
                   ${audit.confusionMatrix.precision != null ? `${audit.confusionMatrix.precision.toFixed(1)}%` : "-"}
-                </p>
+                </span>
               </div>
-              <div style="text-align:center">
-                <p style="font-size:0.75rem;color:#94a3b8;margin:0 0 0.25rem">${tt("Recall", "上昇銘柄のうち承認できた割合")}</p>
-                <p style="font-size:1.2rem;font-weight:700;margin:0;color:${audit.confusionMatrix.recall != null && audit.confusionMatrix.recall >= 50 ? "#22c55e" : audit.confusionMatrix.recall != null ? "#ef4444" : "#64748b"}">
+              <div>
+                <span style="font-size:0.72rem;color:#94a3b8">${tt("Recall", "上昇銘柄のうち承認できた割合")}</span>
+                <span style="font-weight:700;margin-left:0.5rem;color:${audit.confusionMatrix.recall != null && audit.confusionMatrix.recall >= 50 ? "#22c55e" : audit.confusionMatrix.recall != null ? "#ef4444" : "#64748b"}">
                   ${audit.confusionMatrix.recall != null ? `${audit.confusionMatrix.recall.toFixed(1)}%` : "-"}
-                </p>
+                </span>
               </div>
-              <div style="text-align:center">
-                <p style="font-size:0.75rem;color:#94a3b8;margin:0 0 0.25rem">${tt("F1", "PrecisionとRecallの調和平均")}</p>
-                <p style="font-size:1.2rem;font-weight:700;margin:0;color:${audit.confusionMatrix.f1 != null && audit.confusionMatrix.f1 >= 50 ? "#22c55e" : audit.confusionMatrix.f1 != null ? "#ef4444" : "#64748b"}">
+              <div>
+                <span style="font-size:0.72rem;color:#94a3b8">${tt("F1", "PrecisionとRecallの調和平均")}</span>
+                <span style="font-weight:700;margin-left:0.5rem;color:${audit.confusionMatrix.f1 != null && audit.confusionMatrix.f1 >= 50 ? "#22c55e" : audit.confusionMatrix.f1 != null ? "#ef4444" : "#64748b"}">
                   ${audit.confusionMatrix.f1 != null ? `${audit.confusionMatrix.f1.toFixed(1)}%` : "-"}
-                </p>
+                </span>
+              </div>
+              <div style="font-size:0.75rem;color:#64748b">
+                TP=${audit.confusionMatrix.tp} FP=${audit.confusionMatrix.fp} FN=${audit.confusionMatrix.fn} TN=${audit.confusionMatrix.tn}
               </div>
             </div>
 
-            <!-- 既存の判断整合性 3カラム -->
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1rem">
+            <!-- AI却下・取引見送り・閾値未達 3カラム -->
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem">
               <!-- 取引見送り判断 -->
               <div>
                 <p style="font-size:0.75rem;color:#94a3b8;margin:0 0 0.25rem">取引見送り判断</p>
@@ -365,133 +595,49 @@ app.get("/", async (c) => {
                 </p>
               </div>
             </div>
-
-            ${audit.overallVerdict
-              ? html`<p style="font-size:0.82rem;color:#cbd5e1;background:#1e293b;padding:0.75rem;border-radius:6px;margin:0;line-height:1.6">
-                  ${audit.overallVerdict}
-                </p>`
-              : ""}
           </div>
 
-          <!-- セクション2: 4象限詳細 -->
-          <p class="section-title">4象限分析</p>
-
-          <!-- 2a. 混同行列 -->
-          <div class="card" style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">
-            <div style="text-align:center;padding:1rem;background:#22c55e15;border-radius:8px">
-              <p style="font-size:0.72rem;color:#94a3b8;margin:0 0 0.25rem">TP（正しく承認）</p>
-              <p style="font-size:1.5rem;font-weight:700;color:#22c55e;margin:0">${audit.confusionMatrix.tp}</p>
-            </div>
-            <div style="text-align:center;padding:1rem;background:#ef444415;border-radius:8px">
-              <p style="font-size:0.72rem;color:#94a3b8;margin:0 0 0.25rem">FP（誤って承認）</p>
-              <p style="font-size:1.5rem;font-weight:700;color:#ef4444;margin:0">${audit.confusionMatrix.fp}</p>
-            </div>
-            <div style="text-align:center;padding:1rem;background:#f59e0b15;border-radius:8px">
-              <p style="font-size:0.72rem;color:#94a3b8;margin:0 0 0.25rem">FN（見逃し）</p>
-              <p style="font-size:1.5rem;font-weight:700;color:#f59e0b;margin:0">${audit.confusionMatrix.fn}</p>
-            </div>
-            <div style="text-align:center;padding:1rem;background:#64748b15;border-radius:8px">
-              <p style="font-size:0.72rem;color:#94a3b8;margin:0 0 0.25rem">TN（正しく棄却）</p>
-              <p style="font-size:1.5rem;font-weight:700;color:#64748b;margin:0">${audit.confusionMatrix.tn}</p>
-            </div>
-          </div>
-
-          <!-- 2b. ランク別精度 -->
-          <div class="card table-wrap">
-            <p style="font-size:0.8rem;color:#94a3b8;margin:0 0 0.75rem">ランク別精度</p>
-            <table>
-              <thead>
-                <tr>
-                  <th>ランク</th>
-                  <th>TP</th>
-                  <th>FP</th>
-                  <th>FN</th>
-                  <th>TN</th>
-                  <th>${tt("Precision", "承認銘柄の正解率")}</th>
-                  <th>出現</th>
-                  <th>${tt("期待値", "1トレードあたりの平均損益率(%)")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${Object.entries(audit.byRank)
-                  .sort(([a], [b]) => a.localeCompare(b))
-                  .map(
-                    ([rank, v]) => {
-                      const rd = rankDist[rank];
-                      const exp = rd && rd.total > 0 ? rd.pnlSum / rd.total : null;
-                      return html`
-                        <tr>
-                          <td>${rankBadge(rank)}</td>
-                          <td style="color:#22c55e">${v.tp}</td>
-                          <td style="color:#ef4444">${v.fp}</td>
-                          <td style="color:#f59e0b">${v.fn}</td>
-                          <td style="color:#64748b">${v.tn}</td>
-                          <td style="font-weight:600;color:${v.precision != null && v.precision >= 60 ? "#22c55e" : v.precision != null ? "#ef4444" : "#64748b"}">
-                            ${v.precision != null ? `${v.precision.toFixed(0)}%` : "-"}
-                          </td>
-                          <td>${rd ? `${rd.total}回` : "-"}</td>
-                          <td style="font-weight:600;color:${exp != null ? (exp >= 1.0 ? "#22c55e" : exp >= 0 ? "#3b82f6" : "#ef4444") : "#64748b"}">
-                            ${exp != null ? `${exp > 0 ? "+" : ""}${exp.toFixed(2)}%` : "-"}
-                          </td>
-                        </tr>
-                      `;
-                    },
-                  )}
-              </tbody>
-            </table>
+          <!-- ランク別精度（折りたたみ） -->
+          <div class="card">
+            <details>
+              <summary style="cursor:pointer;font-size:0.82rem;color:#94a3b8;user-select:none">ランク別精度テーブル</summary>
+              <div class="table-wrap" style="margin-top:0.75rem">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ランク</th>
+                      <th>TP</th>
+                      <th>FP</th>
+                      <th>FN</th>
+                      <th>TN</th>
+                      <th>${tt("Precision", "承認銘柄の正解率")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${Object.entries(audit.byRank)
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(
+                        ([rank, v]) => html`
+                          <tr>
+                            <td>${rankBadge(rank)}</td>
+                            <td style="color:#22c55e">${v.tp}</td>
+                            <td style="color:#ef4444">${v.fp}</td>
+                            <td style="color:#f59e0b">${v.fn}</td>
+                            <td style="color:#64748b">${v.tn}</td>
+                            <td style="font-weight:600;color:${v.precision != null && v.precision >= 60 ? "#22c55e" : v.precision != null ? "#ef4444" : "#64748b"}">
+                              ${v.precision != null ? `${v.precision.toFixed(0)}%` : "-"}
+                            </td>
+                          </tr>
+                        `,
+                      )}
+                  </tbody>
+                </table>
+              </div>
+            </details>
           </div>
         `}
 
-    <!-- セクション3: FN分析（見逃し銘柄） -->
-    <p class="section-title">見逃し銘柄（棄却したが上昇）</p>
-    ${missedStocks.length > 0
-      ? html`
-          <div class="card table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th style="width:12%">日付</th>
-                  <th style="width:18%">銘柄</th>
-                  <th style="width:22%">棄却理由</th>
-                  <th style="width:14%">スコア</th>
-                  <th style="width:14%">ランク</th>
-                  <th style="width:20%">騰落率</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${missedStocks.map((r) => {
-                  const ghost = parseGhostAnalysis(r.ghostAnalysis);
-                  return html`
-                    <tr>
-                      <td>${dayjs(r.date).format("M/D")}</td>
-                      <td>${tickerLink(r.tickerCode)}</td>
-                      <td>${rejectionBadge(r.rejectionReason)}</td>
-                      <td>${r.totalScore}</td>
-                      <td>${rankBadge(r.rank)}</td>
-                      <td>
-                        ${pnlPercent(Number(r.ghostProfitPct))}
-                        ${ghost ? html`<span class="ghost-toggle" onclick="toggleGhost(this)" style="cursor:pointer;margin-left:4px">💡</span>` : ""}
-                      </td>
-                    </tr>
-                    ${ghost ? html`
-                      <tr class="ghost-detail" style="display:none">
-                        <td colspan="6" style="background:#1e293b;padding:0.75rem;font-size:0.82rem;line-height:1.6;word-break:break-word;white-space:normal">
-                          <p style="margin:0 0 0.5rem;color:#cbd5e1">${ghost.analysis}</p>
-                          ${ghost.recommendation ? html`<p style="margin:0;color:#94a3b8"><strong>改善提案:</strong> ${recommendationLabels[ghost.recommendation] ?? ghost.recommendation}</p>` : ""}
-                        </td>
-                      </tr>
-                    ` : ""}
-                  `;
-                })}
-              </tbody>
-            </table>
-          </div>
-        `
-      : html`<div class="card">
-          ${emptyState("見逃し銘柄はまだありません")}
-        </div>`}
-
-    <!-- セクション4: FP分析（誤エントリー） -->
+    <!-- FP: 誤エントリー -->
     <p class="section-title">誤エントリー（承認したが下落）</p>
     ${fpStocks.length > 0
       ? html`
@@ -540,205 +686,54 @@ app.get("/", async (c) => {
             </table>
           </div>
         `
-      : html`<div class="card">
-          ${emptyState("誤エントリーはまだありません")}
-        </div>`}
+      : html`<div class="card">${emptyState("誤エントリーはまだありません")}</div>`}
 
-    <!-- セクション5: 傾向分析 -->
-    <p class="section-title">
-      傾向分析（過去${CONTRARIAN.LOOKBACK_DAYS}日 / Bランク以上・未購入）
-    </p>
-    ${trendSummary.analyzed === 0
-      ? html`<div class="card">
-          ${emptyState(
-            "分析データが蓄積されるまでお待ちください",
-          )}
-        </div>`
-      : html`
-          <!-- 勝ち vs 負け比較 -->
-          <div
-            class="card"
-            style="display:grid;grid-template-columns:1fr 1fr;gap:1rem"
-          >
-            <div>
-              <p
-                style="font-weight:700;color:#22c55e;margin:0 0 0.5rem;font-size:0.95rem"
-              >
-                ▲ 勝ち ${trendSummary.winners}件
-              </p>
-              <table style="width:100%;font-size:0.85rem">
-                <tbody>
-                  <tr>
-                    <td style="color:#94a3b8">平均損益</td>
-                    <td style="font-weight:600;color:#22c55e">
-                      ${trendSummary.winnerAvgPct != null
-                        ? `+${trendSummary.winnerAvgPct.toFixed(2)}%`
-                        : "-"}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="color:#94a3b8">平均スコア</td>
-                    <td style="font-weight:600">${trendSummary.winnerAvgScore ?? "-"}</td>
-                  </tr>
-                  <tr>
-                    <td style="color:#94a3b8">トレンド</td>
-                    <td>${trendSummary.winnerAvgTrend ?? "-"}</td>
-                  </tr>
-                  <tr>
-                    <td style="color:#94a3b8">エントリー</td>
-                    <td>${trendSummary.winnerAvgEntry ?? "-"}</td>
-                  </tr>
-                  <tr>
-                    <td style="color:#94a3b8">リスク</td>
-                    <td>${trendSummary.winnerAvgRisk ?? "-"}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <div>
-              <p
-                style="font-weight:700;color:#ef4444;margin:0 0 0.5rem;font-size:0.95rem"
-              >
-                ▼ 負け ${trendSummary.losers}件
-              </p>
-              <table style="width:100%;font-size:0.85rem">
-                <tbody>
-                  <tr>
-                    <td style="color:#94a3b8">平均損益</td>
-                    <td style="font-weight:600;color:#ef4444">
-                      ${trendSummary.loserAvgPct != null
-                        ? `${trendSummary.loserAvgPct.toFixed(2)}%`
-                        : "-"}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="color:#94a3b8">平均スコア</td>
-                    <td style="font-weight:600">${trendSummary.loserAvgScore ?? "-"}</td>
-                  </tr>
-                  <tr>
-                    <td style="color:#94a3b8">トレンド</td>
-                    <td>${trendSummary.loserAvgTrend ?? "-"}</td>
-                  </tr>
-                  <tr>
-                    <td style="color:#94a3b8">エントリー</td>
-                    <td>${trendSummary.loserAvgEntry ?? "-"}</td>
-                  </tr>
-                  <tr>
-                    <td style="color:#94a3b8">リスク</td>
-                    <td>${trendSummary.loserAvgRisk ?? "-"}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <!-- スコア内訳差分 -->
+    <!-- FN: 見逃し銘柄（B_RANK以上のみ） -->
+    <p class="section-title">見逃し銘柄（B_RANK以上・棄却したが上昇）</p>
+    ${fnStocks.length > 0
+      ? html`
           <div class="card table-wrap">
-            <p style="font-size:0.8rem;color:#94a3b8;margin:0 0 0.75rem">スコア内訳比較（勝ち vs 負け）</p>
             <table>
               <thead>
                 <tr>
-                  <th>種別</th>
-                  <th>勝ち平均</th>
-                  <th>負け平均</th>
-                  <th>差分</th>
+                  <th style="width:12%">日付</th>
+                  <th style="width:18%">銘柄</th>
+                  <th style="width:22%">棄却理由</th>
+                  <th style="width:14%">スコア</th>
+                  <th style="width:14%">ランク</th>
+                  <th style="width:20%">騰落率</th>
                 </tr>
               </thead>
               <tbody>
-                ${[
-                  {
-                    label: "総合",
-                    w: trendSummary.winnerAvgScore,
-                    l: trendSummary.loserAvgScore,
-                  },
-                  {
-                    label: "トレンド",
-                    w: trendSummary.winnerAvgTrend,
-                    l: trendSummary.loserAvgTrend,
-                  },
-                  {
-                    label: "エントリー",
-                    w: trendSummary.winnerAvgEntry,
-                    l: trendSummary.loserAvgEntry,
-                  },
-                  {
-                    label: "リスク",
-                    w: trendSummary.winnerAvgRisk,
-                    l: trendSummary.loserAvgRisk,
-                  },
-                ].map((row) => {
-                  const diff =
-                    row.w != null && row.l != null ? row.w - row.l : null;
+                ${fnStocks.map((r) => {
+                  const ghost = parseGhostAnalysis(r.ghostAnalysis);
                   return html`
                     <tr>
-                      <td>${row.label}</td>
-                      <td style="color:#22c55e">${row.w ?? "-"}</td>
-                      <td style="color:#ef4444">${row.l ?? "-"}</td>
-                      <td
-                        style="font-weight:600;color:${diff != null && diff > 0 ? "#22c55e" : diff != null && diff < 0 ? "#ef4444" : "#94a3b8"}"
-                      >
-                        ${diff != null
-                          ? diff > 0
-                            ? `+${diff}`
-                            : `${diff}`
-                          : "-"}
+                      <td>${dayjs(r.date).format("M/D")}</td>
+                      <td>${tickerLink(r.tickerCode)}</td>
+                      <td>${rejectionBadge(r.rejectionReason)}</td>
+                      <td>${r.totalScore}</td>
+                      <td>${rankBadge(r.rank)}</td>
+                      <td>
+                        ${pnlPercent(Number(r.ghostProfitPct))}
+                        ${ghost ? html`<span class="ghost-toggle" onclick="toggleGhost(this)" style="cursor:pointer;margin-left:4px">💡</span>` : ""}
                       </td>
                     </tr>
+                    ${ghost ? html`
+                      <tr class="ghost-detail" style="display:none">
+                        <td colspan="6" style="background:#1e293b;padding:0.75rem;font-size:0.82rem;line-height:1.6;word-break:break-word;white-space:normal">
+                          <p style="margin:0 0 0.5rem;color:#cbd5e1">${ghost.analysis}</p>
+                          ${ghost.recommendation ? html`<p style="margin:0;color:#94a3b8"><strong>改善提案:</strong> ${recommendationLabels[ghost.recommendation] ?? ghost.recommendation}</p>` : ""}
+                        </td>
+                      </tr>
+                    ` : ""}
                   `;
                 })}
               </tbody>
             </table>
           </div>
-
-          <!-- セクター分布 -->
-          ${sectorStats.length > 0
-            ? html`
-                <div class="card table-wrap">
-                  <p style="font-size:0.8rem;color:#94a3b8;margin:0 0 0.75rem">セクター別成績（n≥10 のみ信頼度あり）</p>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>セクター</th>
-                        <th>出現</th>
-                        <th>勝ち</th>
-                        <th>期待値</th>
-                        <th>勝ち平均利益率</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${sectorStats.map((s) => {
-                        const lowSample = s.total < 10;
-                        const rowStyle = lowSample ? "color:#64748b" : "";
-                        return html`
-                          <tr style="${rowStyle}">
-                            <td style="font-weight:600">
-                              ${s.sector}${lowSample
-                                ? html`<span style="margin-left:4px;font-size:0.7rem;color:#94a3b8">(n=${s.total})</span>`
-                                : ""}
-                            </td>
-                            <td>${s.total}回</td>
-                            <td>${s.wins}回</td>
-                            <td
-                              style="font-weight:600;color:${lowSample ? "#64748b" : s.expectancy != null ? (s.expectancy >= 1.0 ? "#22c55e" : s.expectancy >= 0 ? "#3b82f6" : "#ef4444") : "#64748b"}"
-                            >
-                              ${s.expectancy != null ? `${s.expectancy > 0 ? "+" : ""}${s.expectancy.toFixed(2)}%` : "-"}${lowSample ? html`<span style="font-size:0.7rem"> ※</span>` : ""}
-                            </td>
-                            <td>
-                              ${s.avgProfitPct != null
-                                ? pnlPercent(s.avgProfitPct)
-                                : html`<span style="color:#64748b">-</span>`}
-                            </td>
-                          </tr>
-                        `;
-                      })}
-                    </tbody>
-                  </table>
-                  <p style="font-size:0.72rem;color:#94a3b8;margin:0.5rem 0 0">※ n<10 はサンプル不足のため参考値</p>
-                </div>
-              `
-            : ""}
-
-        `}
+        `
+      : html`<div class="card">${emptyState("見逃し銘柄はまだありません")}</div>`}
 
     <script>
     function toggleGhost(el) {
@@ -751,7 +746,7 @@ app.get("/", async (c) => {
     </script>
   `;
 
-  return c.html(layout("精度分析", "/accuracy", content));
+  return c.html(layout("スコアリング精度", "/accuracy", content));
 });
 
 export default app;

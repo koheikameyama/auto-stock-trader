@@ -140,6 +140,22 @@ export const SCORING_ACCURACY_REPORT = {
   MAX_MISSED_DISPLAY: 5,
 } as const;
 
+/** スコアリング妥当性ページ */
+export const SCORING_VALIDITY = {
+  /** 分析対象の過去日数 */
+  LOOKBACK_DAYS: 90,
+  /** FP/FN一覧の表示件数 */
+  FP_FN_DISPLAY_LIMIT: 10,
+  /** スコア帯の区分 */
+  SCORE_BANDS: [
+    { label: "80-100", min: 80, max: 100 },
+    { label: "65-79", min: 65, max: 79 },
+    { label: "50-64", min: 50, max: 64 },
+    { label: "35-49", min: 35, max: 49 },
+    { label: "<35", min: 0, max: 34 },
+  ],
+} as const;
+
 export const STOP_LOSS = {
   MAX_LOSS_PCT: 0.03,
   ATR_MIN_MULTIPLIER: 0.5,
