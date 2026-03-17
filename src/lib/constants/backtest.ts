@@ -38,9 +38,9 @@ export function hasMultiOverride(
 }
 
 export const DAILY_BACKTEST = {
-  /** 固定予算（30万ティア） */
+  /** 固定予算（50万ティア） */
   FIXED_BUDGET: {
-    budget: 300_000,
+    budget: 500_000,
     maxPrice: 5_000,
     maxPositions: 3,
   },
