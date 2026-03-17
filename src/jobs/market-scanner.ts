@@ -685,9 +685,10 @@ ${sectorText || "  特になし"}`;
     }));
 
     if (shadowRecords.length > 0) {
+      // 再実行時のデータ矛盾を防ぐため、同日の既存レコードを削除してから保存
+      await prisma.scoringRecord.deleteMany({ where: { date: today } });
       await prisma.scoringRecord.createMany({
         data: shadowRecords,
-        skipDuplicates: true,
       });
       console.log(`  シャドウScoringRecord 保存: ${shadowRecords.length}件`);
     } else {
@@ -804,9 +805,10 @@ ${sectorText || "  特になし"}`;
     ];
 
     if (scoringRecords.length > 0) {
+      // 再実行時のデータ矛盾を防ぐため、同日の既存レコードを削除してから保存
+      await prisma.scoringRecord.deleteMany({ where: { date: today } });
       await prisma.scoringRecord.createMany({
         data: scoringRecords,
-        skipDuplicates: true,
       });
       console.log(`  ScoringRecord 保存: ${scoringRecords.length}件`);
     }
