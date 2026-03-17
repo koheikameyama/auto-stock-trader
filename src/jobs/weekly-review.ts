@@ -9,7 +9,8 @@
 
 import { prisma } from "../lib/prisma";
 import { OPENAI_CONFIG, WEEKLY_REVIEW } from "../lib/constants";
-import { getOpenAIClient } from "../lib/openai";
+import { getTracedOpenAIClient } from "../lib/openai";
+import { flushLangfuse } from "../lib/langfuse";
 import { notifySlack } from "../lib/slack";
 import { jstDateAsUTC } from "../lib/date-utils";
 import dayjs from "dayjs";
@@ -126,7 +127,10 @@ export async function main() {
 
   let aiReview: WeeklyAIReview | null = null;
   try {
-    const openai = getOpenAIClient();
+    const openai = getTracedOpenAIClient({
+      generationName: "weekly-review",
+      tags: ["review", "weekly"],
+    });
     const response = await openai.chat.completions.create({
       model: OPENAI_CONFIG.MODEL,
       temperature: 0.5,
@@ -239,5 +243,8 @@ if (isDirectRun) {
       console.error("Weekly Review エラー:", error);
       process.exit(1);
     })
-    .finally(() => prisma.$disconnect());
+    .finally(async () => {
+      await flushLangfuse();
+      await prisma.$disconnect();
+    });
 }

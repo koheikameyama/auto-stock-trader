@@ -17,7 +17,8 @@ import { prisma } from "../lib/prisma";
 import { getTodayForDB, getDaysAgoForDB } from "../lib/date-utils";
 import { SCORING_ACCURACY, CONTRARIAN, OPENAI_CONFIG } from "../lib/constants";
 import { fetchStockQuotes } from "../core/market-data";
-import { getOpenAIClient } from "../lib/openai";
+import { getTracedOpenAIClient } from "../lib/openai";
+import { flushLangfuse } from "../lib/langfuse";
 import {
   FN_ANALYSIS_SYSTEM_PROMPT,
   FN_ANALYSIS_SCHEMA,
@@ -130,7 +131,10 @@ async function runAiAnalysis(
 ): Promise<Array<{ id: string; tickerCode: string; result: AnalysisResult }>> {
   if (records.length === 0) return [];
 
-  const openai = getOpenAIClient();
+  const openai = getTracedOpenAIClient({
+    generationName: `scoring-${type}-analysis`,
+    tags: ["scoring", "accuracy"],
+  });
   const aiLimit = pLimit(SCORING_ACCURACY.AI_CONCURRENCY);
 
   const systemPrompt =
@@ -553,7 +557,10 @@ ${auditData.aiRejection.total > 0 ? `- 却下銘柄: ${auditData.aiRejection.tot
 200文字以内で本日の意思決定の整合性を評価してください。`;
 
     try {
-      const openai = getOpenAIClient();
+      const openai = getTracedOpenAIClient({
+        generationName: "scoring-verdict",
+        tags: ["scoring", "verdict"],
+      });
       const verdictResponse = await openai.chat.completions.create({
         model: OPENAI_CONFIG.MODEL,
         temperature: 0.3,
@@ -631,5 +638,8 @@ if (isDirectRun) {
       console.error("スコアリング精度分析エラー:", error);
       process.exit(1);
     })
-    .finally(() => prisma.$disconnect());
+    .finally(async () => {
+      await flushLangfuse();
+      await prisma.$disconnect();
+    });
 }

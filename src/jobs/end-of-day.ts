@@ -12,7 +12,8 @@
 import { prisma } from "../lib/prisma";
 import { getTodayForDB, getStartOfDayJST, getEndOfDayJST } from "../lib/date-utils";
 import { OPENAI_CONFIG, STRATEGY_SWITCHING } from "../lib/constants";
-import { getOpenAIClient } from "../lib/openai";
+import { getTracedOpenAIClient } from "../lib/openai";
+import { flushLangfuse } from "../lib/langfuse";
 import { fetchStockQuote } from "../core/market-data";
 import { closePosition, getCashBalance, getTotalPortfolioValue } from "../core/position-manager";
 import type { ExitSnapshot } from "../types/snapshots";
@@ -224,7 +225,10 @@ export async function main() {
   }
 
   try {
-    const openai = getOpenAIClient();
+    const openai = getTracedOpenAIClient({
+      generationName: "eod-review",
+      tags: ["review", "daily"],
+    });
     const reviewPrompt = `本日の日本株自動売買シミュレーションの日次レビューを簡潔に生成してください。
 
 【本日の結果】
@@ -301,5 +305,8 @@ if (isDirectRun) {
       console.error("End of Day エラー:", error);
       process.exit(1);
     })
-    .finally(() => prisma.$disconnect());
+    .finally(async () => {
+      await flushLangfuse();
+      await prisma.$disconnect();
+    });
 }

@@ -9,7 +9,7 @@
  * - reviewTrade: ロジックが算出したエントリー条件の承認/修正/却下（レビュー型）
  */
 
-import { getOpenAIClient } from "../lib/openai";
+import { getTracedOpenAIClient } from "../lib/openai";
 import { OPENAI_CONFIG } from "../lib/constants";
 import {
   MARKET_ASSESSMENT_SYSTEM_PROMPT,
@@ -107,7 +107,10 @@ export interface TradeReviewResult {
 export async function assessMarket(
   data: MarketDataInput,
 ): Promise<MarketAssessmentResult> {
-  const openai = getOpenAIClient();
+  const openai = getTracedOpenAIClient({
+    generationName: "assess-market",
+    tags: ["trading", "market-assessment"],
+  });
 
   const fmt = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
 
@@ -163,7 +166,15 @@ export async function reviewStocks(
   candidates: StockReviewCandidateInput[],
   strategy: "day_trade" | "swing",
 ): Promise<StockReviewResult[]> {
-  const openai = getOpenAIClient();
+  const openai = getTracedOpenAIClient({
+    generationName: "review-stocks",
+    metadata: {
+      candidateCount: candidates.length,
+      tickers: candidates.map((c) => c.tickerCode),
+      strategy,
+    },
+    tags: ["trading", "stock-review"],
+  });
 
   const candidatesText = candidates
     .map(
@@ -232,7 +243,15 @@ export async function reviewTrade(
   },
   assessment: MarketAssessmentResult,
 ): Promise<TradeReviewResult> {
-  const openai = getOpenAIClient();
+  const openai = getTracedOpenAIClient({
+    generationName: "review-trade",
+    metadata: {
+      ticker: stock.tickerCode,
+      strategy: entryCondition.strategy,
+      riskRewardRatio: entryCondition.riskRewardRatio,
+    },
+    tags: ["trading", "trade-review"],
+  });
 
   const takeProfitPct = (
     ((entryCondition.takeProfitPrice - entryCondition.limitPrice) /
@@ -319,7 +338,10 @@ export interface MiddayReassessmentResult {
 export async function reassessMarketMidday(
   data: MiddayReassessmentInput,
 ): Promise<MiddayReassessmentResult> {
-  const openai = getOpenAIClient();
+  const openai = getTracedOpenAIClient({
+    generationName: "reassess-market-midday",
+    tags: ["trading", "midday-reassessment"],
+  });
 
   const morningSessionChange =
     ((data.currentNikkeiPrice - data.morningNikkeiPrice) /

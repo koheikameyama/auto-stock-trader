@@ -9,7 +9,8 @@ import dayjs from "dayjs";
 import { prisma } from "../lib/prisma";
 import { getTodayForDB, getDaysAgoForDB } from "../lib/date-utils";
 import { OPENAI_CONFIG, NEWS_AI_MAX_ARTICLES, DELISTING_NEWS_KEYWORDS } from "../lib/constants";
-import { getOpenAIClient } from "../lib/openai";
+import { getTracedOpenAIClient } from "../lib/openai";
+import { flushLangfuse } from "../lib/langfuse";
 import {
   fetchFromNewsAPI,
   fetchFromGoogleRSS,
@@ -149,7 +150,10 @@ ${sectorNews.map((a) => `- ${a.title}${a.sector ? ` [${a.sector}]` : ""}`).join(
 【個別銘柄ニュース（${stockNews.length}件）】
 ${stockNews.map((a) => `- ${a.title}${a.tickerCode ? ` [${a.tickerCode}]` : ""}`).join("\n") || "なし"}`;
 
-  const openai = getOpenAIClient();
+  const openai = getTracedOpenAIClient({
+    generationName: "news-analysis",
+    tags: ["news", "analysis"],
+  });
   const response = await openai.chat.completions.create({
     model: OPENAI_CONFIG.MODEL,
     temperature: OPENAI_CONFIG.TEMPERATURE,
@@ -331,5 +335,8 @@ if (isDirectRun) {
       console.error("News Collector エラー:", error);
       process.exit(1);
     })
-    .finally(() => prisma.$disconnect());
+    .finally(async () => {
+      await flushLangfuse();
+      await prisma.$disconnect();
+    });
 }

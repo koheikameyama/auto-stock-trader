@@ -38,10 +38,12 @@
   "dependencies": {
     "@holiday-jp/holiday_jp": "^2.5.1",
     "@hono/node-server": "^1.19.11",
+    "@langfuse/openai": "^5.0.1",
     "@prisma/client": "^6.19.2",
     "cheerio": "^1.2.0",
     "dayjs": "^1.11.19",
     "hono": "^4.12.5",
+    "langfuse": "^3.38.6",
     "node-cron": "^4.2.1",
     "openai": "^6.17.0",
     "p-limit": "^7.3.0",

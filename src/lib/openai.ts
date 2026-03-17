@@ -9,3 +9,7 @@ export function getOpenAIClient() {
     apiKey: process.env.OPENAI_API_KEY,
   })
 }
+
+// Langfuseトレーシング付きクライアント
+export { getTracedOpenAIClient } from "./langfuse"
+export type { TraceConfig } from "./langfuse"
