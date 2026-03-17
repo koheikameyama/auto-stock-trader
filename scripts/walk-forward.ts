@@ -312,13 +312,14 @@ async function main() {
   // --- 条件ループ ---
 
   // コンボ条件: 堅牢条件の組み合わせ効果を検証
+  // 複合条件: ベースライン(ATR1.0+トレール1.0)からの変更の組み合わせ効果を検証
   const comboConditions = [
-    { key: "atr1.0_trail1.0", label: "ATR1.0+トレール1.0", overrides: { atrMultiplier: 1.0, overrideTpSl: true, trailMultiplier: 1.0 } },
-    { key: "atr1.0_trail1.2", label: "ATR1.0+トレール1.2", overrides: { atrMultiplier: 1.0, overrideTpSl: true, trailMultiplier: 1.2 } },
-    { key: "atr1.5_trail1.0", label: "ATR1.5+トレール1.0", overrides: { atrMultiplier: 1.5, overrideTpSl: true, trailMultiplier: 1.0 } },
-    { key: "atr1.5_trail1.2", label: "ATR1.5+トレール1.2", overrides: { atrMultiplier: 1.5, overrideTpSl: true, trailMultiplier: 1.2 } },
-    { key: "atr1.0_trail1.0_ts2.0", label: "ATR1.0+トレール1.0+TS2.0", overrides: { atrMultiplier: 1.0, overrideTpSl: true, trailMultiplier: 1.0, trailingActivationMultiplier: 2.0 } },
-    { key: "atr1.5_trail1.0_ts2.0", label: "ATR1.5+トレール1.0+TS2.0", overrides: { atrMultiplier: 1.5, overrideTpSl: true, trailMultiplier: 1.0, trailingActivationMultiplier: 2.0 } },
+    { key: "atr1.2_trail1.2", label: "ATR1.2+トレール1.2", overrides: { atrMultiplier: 1.2, overrideTpSl: true, trailMultiplier: 1.2 } },
+    { key: "atr1.2_trail1.5", label: "ATR1.2+トレール1.5", overrides: { atrMultiplier: 1.2, overrideTpSl: true, trailMultiplier: 1.5 } },
+    { key: "atr1.5_trail1.5", label: "ATR1.5+トレール1.5", overrides: { atrMultiplier: 1.5, overrideTpSl: true, trailMultiplier: 1.5 } },
+    { key: "atr1.2_ts3.5", label: "ATR1.2+TS3.5", overrides: { atrMultiplier: 1.2, overrideTpSl: true, trailingActivationMultiplier: 3.5 } },
+    { key: "trail1.2_ts3.5", label: "トレール1.2+TS3.5", overrides: { trailMultiplier: 1.2, trailingActivationMultiplier: 3.5 } },
+    { key: "atr1.2_trail1.2_ts3.5", label: "ATR1.2+トレール1.2+TS3.5", overrides: { atrMultiplier: 1.2, overrideTpSl: true, trailMultiplier: 1.2, trailingActivationMultiplier: 3.5 } },
   ] as const;
 
   const conditions: ParameterCondition[] = [

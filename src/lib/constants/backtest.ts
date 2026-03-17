@@ -45,7 +45,7 @@ export const DAILY_BACKTEST = {
     maxPositions: 3,
   },
 
-  /** パラメータ条件（1ベースライン + 4軸×3値 + フィルター6 + カラー2 = 24条件） */
+  /** パラメータ条件（1ベースライン + 4軸×3値 + フィルター6 + カラー2 + 複合1 = 24条件） */
   PARAMETER_CONDITIONS: [
     // ベースライン（本番ロジック）
     { key: "baseline", label: "ベースライン" },
@@ -60,14 +60,14 @@ export const DAILY_BACKTEST = {
     { key: "score_70", label: "スコア70", param: "scoreThreshold", value: 70 },
     { key: "score_80", label: "スコア80", param: "scoreThreshold", value: 80 },
 
-    // ATR倍率（損切幅）— overrideTpSl=true 必須（SL計算に影響）
+    // ATR倍率（損切幅、ベースライン=1.0）— overrideTpSl=true 必須（SL計算に影響）
     { key: "atr_0.8", label: "ATR0.8", param: "atrMultiplier", value: 0.8, overrideTpSl: true },
-    { key: "atr_1.0", label: "ATR1.0", param: "atrMultiplier", value: 1.0, overrideTpSl: true },
+    { key: "atr_1.2", label: "ATR1.2", param: "atrMultiplier", value: 1.2, overrideTpSl: true },
     { key: "atr_1.5", label: "ATR1.5", param: "atrMultiplier", value: 1.5, overrideTpSl: true },
 
-    // トレール幅ATR倍率（ベースライン=2.0）
-    { key: "trail_1.0", label: "トレール1.0", param: "trailMultiplier", value: 1.0 },
+    // トレール幅ATR倍率（ベースライン=1.0）
     { key: "trail_1.2", label: "トレール1.2", param: "trailMultiplier", value: 1.2 },
+    { key: "trail_1.5", label: "トレール1.5", param: "trailMultiplier", value: 1.5 },
     { key: "trail_2.0", label: "トレール2.0", param: "trailMultiplier", value: 2.0 },
 
     // トレンド＆プルバックフィルター（ベースライン=トレンドON）
