@@ -368,7 +368,7 @@ async function runScoringRecordMode(): Promise<{
 
   const fetchStart = Date.now();
   const [allData, vixData] = await Promise.all([
-    fetchMultipleBacktestData(allTickers, startDate, endDate),
+    fetchMultipleBacktestData(allTickers, startDate, endDate, DAILY_BACKTEST.ON_THE_FLY.LOOKBACK_CALENDAR_DAYS),
     fetchVixData(startDate, endDate).catch((err: unknown) => {
       console.warn("[daily-backtest] VIXデータ取得失敗（レジーム集計なし）:", err);
       return new Map<string, number>();

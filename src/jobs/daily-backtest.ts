@@ -18,8 +18,11 @@ export async function main() {
   console.log("=== Daily Backtest 開始 ===");
   const startTime = Date.now();
 
-  // 1. バックテスト実行
-  const result = await runDailyBacktest();
+  // 1. バックテスト実行（on-the-fly: WFと同一方法論で正確な成績評価）
+  const result = await runDailyBacktest({
+    candidateMode: "on-the-fly",
+    maxStocks: 500,
+  });
 
   // 2. DB保存（upsert で冪等）
   console.log("[daily-backtest] DB保存中...");
