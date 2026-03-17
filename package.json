@@ -25,6 +25,7 @@
     "backtest": "tsx src/backtest/run.ts",
     "walk-forward": "tsx scripts/walk-forward.ts",
     "daily-backtest": "tsx src/jobs/daily-backtest.ts",
+    "capital-sim": "tsx src/jobs/capital-simulation.ts",
     "data-cleanup": "tsx src/jobs/data-cleanup.ts",
     "midday": "tsx src/jobs/midday-reassessment.ts",
     "db:generate": "prisma generate",

@@ -267,6 +267,34 @@ function calculateByRegime(
   return regimes;
 }
 
+export interface CapitalUtilizationMetrics {
+  avgConcurrentPositions: number;
+  capitalUtilizationPct: number;
+}
+
+export function calculateCapitalUtilization(
+  equityCurve: DailyEquity[],
+): CapitalUtilizationMetrics {
+  if (equityCurve.length === 0) {
+    return { avgConcurrentPositions: 0, capitalUtilizationPct: 0 };
+  }
+
+  let totalPositionCount = 0;
+  let totalUtilization = 0;
+
+  for (const day of equityCurve) {
+    totalPositionCount += day.openPositionCount;
+    if (day.totalEquity > 0) {
+      totalUtilization += (day.positionsValue / day.totalEquity) * 100;
+    }
+  }
+
+  return {
+    avgConcurrentPositions: round2(totalPositionCount / equityCurve.length),
+    capitalUtilizationPct: round2(totalUtilization / equityCurve.length),
+  };
+}
+
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }

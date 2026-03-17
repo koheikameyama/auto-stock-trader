@@ -176,3 +176,17 @@ export const DAILY_BACKTEST = {
     },
   },
 } as const;
+
+/** 資金別シミュレーションのシナリオ定義 */
+export const CAPITAL_SCENARIOS = [
+  { budget: 300_000, maxPositions: 2 },
+  { budget: 300_000, maxPositions: 3 },
+  { budget: 500_000, maxPositions: 3 },
+  { budget: 500_000, maxPositions: 4 },
+  { budget: 700_000, maxPositions: 3 },
+  { budget: 700_000, maxPositions: 4 },
+  { budget: 700_000, maxPositions: 5 },
+  { budget: 1_000_000, maxPositions: 3 },
+  { budget: 1_000_000, maxPositions: 4 },
+  { budget: 1_000_000, maxPositions: 5 },
+] as const;
