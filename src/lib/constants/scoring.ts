@@ -179,8 +179,15 @@ export const COLLAR = {
 
 /** リスクベースのポジションサイジング */
 export const POSITION_SIZING = {
-  /** 1トレードあたりリスク: 総資金の2% */
+  /** 1トレードあたりリスク: 総資金の2%（スコア未指定時のデフォルト） */
   RISK_PER_TRADE_PCT: 2,
+  /** スコア別リスク%テーブル（降順で最初にマッチしたものを採用） */
+  SCORE_RISK_TABLE: [
+    { minScore: 80, riskPct: 3.0 }, // Sランク
+    { minScore: 65, riskPct: 2.5 }, // Aランク
+    { minScore: 50, riskPct: 2.0 }, // Bランク
+    { minScore: 0, riskPct: 1.5 }, // Cランク
+  ],
 } as const;
 
 /** ギャップリスク推定パラメータ */

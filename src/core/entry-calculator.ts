@@ -28,7 +28,7 @@ export interface EntryCondition {
  *
  * @param currentPrice - 現在価格
  * @param summary - テクニカル分析サマリー
- * @param score - スコアリング結果（未使用だが将来の拡張用）
+ * @param score - スコアリング結果（総合スコアでポジションサイズを傾斜させる）
  * @param strategy - 取引戦略
  * @param availableBudget - 利用可能予算
  * @param maxPositionPct - 1銘柄あたり最大投資比率（%）
@@ -37,7 +37,7 @@ export interface EntryCondition {
 export function calculateEntryCondition(
   currentPrice: number,
   summary: TechnicalSummary,
-  _score: NewLogicScore,
+  score: NewLogicScore,
   strategy: "day_trade" | "swing",
   availableBudget: number,
   maxPositionPct: number,
@@ -104,13 +104,14 @@ export function calculateEntryCondition(
     gapRiskPct = estimateGapRisk(historicalData, summary.atr14, limitPrice);
   }
 
-  // 5. 数量: リスクベース（ギャップリスク考慮）と予算の厳しい方
+  // 5. 数量: リスクベース（ギャップリスク考慮・スコア傾斜）と予算の厳しい方
   const quantity = calculatePositionSize(
     limitPrice,
     availableBudget,
     maxPositionPct,
     stopLossPrice,
     gapRiskPct,
+    score.totalScore,
   );
 
   // 6. リスクリワード比

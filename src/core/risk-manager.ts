@@ -284,6 +284,17 @@ export function estimateGapRisk(
 }
 
 /**
+ * スコアに応じたリスク%を返す
+ */
+export function getRiskPctByScore(score?: number): number {
+  if (score == null) return POSITION_SIZING.RISK_PER_TRADE_PCT;
+  for (const tier of POSITION_SIZING.SCORE_RISK_TABLE) {
+    if (score >= tier.minScore) return tier.riskPct;
+  }
+  return POSITION_SIZING.RISK_PER_TRADE_PCT;
+}
+
+/**
  * ポジションサイズを計算する
  *
  * リスクベースと予算ベースの両方で算出し、厳しい方を採用する。
@@ -292,6 +303,7 @@ export function estimateGapRisk(
  * 日本株は単元株制度（100株単位）のため、UNIT_SHARES の倍数に切り捨てる。
  *
  * @param gapRiskPct - ギャップリスク率（例: 0.05 = 5%）。指定時はSL距離との大きい方を使用
+ * @param score - スコアリング結果の総合スコア。スコアに応じてリスク%を傾斜させる
  */
 export function calculatePositionSize(
   price: number,
@@ -299,6 +311,7 @@ export function calculatePositionSize(
   maxPositionPct: number,
   stopLossPrice?: number,
   gapRiskPct?: number,
+  score?: number,
 ): number {
   if (price <= 0 || budget <= 0 || maxPositionPct <= 0) {
     return 0;
@@ -308,13 +321,14 @@ export function calculatePositionSize(
   const maxAmount = budget * (maxPositionPct / 100);
   const budgetBasedShares = Math.floor(maxAmount / price);
 
-  // リスクベース: 損切り幅に基づく計算
+  // リスクベース: 損切り幅に基づく計算（スコアでリスク%を傾斜）
   let riskBasedShares = budgetBasedShares; // デフォルトは予算ベースと同じ
   if (stopLossPrice != null && stopLossPrice > 0 && stopLossPrice < price) {
     const stopLossRisk = price - stopLossPrice;
     const gapRisk = gapRiskPct != null ? price * gapRiskPct : 0;
     const effectiveRiskPerShare = Math.max(stopLossRisk, gapRisk);
-    const riskAmount = budget * (POSITION_SIZING.RISK_PER_TRADE_PCT / 100);
+    const riskPct = getRiskPctByScore(score);
+    const riskAmount = budget * (riskPct / 100);
     riskBasedShares = Math.floor(riskAmount / effectiveRiskPerShare);
   }
 
