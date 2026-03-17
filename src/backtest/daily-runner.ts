@@ -11,6 +11,7 @@ import dayjs from "dayjs";
 import { prisma } from "../lib/prisma";
 import {
   DAILY_BACKTEST,
+  CAPITAL_SCENARIOS,
   SCREENING,
   type ParameterCondition,
   hasParamOverride,
@@ -545,6 +546,58 @@ export async function runDailyBacktest(
     const sign = result.metrics.totalReturnPct >= 0 ? "+" : "";
     console.log(
       `[daily-backtest] ${condition.label}: 勝率${result.metrics.winRate}% PF${result.metrics.profitFactor} ${sign}${result.metrics.totalReturnPct}% 約定率${result.metrics.fillRate}% (${result.metrics.ordersFilled}/${result.metrics.ordersPlaced})`,
+    );
+  }
+
+  // 3. 資金帯シナリオでシミュレーション
+  for (const scenario of CAPITAL_SCENARIOS) {
+    const condStart = Date.now();
+    const maxPrice = Math.floor(scenario.budget / scenario.maxPositions / 100);
+    const label = `${(scenario.budget / 10000).toFixed(0)}万×${scenario.maxPositions}銘柄`;
+
+    const config: BacktestConfig = {
+      tickers: allTickers,
+      startDate,
+      endDate,
+      initialBudget: scenario.budget,
+      maxPositions: scenario.maxPositions,
+      maxPrice,
+      scoreThreshold: DEFAULT_PARAMS.scoreThreshold,
+      takeProfitRatio: DEFAULT_PARAMS.takeProfitRatio,
+      stopLossRatio: DEFAULT_PARAMS.stopLossRatio,
+      atrMultiplier: DEFAULT_PARAMS.atrMultiplier,
+      trailingActivationMultiplier: DEFAULT_PARAMS.trailingActivationMultiplier,
+      trailMultiplier: DEFAULT_PARAMS.trailMultiplier,
+      strategy: DEFAULT_PARAMS.strategy,
+      costModelEnabled: true,
+      cooldownDays: DEFAULT_PARAMS.cooldownDays,
+      overrideTpSl: DEFAULT_PARAMS.overrideTpSl,
+      priceLimitEnabled: true,
+      gapRiskEnabled: true,
+      trendFilterEnabled: true,
+      pullbackFilterEnabled: false,
+      volatilityFilterEnabled: true,
+      rsFilterEnabled: false,
+      verbose: false,
+    };
+
+    console.log(`[daily-backtest] 資金帯 ${label} シミュレーション中...`);
+    const result = runBacktest(config, allData, vixData, candidateMap, sectorMap);
+
+    conditionResults.push({
+      condition: { key: `capital_${label}`, label: `資金${label}` },
+      config,
+      metrics: result.metrics,
+      tradeReturns: result.trades
+        .filter((t) => t.pnlPct !== null)
+        .map((t) => t.pnlPct as number),
+      tickerCount: allData.size,
+      executionTimeMs: Date.now() - condStart,
+    });
+
+    const sign = result.metrics.totalReturnPct >= 0 ? "+" : "";
+    console.log(
+      `[daily-backtest] 資金${label}: 勝率${result.metrics.winRate}% PF${result.metrics.profitFactor} ${sign}${result.metrics.totalReturnPct}% DD-${result.metrics.maxDrawdown}%`,
     );
   }
 

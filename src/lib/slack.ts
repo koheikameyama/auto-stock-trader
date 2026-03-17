@@ -316,6 +316,18 @@ export async function notifyBacktestResult(data: {
     lines.push(condLine);
   }
 
+  // 資金帯シミュレーションセクション
+  const capitalResults = data.conditionResults.filter((c) => c.key.startsWith("capital_"));
+  if (capitalResults.length > 0) {
+    lines.push("");
+    lines.push("*資金帯シミュレーション*");
+    for (const c of capitalResults) {
+      const pf = c.profitFactor === Infinity ? "∞" : c.profitFactor.toFixed(2);
+      const sign = c.totalReturnPct >= 0 ? "+" : "";
+      lines.push(`${c.label}: PF ${pf} | ${sign}${c.totalReturnPct}% | DD -${c.maxDrawdown}% | ${c.totalTrades}件`);
+    }
+  }
+
   // ペーパートレード追跡セクション
   if (data.paperTradeResult) {
     const pt = data.paperTradeResult;
