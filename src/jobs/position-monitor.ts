@@ -18,6 +18,7 @@ import {
   STOP_LOSS,
   WEEKEND_RISK,
   TRAILING_STOP,
+  SCORING,
 } from "../lib/constants";
 import { validateStopLoss } from "../core/risk-manager";
 import { fetchStockQuote } from "../core/market-data";
@@ -456,6 +457,84 @@ export async function main() {
         `  → ${position.stock.tickerCode}: 含み損益 ¥${unrealized.toLocaleString()}${tsInfo}`,
       );
     }
+  }
+
+  // システム停止チェック（フェーズ間で再確認）
+  if (!(await isSystemActive())) {
+    console.log("  → システム停止中のため終了");
+    return;
+  }
+
+  // 3.2. 決算前強制決済（nextEarningsDate が5日以内のポジションをクローズ）
+  console.log("[2.2/3] 決算前強制決済チェック...");
+  const remainingForEarnings = await getOpenPositions();
+  const todayJst = dayjs().tz("Asia/Tokyo").startOf("day");
+  let earningsCloseCount = 0;
+
+  for (const position of remainingForEarnings) {
+    const { nextEarningsDate } = position.stock;
+    if (!nextEarningsDate) continue;
+
+    const diffDays = Math.floor(
+      (nextEarningsDate.getTime() - todayJst.toDate().getTime()) / 86_400_000,
+    );
+
+    if (diffDays < 0 || diffDays > SCORING.GATES.EARNINGS_DAYS_BEFORE) continue;
+
+    const quote = await fetchStockQuote(position.stock.tickerCode);
+    if (!quote) continue;
+
+    const entryPriceNum = Number(position.entryPrice);
+    const maxHigh = position.maxHighDuringHold
+      ? Math.max(Number(position.maxHighDuringHold), quote.high)
+      : quote.high;
+    const minLow = position.minLowDuringHold
+      ? Math.min(Number(position.minLowDuringHold), quote.low)
+      : quote.low;
+
+    const earningsReason = `決算前強制決済（決算まで${diffDays}日）`;
+
+    const exitSnapshot: ExitSnapshot = {
+      exitReason: earningsReason,
+      exitPrice: quote.price,
+      priceJourney: {
+        maxHigh,
+        minLow,
+        maxFavorableExcursion: ((maxHigh - entryPriceNum) / entryPriceNum) * 100,
+        maxAdverseExcursion: ((entryPriceNum - minLow) / entryPriceNum) * 100,
+      },
+      marketContext: null,
+    };
+
+    console.log(
+      `  → ${position.stock.tickerCode}: ${earningsReason} @ ¥${quote.price.toLocaleString()}`,
+    );
+
+    const closed = await closePosition(
+      position.id,
+      quote.price,
+      exitSnapshot as object,
+    );
+
+    await notifyOrderFilled({
+      tickerCode: position.stock.tickerCode,
+      name: position.stock.name,
+      side: "sell",
+      filledPrice: quote.price,
+      quantity: position.quantity,
+      pnl: closed.realizedPnl ? Number(closed.realizedPnl) : 0,
+    });
+
+    earningsCloseCount++;
+  }
+
+  if (earningsCloseCount > 0) {
+    await notifyRiskAlert({
+      type: "決算前強制決済",
+      message: `${earningsCloseCount}件のポジションを決算前に強制決済しました`,
+    });
+  } else {
+    console.log("  → 決算前強制決済対象なし");
   }
 
   // システム停止チェック（フェーズ間で再確認）
