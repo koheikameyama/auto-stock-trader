@@ -23,8 +23,9 @@ import { calculateSectorMomentum } from "../core/sector-analyzer";
 const SENTIMENT_SEVERITY: Record<string, number> = {
   bullish: 0,
   neutral: 1,
-  bearish: 2,
-  crisis: 3,
+  cautious: 2,
+  bearish: 3,
+  crisis: 4,
 };
 
 export async function main() {
