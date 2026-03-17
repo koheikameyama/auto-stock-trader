@@ -399,7 +399,6 @@ export async function main() {
       stockId,
       finalCondition.quantity,
       finalCondition.limitPrice,
-      result.strategy,
     );
 
     if (!riskCheck.allowed) {

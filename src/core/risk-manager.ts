@@ -15,7 +15,6 @@ import {
 import { canAddToSector, canAddToMacroFactor } from "./sector-analyzer";
 import { calculateDrawdownStatus } from "./drawdown-manager";
 import { fetchStockQuotesBatch } from "./market-data";
-import { checkTimeWindow } from "./time-filter";
 
 /**
  * 新規ポジションを建てられるかチェックする
@@ -31,7 +30,6 @@ export async function canOpenPosition(
   stockId: string,
   quantity: number,
   price: number,
-  strategy?: "day_trade" | "swing",
 ): Promise<{ allowed: boolean; reason: string }> {
   const config = await prisma.tradingConfig.findFirst({
     orderBy: { createdAt: "desc" },
@@ -131,14 +129,6 @@ export async function canOpenPosition(
         allowed: false,
         reason: `クールダウン中: 最大${drawdown.maxPositionsOverride}ポジションに制限（${drawdown.reason}）`,
       };
-    }
-  }
-
-  // 8. 時間帯チェック
-  if (strategy) {
-    const timeCheck = checkTimeWindow(strategy);
-    if (!timeCheck.canTrade) {
-      return { allowed: false, reason: timeCheck.reason };
     }
   }
 
