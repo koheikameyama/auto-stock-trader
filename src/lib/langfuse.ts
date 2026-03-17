@@ -9,6 +9,11 @@ import OpenAI from "openai";
 import { observeOpenAI } from "@langfuse/openai";
 import { Langfuse } from "langfuse";
 
+// SDKは LANGFUSE_BASEURL を読むが、環境変数は LANGFUSE_BASE_URL で統一
+if (process.env.LANGFUSE_BASE_URL && !process.env.LANGFUSE_BASEURL) {
+  process.env.LANGFUSE_BASEURL = process.env.LANGFUSE_BASE_URL;
+}
+
 /** Langfuseが有効かどうか（環境変数の存在で判定） */
 export function isLangfuseEnabled(): boolean {
   return !!(
