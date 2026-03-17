@@ -147,7 +147,7 @@ export const DAILY_BACKTEST = {
   /** ペーパートレード前方追跡 */
   PAPER_TRADE: {
     /** 前方追跡の開始日。null で無効化 */
-    TRACKING_START_DATE: "2026-03-17" as string | null,
+    TRACKING_START_DATE: null as string | null,
     /** Go判定に必要な営業日数 */
     DURATION_TRADING_DAYS: 40,
     /** Go/No-Go 判定基準 */
