@@ -120,19 +120,27 @@ export async function main() {
 
     if (filledPrice !== null) {
 
-      // 買い注文: 時間帯チェック（デイトレ14:30以降は約定をスキップ）
+      // 買い注文: 時間帯チェック
       if (order.side === "buy") {
         const timeCheck = checkTimeWindow(
           order.strategy as "day_trade" | "swing",
         );
         if (!timeCheck.canTrade) {
-          console.log(
-            `  → ${order.stock.tickerCode}: ${timeCheck.reason}のためスキップ`,
-          );
-          await prisma.tradingOrder.update({
-            where: { id: order.id },
-            data: { status: "cancelled" },
-          });
+          if (timeCheck.isOpeningVolatility) {
+            // 寄付き30分: 一時的な制限なのでスキップのみ（キャンセルしない）
+            console.log(
+              `  → ${order.stock.tickerCode}: ${timeCheck.reason}のため約定保留`,
+            );
+          } else {
+            // デイトレ14:30以降等: エントリー窓逸失のためキャンセル
+            console.log(
+              `  → ${order.stock.tickerCode}: ${timeCheck.reason}のためキャンセル`,
+            );
+            await prisma.tradingOrder.update({
+              where: { id: order.id },
+              data: { status: "cancelled" },
+            });
+          }
           continue;
         }
       }

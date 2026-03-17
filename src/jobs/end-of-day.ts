@@ -120,7 +120,7 @@ export async function main() {
   const expiredCount = await expireOrders();
   console.log(`  ${expiredCount}件キャンセル`);
 
-  // 当日の未約定注文もキャンセル
+  // 当日の未約定注文もキャンセル（翌朝order-managerが最新データで再作成する）
   const pendingCount = await prisma.tradingOrder.updateMany({
     where: {
       status: "pending",
