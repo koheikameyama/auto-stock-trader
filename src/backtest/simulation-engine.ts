@@ -22,6 +22,7 @@ import type {
   BacktestConfig,
   BacktestResult,
   SimulatedPosition,
+  ScoreBreakdown,
   DailyEquity,
   RegimeLevel,
 } from "./types";
@@ -119,6 +120,7 @@ export function runBacktest(
         quantity: filled.quantity,
         rank: filled.rank,
         score: filled.score,
+        scoreBreakdown: filled.scoreBreakdown,
         regime: filled.regime,
         maxHighDuringHold: fillPrice,
         trailingStopPrice: null,
@@ -424,6 +426,12 @@ export function runBacktest(
           quantity: candidate.entry.quantity,
           rank: candidate.score.rank,
           score: candidate.score.totalScore,
+          scoreBreakdown: {
+            trendQuality: candidate.score.trendQuality,
+            entryTiming: candidate.score.entryTiming,
+            riskQuality: candidate.score.riskQuality,
+            sectorMomentum: candidate.score.sectorMomentumScore,
+          },
           entryAtr: candidate.entryAtr,
           regime: todayRegime,
         });
@@ -478,6 +486,7 @@ interface PendingOrder {
   quantity: number;
   rank: "S" | "A" | "B" | "C" | "D";
   score: number;
+  scoreBreakdown: ScoreBreakdown | null;
   entryAtr: number | null;
   regime: RegimeLevel;
 }

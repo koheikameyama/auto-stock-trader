@@ -58,11 +58,14 @@ export interface NewLogicScore {
   disqualifyReason: string | null;
 }
 
+import { SCORING } from "../../lib/constants/scoring";
+
 /** ランク判定 */
 export function getRank(score: number): NewLogicScore["rank"] {
-  if (score >= 80) return "S";
-  if (score >= 65) return "A";
-  if (score >= 50) return "B";
-  if (score >= 35) return "C";
+  const { S_RANK, A_RANK, B_RANK, C_RANK } = SCORING.THRESHOLDS;
+  if (score >= S_RANK) return "S";
+  if (score >= A_RANK) return "A";
+  if (score >= B_RANK) return "B";
+  if (score >= C_RANK) return "C";
   return "D";
 }

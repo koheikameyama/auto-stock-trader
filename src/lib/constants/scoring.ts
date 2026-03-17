@@ -36,9 +36,9 @@ export const SCORING = {
   /** ランク閾値 */
   THRESHOLDS: {
     S_RANK: 80,
-    A_RANK: 65,
-    B_RANK: 50,
-    C_RANK: 35,
+    A_RANK: 75,
+    B_RANK: 60,
+    C_RANK: 40,
   },
 
   /** ゲート（即死ルール） */
@@ -146,13 +146,13 @@ export const SCORING_VALIDITY = {
   LOOKBACK_DAYS: 90,
   /** FP/FN一覧の表示件数 */
   FP_FN_DISPLAY_LIMIT: 10,
-  /** スコア帯の区分 */
+  /** スコア帯の区分（SCORING.THRESHOLDSに連動） */
   SCORE_BANDS: [
     { label: "80-100", min: 80, max: 100 },
-    { label: "65-79", min: 65, max: 79 },
-    { label: "50-64", min: 50, max: 64 },
-    { label: "35-49", min: 35, max: 49 },
-    { label: "<35", min: 0, max: 34 },
+    { label: "75-79", min: 75, max: 79 },
+    { label: "60-74", min: 60, max: 74 },
+    { label: "40-59", min: 40, max: 59 },
+    { label: "<40", min: 0, max: 39 },
   ],
 } as const;
 
@@ -181,12 +181,12 @@ export const COLLAR = {
 export const POSITION_SIZING = {
   /** 1トレードあたりリスク: 総資金の2%（スコア未指定時のデフォルト） */
   RISK_PER_TRADE_PCT: 2,
-  /** スコア別リスク%テーブル（降順で最初にマッチしたものを採用） */
+  /** スコア別リスク%テーブル（降順で最初にマッチしたものを採用、SCORING.THRESHOLDSに連動） */
   SCORE_RISK_TABLE: [
     { minScore: 80, riskPct: 3.0 }, // Sランク
-    { minScore: 65, riskPct: 2.5 }, // Aランク
-    { minScore: 50, riskPct: 2.0 }, // Bランク
-    { minScore: 0, riskPct: 1.5 }, // Cランク
+    { minScore: 75, riskPct: 2.5 }, // Aランク
+    { minScore: 60, riskPct: 2.0 }, // Bランク
+    { minScore: 0, riskPct: 1.5 }, // C/Dランク
   ],
 } as const;
 

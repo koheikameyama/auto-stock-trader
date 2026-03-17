@@ -55,10 +55,10 @@ export const DAILY_BACKTEST = {
     { key: "ts_act_2.5", label: "TS起動2.5", param: "trailingActivationMultiplier", value: 2.5 },
     { key: "ts_act_3.5", label: "TS起動3.5", param: "trailingActivationMultiplier", value: 3.5 },
 
-    // スコア閾値（ベースライン=70）
-    { key: "score_60", label: "スコア60", param: "scoreThreshold", value: 60 },
+    // スコア閾値（ベースライン=75）
     { key: "score_65", label: "スコア65", param: "scoreThreshold", value: 65 },
-    { key: "score_75", label: "スコア75", param: "scoreThreshold", value: 75 },
+    { key: "score_70", label: "スコア70", param: "scoreThreshold", value: 70 },
+    { key: "score_80", label: "スコア80", param: "scoreThreshold", value: 80 },
 
     // ATR倍率（損切幅）— overrideTpSl=true 必須（SL計算に影響）
     { key: "atr_0.8", label: "ATR0.8", param: "atrMultiplier", value: 0.8, overrideTpSl: true },
@@ -108,7 +108,7 @@ export const DAILY_BACKTEST = {
 
   /** デフォルトシミュレーションパラメータ */
   DEFAULT_PARAMS: {
-    scoreThreshold: 70,
+    scoreThreshold: 75,
     takeProfitRatio: 1.50,    // overrideTpSl=true 時のみ使用
     stopLossRatio: 0.98,      // overrideTpSl=true 時のみ使用
     atrMultiplier: 1.0,       // overrideTpSl=true 時のみ使用

@@ -17,6 +17,7 @@ import {
   printSensitivityReport,
   writeJsonReport,
 } from "./reporter";
+import { printComponentAnalysis } from "./component-analyzer";
 import type { BacktestConfig } from "./types";
 
 const { values } = parseArgs({
@@ -46,6 +47,7 @@ const { values } = parseArgs({
     "max-holding-days": { type: "string" },
     "collar-pct": { type: "string" },
     sensitivity: { type: "boolean", default: false },
+    "component-analysis": { type: "boolean", default: false },
     output: { type: "string" },
     verbose: { type: "boolean", default: false },
     help: { type: "boolean", default: false },
@@ -80,6 +82,7 @@ function printHelp(): void {
   --collar-pct <n>        指値カラー幅（0.01〜0.05）  デフォルト: 0.03
   --override-tp-sl        TP/SLを固定比率で上書き（感度分析用、デフォルトは本番ロジック）
   --sensitivity           パラメータ感度分析を実行
+  --component-analysis    スコアコンポーネント別分析
   --output <path>         JSON結果を出力
   --verbose               詳細ログ
   --help                  ヘルプ表示
@@ -161,7 +164,12 @@ async function main(): Promise<void> {
   // 3. 結果表示
   printBacktestReport(result);
 
-  // 4. 感度分析（オプション）
+  // 4. コンポーネント別分析（オプション）
+  if (values["component-analysis"]) {
+    printComponentAnalysis(result);
+  }
+
+  // 5. 感度分析（オプション）
   let sensitivityResults = null;
   if (values.sensitivity) {
     console.log("[backtest] パラメータ感度分析...");
@@ -169,7 +177,7 @@ async function main(): Promise<void> {
     printSensitivityReport(sensitivityResults);
   }
 
-  // 5. JSON出力（オプション）
+  // 6. JSON出力（オプション）
   if (values.output) {
     writeJsonReport(result, sensitivityResults, values.output);
   }

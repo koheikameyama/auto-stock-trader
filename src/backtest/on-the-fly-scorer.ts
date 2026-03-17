@@ -163,7 +163,7 @@ export function scoreDayForAllStocks(
       let rejectionReason: string | null = null;
       if (score.isDisqualified) {
         rejectionReason = "disqualified";
-      } else if (score.totalScore < 65) {
+      } else if (score.totalScore < 75) {
         rejectionReason = "below_threshold";
       }
 

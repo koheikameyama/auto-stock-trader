@@ -41,6 +41,28 @@ export interface BacktestConfig {
 
 export type RegimeLevel = "normal" | "elevated" | "high" | "crisis";
 
+export interface ScoreBreakdown {
+  trendQuality: {
+    total: number;
+    maAlignment: number;
+    weeklyTrend: number;
+    trendContinuity: number;
+  };
+  entryTiming: {
+    total: number;
+    pullbackDepth: number;
+    breakout: number;
+    candlestickSignal: number;
+  };
+  riskQuality: {
+    total: number;
+    atrStability: number;
+    rangeContraction: number;
+    volumeStability: number;
+  };
+  sectorMomentum: number;
+}
+
 export interface SimulatedPosition {
   ticker: string;
   entryDate: string;
@@ -50,6 +72,7 @@ export interface SimulatedPosition {
   quantity: number;
   rank: "S" | "A" | "B" | "C" | "D";
   score: number;
+  scoreBreakdown: ScoreBreakdown | null;
   regime: RegimeLevel | null;
   maxHighDuringHold: number;
   trailingStopPrice: number | null;
