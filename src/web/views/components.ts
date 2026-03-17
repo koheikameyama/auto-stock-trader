@@ -42,6 +42,7 @@ export function sentimentBadge(sentiment: string | null): HtmlContent {
     bullish: "強気",
     bearish: "弱気",
     neutral: "中立",
+    cautious: "警戒",
     crisis: "危機",
   };
   return html`<span class="badge badge-${sentiment}"
@@ -329,6 +330,27 @@ export function nikkeiChartShell(): HtmlContent {
       </div>
     </div>
   `;
+}
+
+/** スコアバー */
+export function scoreBar(
+  label: string | HtmlContent,
+  value: number,
+  max: number,
+  color: string,
+): HtmlContent {
+  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+  return html`<div class="score-bar-wrap">
+    <div class="score-bar-label">
+      <span>${label}</span><span>${value}/${max}</span>
+    </div>
+    <div class="score-bar-track">
+      <div
+        class="score-bar-fill"
+        style="width:${pct}%;background:${color}"
+      ></div>
+    </div>
+  </div>`;
 }
 
 /** SVG 折れ線チャート（累積PnL） */

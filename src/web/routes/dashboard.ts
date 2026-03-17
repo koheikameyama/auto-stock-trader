@@ -20,7 +20,11 @@ import {
   tickerLink,
   tt,
   nikkeiChartShell,
+  rankBadge,
+  scoreBar,
 } from "../views/components";
+import { SCORING, SECTOR_MOMENTUM_SCORING } from "../../lib/constants/scoring";
+import { COLORS } from "../views/styles";
 import { isMarketDay } from "../../lib/market-calendar";
 import { determineMarketRegime } from "../../core/market-regime";
 import { calculateDrawdownStatus } from "../../core/drawdown-manager";
@@ -63,6 +67,97 @@ app.get("/", async (c) => {
     getCashBalance().catch(() => null),
     calculateDrawdownStatus(),
   ]);
+
+  // --- Scoring summary data ---
+  const latestScoringDate = await prisma.scoringRecord.findFirst({
+    orderBy: { date: "desc" },
+    select: { date: true },
+  });
+
+  const scoringDate = latestScoringDate?.date ?? null;
+  let todayScoring: Awaited<ReturnType<typeof prisma.scoringRecord.findMany>> = [];
+  let prevScoring: Pick<
+    Awaited<ReturnType<typeof prisma.scoringRecord.findMany>>[number],
+    "totalScore" | "rank" | "trendQualityScore" | "entryTimingScore" | "riskQualityScore" | "sectorMomentumScore" | "isDisqualified"
+  >[] = [];
+
+  if (scoringDate) {
+    const prevDate = await prisma.scoringRecord.findFirst({
+      where: { date: { lt: scoringDate } },
+      orderBy: { date: "desc" },
+      select: { date: true },
+    });
+
+    [todayScoring, prevScoring] = await Promise.all([
+      prisma.scoringRecord.findMany({
+        where: { date: scoringDate },
+        orderBy: { totalScore: "desc" },
+      }),
+      prevDate
+        ? prisma.scoringRecord.findMany({
+            where: { date: prevDate.date },
+            select: {
+              totalScore: true,
+              rank: true,
+              trendQualityScore: true,
+              entryTimingScore: true,
+              riskQualityScore: true,
+              sectorMomentumScore: true,
+              isDisqualified: true,
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+  }
+
+  // Stock names for top tickers (avoid N+1)
+  const topTickers = todayScoring.slice(0, 5).map((r) => r.tickerCode);
+  const scoringStocks =
+    topTickers.length > 0
+      ? await prisma.stock.findMany({
+          where: { tickerCode: { in: topTickers } },
+          select: { tickerCode: true, name: true },
+        })
+      : [];
+  const scoringNameMap = new Map(scoringStocks.map((s) => [s.tickerCode, s.name]));
+
+  // Rank distribution
+  const rankCounts: Record<string, number> = { S: 0, A: 0, B: 0, C: 0, D: 0 };
+  let disqualifiedCount = 0;
+  for (const r of todayScoring) {
+    rankCounts[r.rank] = (rankCounts[r.rank] ?? 0) + 1;
+    if (r.isDisqualified) disqualifiedCount++;
+  }
+
+  const prevRankCounts: Record<string, number> = { S: 0, A: 0, B: 0, C: 0, D: 0 };
+  for (const r of prevScoring) {
+    prevRankCounts[r.rank] = (prevRankCounts[r.rank] ?? 0) + 1;
+  }
+
+  // Category averages (non-disqualified only)
+  const activeRecords = todayScoring.filter((r) => !r.isDisqualified);
+  const n = activeRecords.length || 1;
+  const avgTrend = activeRecords.reduce((s, r) => s + r.trendQualityScore, 0) / n;
+  const avgEntry = activeRecords.reduce((s, r) => s + r.entryTimingScore, 0) / n;
+  const avgRisk = activeRecords.reduce((s, r) => s + r.riskQualityScore, 0) / n;
+  const avgSector = activeRecords.reduce((s, r) => s + r.sectorMomentumScore, 0) / n;
+
+  const categoryPcts = [
+    { name: "トレンド品質", avg: avgTrend, max: SCORING.CATEGORY_MAX.TREND_QUALITY },
+    { name: "エントリータイミング", avg: avgEntry, max: SCORING.CATEGORY_MAX.ENTRY_TIMING },
+    { name: "リスク品質", avg: avgRisk, max: SCORING.CATEGORY_MAX.RISK_QUALITY },
+    { name: "セクターモメンタム", avg: avgSector, max: SECTOR_MOMENTUM_SCORING.CATEGORY_MAX },
+  ].map((c) => ({ ...c, pct: c.max > 0 ? (c.avg / c.max) * 100 : 0 }));
+  categoryPcts.sort((a, b) => a.pct - b.pct);
+  const bottleneck = categoryPcts[0];
+
+  // Previous day comparison
+  const prevActive = prevScoring.filter((r) => !r.isDisqualified);
+  const pn = prevActive.length || 1;
+  const todayAvgScore = activeRecords.reduce((s, r) => s + r.totalScore, 0) / n;
+  const prevAvgScore = prevActive.reduce((s, r) => s + r.totalScore, 0) / pn;
+  const scoreDiff = todayAvgScore - prevAvgScore;
+  const hasPrev = prevScoring.length > 0;
 
   const totalBudget = config ? Number(config.totalBudget) : 0;
   const cash = cashBalance ?? totalBudget;
@@ -170,6 +265,107 @@ app.get("/", async (c) => {
           `
         : emptyState("市場評価データなし")}
     </div>
+
+    <!-- Scoring Summary -->
+    ${todayScoring.length > 0
+      ? html`
+          <p class="section-title">
+            スコアリングサマリー
+            <span style="font-size:11px;color:${COLORS.textDim};font-weight:400;margin-left:8px">
+              ${dayjs(scoringDate).format("M/D")}
+            </span>
+          </p>
+
+          <!-- Rank distribution -->
+          <div class="card">
+            <div class="card-title">ランク分布</div>
+            <div style="display:flex;justify-content:space-around;text-align:center;margin:8px 0">
+              ${["S", "A", "B", "C", "D"].map((rank) => {
+                const colorMap: Record<string, string> = {
+                  S: "#f59e0b",
+                  A: "#3b82f6",
+                  B: "#22c55e",
+                  C: "#94a3b8",
+                  D: "#64748b",
+                };
+                const color = colorMap[rank] ?? "#94a3b8";
+                const count = rankCounts[rank] ?? 0;
+                const diff = count - (prevRankCounts[rank] ?? 0);
+                return html`
+                  <div>
+                    <div style="font-size:11px;color:${color};font-weight:600">${rank}</div>
+                    <div style="font-size:20px;font-weight:700;color:${color}">${count}</div>
+                    ${hasPrev && diff !== 0
+                      ? html`<div style="font-size:10px;color:${diff > 0 ? COLORS.profit : COLORS.loss}">
+                          ${diff > 0 ? "+" : ""}${diff}
+                        </div>`
+                      : html``}
+                  </div>
+                `;
+              })}
+            </div>
+            ${disqualifiedCount > 0
+              ? html`<div style="font-size:11px;color:${COLORS.textDim};text-align:center">
+                  即死棄却: ${disqualifiedCount}件
+                </div>`
+              : html``}
+            ${rankCounts["S"] === 0
+              ? html`<div style="margin-top:8px;padding:8px 12px;background:${COLORS.bg};border-radius:8px;border-left:3px solid ${COLORS.warning};font-size:12px;color:${COLORS.warning}">
+                  Sランク該当なし — ボトルネック: ${bottleneck.name}（達成率${bottleneck.pct.toFixed(0)}%）
+                </div>`
+              : html``}
+          </div>
+
+          <!-- Category bottleneck -->
+          <div class="card">
+            <div class="card-title">カテゴリ平均（ボトルネック分析）</div>
+            ${categoryPcts.map((cat) => {
+              const isBottleneck = cat === bottleneck;
+              const barColor = isBottleneck ? COLORS.warning : COLORS.accent;
+              return scoreBar(
+                isBottleneck
+                  ? html`<span style="color:${COLORS.warning}">${cat.name} ★</span>`
+                  : cat.name,
+                Math.round(cat.avg * 10) / 10,
+                cat.max,
+                barColor,
+              );
+            })}
+            ${hasPrev
+              ? detailRow(
+                  "前日比（平均スコア）",
+                  scoreDiff >= 0
+                    ? html`<span class="pnl-positive">+${scoreDiff.toFixed(1)}</span>`
+                    : html`<span class="pnl-negative">${scoreDiff.toFixed(1)}</span>`,
+                )
+              : html``}
+          </div>
+
+          <!-- Top stocks -->
+          <div class="card">
+            <div class="card-title">トップ銘柄</div>
+            ${todayScoring.slice(0, 5).map(
+              (r) => html`
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${COLORS.border}">
+                  <div>
+                    ${tickerLink(r.tickerCode, scoringNameMap.get(r.tickerCode) ?? r.tickerCode)}
+                    <span style="font-size:10px;color:${COLORS.textDim};margin-left:4px">
+                      趨${r.trendQualityScore} 入${r.entryTimingScore} 危${r.riskQualityScore} 業${r.sectorMomentumScore}
+                    </span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:6px">
+                    <span style="font-weight:700">${r.totalScore}</span>
+                    ${rankBadge(r.rank)}
+                  </div>
+                </div>
+              `,
+            )}
+            <div style="text-align:center;margin-top:8px">
+              <a href="/scoring" style="font-size:12px;color:${COLORS.accent}">全件を見る →</a>
+            </div>
+          </div>
+        `
+      : html``}
 
     <!-- Open Positions -->
     <p class="section-title">オープンポジション</p>

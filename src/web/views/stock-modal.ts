@@ -10,7 +10,7 @@ import type { HtmlEscapedString } from "hono/utils/html";
 import type { Stock } from "@prisma/client";
 import type { TechnicalSummary, OHLCVData } from "../../core/technical-analysis";
 import type { PatternsResponse } from "../../lib/candlestick-patterns";
-import { tt } from "./components";
+import { tt, scoreBar } from "./components";
 
 type HtmlContent = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -657,26 +657,6 @@ function indicatorItem(
   </div>`;
 }
 
-/** スコアバー */
-function scoreBar(
-  label: string | HtmlContent,
-  value: number,
-  max: number,
-  color: string,
-): HtmlContent {
-  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
-  return html`<div class="score-bar-wrap">
-    <div class="score-bar-label">
-      <span>${label}</span><span>${value}/${max}</span>
-    </div>
-    <div class="score-bar-track">
-      <div
-        class="score-bar-fill"
-        style="width:${pct}%;background:${color}"
-      ></div>
-    </div>
-  </div>`;
-}
 
 // ========================================
 // フォーマットヘルパー
