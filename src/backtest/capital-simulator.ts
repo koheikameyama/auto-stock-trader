@@ -21,7 +21,7 @@ import {
 } from "./on-the-fly-scorer";
 import { runBacktest } from "./simulation-engine";
 import { calculateCapitalUtilization } from "./metrics";
-import type { BacktestConfig, PerformanceMetrics } from "./types";
+import type { BacktestConfig, PerformanceMetrics, SimulatedPosition } from "./types";
 import type { OHLCVData } from "../core/technical-analysis";
 
 export interface CapitalScenarioResult {
@@ -29,6 +29,7 @@ export interface CapitalScenarioResult {
   maxPositions: number;
   maxPrice: number;
   metrics: PerformanceMetrics;
+  trades: SimulatedPosition[];
   avgConcurrentPositions: number;
   capitalUtilizationPct: number;
   executionTimeMs: number;
@@ -114,6 +115,7 @@ export async function runCapitalSimulation(): Promise<CapitalSimulationResult> {
       maxPositions: scenario.maxPositions,
       maxPrice,
       metrics: result.metrics,
+      trades: result.trades,
       avgConcurrentPositions: utilization.avgConcurrentPositions,
       capitalUtilizationPct: utilization.capitalUtilizationPct,
       executionTimeMs,
@@ -179,6 +181,72 @@ export function printCapitalSimulationReport(
     );
   }
 
+  console.log("");
+}
+
+/**
+ * 各シナリオのトレード詳細をコンソール出力
+ */
+export function printTradeDetails(result: CapitalSimulationResult): void {
+  const reasonMap: Record<string, string> = {
+    take_profit: "TP",
+    stop_loss: "SL",
+    trailing_profit: "TR",
+    time_stop: "TS",
+    defensive_exit: "DF",
+    still_open: "OP",
+  };
+
+  for (const s of result.scenarioResults) {
+    const label = `${(s.budget / 10000).toFixed(0)}万×${s.maxPositions}銘柄`;
+    const closedTrades = s.trades.filter(
+      (t) => t.exitReason && t.exitReason !== "still_open",
+    );
+
+    console.log("");
+    console.log("=".repeat(80));
+    console.log(`  ${label} (上限¥${s.maxPrice.toLocaleString()}) — ${closedTrades.length}件`);
+    console.log("=".repeat(80));
+
+    // 銘柄別集計
+    const byTicker = new Map<string, { count: number; totalPnl: number; wins: number }>();
+    for (const t of closedTrades) {
+      const existing = byTicker.get(t.ticker) ?? { count: 0, totalPnl: 0, wins: 0 };
+      existing.count++;
+      existing.totalPnl += t.netPnl ?? t.pnl ?? 0;
+      if ((t.pnl ?? 0) > 0) existing.wins++;
+      byTicker.set(t.ticker, existing);
+    }
+
+    // 銘柄別サマリー（損益順）
+    const tickerSummary = Array.from(byTicker.entries())
+      .sort((a, b) => b[1].totalPnl - a[1].totalPnl);
+
+    console.log("");
+    console.log("  [銘柄別集計]");
+    console.log("  銘柄      回数  勝敗    純損益");
+    console.log("  " + "-".repeat(40));
+    for (const [ticker, stat] of tickerSummary) {
+      const sign = stat.totalPnl >= 0 ? "+" : "";
+      console.log(
+        `  ${ticker.padEnd(10)} ${String(stat.count).padStart(3)}  ${stat.wins}W${stat.count - stat.wins}L  ${sign}¥${Math.round(stat.totalPnl).toLocaleString()}`,
+      );
+    }
+
+    // トレード一覧
+    console.log("");
+    console.log("  [トレード一覧]");
+    console.log("  日付        銘柄      理由  約定価格      損益%   純損益    保有日");
+    console.log("  " + "-".repeat(72));
+    for (const t of closedTrades) {
+      const reason = reasonMap[t.exitReason ?? ""] ?? t.exitReason ?? "";
+      const pnlSign = (t.pnlPct ?? 0) >= 0 ? "+" : "";
+      const netSign = (t.netPnl ?? 0) >= 0 ? "+" : "";
+      console.log(
+        `  ${t.entryDate}  ${t.ticker.padEnd(10)}${reason.padEnd(4)} ¥${t.entryPrice}→¥${t.exitPrice}  ${pnlSign}${t.pnlPct}%  ${netSign}¥${Math.round(t.netPnl ?? t.pnl ?? 0).toLocaleString()}  ${t.holdingDays}日`,
+      );
+    }
+  }
   console.log("");
 }
 

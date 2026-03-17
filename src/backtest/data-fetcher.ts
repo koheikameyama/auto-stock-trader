@@ -8,6 +8,7 @@
 import dayjs from "dayjs";
 import type { OHLCVData } from "../core/technical-analysis";
 import { normalizeTickerCode } from "../lib/ticker-utils";
+import { DATA_QUALITY } from "../lib/constants";
 import {
   providerFetchHistoricalRange,
   providerFetchHistoricalBatch,
@@ -15,6 +16,34 @@ import {
 
 const LOOKBACK_CALENDAR_DAYS = 120;
 const DOWNLOAD_BATCH_SIZE = 200;
+
+/**
+ * 前日比が異常に大きいバーを除外（株式分割誤データ等を排除）
+ * market-data.ts の removeAnomalies と同等ロジック。
+ * DATA_QUALITY.MAX_DAILY_CHANGE_PCT (±50%) を閾値として使用。
+ */
+function removeAnomalousData(bars: OHLCVData[]): OHLCVData[] {
+  if (bars.length < 2) return bars;
+
+  const result: OHLCVData[] = [bars[0]];
+  let removedCount = 0;
+  for (let i = 1; i < bars.length; i++) {
+    const lastKeptClose = result[result.length - 1].close;
+    const currClose = bars[i].close;
+    if (lastKeptClose > 0) {
+      const changePct = Math.abs(currClose - lastKeptClose) / lastKeptClose;
+      if (changePct > DATA_QUALITY.MAX_DAILY_CHANGE_PCT) {
+        removedCount++;
+        continue;
+      }
+    }
+    result.push(bars[i]);
+  }
+  if (removedCount > 0) {
+    console.log(`[backtest] 異常バー除外: ${removedCount}件`);
+  }
+  return result;
+}
 
 /**
  * 単一銘柄のヒストリカルデータを取得
@@ -37,7 +66,7 @@ export async function fetchBacktestData(
     adjustedEnd,
   );
 
-  return bars
+  const cleaned = bars
     .filter(
       (bar) =>
         bar.open != null &&
@@ -54,6 +83,8 @@ export async function fetchBacktestData(
       volume: bar.volume ?? 0,
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
+
+  return removeAnomalousData(cleaned);
 }
 
 /**
@@ -129,7 +160,7 @@ export async function fetchMultipleBacktestData(
         const symbol = batchSymbols[i];
         const bars = batchResult[symbol];
         if (bars && bars.length > 0) {
-          const data = bars
+          const sorted = bars
             .filter(
               (bar) =>
                 bar.open != null &&
@@ -146,6 +177,7 @@ export async function fetchMultipleBacktestData(
               volume: bar.volume ?? 0,
             }))
             .sort((a, b) => a.date.localeCompare(b.date));
+          const data = removeAnomalousData(sorted);
           if (data.length > 0) {
             results.set(ticker, data);
           }
