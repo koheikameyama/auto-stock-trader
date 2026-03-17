@@ -33,13 +33,10 @@ app.get("/", async (c) => {
       },
       include: { stock: true },
       orderBy: { updatedAt: "desc" },
-      take: QUERY_LIMITS.ORDERS_TODAY,
+      take: QUERY_LIMITS.ORDER_HISTORY,
     }),
   ]);
 
-  const latestOrderDate = recentOrders.length > 0
-    ? dayjs(recentOrders[0].updatedAt).format("M月D日")
-    : dayjs().format("M月D日");
 
   const content = html`
     <p class="section-title">待機中の注文 (${pendingOrders.length})</p>
@@ -95,13 +92,14 @@ app.get("/", async (c) => {
         `
       : html`<div class="card">${emptyState("待機中の注文なし")}</div>`}
 
-    <p class="section-title">${latestOrderDate}の注文履歴</p>
+    <p class="section-title">取引履歴</p>
     ${recentOrders.length > 0
       ? html`
           <div class="card table-wrap">
             <table>
               <thead>
                 <tr>
+                  <th>日時</th>
                   <th>銘柄</th>
                   <th>売買</th>
                   <th>状態</th>
@@ -113,6 +111,7 @@ app.get("/", async (c) => {
                 ${recentOrders.map(
                   (o) => html`
                     <tr>
+                      <td style="white-space:nowrap">${dayjs(o.updatedAt).format("M/D H:mm")}</td>
                       <td>${tickerLink(o.stock?.tickerCode ?? o.stockId, o.stock?.name ?? o.stockId)}</td>
                       <td>${o.side === "buy" ? "買" : "売"}</td>
                       <td>${orderStatusBadge(o.status)}</td>
@@ -129,7 +128,7 @@ app.get("/", async (c) => {
             </table>
           </div>
         `
-      : html`<div class="card">${emptyState(`${latestOrderDate}の注文履歴なし`)}</div>`}
+      : html`<div class="card">${emptyState("取引履歴なし")}</div>`}
   `;
 
   return c.html(layout("注文", "/orders", content));
