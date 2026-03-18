@@ -47,7 +47,7 @@ export function scoreStock(input: ScoringInput): NewLogicScore {
     rank: "D",
     gate,
     trendQuality: { total: 0, maAlignment: 0, weeklyTrend: 0, trendContinuity: 0 },
-    entryTiming: { total: 0, pullbackDepth: 0, breakout: 0, candlestickSignal: 0 },
+    entryTiming: { total: 0, pullbackDepth: 0, priorBreakout: 0, candlestickSignal: 0 },
     riskQuality: { total: 0, atrStability: 0, rangeContraction: 0, volumeStability: 0 },
     sectorMomentumScore: 0,
     isDisqualified: true,
@@ -204,7 +204,7 @@ export function formatScoreForAI(
   // エントリータイミング（35点）
   lines.push(`  エントリータイミング: ${score.entryTiming.total}/${SCORING.CATEGORY_MAX.ENTRY_TIMING}`);
   lines.push(`    押し目深さ: ${score.entryTiming.pullbackDepth}/${SCORING.SUB_MAX.PULLBACK_DEPTH}`);
-  lines.push(`    ブレイクアウト: ${score.entryTiming.breakout}/${SCORING.SUB_MAX.BREAKOUT}`);
+  lines.push(`    BO後押し目: ${score.entryTiming.priorBreakout}/${SCORING.SUB_MAX.PRIOR_BREAKOUT}`);
   lines.push(`    ローソク足シグナル: ${score.entryTiming.candlestickSignal}/${SCORING.SUB_MAX.CANDLESTICK_SIGNAL}`);
 
   // リスク品質（25点）

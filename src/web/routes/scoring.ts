@@ -63,7 +63,7 @@ function breakdownDetail(
   if (entryTiming) {
     const parts = [];
     if (entryTiming.pullbackDepth != null) parts.push(`押し目:${entryTiming.pullbackDepth}`);
-    if (entryTiming.breakout != null) parts.push(`ブレイク:${entryTiming.breakout}`);
+    if (entryTiming.priorBreakout != null) parts.push(`BO後押し目:${entryTiming.priorBreakout}`);
     if (entryTiming.candlestickSignal != null) parts.push(`ローソク:${entryTiming.candlestickSignal}`);
     if (parts.length > 0) items.push(`エントリー: ${parts.join(" / ")}`);
   }

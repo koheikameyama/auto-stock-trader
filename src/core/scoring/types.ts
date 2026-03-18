@@ -44,7 +44,7 @@ export interface NewLogicScore {
   entryTiming: {
     total: number;
     pullbackDepth: number;
-    breakout: number;
+    priorBreakout: number;
     candlestickSignal: number;
   };
   riskQuality: {
