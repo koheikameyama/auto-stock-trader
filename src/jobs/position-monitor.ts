@@ -348,6 +348,14 @@ export async function main() {
       }
     }
 
+    // 保有スコアによる引き締め（最も保守的な値を採用）
+    if (position.strategy === "swing" && position.holdingScoreTrailOverride) {
+      const holdingOverride = Number(position.holdingScoreTrailOverride);
+      trailOverride = trailOverride
+        ? Math.min(trailOverride, holdingOverride)
+        : holdingOverride;
+    }
+
     // 共通出口判定（バックテストと同一ロジック）
     const exitResult = checkPositionExit(
       {

@@ -22,6 +22,7 @@ import {
   nikkeiChartShell,
   rankBadge,
   scoreBar,
+  holdingRankBadge,
 } from "../views/components";
 import { SCORING, SECTOR_MOMENTUM_SCORING } from "../../lib/constants/scoring";
 import { COLORS } from "../views/styles";
@@ -67,6 +68,21 @@ app.get("/", async (c) => {
     getCashBalance().catch(() => null),
     calculateDrawdownStatus(),
   ]);
+
+  // --- Holding scores for open positions ---
+  const positionIds = openPositions.map((p) => p.id);
+  const holdingScoreRecords =
+    positionIds.length > 0
+      ? await prisma.holdingScoreRecord.findMany({
+          where: { positionId: { in: positionIds } },
+          orderBy: { date: "desc" },
+          distinct: ["positionId"],
+          select: { positionId: true, totalScore: true, holdingRank: true },
+        })
+      : [];
+  const holdingScoreMap = new Map(
+    holdingScoreRecords.map((r) => [r.positionId, r]),
+  );
 
   // --- Scoring summary data ---
   const latestScoringDate = await prisma.scoringRecord.findFirst({
@@ -146,7 +162,7 @@ app.get("/", async (c) => {
     { name: "トレンド品質", avg: avgTrend, max: SCORING.CATEGORY_MAX.TREND_QUALITY },
     { name: "エントリータイミング", avg: avgEntry, max: SCORING.CATEGORY_MAX.ENTRY_TIMING },
     { name: "リスク品質", avg: avgRisk, max: SCORING.CATEGORY_MAX.RISK_QUALITY },
-    { name: "セクターモメンタム", avg: avgSector, max: SECTOR_MOMENTUM_SCORING.CATEGORY_MAX },
+    { name: "セクターボーナス", avg: avgSector, max: SECTOR_MOMENTUM_SCORING.BONUS_MAX },
   ].map((c) => ({ ...c, pct: c.max > 0 ? (c.avg / c.max) * 100 : 0 }));
   categoryPcts.sort((a, b) => a.pct - b.pct);
   const bottleneck = categoryPcts[0];
@@ -388,6 +404,7 @@ app.get("/", async (c) => {
                   <th>数量</th>
                   <th>${tt("現在価格", "Yahoo Financeからのリアルタイム価格")}</th>
                   <th>${tt("含み損益", "（現在価格 − 建値）× 数量")}</th>
+                  <th>${tt("保有スコア", "トレンド品質+リスク品質の日次評価（67点満点）")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -404,6 +421,12 @@ app.get("/", async (c) => {
                       <td>${p.quantity}</td>
                       <td data-quote-price><span class="quote-loading">...</span></td>
                       <td data-quote-pnl><span class="quote-loading">...</span></td>
+                      <td>${(() => {
+                        const hs = holdingScoreMap.get(p.id);
+                        return hs
+                          ? holdingRankBadge(hs.holdingRank, hs.totalScore)
+                          : html`<span style="color:${COLORS.textDim};font-size:11px">-</span>`;
+                      })()}</td>
                     </tr>
                   `;
                   },

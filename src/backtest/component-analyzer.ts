@@ -66,8 +66,8 @@ function analyzeCategoryScores(trades: SimulatedPosition[]): ComponentAnalysis[]
   const extractors: { name: string; maxScore: number; extract: (b: ScoreBreakdown) => number }[] = [
     { name: "トレンド品質 (40点)", maxScore: 40, extract: (b) => b.trendQuality.total },
     { name: "エントリータイミング (35点)", maxScore: 35, extract: (b) => b.entryTiming.total },
-    { name: "リスク品質 (20点)", maxScore: 20, extract: (b) => b.riskQuality.total },
-    { name: "セクターモメンタム (5点)", maxScore: 5, extract: (b) => b.sectorMomentum },
+    { name: "リスク品質 (25点)", maxScore: 25, extract: (b) => b.riskQuality.total },
+    { name: "セクターボーナス (-3〜+5)", maxScore: 5, extract: (b) => b.sectorMomentum },
   ];
 
   return extractors.map(({ name, maxScore, extract }) =>

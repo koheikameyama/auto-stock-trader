@@ -117,6 +117,29 @@ export function rankBadge(rank: string): HtmlContent {
   >`;
 }
 
+/** 保有ランクバッジ */
+export function holdingRankBadge(rank: string, score: number): HtmlContent {
+  const colorMap: Record<string, string> = {
+    strong: "#22c55e",
+    healthy: "#3b82f6",
+    weakening: "#f59e0b",
+    deteriorating: "#f97316",
+    critical: "#ef4444",
+  };
+  const labelMap: Record<string, string> = {
+    strong: "強",
+    healthy: "良",
+    weakening: "注意",
+    deteriorating: "劣化",
+    critical: "危険",
+  };
+  const color = colorMap[rank] ?? "#94a3b8";
+  const label = labelMap[rank] ?? rank;
+  return html`<span class="badge" style="background:${color}20;color:${color}"
+    >${score} ${label}</span
+  >`;
+}
+
 /** 銘柄リンク（クリックでモーダル表示） */
 export function tickerLink(
   tickerCode: string,

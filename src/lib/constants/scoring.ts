@@ -1,20 +1,20 @@
 /**
  * スコアリング・損切り検証の定数
  *
- * 4カテゴリ100点満点:
+ * 3カテゴリ100点満点 + セクターモメンタムボーナス:
  * - トレンド品質: 40点
  * - エントリータイミング: 35点
- * - リスク品質: 20点
- * - セクターモメンタム: 5点
+ * - リスク品質: 25点
+ * - セクターモメンタム: -3〜+5（ボーナス/ペナルティ修飾子）
  */
 
-/** 4カテゴリ + ゲート スコアリング定数 */
+/** 3カテゴリ + ゲート スコアリング定数 */
 export const SCORING = {
   /** カテゴリ最大点数 */
   CATEGORY_MAX: {
     TREND_QUALITY: 40,
     ENTRY_TIMING: 35,
-    RISK_QUALITY: 20,
+    RISK_QUALITY: 25,
   },
 
   /** サブスコア最大点数 */
@@ -27,10 +27,10 @@ export const SCORING = {
     PULLBACK_DEPTH: 15,
     PRIOR_BREAKOUT: 12,
     CANDLESTICK_SIGNAL: 8,
-    // リスク品質 (20)
+    // リスク品質 (25)
     ATR_STABILITY: 10,
     RANGE_CONTRACTION: 8,
-    VOLUME_STABILITY: 2,
+    VOLUME_STABILITY: 7,
   },
 
   /** ランク閾値 */
@@ -88,16 +88,21 @@ export const SCORING = {
   MIN_CANDIDATES_FOR_AI: 5,
 } as const;
 
+/** セクターモメンタム: ボーナス/ペナルティ修飾子（-3〜+5） */
 export const SECTOR_MOMENTUM_SCORING = {
-  CATEGORY_MAX: 5,
+  BONUS_MAX: 5,
+  BONUS_MIN: -3,
   TIERS: [
-    { min: 3.0, score: 5 },
-    { min: 1.5, score: 4 },
-    { min: 0.5, score: 3 },
-    { min: -0.5, score: 2 },
-    { min: -2.0, score: 1 },
+    { min: 2.0, bonus: 5 },
+    { min: 1.0, bonus: 3 },
+    { min: 0.5, bonus: 1 },
+    { min: -0.5, bonus: 0 },
+    { min: -2.0, bonus: -2 },
   ],
-  DEFAULT_SCORE: 2,
+  /** TIERSのどれにもマッチしない場合（< -2.0%） */
+  FLOOR_BONUS: -3,
+  /** セクター不明時のデフォルト（ニュートラル） */
+  DEFAULT_BONUS: 0,
   MIN_SECTOR_STOCK_COUNT: 3,
 } as const;
 
@@ -191,6 +196,42 @@ export const POSITION_SIZING = {
     { minScore: 60, riskPct: 2.0 }, // Bランク
     { minScore: 0, riskPct: 1.5 }, // C/Dランク
   ],
+} as const;
+
+/** 保有継続スコアリング（Holding Score） */
+export const HOLDING_SCORE = {
+  /** ベース最大点（トレンド40 + リスク25） */
+  BASE_MAX: 65,
+  /** セクターボーナス込み最大点 */
+  TOTAL_MAX: 67,
+
+  /** ランク閾値 */
+  RANKS: {
+    STRONG: 50,
+    HEALTHY: 40,
+    WEAKENING: 30,
+    DETERIORATING: 20,
+    // 20未満 = critical
+  },
+
+  /** 保有用ゲート */
+  GATES: {
+    /** 流動性枯渇閾値（エントリー時50kより低い） */
+    MIN_AVG_VOLUME_25: 30_000,
+  },
+
+  /** アクション設定 */
+  ACTIONS: {
+    /** weakening時のTS引き締め倍率（通常trail幅に乗算） */
+    TS_TIGHTEN_MULTIPLIER_WEAKENING: 0.7,
+    /** deteriorating/critical時のTS引き締め倍率 */
+    TS_TIGHTEN_MULTIPLIER_DETERIORATING: 0.5,
+    /** 1日のスコア急落アラート閾値（ポイント） */
+    SCORE_DROP_ALERT_THRESHOLD: 15,
+  },
+
+  /** 並列処理の同時実行数 */
+  CONCURRENCY: 5,
 } as const;
 
 /** ギャップリスク推定パラメータ */

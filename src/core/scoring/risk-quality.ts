@@ -25,7 +25,7 @@ export function scoreRangeContraction(bbWidthPercentile: number | null): number 
 }
 
 /**
- * 出来高安定性スコア（0-2）
+ * 出来高安定性スコア（0-7）
  */
 export function scoreVolumeStability(
   volumeMA5: number | null,
@@ -35,8 +35,18 @@ export function scoreVolumeStability(
   if (volumeMA5 == null || volumeMA25 == null || volumeCv == null) return 0;
 
   const isIncreasing = volumeMA5 > volumeMA25;
+
   if (isIncreasing && volumeCv < RISK.VOLUME_CV_STABLE) {
-    return SUB_MAX.VOLUME_STABILITY; // 2
+    return SUB_MAX.VOLUME_STABILITY; // 7: 増加傾向 + 安定
+  }
+  if (isIncreasing && volumeCv < RISK.VOLUME_CV_MODERATE) {
+    return 5; // 増加傾向 + やや安定
+  }
+  if (volumeCv < RISK.VOLUME_CV_STABLE) {
+    return 3; // 安定のみ（増加なし）
+  }
+  if (volumeCv < RISK.VOLUME_CV_MODERATE) {
+    return 1; // やや安定（増加なし）
   }
 
   return 0;
@@ -79,7 +89,7 @@ export interface RiskQualityInput {
 }
 
 /**
- * リスク品質トータル（0-20）
+ * リスク品質トータル（0-25）
  */
 export function scoreRiskQuality(input: RiskQualityInput) {
   const atrStability = scoreAtrStability(input.atrCv);
