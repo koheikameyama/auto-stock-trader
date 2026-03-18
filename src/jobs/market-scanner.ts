@@ -432,6 +432,15 @@ ${sectorText || "  特になし"}`;
     `  資金状況: 実質資金=${effectiveCap}円, 投資中=${investedAmount}円, 残高=${cashBalance}円 → 上限株価=${maxAffordablePrice}円`,
   );
 
+  // pending swing銘柄のticker取得（強制スキャン用）
+  const pendingSwingForScan = await prisma.tradingOrder.findMany({
+    where: { side: "buy", status: "pending", strategy: "swing" },
+    select: { stock: { select: { tickerCode: true } } },
+  });
+  const swingTickerSet = new Set(
+    pendingSwingForScan.map((o) => o.stock.tickerCode),
+  );
+
   // スクリーニング条件に合う銘柄を取得（資金で買えない銘柄・非アクティブ・制限銘柄はDB段階で除外）
   const candidates = await prisma.stock.findMany({
     where: {
@@ -447,6 +456,21 @@ ${sectorText || "  特になし"}`;
       latestVolume: { not: null, gte: SCREENING.MIN_DAILY_VOLUME },
     },
   });
+
+  // swing銘柄がスクリーニングで漏れた場合、強制追加
+  if (swingTickerSet.size > 0) {
+    const existingTickerSet = new Set(candidates.map((c) => c.tickerCode));
+    const missingSwingTickers = [...swingTickerSet].filter(
+      (t) => !existingTickerSet.has(t),
+    );
+    if (missingSwingTickers.length > 0) {
+      const swingStocks = await prisma.stock.findMany({
+        where: { tickerCode: { in: missingSwingTickers }, isDelisted: false },
+      });
+      candidates.push(...swingStocks);
+      console.log(`  swing強制追加: ${swingStocks.length}銘柄`);
+    }
+  }
 
   console.log(`  スクリーニング通過: ${candidates.length}銘柄`);
 
@@ -604,6 +628,18 @@ ${sectorText || "  特になし"}`;
       console.log(
         `  レジーム緩和: 候補不足のためBランク上位${bRankBackfill.length}銘柄を補充（→ ${filtered.length}銘柄）`,
       );
+    }
+  }
+
+  // swing銘柄をAI審査に強制追加（ランクに関係なく）
+  if (swingTickerSet.size > 0) {
+    const filteredSwingSet = new Set(filtered.map((c) => c.tickerCode));
+    const missingSwing = scoredCandidates.filter(
+      (c) => swingTickerSet.has(c.tickerCode) && !filteredSwingSet.has(c.tickerCode),
+    );
+    if (missingSwing.length > 0) {
+      filtered = [...filtered, ...missingSwing];
+      console.log(`  swing銘柄をAI審査に追加: ${missingSwing.length}銘柄`);
     }
   }
 
