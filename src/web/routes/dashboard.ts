@@ -6,7 +6,7 @@ import { Hono } from "hono";
 import { html } from "hono/html";
 import dayjs from "dayjs";
 import { prisma } from "../../lib/prisma";
-import { getOpenPositions, getCashBalance } from "../../core/position-manager";
+import { getOpenPositions, getCashBalance, getEffectiveCapital } from "../../core/position-manager";
 import { getPendingOrders } from "../../core/order-executor";
 import { layout } from "../views/layout";
 import {
@@ -160,7 +160,9 @@ app.get("/", async (c) => {
   const hasPrev = prevScoring.length > 0;
 
   const totalBudget = config ? Number(config.totalBudget) : 0;
-  const cash = cashBalance ?? totalBudget;
+  const realizedPnl = config ? Number(config.realizedPnl) : 0;
+  const effectiveCap = config ? getEffectiveCapital(config) : 0;
+  const cash = cashBalance ?? effectiveCap;
   // 初期表示は建値ベース（リアルタイム価格はクライアント側で非同期取得）
   const investedValue = openPositions.reduce(
     (sum, p) => sum + Number(p.entryPrice) * p.quantity,
@@ -230,7 +232,11 @@ app.get("/", async (c) => {
       <div class="card">
         <div class="card-title">キャッシュ残高</div>
         <div class="card-value">¥${formatYen(cash)}</div>
-        <div class="card-sub">予算: ¥${formatYen(totalBudget)}</div>
+        <div class="card-sub" style="display:flex;align-items:center;gap:6px">
+          予算: <span id="budgetDisplay">¥${formatYen(totalBudget)}</span>
+          <button class="btn-toggle btn-success" style="font-size:11px;padding:2px 8px" onclick="editBudget(${totalBudget})">変更</button>
+        </div>
+        <div class="card-sub">確定損益: ${pnlText(realizedPnl)}</div>
       </div>
     </div>
 
@@ -451,6 +457,30 @@ app.get("/", async (c) => {
           alert('エラーが発生しました');
           btn.disabled = false;
           btn.textContent = active ? '再開' : '緊急停止';
+        });
+      }
+
+      function editBudget(current) {
+        var input = prompt('新しい予算（入金額）を入力してください（円）:', current);
+        if (!input) return;
+        var newBudget = parseInt(input, 10);
+        if (isNaN(newBudget) || newBudget <= 0) {
+          alert('有効な金額を入力してください');
+          return;
+        }
+        var params = new URLSearchParams(window.location.search);
+        var token = params.get('token') || '';
+        fetch('/api/config/budget?token=' + encodeURIComponent(token), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ totalBudget: newBudget }),
+        })
+        .then(function(res) {
+          if (!res.ok) throw new Error('Failed');
+          location.reload();
+        })
+        .catch(function() {
+          alert('予算の更新に失敗しました');
         });
       }
     </script>

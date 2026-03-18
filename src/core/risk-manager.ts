@@ -15,6 +15,7 @@ import {
 import { canAddToSector, canAddToMacroFactor } from "./sector-analyzer";
 import { calculateDrawdownStatus } from "./drawdown-manager";
 import { fetchStockQuotesBatch } from "./market-data";
+import { getEffectiveCapital } from "./position-manager";
 
 /**
  * 新規ポジションを建てられるかチェックする
@@ -43,7 +44,7 @@ export async function canOpenPosition(
     return { allowed: false, reason: "取引が無効化されています" };
   }
 
-  const totalBudget = Number(config.totalBudget);
+  const effectiveCap = getEffectiveCapital(config);
   const maxPositions = config.maxPositions;
   const maxPositionPct = Number(config.maxPositionPct);
   const requiredAmount = price * quantity;
@@ -68,7 +69,7 @@ export async function canOpenPosition(
     return sum + Number(pos.entryPrice) * pos.quantity;
   }, 0);
 
-  const cashBalance = totalBudget - investedAmount;
+  const cashBalance = effectiveCap - investedAmount;
 
   if (requiredAmount > cashBalance) {
     return {
@@ -83,7 +84,7 @@ export async function canOpenPosition(
     .reduce((sum, pos) => sum + Number(pos.entryPrice) * pos.quantity, 0);
 
   const totalAmountForStock = existingAmountForStock + requiredAmount;
-  const positionPct = (totalAmountForStock / totalBudget) * 100;
+  const positionPct = (totalAmountForStock / effectiveCap) * 100;
 
   if (positionPct > maxPositionPct) {
     return {
@@ -150,9 +151,9 @@ export async function checkDailyLossLimit(): Promise<boolean> {
     return true; // 設定がない場合は安全側に倒して取引停止
   }
 
-  const totalBudget = Number(config.totalBudget);
+  const effectiveCap = getEffectiveCapital(config);
   const maxDailyLossPct = Number(config.maxDailyLossPct);
-  const maxDailyLoss = totalBudget * (maxDailyLossPct / 100);
+  const maxDailyLoss = effectiveCap * (maxDailyLossPct / 100);
 
   const todayPnl = await getDailyPnl(undefined, { includeUnrealized: true });
 

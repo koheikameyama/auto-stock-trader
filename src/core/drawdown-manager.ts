@@ -7,6 +7,7 @@
 
 import { prisma } from "../lib/prisma";
 import { DRAWDOWN } from "../lib/constants";
+import { getEffectiveCapital } from "./position-manager";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
@@ -62,10 +63,10 @@ export async function calculateDrawdownStatus(): Promise<DrawdownStatus> {
     };
   }
 
-  const totalBudget = Number(config.totalBudget);
+  const effectiveCap = getEffectiveCapital(config);
   const peakEquity = config.peakEquity
     ? Number(config.peakEquity)
-    : totalBudget;
+    : effectiveCap;
 
   // 週次P&L: 今週月曜日以降
   const nowJST = dayjs().tz("Asia/Tokyo");
@@ -140,13 +141,13 @@ export async function calculateDrawdownStatus(): Promise<DrawdownStatus> {
 
   // ドローダウン率
   const weeklyDrawdownPct =
-    totalBudget > 0 ? (Math.abs(Math.min(weeklyPnl, 0)) / totalBudget) * 100 : 0;
+    effectiveCap > 0 ? (Math.abs(Math.min(weeklyPnl, 0)) / effectiveCap) * 100 : 0;
   const monthlyDrawdownPct =
-    totalBudget > 0
-      ? (Math.abs(Math.min(monthlyPnl, 0)) / totalBudget) * 100
+    effectiveCap > 0
+      ? (Math.abs(Math.min(monthlyPnl, 0)) / effectiveCap) * 100
       : 0;
   const drawdownPct =
-    peakEquity > 0 ? ((peakEquity - totalBudget) / peakEquity) * 100 : 0;
+    peakEquity > 0 ? ((peakEquity - effectiveCap) / peakEquity) * 100 : 0;
 
   // 停止判定
   let shouldHaltTrading = false;
@@ -185,7 +186,7 @@ export async function calculateDrawdownStatus(): Promise<DrawdownStatus> {
   }
 
   return {
-    currentEquity: totalBudget,
+    currentEquity: effectiveCap,
     peakEquity,
     drawdownPct: Math.max(drawdownPct, 0),
     weeklyPnl,

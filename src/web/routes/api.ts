@@ -4,7 +4,7 @@
 
 import { Hono } from "hono";
 import { prisma } from "../../lib/prisma";
-import { getOpenPositions, getCashBalance } from "../../core/position-manager";
+import { getOpenPositions, getCashBalance, getEffectiveCapital } from "../../core/position-manager";
 import { getPendingOrders } from "../../core/order-executor";
 import { jobState } from "./dashboard";
 import { notifySlack } from "../../lib/slack";
@@ -34,7 +34,9 @@ app.get("/status", async (c) => {
   );
 
   const totalBudget = config ? Number(config.totalBudget) : 0;
-  const cash = cashBalance ?? totalBudget;
+  const realizedPnl = config ? Number(config.realizedPnl) : 0;
+  const effectiveCap = config ? getEffectiveCapital(config) : 0;
+  const cash = cashBalance ?? effectiveCap;
   const investedValue = openPositions.reduce(
     (sum, p) => sum + Number(p.entryPrice) * p.quantity,
     0,
@@ -46,6 +48,8 @@ app.get("/status", async (c) => {
     runningJobs: [...jobState.running],
     portfolio: {
       totalBudget,
+      realizedPnl,
+      effectiveCapital: effectiveCap,
       cash,
       investedValue,
       totalValue: cash + investedValue,
@@ -96,6 +100,34 @@ app.post("/trading/toggle", async (c) => {
   }).catch(() => {});
 
   return c.json({ success: true, isActive: body.active });
+});
+
+/**
+ * POST /api/config/budget - 予算（入金額）を更新
+ */
+app.post("/config/budget", async (c) => {
+  const body = await c.req.json<{ totalBudget: number }>();
+
+  if (typeof body.totalBudget !== "number" || body.totalBudget <= 0 || !Number.isInteger(body.totalBudget)) {
+    return c.json({ error: "totalBudget must be a positive integer" }, 400);
+  }
+
+  const config = await prisma.tradingConfig.findFirst({
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!config) {
+    return c.json({ error: "TradingConfig not found" }, 404);
+  }
+
+  await prisma.tradingConfig.update({
+    where: { id: config.id },
+    data: { totalBudget: body.totalBudget },
+  });
+
+  console.log(`[${new Date().toISOString()}] Budget updated to ¥${body.totalBudget.toLocaleString()} via API`);
+
+  return c.json({ success: true, totalBudget: body.totalBudget });
 });
 
 /**

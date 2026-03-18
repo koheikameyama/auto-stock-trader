@@ -61,6 +61,7 @@ import {
 import type { MarketRegime, StrategyDecision } from "../core/market-regime";
 import { calculateDrawdownStatus } from "../core/drawdown-manager";
 import type { DrawdownStatus } from "../core/drawdown-manager";
+import { getEffectiveCapital } from "../core/position-manager";
 import {
   calculateSectorMomentum,
   getNewsSectorSentiment,
@@ -404,8 +405,8 @@ ${sectorText || "  特になし"}`;
   const config = await prisma.tradingConfig.findFirst({
     orderBy: { createdAt: "desc" },
   });
-  const totalBudget = config
-    ? Number(config.totalBudget)
+  const effectiveCap = config
+    ? getEffectiveCapital(config)
     : TRADING_DEFAULTS.TOTAL_BUDGET;
   const maxPositionPct = config
     ? Number(config.maxPositionPct)
@@ -418,14 +419,14 @@ ${sectorText || "  特になし"}`;
     (sum, pos) => sum + Number(pos.entryPrice) * pos.quantity,
     0,
   );
-  const cashBalance = totalBudget - investedAmount;
-  const maxPositionAmount = totalBudget * (maxPositionPct / 100);
+  const cashBalance = effectiveCap - investedAmount;
+  const maxPositionAmount = effectiveCap * (maxPositionPct / 100);
   const maxAffordablePrice = Math.floor(
     Math.min(cashBalance, maxPositionAmount) / UNIT_SHARES,
   );
 
   console.log(
-    `  資金状況: 総予算=${totalBudget}円, 投資中=${investedAmount}円, 残高=${cashBalance}円 → 上限株価=${maxAffordablePrice}円`,
+    `  資金状況: 実質資金=${effectiveCap}円, 投資中=${investedAmount}円, 残高=${cashBalance}円 → 上限株価=${maxAffordablePrice}円`,
   );
 
   // スクリーニング条件に合う銘柄を取得（資金で買えない銘柄・非アクティブ・制限銘柄はDB段階で除外）

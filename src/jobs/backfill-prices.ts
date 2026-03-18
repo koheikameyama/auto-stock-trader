@@ -163,6 +163,7 @@ export async function main() {
     await prisma.tradingConfig.create({
       data: {
         totalBudget: TRADING_DEFAULTS.TOTAL_BUDGET,
+        realizedPnl: 0,
         maxPositions: TRADING_DEFAULTS.MAX_POSITIONS,
         maxPositionPct: TRADING_DEFAULTS.MAX_POSITION_PCT,
         maxDailyLossPct: TRADING_DEFAULTS.MAX_DAILY_LOSS_PCT,
@@ -176,14 +177,13 @@ export async function main() {
     await prisma.tradingConfig.update({
       where: { id: config.id },
       data: {
-        totalBudget: TRADING_DEFAULTS.TOTAL_BUDGET,
         maxPositions: TRADING_DEFAULTS.MAX_POSITIONS,
         maxPositionPct: TRADING_DEFAULTS.MAX_POSITION_PCT,
         maxDailyLossPct: TRADING_DEFAULTS.MAX_DAILY_LOSS_PCT,
       },
     });
     console.log(
-      `  TradingConfig更新: 予算¥${TRADING_DEFAULTS.TOTAL_BUDGET.toLocaleString()}, 最大保有数=${TRADING_DEFAULTS.MAX_POSITIONS}, 最大比率=${TRADING_DEFAULTS.MAX_POSITION_PCT}%`,
+      `  TradingConfig更新: 最大保有数=${TRADING_DEFAULTS.MAX_POSITIONS}, 最大比率=${TRADING_DEFAULTS.MAX_POSITION_PCT}%`,
     );
   }
 

@@ -5,8 +5,15 @@
  */
 
 import { prisma } from "../lib/prisma";
-import type { TradingPosition } from "@prisma/client";
+import type { TradingConfig, TradingPosition } from "@prisma/client";
 import { calculateTradeCosts } from "./trading-costs";
+
+/**
+ * 実質資金 = 入金額 + 累計確定損益
+ */
+export function getEffectiveCapital(config: TradingConfig): number {
+  return Number(config.totalBudget) + Number(config.realizedPnl);
+}
 
 /**
  * 新規ポジションを建てる
@@ -89,7 +96,7 @@ export async function closePosition(
       },
     });
 
-    // 利益（損失含む）をtotalBudgetに反映して複利運用
+    // 確定損益をrealizedPnlに加算（複利運用）
     const config = await tx.tradingConfig.findFirst({
       orderBy: { createdAt: "desc" },
     });
@@ -97,7 +104,7 @@ export async function closePosition(
       await tx.tradingConfig.update({
         where: { id: config.id },
         data: {
-          totalBudget: Number(config.totalBudget) + realizedPnl,
+          realizedPnl: Number(config.realizedPnl) + realizedPnl,
         },
       });
     }
@@ -153,7 +160,7 @@ export async function getTotalPortfolioValue(
 /**
  * 現金残高を取得する
  *
- * TradingConfig.totalBudget からオープンポジションの取得コスト合計を差し引く。
+ * 実質資金（入金額 + 確定損益）からオープンポジションの取得コスト合計を差し引く。
  */
 export async function getCashBalance(): Promise<number> {
   const config = await prisma.tradingConfig.findFirst({
@@ -164,7 +171,7 @@ export async function getCashBalance(): Promise<number> {
     throw new Error("TradingConfig が設定されていません");
   }
 
-  const totalBudget = Number(config.totalBudget);
+  const effectiveCapital = getEffectiveCapital(config);
 
   const openPositions = await prisma.tradingPosition.findMany({
     where: { status: "open" },
@@ -174,5 +181,5 @@ export async function getCashBalance(): Promise<number> {
     return sum + Number(pos.entryPrice) * pos.quantity;
   }, 0);
 
-  return totalBudget - investedAmount;
+  return effectiveCapital - investedAmount;
 }
