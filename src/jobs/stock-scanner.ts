@@ -238,8 +238,11 @@ export async function main(context?: MarketAssessmentContext) {
   const limit = pLimit(JOB_CONCURRENCY.MARKET_SCANNER);
   const scoredCandidates: ScoredCandidate[] = [];
 
+  const totalBatches = Math.ceil(candidates.length / YAHOO_FINANCE.BATCH_SIZE);
   for (let i = 0; i < candidates.length; i += YAHOO_FINANCE.BATCH_SIZE) {
+    const batchIndex = Math.floor(i / YAHOO_FINANCE.BATCH_SIZE) + 1;
     const batch = candidates.slice(i, i + YAHOO_FINANCE.BATCH_SIZE);
+    const batchStart = Date.now();
 
     const batchResults = await Promise.all(
       batch.map((stock) =>
@@ -288,6 +291,13 @@ export async function main(context?: MarketAssessmentContext) {
           }
         }),
       ),
+    );
+
+    const batchOk = batchResults.filter((r) => r !== null).length;
+    const batchElapsed = ((Date.now() - batchStart) / 1000).toFixed(1);
+    const done = Math.min(i + YAHOO_FINANCE.BATCH_SIZE, candidates.length);
+    console.log(
+      `  [${batchIndex}/${totalBatches}] ${done}/${candidates.length}銘柄完了（${batchOk}/${batch.length}成功, ${batchElapsed}s）`,
     );
 
     scoredCandidates.push(
