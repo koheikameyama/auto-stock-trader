@@ -115,8 +115,8 @@ export const DAILY_BACKTEST = {
   TICKER_SELECTION: {
     LOOKBACK_DAYS: 30,
     MIN_TICKERS: 5,
-    TARGET_RANKS: ["S", "A"],
-    FALLBACK_RANKS: ["S", "A", "B"],
+    TARGET_RANKS: ["S"],
+    FALLBACK_RANKS: ["S", "A"],
   },
 
   /** デフォルトシミュレーションパラメータ */

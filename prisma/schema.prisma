@@ -135,7 +135,7 @@ model ScoringRecord {
 
   // 総合
   totalScore   Int
-  rank         String   // S / A / B / C
+  rank         String   // S / A / B
 
   // カテゴリ別スコア（3カテゴリ + セクターボーナス）
   trendQualityScore    Int   // 0-40

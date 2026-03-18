@@ -3,6 +3,7 @@
  */
 
 import type { TradingStrategy } from "../core/market-regime";
+import type { ScoringRank } from "../core/scoring";
 
 export interface BacktestConfig {
   tickers: string[];
@@ -74,7 +75,7 @@ export interface SimulatedPosition {
   takeProfitPrice: number;
   stopLossPrice: number;
   quantity: number;
-  rank: "S" | "A" | "B" | "C" | "D";
+  rank: ScoringRank;
   score: number;
   scoreBreakdown: ScoreBreakdown | null;
   regime: RegimeLevel | null;

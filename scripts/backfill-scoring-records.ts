@@ -227,7 +227,7 @@ async function main(): Promise<void> {
   );
 
   let totalRecords = 0;
-  const rankDistribution: Record<string, number> = { S: 0, A: 0, B: 0, C: 0 };
+  const rankDistribution: Record<string, number> = { S: 0, A: 0, B: 0 };
 
   for (let dayIdx = 0; dayIdx < tradingDays.length; dayIdx++) {
     const targetDate = tradingDays[dayIdx];
@@ -301,7 +301,7 @@ async function main(): Promise<void> {
   console.log(`\n[backfill] 完了 (${elapsed}秒)`);
   console.log(`  総レコード: ${totalRecords}件 (${tradingDays.length}営業日)`);
   console.log(
-    `  ランク分布: S=${rankDistribution.S} A=${rankDistribution.A} B=${rankDistribution.B} C=${rankDistribution.C}`,
+    `  ランク分布: S=${rankDistribution.S} A=${rankDistribution.A} B=${rankDistribution.B}`,
   );
   if (DRY_RUN) {
     console.log(`  ※ dry-run のためDB書き込みはスキップしました`);

@@ -1,3 +1,5 @@
+import type { ScoringRank } from "./scoring/types";
+
 /**
  * マーケットレジーム判定モジュール
  *
@@ -18,7 +20,7 @@ export interface MarketRegime {
   level: RegimeLevel;
   vix: number;
   maxPositions: number;
-  minRank: "S" | "A" | "B" | null; // nullは取引停止
+  minRank: ScoringRank | null; // nullは取引停止
   shouldHaltTrading: boolean;
   reason: string;
 }

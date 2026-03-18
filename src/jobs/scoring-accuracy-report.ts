@@ -86,7 +86,7 @@ function analyzeCategoryWeakness(missedStocks: ScoringRecordRow[]) {
 
 /** ランク別実績集計 */
 function analyzeRankAccuracy(rows: ScoringRecordRow[]) {
-  const ranks = ["S", "A", "B", "C"];
+  const ranks = ["S", "A", "B"];
   return ranks.map((rank) => {
     const group = rows.filter((r) => r.rank === rank);
     const count = group.length;

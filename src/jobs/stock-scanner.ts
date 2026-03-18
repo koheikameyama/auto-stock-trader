@@ -341,21 +341,21 @@ export async function main(context?: MarketAssessmentContext) {
   const disqualified = scoredCandidates.filter((c) => c.score.isDisqualified);
   const qualified = scoredCandidates.filter((c) => !c.score.isDisqualified);
 
-  // フィルタリング: S+Aランク（不足時はBランクも追加）
+  // フィルタリング: Sランク（不足時はAランクも追加）
   let filtered = qualified.filter(
-    (c) => c.score.rank === "S" || c.score.rank === "A",
+    (c) => c.score.rank === "S",
   );
   if (filtered.length < SCORING.MIN_CANDIDATES_FOR_AI) {
-    const bRankCandidates = qualified.filter(
-      (c) => c.score.rank === "B",
+    const aRankCandidates = qualified.filter(
+      (c) => c.score.rank === "A",
     );
-    filtered = [...filtered, ...bRankCandidates];
+    filtered = [...filtered, ...aRankCandidates];
   }
   filtered = filtered.slice(0, SCORING.MAX_CANDIDATES_FOR_AI);
 
   // レジームによるランク制限
   if (regime.minRank) {
-    const rankOrder: Record<string, number> = { S: 0, A: 1, B: 2, C: 3, D: 4 };
+    const rankOrder: Record<string, number> = { S: 0, A: 1, B: 2 };
     const minRankOrder = rankOrder[regime.minRank];
     const beforeCount = filtered.length;
     filtered = filtered.filter((c) => rankOrder[c.score.rank] <= minRankOrder);
@@ -366,16 +366,16 @@ export async function main(context?: MarketAssessmentContext) {
     }
   }
 
-  // レジーム制限で候補が不足した場合、Bランク上位を補充
+  // レジーム制限で候補が不足した場合、Aランク上位を補充
   if (filtered.length < SCORING.MIN_CANDIDATES_FOR_AI) {
     const filteredSet = new Set(filtered.map((c) => c.tickerCode));
-    const bRankBackfill = qualified
-      .filter((c) => c.score.rank === "B" && !filteredSet.has(c.tickerCode))
+    const aRankBackfill = qualified
+      .filter((c) => c.score.rank === "A" && !filteredSet.has(c.tickerCode))
       .slice(0, SCORING.MIN_CANDIDATES_FOR_AI - filtered.length);
-    if (bRankBackfill.length > 0) {
-      filtered = [...filtered, ...bRankBackfill];
+    if (aRankBackfill.length > 0) {
+      filtered = [...filtered, ...aRankBackfill];
       console.log(
-        `  レジーム緩和: 候補不足のためBランク上位${bRankBackfill.length}銘柄を補充（→ ${filtered.length}銘柄）`,
+        `  レジーム緩和: 候補不足のためAランク上位${aRankBackfill.length}銘柄を補充（→ ${filtered.length}銘柄）`,
       );
     }
   }
@@ -405,12 +405,12 @@ export async function main(context?: MarketAssessmentContext) {
   );
 
   // スコア分布ログ
-  const rankCounts: Record<string, number> = { S: 0, A: 0, B: 0, C: 0, D: 0 };
+  const rankCounts: Record<string, number> = { S: 0, A: 0, B: 0 };
   for (const c of qualified) {
     rankCounts[c.score.rank]++;
   }
   console.log(
-    `  ランク分布: S=${rankCounts.S} A=${rankCounts.A} B=${rankCounts.B} C=${rankCounts.C} D=${rankCounts.D}`,
+    `  ランク分布: S=${rankCounts.S} A=${rankCounts.A} B=${rankCounts.B}`,
   );
 
   // 銘柄別ニュースコンテキストを添付
@@ -560,7 +560,7 @@ export async function main(context?: MarketAssessmentContext) {
         reasoning: g.reasoning,
         riskFlags: g.riskFlags,
         technicalScore: scored?.score.totalScore ?? 0,
-        technicalRank: scored?.score.rank ?? "C",
+        technicalRank: scored?.score.rank ?? "B",
       };
     });
 

@@ -71,7 +71,7 @@ export function printBacktestReport(result: BacktestResult): void {
   }
 
   // ランク別
-  const rankOrder = ["S", "A", "B", "C"];
+  const rankOrder = ["S", "A", "B"];
   const rankEntries = rankOrder
     .filter((r) => metrics.byRank[r])
     .map((r) => ({ rank: r, ...metrics.byRank[r] }));

@@ -132,10 +132,10 @@ app.get("/", async (c) => {
       orderBy: { date: "desc" },
       take: SCORING_VALIDITY.FP_FN_DISPLAY_LIMIT,
     }),
-    // FN一覧（B_RANK以上+棄却+上昇）
+    // FN一覧（Aランク以上+棄却+上昇）
     prisma.scoringRecord.findMany({
       where: {
-        totalScore: { gte: SCORING.THRESHOLDS.B_RANK },
+        totalScore: { gte: SCORING.THRESHOLDS.A_RANK },
         rejectionReason: { not: null },
         ghostProfitPct: { gt: 0 },
         closingPrice: { not: null },
@@ -688,8 +688,8 @@ app.get("/", async (c) => {
         `
       : html`<div class="card">${emptyState("誤エントリーはまだありません")}</div>`}
 
-    <!-- FN: 見逃し銘柄（B_RANK以上のみ） -->
-    <p class="section-title">見逃し銘柄（B_RANK以上・棄却したが上昇）</p>
+    <!-- FN: 見逃し銘柄（Aランク以上のみ） -->
+    <p class="section-title">見逃し銘柄（Aランク以上・棄却したが上昇）</p>
     ${fnStocks.length > 0
       ? html`
           <div class="card table-wrap">

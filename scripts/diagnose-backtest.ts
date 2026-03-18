@@ -87,7 +87,7 @@ async function main() {
 
   console.log("=== スコア分布（直近10営業日） ===");
   const allScores: number[] = [];
-  const rankCounts: Record<string, number> = { S: 0, A: 0, B: 0, C: 0, D: 0 };
+  const rankCounts: Record<string, number> = { S: 0, A: 0, B: 0 };
   const disqualified = { count: 0, reasons: {} as Record<string, number> };
   const categoryTotals = { trend: 0, entry: 0, risk: 0, sector: 0, count: 0 };
 
@@ -120,7 +120,7 @@ async function main() {
   console.log(`  パス済み: ${allScores.length}件, 失格: ${disqualified.count}件`);
   console.log(`  失格理由: ${JSON.stringify(disqualified.reasons)}`);
   console.log(`  スコア: avg=${avg.toFixed(1)} p25=${p25} p50=${p50} p75=${p75} p90=${p90}`);
-  console.log(`  ランク: S=${rankCounts.S} A=${rankCounts.A} B=${rankCounts.B} C=${rankCounts.C} D=${rankCounts.D}`);
+  console.log(`  ランク: S=${rankCounts.S} A=${rankCounts.A} B=${rankCounts.B}`);
   console.log(`  カテゴリ平均: トレンド=${(categoryTotals.trend / categoryTotals.count).toFixed(1)}/40 エントリー=${(categoryTotals.entry / categoryTotals.count).toFixed(1)}/35 リスク=${(categoryTotals.risk / categoryTotals.count).toFixed(1)}/20 セクター=${(categoryTotals.sector / categoryTotals.count).toFixed(1)}/5`);
 
   // 4. ベースラインバックテストのトレード詳細分析

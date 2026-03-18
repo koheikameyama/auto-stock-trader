@@ -138,14 +138,14 @@ app.get("/", async (c) => {
   const scoringNameMap = new Map(scoringStocks.map((s) => [s.tickerCode, s.name]));
 
   // Rank distribution
-  const rankCounts: Record<string, number> = { S: 0, A: 0, B: 0, C: 0, D: 0 };
+  const rankCounts: Record<string, number> = { S: 0, A: 0, B: 0 };
   let disqualifiedCount = 0;
   for (const r of todayScoring) {
     rankCounts[r.rank] = (rankCounts[r.rank] ?? 0) + 1;
     if (r.isDisqualified) disqualifiedCount++;
   }
 
-  const prevRankCounts: Record<string, number> = { S: 0, A: 0, B: 0, C: 0, D: 0 };
+  const prevRankCounts: Record<string, number> = { S: 0, A: 0, B: 0 };
   for (const r of prevScoring) {
     prevRankCounts[r.rank] = (prevRankCounts[r.rank] ?? 0) + 1;
   }
@@ -303,13 +303,11 @@ app.get("/", async (c) => {
           <div class="card">
             <div class="card-title">ランク分布</div>
             <div style="display:flex;justify-content:space-around;text-align:center;margin:8px 0">
-              ${["S", "A", "B", "C", "D"].map((rank) => {
+              ${["S", "A", "B"].map((rank) => {
                 const colorMap: Record<string, string> = {
                   S: "#f59e0b",
                   A: "#3b82f6",
-                  B: "#22c55e",
-                  C: "#94a3b8",
-                  D: "#64748b",
+                  B: "#94a3b8",
                 };
                 const color = colorMap[rank] ?? "#94a3b8";
                 const count = rankCounts[rank] ?? 0;

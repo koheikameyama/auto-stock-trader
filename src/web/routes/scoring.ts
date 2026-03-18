@@ -123,7 +123,7 @@ app.get("/", async (c) => {
   const nameMap = new Map(stocks.map((s) => [s.tickerCode, s.name]));
 
   // サマリー集計
-  const rankCounts: Record<string, number> = { S: 0, A: 0, B: 0, C: 0, D: 0 };
+  const rankCounts: Record<string, number> = { S: 0, A: 0, B: 0 };
   let disqualifiedCount = 0;
   for (const r of records) {
     rankCounts[r.rank] = (rankCounts[r.rank] ?? 0) + 1;
@@ -153,9 +153,7 @@ app.get("/", async (c) => {
         <div style="font-size:0.85rem;font-weight:600">
           <span style="color:#f59e0b">S:${rankCounts.S ?? 0}</span>
           <span style="color:#3b82f6;margin-left:4px">A:${rankCounts.A ?? 0}</span>
-          <span style="color:#22c55e;margin-left:4px">B:${rankCounts.B ?? 0}</span>
-          <span style="color:#94a3b8;margin-left:4px">C:${rankCounts.C ?? 0}</span>
-          <span style="color:#64748b;margin-left:4px">D:${rankCounts.D ?? 0}</span>
+          <span style="color:#94a3b8;margin-left:4px">B:${rankCounts.B ?? 0}</span>
         </div>
       </div>
       <div>

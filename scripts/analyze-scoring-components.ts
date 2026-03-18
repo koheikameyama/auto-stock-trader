@@ -115,8 +115,8 @@ async function main() {
     })),
     startDate,
     endDate,
-    ["S", "A", "B", "C"],
-    ["S", "A", "B", "C"],
+    ["S", "A", "B"],
+    ["S", "A", "B"],
     1,
     nikkei225Ohlcv ? [...nikkei225Ohlcv] : undefined,
   );

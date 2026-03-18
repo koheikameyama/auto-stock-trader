@@ -315,7 +315,7 @@ async function main(): Promise<void> {
   console.log(`  スキップ: ${totalSkipped.toLocaleString()}件（株価データなし）`);
 
   console.log("\n  ランク別平均ゴースト損益:");
-  for (const rank of ["S", "A", "B", "C", "D"]) {
+  for (const rank of ["S", "A", "B"]) {
     const stat = rankStats[rank];
     if (!stat) continue;
     const avgPnl = (stat.sumPnl / stat.count).toFixed(3);

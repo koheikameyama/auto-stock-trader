@@ -8,7 +8,7 @@
 import type { OHLCVData } from "../core/technical-analysis";
 import { analyzeTechnicals } from "../core/technical-analysis";
 import { scoreStock } from "../core/scoring";
-import type { NewLogicScore } from "../core/scoring";
+import type { NewLogicScore, ScoringRank } from "../core/scoring";
 import { calculateEntryCondition } from "../core/entry-calculator";
 import { TECHNICAL_MIN_DATA, DEFENSIVE_MODE, DAILY_BACKTEST, WEEKEND_RISK, TRAILING_STOP } from "../lib/constants";
 import { countNonTradingDaysAhead } from "../lib/market-calendar";
@@ -484,7 +484,7 @@ interface PendingOrder {
   takeProfitPrice: number;
   stopLossPrice: number;
   quantity: number;
-  rank: "S" | "A" | "B" | "C" | "D";
+  rank: ScoringRank;
   score: number;
   scoreBreakdown: ScoreBreakdown | null;
   entryAtr: number | null;
@@ -633,7 +633,7 @@ function evaluateTickers(
 
     // レジームによるランク制限（本番 market-scanner.ts と同等）
     if (minRank) {
-      const rankOrder: Record<string, number> = { S: 0, A: 1, B: 2, C: 3, D: 4 };
+      const rankOrder: Record<string, number> = { S: 0, A: 1, B: 2 };
       if ((rankOrder[score.rank] ?? 4) > rankOrder[minRank]) continue;
     }
 

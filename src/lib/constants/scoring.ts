@@ -33,12 +33,10 @@ export const SCORING = {
     VOLUME_STABILITY: 7,
   },
 
-  /** ランク閾値 */
+  /** ランク閾値（S≥75: エントリー対象, A≥60: フォールバック, B<60: 対象外） */
   THRESHOLDS: {
-    S_RANK: 80,
-    A_RANK: 75,
-    B_RANK: 60,
-    C_RANK: 40,
+    S_RANK: 75,
+    A_RANK: 60,
   },
 
   /** ゲート（即死ルール） */
@@ -191,10 +189,9 @@ export const POSITION_SIZING = {
   RISK_PER_TRADE_PCT: 2,
   /** スコア別リスク%テーブル（降順で最初にマッチしたものを採用、SCORING.THRESHOLDSに連動） */
   SCORE_RISK_TABLE: [
-    { minScore: 80, riskPct: 3.0 }, // Sランク
-    { minScore: 75, riskPct: 2.5 }, // Aランク
-    { minScore: 60, riskPct: 2.0 }, // Bランク
-    { minScore: 0, riskPct: 1.5 }, // C/Dランク
+    { minScore: 75, riskPct: 3.0 }, // Sランク
+    { minScore: 60, riskPct: 2.0 }, // Aランク
+    { minScore: 0, riskPct: 1.5 }, // Bランク
   ],
 } as const;
 

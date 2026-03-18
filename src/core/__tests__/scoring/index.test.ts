@@ -83,11 +83,9 @@ describe("scoreStock", () => {
       avgVolume25: 100000,
     });
     const rank = result.rank;
-    if (result.totalScore >= 80) expect(rank).toBe("S");
-    else if (result.totalScore >= 65) expect(rank).toBe("A");
-    else if (result.totalScore >= 50) expect(rank).toBe("B");
-    else if (result.totalScore >= 35) expect(rank).toBe("C");
-    else expect(rank).toBe("D");
+    if (result.totalScore >= 75) expect(rank).toBe("S");
+    else if (result.totalScore >= 60) expect(rank).toBe("A");
+    else expect(rank).toBe("B");
   });
 
   it("出来高不足のゲート → liquidity", () => {
