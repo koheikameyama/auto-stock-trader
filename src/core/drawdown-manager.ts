@@ -63,7 +63,7 @@ export async function calculateDrawdownStatus(): Promise<DrawdownStatus> {
     };
   }
 
-  const effectiveCap = getEffectiveCapital(config);
+  const effectiveCap = await getEffectiveCapital(config);
   const peakEquity = config.peakEquity
     ? Number(config.peakEquity)
     : effectiveCap;

@@ -9,10 +9,24 @@ import type { TradingConfig, TradingPosition } from "@prisma/client";
 import { calculateTradeCosts } from "./trading-costs";
 
 /**
- * 実質資金 = 入金額 + 累計確定損益
+ * 全クローズ済みポジションの確定損益を合計する
  */
-export function getEffectiveCapital(config: TradingConfig): number {
-  return Number(config.totalBudget) + Number(config.realizedPnl);
+export async function computeRealizedPnl(): Promise<number> {
+  const result = await prisma.tradingPosition.aggregate({
+    where: { status: "closed" },
+    _sum: { realizedPnl: true },
+  });
+  return Number(result._sum.realizedPnl ?? 0);
+}
+
+/**
+ * 実質資金 = 入金額 + 累計確定損益（ポジション履歴から計算）
+ */
+export async function getEffectiveCapital(config?: TradingConfig | null): Promise<number> {
+  const cfg = config ?? await prisma.tradingConfig.findFirst({ orderBy: { createdAt: "desc" } });
+  if (!cfg) throw new Error("TradingConfig が設定されていません");
+  const realizedPnl = await computeRealizedPnl();
+  return Number(cfg.totalBudget) + realizedPnl;
 }
 
 /**
@@ -96,19 +110,6 @@ export async function closePosition(
       },
     });
 
-    // 確定損益をrealizedPnlに加算（複利運用）
-    const config = await tx.tradingConfig.findFirst({
-      orderBy: { createdAt: "desc" },
-    });
-    if (config) {
-      await tx.tradingConfig.update({
-        where: { id: config.id },
-        data: {
-          realizedPnl: Number(config.realizedPnl) + realizedPnl,
-        },
-      });
-    }
-
     return closedPosition;
   });
 }
@@ -163,19 +164,10 @@ export async function getTotalPortfolioValue(
  * 実質資金（入金額 + 確定損益）からオープンポジションの取得コスト合計を差し引く。
  */
 export async function getCashBalance(): Promise<number> {
-  const config = await prisma.tradingConfig.findFirst({
-    orderBy: { createdAt: "desc" },
-  });
-
-  if (!config) {
-    throw new Error("TradingConfig が設定されていません");
-  }
-
-  const effectiveCapital = getEffectiveCapital(config);
-
-  const openPositions = await prisma.tradingPosition.findMany({
-    where: { status: "open" },
-  });
+  const [effectiveCapital, openPositions] = await Promise.all([
+    getEffectiveCapital(),
+    prisma.tradingPosition.findMany({ where: { status: "open" } }),
+  ]);
 
   const investedAmount = openPositions.reduce((sum, pos) => {
     return sum + Number(pos.entryPrice) * pos.quantity;

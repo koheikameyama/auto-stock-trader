@@ -44,7 +44,7 @@ export async function canOpenPosition(
     return { allowed: false, reason: "取引が無効化されています" };
   }
 
-  const effectiveCap = getEffectiveCapital(config);
+  const effectiveCap = await getEffectiveCapital(config);
   const maxPositions = config.maxPositions;
   const maxPositionPct = Number(config.maxPositionPct);
   const requiredAmount = price * quantity;
@@ -151,7 +151,7 @@ export async function checkDailyLossLimit(): Promise<boolean> {
     return true; // 設定がない場合は安全側に倒して取引停止
   }
 
-  const effectiveCap = getEffectiveCapital(config);
+  const effectiveCap = await getEffectiveCapital(config);
   const maxDailyLossPct = Number(config.maxDailyLossPct);
   const maxDailyLoss = effectiveCap * (maxDailyLossPct / 100);
 

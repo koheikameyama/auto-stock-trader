@@ -406,7 +406,7 @@ ${sectorText || "  特になし"}`;
     orderBy: { createdAt: "desc" },
   });
   const effectiveCap = config
-    ? getEffectiveCapital(config)
+    ? await getEffectiveCapital(config)
     : TRADING_DEFAULTS.TOTAL_BUDGET;
   const maxPositionPct = config
     ? Number(config.maxPositionPct)

@@ -4,7 +4,7 @@
 
 import { Hono } from "hono";
 import { prisma } from "../../lib/prisma";
-import { getOpenPositions, getCashBalance, getEffectiveCapital } from "../../core/position-manager";
+import { getOpenPositions, getCashBalance, getEffectiveCapital, computeRealizedPnl } from "../../core/position-manager";
 import { getPendingOrders } from "../../core/order-executor";
 import { jobState } from "./dashboard";
 import { notifySlack } from "../../lib/slack";
@@ -34,8 +34,9 @@ app.get("/status", async (c) => {
   );
 
   const totalBudget = config ? Number(config.totalBudget) : 0;
-  const realizedPnl = config ? Number(config.realizedPnl) : 0;
-  const effectiveCap = config ? getEffectiveCapital(config) : 0;
+  const [effectiveCap, realizedPnl] = config
+    ? [await getEffectiveCapital(config), await computeRealizedPnl()]
+    : [0, 0];
   const cash = cashBalance ?? effectiveCap;
   const investedValue = openPositions.reduce(
     (sum, p) => sum + Number(p.entryPrice) * p.quantity,

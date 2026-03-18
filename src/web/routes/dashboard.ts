@@ -6,7 +6,7 @@ import { Hono } from "hono";
 import { html } from "hono/html";
 import dayjs from "dayjs";
 import { prisma } from "../../lib/prisma";
-import { getOpenPositions, getCashBalance, getEffectiveCapital } from "../../core/position-manager";
+import { getOpenPositions, getCashBalance, getEffectiveCapital, computeRealizedPnl } from "../../core/position-manager";
 import { getPendingOrders } from "../../core/order-executor";
 import { layout } from "../views/layout";
 import {
@@ -160,8 +160,9 @@ app.get("/", async (c) => {
   const hasPrev = prevScoring.length > 0;
 
   const totalBudget = config ? Number(config.totalBudget) : 0;
-  const realizedPnl = config ? Number(config.realizedPnl) : 0;
-  const effectiveCap = config ? getEffectiveCapital(config) : 0;
+  const [effectiveCap, realizedPnl] = config
+    ? [await getEffectiveCapital(config), await computeRealizedPnl()]
+    : [0, 0];
   const cash = cashBalance ?? effectiveCap;
   // 初期表示は建値ベース（リアルタイム価格はクライアント側で非同期取得）
   const investedValue = openPositions.reduce(
