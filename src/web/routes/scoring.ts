@@ -207,6 +207,9 @@ app.get("/", async (c) => {
                 ${r.aiReasoning
                   ? html`<div style="margin-top:0.25rem;color:#cbd5e1">AI: ${r.aiReasoning}</div>`
                   : ""}
+                ${r.aiDecision
+                  ? html`<div style="margin-top:0.25rem;color:#64748b;font-size:0.72rem">📰 ${r.newsContext || "ニュースなし"}</div>`
+                  : ""}
                 ${r.entryPrice
                   ? html`<div style="margin-top:0.25rem">エントリー: ¥${formatYen(Number(r.entryPrice))}${r.ghostProfitPct != null ? html` → ${pnlPercent(Number(r.ghostProfitPct))}` : ""}</div>`
                   : ""}

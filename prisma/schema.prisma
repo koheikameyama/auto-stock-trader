@@ -155,6 +155,7 @@ model ScoringRecord {
   // AIレビュー結果
   aiDecision   String?  // go / no_go
   aiReasoning  String?  @db.Text
+  newsContext  String?  @db.Text  // AIに渡したニュースコンテキスト（ハルシネーション検証用）
 
   // トレード結果（後から紐づけ）
   tradingOrderId String?  @unique

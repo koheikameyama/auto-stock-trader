@@ -849,6 +849,7 @@ ${sectorText || "  特になし"}`;
           aiDecision: review?.decision ?? null,
           aiReasoning: review?.reasoning ?? null,
           rejectionReason: review?.decision === "no_go" ? "ai_no_go" : null,
+          newsContext: c.newsContext ?? null,
         };
       }),
       // 精度追跡候補（スコア60+だがAI審査に送られなかった）
