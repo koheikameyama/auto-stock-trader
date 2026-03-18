@@ -143,6 +143,16 @@ export async function main() {
     },
   });
 
+  // 今日約定した買い注文（エントリー）
+  const filledBuyOrders = await prisma.tradingOrder.findMany({
+    where: {
+      side: "buy",
+      status: "filled",
+      filledAt: { gte: startOfDay, lte: endOfDay },
+    },
+    include: { stock: true },
+  });
+
   const totalTrades = closedToday.length;
   const wins = closedToday.filter(
     (p) => p.realizedPnl && Number(p.realizedPnl) > 0,
@@ -170,16 +180,26 @@ export async function main() {
   const cashBalance = await getCashBalance();
 
   console.log(
-    `  取引数: ${totalTrades}, 勝: ${wins}, 負: ${losses}, 損益: ¥${totalPnl.toLocaleString()}`,
+    `  決済数: ${totalTrades}, 勝: ${wins}, 負: ${losses}, 損益: ¥${totalPnl.toLocaleString()}, エントリー: ${filledBuyOrders.length}件`,
   );
 
   // 4. AIレビュー
   console.log("[4/5] AI日次レビュー生成...");
   let aiReview = "";
 
-  // 取引0件の場合、見送り理由のコンテキストを収集
+  // エントリー情報
+  let entryContext = "";
+  if (filledBuyOrders.length > 0) {
+    entryContext += `\n【本日のエントリー】\n`;
+    entryContext += `- 新規買い約定: ${filledBuyOrders.length}件\n`;
+    for (const order of filledBuyOrders) {
+      entryContext += `  - ${order.stock.tickerCode} ${order.stock.name}: ¥${Number(order.filledPrice).toLocaleString()} × ${order.quantity}株\n`;
+    }
+  }
+
+  // 決済0件かつエントリー0件の場合、見送り理由のコンテキストを収集
   let noTradeContext = "";
-  if (totalTrades === 0) {
+  if (totalTrades === 0 && filledBuyOrders.length === 0) {
     const todayAssessment = await prisma.marketAssessment.findUnique({
       where: { date: getTodayForDB() },
     });
@@ -229,17 +249,27 @@ export async function main() {
       generationName: "eod-review",
       tags: ["review", "daily"],
     });
+    let reviewInstruction: string;
+    if (totalTrades === 0 && filledBuyOrders.length === 0) {
+      reviewInstruction = "取引が行われなかった理由を具体的に説明し、明日への改善ポイントを述べてください。";
+    } else if (totalTrades === 0 && filledBuyOrders.length > 0) {
+      reviewInstruction = "新規エントリーがあったがまだ決済はない状況です。エントリーの評価と今後の見通しを述べてください。";
+    } else {
+      reviewInstruction = "今日の結果の要約と明日への改善ポイントを述べてください。";
+    }
+
     const reviewPrompt = `本日の日本株自動売買シミュレーションの日次レビューを簡潔に生成してください。
 
 【本日の結果】
-- 取引数: ${totalTrades}件
+- 決済数: ${totalTrades}件
 - 勝敗: ${wins}勝 ${losses}敗
 - 確定損益: ¥${totalPnl.toLocaleString()}
+- 新規エントリー: ${filledBuyOrders.length}件
 - ポートフォリオ時価: ¥${portfolioValue.toLocaleString()}
 - 現金残高: ¥${cashBalance.toLocaleString()}
 - 残ポジション数: ${openPositions.length}件
-${noTradeContext}
-${totalTrades === 0 ? "取引が行われなかった理由を具体的に説明し、明日への改善ポイントを述べてください。" : "今日の結果の要約と明日への改善ポイントを述べてください。"}
+${entryContext}${noTradeContext}
+${reviewInstruction}
 150文字以内で回答してください。`;
 
     const response = await openai.chat.completions.create({
