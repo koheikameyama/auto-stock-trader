@@ -46,6 +46,8 @@ export const DAILY_BACKTEST = {
   },
 
   /** パラメータ条件（1ベースライン + 4軸×3値 + フィルター6 + 保有/CD4 + カラー2 = 26条件） */
+  // ※プルバックフィルター: AND条件（RSI<60 AND SMA25乖離≦2%）
+  // ※ボラティリティ閾値: デフォルト1.5%（スコアリングゲートと一致）
   PARAMETER_CONDITIONS: [
     // ベースライン（本番ロジック）
     { key: "baseline", label: "ベースライン" },
@@ -75,10 +77,10 @@ export const DAILY_BACKTEST = {
     { key: "pullback_on", label: "+プルバック", overrides: { pullbackFilterEnabled: true } },
     { key: "trend_off_pb", label: "トレンドOFF+PB", overrides: { trendFilterEnabled: false, pullbackFilterEnabled: true } },
 
-    // ボラティリティ＆RSフィルター（ベースライン=ボラON）
+    // ボラティリティフィルター（ベースライン=1.5%、スコアリングゲートと一致）
     { key: "vol_off", label: "ボラOFF", overrides: { volatilityFilterEnabled: false } },
-    { key: "rs_filter", label: "RSフィルタ", overrides: { rsFilterEnabled: true } },
-    { key: "vol_off_rs", label: "ボラOFF+RS", overrides: { volatilityFilterEnabled: false, rsFilterEnabled: true } },
+    { key: "vol_2pct", label: "ボラ2%", overrides: { minAtrPct: 2.0 } },
+    { key: "vol_3pct", label: "ボラ3%", overrides: { minAtrPct: 3.0 } },
 
     // タイムストップ短縮（ベースライン=10日）
     { key: "hold_5", label: "上限5日", overrides: { maxHoldingDays: 5 } },
@@ -91,6 +93,16 @@ export const DAILY_BACKTEST = {
     // 指値カラー幅（ベースライン=ATR連動）
     { key: "collar_2pct", label: "カラー2%", overrides: { collarPct: 0.02 } },
     { key: "collar_5pct", label: "カラー5%", overrides: { collarPct: 0.05 } },
+
+    // 有望パラメータ組み合わせ
+    { key: "combo_ts3.5_trail1.2", label: "TS3.5+トレール1.2", overrides: { trailingActivationMultiplier: 3.5, trailMultiplier: 1.2 } },
+    { key: "combo_ts2.5_trail1.2", label: "TS2.5+トレール1.2", overrides: { trailingActivationMultiplier: 2.5, trailMultiplier: 1.2 } },
+    { key: "combo_ts3.5_hold5", label: "TS3.5+上限5日", overrides: { trailingActivationMultiplier: 3.5, maxHoldingDays: 5 } },
+    { key: "combo_trail1.2_hold5", label: "トレール1.2+上限5日", overrides: { trailMultiplier: 1.2, maxHoldingDays: 5 } },
+    { key: "combo_ts3.5_trail1.2_hold5", label: "TS3.5+トレール1.2+上限5日", overrides: { trailingActivationMultiplier: 3.5, trailMultiplier: 1.2, maxHoldingDays: 5 } },
+    { key: "combo_ts2.5_trail1.2_hold7", label: "TS2.5+トレール1.2+上限7日", overrides: { trailingActivationMultiplier: 2.5, trailMultiplier: 1.2, maxHoldingDays: 7 } },
+    { key: "combo_score65_collar2", label: "スコア65+カラー2%", overrides: { scoreThreshold: 65, collarPct: 0.02 } },
+    { key: "combo_full", label: "全部盛り", overrides: { trailingActivationMultiplier: 3.5, trailMultiplier: 1.2, maxHoldingDays: 5, scoreThreshold: 65, collarPct: 0.02 } },
   ] satisfies ParameterCondition[],
 
   /** シミュレーション期間（ローリング） */
@@ -122,7 +134,7 @@ export const DAILY_BACKTEST = {
 
   /** ボラティリティ＆RSフィルターの閾値 */
   UNIVERSE_FILTER: {
-    /** ATR(14)/終値 × 100 がこの%以上の銘柄のみ（低ボラメガキャップ除外） */
+    /** ATR(14)/終値 × 100 がこの%以上の銘柄のみ（スコアリングゲートと一致: 1.5%） */
     MIN_ATR_PCT: 1.5,
     /** RS(0-15)がこの値以上の銘柄のみ（セクター上位のみ） */
     MIN_RS_SCORE: 3.0,

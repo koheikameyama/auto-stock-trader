@@ -570,7 +570,7 @@ function evaluateTickers(
       }
     }
 
-    // プルバックエントリー: 高値掴み防止（RSI < 60 OR SMA25乖離 <= 2%）
+    // プルバックエントリー: 高値掴み防止（RSI < 60 AND SMA25乖離 <= 2%）
     if (config.pullbackFilterEnabled) {
       const { MAX_RSI_FOR_ENTRY, MAX_DEVIATION_FROM_SMA25 } =
         DAILY_BACKTEST.TREND_FILTER;
@@ -580,16 +580,16 @@ function evaluateTickers(
         summary.sma25 != null &&
         Math.abs((latest.close - summary.sma25) / summary.sma25) * 100 <=
           MAX_DEVIATION_FROM_SMA25;
-      if (!rsiOk && !nearSma25) continue;
+      if (!rsiOk || !nearSma25) continue;
     }
 
-    // ボラティリティフィルター: ATR%が低すぎる銘柄をスキップ（低ボラメガキャップ除外）
+    // ボラティリティフィルター: ATR%が低すぎる銘柄をスキップ（低ボラ銘柄除外）
     if (config.volatilityFilterEnabled) {
-      const { MIN_ATR_PCT } = DAILY_BACKTEST.UNIVERSE_FILTER;
+      const minAtrPct = config.minAtrPct ?? DAILY_BACKTEST.UNIVERSE_FILTER.MIN_ATR_PCT;
       if (
         summary.atr14 == null ||
         latest.close <= 0 ||
-        (summary.atr14 / latest.close) * 100 < MIN_ATR_PCT
+        (summary.atr14 / latest.close) * 100 < minAtrPct
       ) {
         continue;
       }
