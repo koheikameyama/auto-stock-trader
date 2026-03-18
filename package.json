@@ -11,6 +11,7 @@
     "start": "tsx src/worker.ts",
     "news": "tsx src/jobs/news-collector.ts",
     "scan": "tsx src/jobs/market-scanner.ts",
+    "thesis-check": "tsx src/jobs/thesis-check.ts",
     "order": "tsx src/jobs/order-manager.ts",
     "monitor": "tsx src/jobs/position-monitor.ts",
     "eod": "tsx src/jobs/end-of-day.ts",

@@ -51,6 +51,21 @@ jobs:
             echo "should_run=$CHECK" >> "$GITHUB_OUTPUT"
           fi
 
+  thesis-check:
+    needs: check-market-day
+    if: needs.check-market-day.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run thesis-check
+
   market-scanner:
     needs: check-market-day
     if: needs.check-market-day.outputs.should_run == 'true'
@@ -67,7 +82,7 @@ jobs:
       - run: npm run scan
 
   notify-success:
-    needs: market-scanner
+    needs: [thesis-check, market-scanner]
     if: success()
     runs-on: ubuntu-latest
     steps:
@@ -76,13 +91,13 @@ jobs:
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_TITLE: "Market Scanner 完了"
-          SLACK_MESSAGE: "市場スキャンが正常に完了しました"
+          SLACK_MESSAGE: "市場スキャン・テーシスチェックが正常に完了しました"
           SLACK_COLOR: good
           SLACK_FOOTER: "Stock Buddy"
 
   notify-failure:
-    needs: market-scanner
-    if: failure()
+    needs: [thesis-check, market-scanner]
+    if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     steps:
       - name: Notify Slack on failure
@@ -91,7 +106,7 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_TITLE: "Market Scanner 失敗"
           SLACK_MESSAGE: |
-            市場スキャンが失敗しました。
+            市場スキャンまたはテーシスチェックが失敗しました。
             詳細はGitHub Actionsログを確認してください。
           SLACK_COLOR: danger
           SLACK_FOOTER: "Stock Buddy"
