@@ -15,7 +15,7 @@
  */
 
 import { prisma } from "../lib/prisma";
-import { getTodayForDB } from "../lib/date-utils";
+import { getTodayForDB, getDaysAgoForDB } from "../lib/date-utils";
 import {
   SCREENING,
   YAHOO_FINANCE,
@@ -29,6 +29,7 @@ import {
   SECTOR_RISK,
   STRATEGY_SWITCHING,
   CAUTIOUS_MODE,
+  THESIS_INVALIDATION,
   getSectorGroup,
 } from "../lib/constants";
 import { SECTOR_MOMENTUM_SCORING } from "../lib/constants/scoring";
@@ -50,6 +51,7 @@ import {
   notifyMarketAssessment,
   notifyStockCandidates,
   notifyRiskAlert,
+  notifySlack,
 } from "../lib/slack";
 import pLimit from "p-limit";
 import {
@@ -62,6 +64,7 @@ import type { MarketRegime, StrategyDecision } from "../core/market-regime";
 import { calculateDrawdownStatus } from "../core/drawdown-manager";
 import type { DrawdownStatus } from "../core/drawdown-manager";
 import { getEffectiveCapital } from "../core/position-manager";
+import type { EntrySnapshot } from "../types/snapshots";
 import {
   calculateSectorMomentum,
   getNewsSectorSentiment,
@@ -854,6 +857,197 @@ ${sectorText || "  特になし"}`;
   }
 
   console.log("=== Market Scanner 終了 ===");
+
+  // --- テーシス無効化チェック（スキャン直後に実行） ---
+  await runThesisCheck();
+}
+
+/**
+ * テーシス無効化チェック
+ *
+ * pending swing注文のエントリー根拠が崩壊していないかチェックし、
+ * 該当注文をキャンセルする。market-scanner直後に実行することで
+ * 今日のScoringRecordも参照可能。
+ *
+ * 無効化条件（いずれか1つでキャンセル）:
+ * 1. 前日終値が損切りラインを下回った
+ * 2. MA配列がuptrendからdowntrendに反転
+ * 3. SMA25乖離率 < -3%
+ * 4. AI審判が2日連続NO-GO
+ */
+async function runThesisCheck() {
+  console.log("=== Thesis Check 開始 ===");
+
+  const pendingSwingOrders = await prisma.tradingOrder.findMany({
+    where: { side: "buy", status: "pending", strategy: "swing" },
+    include: { stock: true },
+  });
+
+  if (pendingSwingOrders.length === 0) {
+    console.log("  pending swing注文なし");
+    console.log("=== Thesis Check 終了 ===");
+    return;
+  }
+
+  console.log(`  pending swing注文: ${pendingSwingOrders.length}件`);
+
+  // --- AI連続NO-GOチェック用: 直近スコアリング結果を一括取得（N+1回避） ---
+  const tickerCodes = [
+    ...new Set(pendingSwingOrders.map((o) => o.stock.tickerCode)),
+  ];
+  const recentScorings = await prisma.scoringRecord.findMany({
+    where: {
+      tickerCode: { in: tickerCodes },
+      date: { gte: getDaysAgoForDB(7) },
+    },
+    orderBy: { date: "desc" },
+    select: { tickerCode: true, date: true, aiDecision: true },
+  });
+
+  const scoringsByTicker = new Map<
+    string,
+    Array<{ date: Date; aiDecision: string | null }>
+  >();
+  for (const r of recentScorings) {
+    const list = scoringsByTicker.get(r.tickerCode) ?? [];
+    list.push({ date: r.date, aiDecision: r.aiDecision });
+    scoringsByTicker.set(r.tickerCode, list);
+  }
+
+  const limit = pLimit(THESIS_INVALIDATION.CONCURRENCY);
+  const invalidated: Array<{
+    id: string;
+    tickerCode: string;
+    name: string;
+    reason: string;
+  }> = [];
+
+  await Promise.all(
+    pendingSwingOrders.map((order) =>
+      limit(async () => {
+        const tickerCode = order.stock.tickerCode;
+        const stockName = order.stock.name;
+
+        // 条件4: AI連続NO-GO（APIコール不要、DBデータのみ）
+        const scorings = scoringsByTicker.get(tickerCode) ?? [];
+        const requiredDays = THESIS_INVALIDATION.CONSECUTIVE_NOGO_DAYS;
+        if (scorings.length >= requiredDays) {
+          const recentN = scorings.slice(0, requiredDays);
+          const allNoGo = recentN.every((s) => s.aiDecision === "no_go");
+          if (allNoGo) {
+            invalidated.push({
+              id: order.id,
+              tickerCode,
+              name: stockName,
+              reason: `AI ${requiredDays}日連続NO-GO`,
+            });
+            return;
+          }
+        }
+
+        try {
+          const historical = await fetchHistoricalData(tickerCode);
+          if (
+            !historical ||
+            historical.length < TECHNICAL_MIN_DATA.SCANNER_MIN_BARS
+          ) {
+            console.log(`    [${tickerCode}] データ不足、チェックスキップ`);
+            return;
+          }
+
+          const currentPrice = historical[0].close;
+          const techSummary = analyzeTechnicals(historical);
+          const snapshot = order.entrySnapshot as EntrySnapshot | null;
+
+          // 条件1: 前日終値が損切りラインを下回った
+          const stopLossPrice = order.stopLossPrice
+            ? Number(order.stopLossPrice)
+            : (snapshot?.logicEntryCondition?.stopLossPrice ?? null);
+
+          if (stopLossPrice != null && currentPrice < stopLossPrice) {
+            invalidated.push({
+              id: order.id,
+              tickerCode,
+              name: stockName,
+              reason: `損切りライン割れ（前日終値 ¥${currentPrice.toLocaleString()} < SL ¥${stopLossPrice.toLocaleString()}）`,
+            });
+            return;
+          }
+
+          // 条件2: MA配列がuptrendからdowntrendに反転
+          const entryTrend = snapshot?.technicals?.maAlignment?.trend;
+          const currentTrend = techSummary.maAlignment.trend;
+
+          if (entryTrend === "uptrend" && currentTrend === "downtrend") {
+            invalidated.push({
+              id: order.id,
+              tickerCode,
+              name: stockName,
+              reason: `MA配列反転（uptrend → downtrend）`,
+            });
+            return;
+          }
+
+          // 条件3: SMA25乖離率が深すぎる
+          if (
+            techSummary.deviationRate25 != null &&
+            techSummary.deviationRate25 <
+              THESIS_INVALIDATION.DEVIATION_RATE_25_THRESHOLD
+          ) {
+            invalidated.push({
+              id: order.id,
+              tickerCode,
+              name: stockName,
+              reason: `SMA25乖離 ${techSummary.deviationRate25.toFixed(1)}% < ${THESIS_INVALIDATION.DEVIATION_RATE_25_THRESHOLD}%`,
+            });
+            return;
+          }
+
+          console.log(`    [${tickerCode}] テーシス有効`);
+        } catch (error) {
+          console.error(`    [${tickerCode}] テーシスチェック失敗:`, error);
+        }
+      }),
+    ),
+  );
+
+  if (invalidated.length > 0) {
+    await prisma.tradingOrder.updateMany({
+      where: { id: { in: invalidated.map((r) => r.id) } },
+      data: { status: "cancelled" },
+    });
+
+    for (const r of invalidated) {
+      console.log(
+        `  [${r.tickerCode}] テーシス無効化でキャンセル: ${r.reason}`,
+      );
+    }
+
+    await notifySlack({
+      title: `テーシス無効化: ${invalidated.length}件のswing注文をキャンセル`,
+      message: invalidated
+        .map((r) => `- ${r.tickerCode} ${r.name}: ${r.reason}`)
+        .join("\n"),
+      color: "warning",
+      fields: [
+        {
+          title: "キャンセル数",
+          value: `${invalidated.length}件`,
+          short: true,
+        },
+        {
+          title: "残存swing注文",
+          value: `${pendingSwingOrders.length - invalidated.length}件`,
+          short: true,
+        },
+      ],
+    });
+  }
+
+  console.log(
+    `  完了: ${invalidated.length}件キャンセル / ${pendingSwingOrders.length - invalidated.length}件継続`,
+  );
+  console.log("=== Thesis Check 終了 ===");
 }
 
 const isDirectRun = process.argv[1]?.includes("market-scanner");

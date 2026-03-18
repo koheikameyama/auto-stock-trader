@@ -51,21 +51,6 @@ jobs:
             echo "should_run=$CHECK" >> "$GITHUB_OUTPUT"
           fi
 
-  thesis-check:
-    needs: check-market-day
-    if: needs.check-market-day.outputs.should_run == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: ".tool-versions"
-          cache: "npm"
-      - run: npm ci
-      - run: npx prisma generate
-      - run: npm run thesis-check
-
   market-scanner:
     needs: check-market-day
     if: needs.check-market-day.outputs.should_run == 'true'
@@ -82,7 +67,7 @@ jobs:
       - run: npm run scan
 
   notify-success:
-    needs: [thesis-check, market-scanner]
+    needs: market-scanner
     if: success()
     runs-on: ubuntu-latest
     steps:
@@ -96,7 +81,7 @@ jobs:
           SLACK_FOOTER: "Stock Buddy"
 
   notify-failure:
-    needs: [thesis-check, market-scanner]
+    needs: market-scanner
     if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     steps:
