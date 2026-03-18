@@ -667,7 +667,7 @@ ${sectorText || "  特になし"}`;
     },
     entryTimingBreakdown: {
       pullbackDepth: c.score.entryTiming.pullbackDepth,
-      breakout: c.score.entryTiming.breakout,
+      priorBreakout: c.score.entryTiming.priorBreakout,
       candlestickSignal: c.score.entryTiming.candlestickSignal,
     },
     riskQualityBreakdown: {

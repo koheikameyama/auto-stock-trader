@@ -1,7 +1,7 @@
 /**
  * スコアリングコンポーネント別分析
  *
- * 各スコア要素（MA整列、ブレイクアウト、プルバック等）と
+ * 各スコア要素（MA整列、BO後押し目、プルバック等）と
  * トレード結果（損益）の相関を分析し、どの要素が予測力を持ち
  * どの要素が逆効果かを特定する。
  */
@@ -76,7 +76,7 @@ function analyzeCategoryScores(trades: SimulatedPosition[]): ComponentAnalysis[]
 }
 
 /**
- * サブコンポーネント（maAlignment, pullbackDepth, breakout 等）別
+ * サブコンポーネント（maAlignment, pullbackDepth, priorBreakout 等）別
  */
 function analyzeSubComponentScores(trades: SimulatedPosition[]): ComponentAnalysis[] {
   const extractors: { name: string; maxScore: number; extract: (b: ScoreBreakdown) => number }[] = [
@@ -86,7 +86,7 @@ function analyzeSubComponentScores(trades: SimulatedPosition[]): ComponentAnalys
     { name: "  トレンド継続性 (10点)", maxScore: 10, extract: (b) => b.trendQuality.trendContinuity },
     // Entry Timing
     { name: "  プルバック深度 (15点)", maxScore: 15, extract: (b) => b.entryTiming.pullbackDepth },
-    { name: "  ブレイクアウト (12点)", maxScore: 12, extract: (b) => b.entryTiming.breakout },
+    { name: "  BO後押し目 (12点)", maxScore: 12, extract: (b) => b.entryTiming.priorBreakout },
     { name: "  ローソク足シグナル (8点)", maxScore: 8, extract: (b) => b.entryTiming.candlestickSignal },
     // Risk Quality
     { name: "  ATR安定性 (10点)", maxScore: 10, extract: (b) => b.riskQuality.atrStability },

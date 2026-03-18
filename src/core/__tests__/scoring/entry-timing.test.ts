@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   scorePullbackDepth,
-  scoreBreakout,
+  scorePriorBreakout,
   scoreCandlestickSignal,
 } from "../../scoring/entry-timing";
 import type { OHLCVData } from "../../technical-analysis";
@@ -39,19 +39,45 @@ describe("scorePullbackDepth", () => {
   });
 });
 
-describe("scoreBreakout", () => {
-  it("20日高値更新 + 出来高1.5倍超 → 12", () => {
+describe("scorePriorBreakout", () => {
+  it("pullbackScore=0 → 0（ゲート: 押し目でなければボーナスなし）", () => {
     const bars: OHLCVData[] = [];
+    // 3日前に20日高値更新（出来高あり）
     for (let i = 0; i < 25; i++) {
-      bars.push(makeBar({ close: 100 + (i === 0 ? 10 : 0), volume: i === 0 ? 20000 : 10000 }));
+      bars.push(makeBar({ close: 100 + (i === 3 ? 10 : 0), volume: i === 3 ? 20000 : 10000 }));
     }
-    const result = scoreBreakout(bars, 10000);
+    const result = scorePriorBreakout(bars, 10000, 0);
+    expect(result).toBe(0);
+  });
+
+  it("20日高値が3日前 + 出来高1.5倍超 + 押し目中 → 12", () => {
+    const bars: OHLCVData[] = [];
+    // bars[3]が20日高値（出来高多い）、bars[0]は押し目中（低い）
+    for (let i = 0; i < 25; i++) {
+      bars.push(makeBar({ close: i === 3 ? 115 : 100, volume: i === 3 ? 20000 : 10000 }));
+    }
+    const result = scorePriorBreakout(bars, 10000, 10);
     expect(result).toBe(12);
   });
 
-  it("高値更新なし → 0", () => {
-    const bars = Array.from({ length: 25 }, () => makeBar());
-    const result = scoreBreakout(bars, 10000);
+  it("10日高値が3日前 + 押し目中 → 5", () => {
+    const bars: OHLCVData[] = [];
+    // bars[3]が10日内の高値だが20日高値ではない
+    for (let i = 0; i < 25; i++) {
+      const close = i === 3 ? 108 : i >= 15 ? 110 : 100;
+      bars.push(makeBar({ close, volume: 10000 }));
+    }
+    const result = scorePriorBreakout(bars, 10000, 10);
+    expect(result).toBe(5);
+  });
+
+  it("高値更新が遠い過去（8日以上前）→ 0", () => {
+    const bars: OHLCVData[] = [];
+    // bars[10]が20日高値 → recency外
+    for (let i = 0; i < 25; i++) {
+      bars.push(makeBar({ close: i === 10 ? 115 : 100, volume: 10000 }));
+    }
+    const result = scorePriorBreakout(bars, 10000, 10);
     expect(result).toBe(0);
   });
 });

@@ -158,7 +158,7 @@ describe("scoreStock", () => {
     expect(result.trendQuality.weeklyTrend).toBeGreaterThanOrEqual(0);
     expect(result.trendQuality.trendContinuity).toBeGreaterThanOrEqual(0);
     expect(result.entryTiming.pullbackDepth).toBeGreaterThanOrEqual(0);
-    expect(result.entryTiming.breakout).toBeGreaterThanOrEqual(0);
+    expect(result.entryTiming.priorBreakout).toBeGreaterThanOrEqual(0);
     expect(result.entryTiming.candlestickSignal).toBeGreaterThanOrEqual(0);
     expect(result.riskQuality.atrStability).toBeGreaterThanOrEqual(0);
     expect(result.riskQuality.rangeContraction).toBeGreaterThanOrEqual(0);

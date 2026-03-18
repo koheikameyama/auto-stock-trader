@@ -131,16 +131,23 @@ GATES: {
 
 **反発サイン**: 下ヒゲが実体以上のローソク足、または前日陰線→当日陽線の包み足。
 
-### 2-2. ブレイクアウト検出（12点）
+### 2-2. BO後押し目ボーナス（12点）
+
+直近にブレイクアウト（高値更新）があり、かつ現在押し目にいる場合のみ加点。
+ブレイクアウト後のサポート転換は高品質な押し目セットアップであるため、押し目深度へのボーナスとして機能する。
+
+**ゲート条件**: `pullbackDepth === 0` → 0点（押し目でないなら加点なし）
 
 | 条件 | 点数 |
 |------|------|
-| 直近20日高値を出来高増加（当日/25日平均 > 1.5）で更新 | 12 |
-| 直近20日高値を通常出来高で更新 | 7 |
-| 直近10日高値更新（20日は未更新） | 4 |
-| 高値更新なし | 0 |
+| 20日高値が1〜7日前に発生 + 出来高 > 25日平均の1.5倍 | 12 |
+| 20日高値が1〜7日前に発生 + 出来高 > 1.2倍 | 9 |
+| 20日高値が1〜7日前に発生 | 7 |
+| 10日高値が1〜5日前に発生 | 5 |
+| 現在値が20日高値の95%以上（高値圏で押している） | 2 |
+| 上記いずれにも該当しない | 0 |
 
-**高値更新判定**: `close > 直近N日間の最高値（当日除く）`。終値ベース。
+**設計意図**: ブレイクアウトは独立エントリーシグナルとしては使わない（指値ロジックが押し目買いのみのため）。代わりに「直近の強い上昇後に押している = 質の高い押し目」というコンテキスト情報として活用する。
 
 ### 2-3. ローソク足シグナル（8点）
 
@@ -277,7 +284,7 @@ interface NewLogicScore {
   entryTiming: {
     total: number;           // 0-35
     pullbackDepth: number;   // 0-15
-    breakout: number;        // 0-12
+    priorBreakout: number;   // 0-12
     candlestickSignal: number; // 0-8
   };
   riskQuality: {
@@ -314,7 +321,7 @@ model ScoringRecord {
 
   // カテゴリ内訳（JSON）
   trendQualityBreakdown   Json  // { maAlignment, weeklyTrend, trendContinuity }
-  entryTimingBreakdown    Json  // { pullbackDepth, breakout, candlestickSignal }
+  entryTimingBreakdown    Json  // { pullbackDepth, priorBreakout, candlestickSignal }
   riskQualityBreakdown    Json  // { atrStability, rangeContraction, volumeStability }
 
   // 即死ルール
@@ -409,7 +416,7 @@ AIレビュー（Go/No-Go）
     トレンド継続性: 6/10
   エントリータイミング: 30/35
     プルバック深度: 15/15
-    ブレイクアウト: 7/12
+    BO後押し目: 7/12
     ローソク足シグナル: 8/8
   リスク品質: 20/20
     ATR安定性: 10/10

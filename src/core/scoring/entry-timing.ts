@@ -76,43 +76,59 @@ export function scorePullbackDepth(
 }
 
 /**
- * ブレイクアウト検出スコア（0-12）
+ * BO後押し目ボーナス（0-12）
+ *
+ * 直近にブレイクアウト（高値更新）があり、かつ現在押し目にいる場合のみ加点。
+ * ブレイクアウト後にサポート転換した押し目は高品質なセットアップであるため、
+ * 押し目スコアへのボーナスとして機能する。
+ *
+ * ゲート: pullbackScore === 0（押し目でない）→ 0点
  */
-export function scoreBreakout(
+export function scorePriorBreakout(
   bars: OHLCVData[],
   avgVolume25: number | null,
+  pullbackScore: number,
 ): number {
+  if (pullbackScore === 0) return 0;
   if (bars.length < 2) return 0;
 
   const currentClose = bars[0].close;
-  const currentVolume = bars[0].volume;
 
-  const lookback20 = bars.slice(1, ENTRY.BREAKOUT_LOOKBACK_20 + 1);
-  const max20 = lookback20.length > 0 ? Math.max(...lookback20.map((b) => b.close)) : Infinity;
+  // --- 20日高値チェック ---
+  const lookback20 = bars.slice(0, ENTRY.PRIOR_BREAKOUT_LOOKBACK_20 + 1);
+  if (lookback20.length >= ENTRY.PRIOR_BREAKOUT_LOOKBACK_20 + 1) {
+    const closes20 = lookback20.map((b) => b.close);
+    const max20 = Math.max(...closes20);
+    const max20DaysAgo = closes20.indexOf(max20);
 
-  const lookback10 = bars.slice(1, ENTRY.BREAKOUT_LOOKBACK_10 + 1);
-  const max10 = lookback10.length > 0 ? Math.max(...lookback10.map((b) => b.close)) : Infinity;
-
-  if (currentClose > max20 && lookback20.length >= ENTRY.BREAKOUT_LOOKBACK_20) {
-    const volumeRatio = avgVolume25 && avgVolume25 > 0
-      ? currentVolume / avgVolume25
-      : 1;
-    if (volumeRatio > ENTRY.BREAKOUT_VOLUME_RATIO) return SUB_MAX.BREAKOUT; // 12
-    if (volumeRatio > 1.2) return 9;
-    return 7;
+    // 20日高値が1〜7日前に発生 = 最近ブレイクアウトした後に押している
+    if (max20DaysAgo >= 1 && max20DaysAgo <= ENTRY.PRIOR_BREAKOUT_RECENCY_20) {
+      const breakoutBar = bars[max20DaysAgo];
+      const volumeRatio = avgVolume25 && avgVolume25 > 0
+        ? breakoutBar.volume / avgVolume25
+        : 1;
+      if (volumeRatio > ENTRY.PRIOR_BREAKOUT_VOLUME_RATIO) return SUB_MAX.PRIOR_BREAKOUT; // 12
+      if (volumeRatio > 1.2) return 9;
+      return 7;
+    }
   }
 
-  if (currentClose > max10 && lookback10.length >= ENTRY.BREAKOUT_LOOKBACK_10) {
-    const volumeRatio = avgVolume25 && avgVolume25 > 0
-      ? currentVolume / avgVolume25
-      : 1;
-    if (volumeRatio > ENTRY.BREAKOUT_VOLUME_RATIO) return 8;
-    return 5;
-  }
+  // --- 10日高値チェック ---
+  const lookback10 = bars.slice(0, ENTRY.PRIOR_BREAKOUT_LOOKBACK_10 + 1);
+  if (lookback10.length >= ENTRY.PRIOR_BREAKOUT_LOOKBACK_10 + 1) {
+    const closes10 = lookback10.map((b) => b.close);
+    const max10 = Math.max(...closes10);
+    const max10DaysAgo = closes10.indexOf(max10);
 
-  // 10日高値の95%以上（高値圏だがブレイクしていない）→ 2
-  if (max10 < Infinity && currentClose >= max10 * 0.95) {
-    return 2;
+    // 10日高値が1〜5日前に発生
+    if (max10DaysAgo >= 1 && max10DaysAgo <= ENTRY.PRIOR_BREAKOUT_RECENCY_10) {
+      return 5;
+    }
+
+    // 高値圏で押している（20日高値の95%以上）
+    if (currentClose >= max10 * ENTRY.PRIOR_BREAKOUT_NEAR_HIGH_PCT) {
+      return 2;
+    }
   }
 
   return 0;
@@ -195,13 +211,13 @@ export function scoreEntryTiming(input: EntryTimingInput) {
   const pullbackDepth = scorePullbackDepth(
     input.close, input.sma5, input.sma25, input.deviationRate25, input.bars,
   );
-  const breakout = scoreBreakout(input.bars, input.avgVolume25);
+  const priorBreakout = scorePriorBreakout(input.bars, input.avgVolume25, pullbackDepth);
   const candlestickSignal = scoreCandlestickSignal(input.bars, input.avgVolume25);
 
   return {
-    total: pullbackDepth + breakout + candlestickSignal,
+    total: pullbackDepth + priorBreakout + candlestickSignal,
     pullbackDepth,
-    breakout,
+    priorBreakout,
     candlestickSignal,
   };
 }

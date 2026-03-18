@@ -43,7 +43,7 @@ export interface ScoredRecord {
   entryTimingScore: number;
   entryTimingBreakdown: {
     pullbackDepth: number;
-    breakout: number;
+    priorBreakout: number;
     candlestickSignal: number;
   };
   riskQualityScore: number;
@@ -180,7 +180,7 @@ export function scoreDayForAllStocks(
         entryTimingScore: score.entryTiming.total,
         entryTimingBreakdown: {
           pullbackDepth: score.entryTiming.pullbackDepth,
-          breakout: score.entryTiming.breakout,
+          priorBreakout: score.entryTiming.priorBreakout,
           candlestickSignal: score.entryTiming.candlestickSignal,
         },
         riskQualityScore: score.riskQuality.total,
