@@ -137,11 +137,11 @@ model ScoringRecord {
   totalScore   Int
   rank         String   // S / A / B / C
 
-  // カテゴリ別スコア（4カテゴリ構造）
+  // カテゴリ別スコア（3カテゴリ + セクターボーナス）
   trendQualityScore    Int   // 0-40
   entryTimingScore     Int   // 0-35
-  riskQualityScore     Int   // 0-20
-  sectorMomentumScore  Int   @default(0) // 0-5
+  riskQualityScore     Int   // 0-25
+  sectorMomentumScore  Int   @default(0) // -3〜+5（ボーナス/ペナルティ）
 
   // カテゴリ内訳（JSON）
   trendQualityBreakdown  Json  // { maAlignment, weeklyTrend, trendContinuity }
@@ -241,8 +241,12 @@ model TradingPosition {
   entryAtr          Decimal? @db.Decimal(10, 2) // エントリー時のATR(14)
   reviewComments    String?  @db.Text           // AIによる振り返り分析
 
+  // 保有継続スコアリングによるTS倍率オーバーライド
+  holdingScoreTrailOverride Decimal? @db.Decimal(5, 2)
+
   orders              TradingOrder[]
   defensiveFollowUp   DefensiveExitFollowUp?
+  holdingScores       HoldingScoreRecord[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -250,6 +254,41 @@ model TradingPosition {
   @@index([status])
   @@index([stockId])
   @@index([createdAt(sort: Desc)])
+}
+
+// 保有継続スコアリング記録（日次）
+model HoldingScoreRecord {
+  id         String   @id @default(cuid())
+  date       DateTime @db.Date
+  positionId String
+  position   TradingPosition @relation(fields: [positionId], references: [id])
+  tickerCode String
+
+  // スコア
+  totalScore          Int    // 0-67
+  holdingRank         String // strong / healthy / weakening / deteriorating / critical
+  trendQualityScore   Int    // 0-40
+  riskQualityScore    Int    // 0-25
+  sectorMomentumScore Int    // -3〜+5
+
+  // 内訳（JSON）
+  trendQualityBreakdown Json
+  riskQualityBreakdown  Json
+  gateResult            Json
+  alerts                Json?
+
+  // ポジションコンテキスト
+  currentPrice     Decimal @db.Decimal(10, 2)
+  unrealizedPnlPct Decimal @db.Decimal(8, 4)
+  holdingDays      Int
+
+  // アクション結果
+  actionTaken String? // ts_tightened / early_exit / null
+
+  createdAt DateTime @default(now())
+
+  @@unique([date, positionId])
+  @@index([positionId])
 }
 
 // ニュース記事（生データ）

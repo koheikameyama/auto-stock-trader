@@ -1,28 +1,27 @@
-import { ATR } from "technicalindicators";
-import {
-  calculateSMA,
-  aggregateDailyToWeekly,
-} from "../../lib/technical-indicators";
-import { calculateBBWidthPercentile } from "../../lib/technical-indicators/bb-width-history";
-import { SCORING, SECTOR_MOMENTUM_SCORING } from "../../lib/constants/scoring";
+import { SCORING } from "../../lib/constants/scoring";
 import { checkGates } from "./gates";
-import { scoreTrendQuality, countDaysAboveSma25 } from "./trend-quality";
+import { scoreTrendQuality } from "./trend-quality";
 import { scoreEntryTiming } from "./entry-timing";
-import {
-  scoreRiskQuality,
-  calculateAtrCv,
-  calculateVolumeCv,
-} from "./risk-quality";
+import { scoreRiskQuality } from "./risk-quality";
 import { scoreSectorMomentum } from "./sector-momentum";
+import { computeScoringIntermediates } from "./intermediates";
 import { getRank } from "./types";
 import type { ScoringInput, NewLogicScore } from "./types";
 
 export type { ScoringInput, NewLogicScore, ScoringGateResult } from "./types";
-export { getRank } from "./types";
+export type {
+  HoldingScore,
+  HoldingRank,
+  HoldingGateResult,
+  HoldingAlert,
+} from "./types";
+export { getRank, getHoldingRank } from "./types";
+export { scoreHolding } from "./holding";
 
 /**
- * メインスコアリング関数
- * 4カテゴリ（トレンド品質40 + エントリータイミング35 + リスク品質20 + セクターモメンタム5）= 100点満点
+ * メインスコアリング関数（エントリー判断用）
+ * 3カテゴリ（トレンド品質40 + エントリータイミング35 + リスク品質25）= 100点満点
+ * + セクターモメンタムボーナス（-3〜+5）
  */
 export function scoreStock(input: ScoringInput): NewLogicScore {
   const { historicalData, latestPrice, summary, avgVolume25 } = input;
@@ -56,24 +55,19 @@ export function scoreStock(input: ScoringInput): NewLogicScore {
 
   if (!gate.passed) return zeroResult;
 
-  // --- 2. 週足データ合成 ---
-  const dailyOldestFirst = [...historicalData].reverse();
-  const weeklyBars = aggregateDailyToWeekly(dailyOldestFirst);
-
-  let weeklyClose: number | null = null;
-  let weeklySma13: number | null = null;
-  let prevWeeklySma13: number | null = null;
-
-  if (weeklyBars.length >= 14) {
-    const weeklyNewestFirst = [...weeklyBars].reverse().map((b) => ({ close: b.close }));
-    weeklySma13 = calculateSMA(weeklyNewestFirst, 13);
-    weeklyClose = weeklyNewestFirst[0].close;
-
-    // 前週のSMA13: 1本ずらして計算
-    if (weeklyNewestFirst.length >= 14) {
-      prevWeeklySma13 = calculateSMA(weeklyNewestFirst.slice(1), 13);
-    }
-  }
+  // --- 2. 中間値計算（共通ヘルパー） ---
+  const intermediates = computeScoringIntermediates(historicalData);
+  const {
+    weeklyClose,
+    weeklySma13,
+    prevWeeklySma13,
+    daysAboveSma25,
+    atrCv,
+    volumeCv,
+    volumeMA5,
+    volumeMA25,
+    bbWidthPercentile,
+  } = intermediates;
 
   // 週足下降トレンド即死ルール: 週足SMA13を下回る銘柄はエントリー禁止
   if (weeklySma13 != null && weeklyClose != null && weeklyClose < weeklySma13) {
@@ -84,31 +78,7 @@ export function scoreStock(input: ScoringInput): NewLogicScore {
     };
   }
 
-  // --- 3. SMA25上の連続日数 ---
-  const daysAboveSma25 = countDaysAboveSma25(historicalData);
-
-  // --- 4. ATR14のCV ---
-  const atr14Values = computeAtr14Series(historicalData);
-  const atrCv = calculateAtrCv(atr14Values);
-
-  // --- 5. 出来高CV ---
-  const volumes = historicalData.map((d) => d.volume);
-  const volumeCv = calculateVolumeCv(volumes);
-
-  // --- 6. 出来高MA ---
-  const volumeNewestFirst = historicalData.map((d) => ({ close: d.volume }));
-  const volumeMA5 = calculateSMA(volumeNewestFirst, 5);
-  const volumeMA25 = calculateSMA(volumeNewestFirst, 25);
-
-  // --- 7. BB幅パーセンタイル ---
-  const closePrices = historicalData.map((d) => d.close);
-  const bbWidthPercentile = calculateBBWidthPercentile(
-    closePrices,
-    20,
-    SCORING.RISK.BB_WIDTH_LOOKBACK,
-  );
-
-  // --- 8. 各カテゴリスコアリング ---
+  // --- 3. 各カテゴリスコアリング ---
   const trendQuality = scoreTrendQuality({
     close: latestPrice,
     sma5: summary.sma5,
@@ -137,11 +107,12 @@ export function scoreStock(input: ScoringInput): NewLogicScore {
     volumeCv,
   });
 
-  // --- sector momentum ---
+  // --- sector momentum bonus ---
   const sectorMomentumScore = scoreSectorMomentum(input.sectorRelativeStrength);
 
-  // --- 9. 合計 & ランク ---
-  const totalScore = trendQuality.total + entryTiming.total + riskQuality.total + sectorMomentumScore;
+  // --- 4. 合計 & ランク ---
+  const baseScore = trendQuality.total + entryTiming.total + riskQuality.total;
+  const totalScore = Math.min(100, Math.max(0, baseScore + sectorMomentumScore));
 
   return {
     totalScore,
@@ -155,28 +126,6 @@ export function scoreStock(input: ScoringInput): NewLogicScore {
     disqualifyReason: null,
   };
 }
-
-/**
- * ATR(14)の直近20日分の時系列を計算
- * @param data OHLCVデータ（newest-first）
- * @returns ATR14値の配列（newest-first）
- */
-function computeAtr14Series(data: OHLCVData[]): number[] {
-  if (data.length < 34) return []; // 14(ATR期間) + 20(CV計算) = 34
-
-  const reversed = [...data].reverse();
-  const result = ATR.calculate({
-    high: reversed.map((d) => d.high),
-    low: reversed.map((d) => d.low),
-    close: reversed.map((d) => d.close),
-    period: 14,
-  });
-
-  // oldest-first → newest-first
-  return [...result].reverse();
-}
-
-type OHLCVData = ScoringInput["historicalData"][0];
 
 /**
  * NewLogicScore をAIレビュー向けにフォーマット
@@ -213,8 +162,9 @@ export function formatScoreForAI(
   lines.push(`    レンジ収束: ${score.riskQuality.rangeContraction}/${SCORING.SUB_MAX.RANGE_CONTRACTION}`);
   lines.push(`    出来高安定: ${score.riskQuality.volumeStability}/${SCORING.SUB_MAX.VOLUME_STABILITY}`);
 
-  // セクターモメンタム（5点）
-  lines.push(`  セクターモメンタム: ${score.sectorMomentumScore}/${SECTOR_MOMENTUM_SCORING.CATEGORY_MAX}`);
+  // セクターモメンタムボーナス
+  const sectorSign = score.sectorMomentumScore >= 0 ? "+" : "";
+  lines.push(`  セクターボーナス: ${sectorSign}${score.sectorMomentumScore}`);
 
   // テクニカル参考値
   const refParts: string[] = [];

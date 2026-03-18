@@ -58,9 +58,52 @@ export interface NewLogicScore {
   disqualifyReason: string | null;
 }
 
-import { SCORING } from "../../lib/constants/scoring";
+/** 保有継続スコア結果 */
+export interface HoldingScore {
+  totalScore: number; // 0-67
+  holdingRank: HoldingRank;
+  trendQuality: {
+    total: number;
+    maAlignment: number;
+    weeklyTrend: number;
+    trendContinuity: number;
+  };
+  riskQuality: {
+    total: number;
+    atrStability: number;
+    rangeContraction: number;
+    volumeStability: number;
+  };
+  sectorMomentumScore: number;
+  gate: HoldingGateResult;
+  alerts: HoldingAlert[];
+}
 
-/** ランク判定 */
+export type HoldingRank =
+  | "strong"
+  | "healthy"
+  | "weakening"
+  | "deteriorating"
+  | "critical";
+
+export interface HoldingGateResult {
+  passed: boolean;
+  failedGate: "liquidity_dried" | "weekly_breakdown" | null;
+}
+
+export interface HoldingAlert {
+  type:
+    | "trend_collapse"
+    | "risk_spike"
+    | "sector_weakness"
+    | "liquidity_warning";
+  severity: "warning" | "critical";
+  message: string;
+}
+
+import { SCORING, HOLDING_SCORE } from "../../lib/constants/scoring";
+
+/** ランク判定（エントリースコア用） */
 export function getRank(score: number): NewLogicScore["rank"] {
   const { S_RANK, A_RANK, B_RANK, C_RANK } = SCORING.THRESHOLDS;
   if (score >= S_RANK) return "S";
@@ -68,4 +111,14 @@ export function getRank(score: number): NewLogicScore["rank"] {
   if (score >= B_RANK) return "B";
   if (score >= C_RANK) return "C";
   return "D";
+}
+
+/** ランク判定（保有継続スコア用） */
+export function getHoldingRank(score: number): HoldingRank {
+  const { STRONG, HEALTHY, WEAKENING, DETERIORATING } = HOLDING_SCORE.RANKS;
+  if (score >= STRONG) return "strong";
+  if (score >= HEALTHY) return "healthy";
+  if (score >= WEAKENING) return "weakening";
+  if (score >= DETERIORATING) return "deteriorating";
+  return "critical";
 }

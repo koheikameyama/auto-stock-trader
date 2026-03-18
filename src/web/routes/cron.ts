@@ -25,6 +25,7 @@ import { main as runScoringAccuracy } from "../../jobs/scoring-accuracy";
 import { main as runDefensiveExitFollowup } from "../../jobs/defensive-exit-followup";
 import { main as runUnfilledOrderFollowup } from "../../jobs/unfilled-order-followup";
 import { main as runDataCleanup } from "../../jobs/data-cleanup";
+import { main as runHoldingScore } from "../../jobs/holding-score";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -48,6 +49,7 @@ const JOBS: Record<string, JobDef> = {
   "scoring-accuracy": { fn: runScoringAccuracy, requiresMarketDay: true },
   "defensive-exit-followup": { fn: runDefensiveExitFollowup, requiresMarketDay: true },
   "unfilled-order-followup": { fn: runUnfilledOrderFollowup, requiresMarketDay: true },
+  "holding-score": { fn: runHoldingScore, requiresMarketDay: true },
   "jpx-delisting-sync": { fn: runDelistingSync, requiresMarketDay: false },
   "data-cleanup": { fn: runDataCleanup, requiresMarketDay: false },
 };

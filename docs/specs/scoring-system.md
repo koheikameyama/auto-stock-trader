@@ -2,9 +2,9 @@
 
 ## 概要
 
-正の期待値を実現するための**4カテゴリ＋ゲート方式のスコアリングシステム（100点満点）**。
+正の期待値を実現するための**3カテゴリ＋セクターボーナス＋ゲート方式のスコアリングシステム（100点満点）**。
 
-「この銘柄は良い銘柄か？」ではなく「この銘柄に**今入るべきか？**」を測る設計。ゲート（即死ルール）でバイナリに足切りした後、トレンド品質・エントリータイミング・リスク品質の4カテゴリで合計100点満点のスコアを算出する。
+「この銘柄は良い銘柄か？」ではなく「この銘柄に**今入るべきか？**」を測る設計。ゲート（即死ルール）でバイナリに足切りした後、トレンド品質・エントリータイミング・リスク品質の3カテゴリで合計100点満点のベーススコアを算出し、セクターモメンタムボーナス（-3〜+5）を加減する。
 
 **設計方針**: エントリータイミングの精度を最重視し、トレンドフォロー戦略に特化。流動性やファンダメンタルズはスコアではなくゲート（バイナリ判定）で処理する。
 
@@ -15,11 +15,11 @@
 ```
 ゲート（即死ルール） → 不合格なら即除外（isDisqualified=true）
   ↓ 合格
-4カテゴリスコアリング（100点満点）
+3カテゴリスコアリング（100点満点）
   ├─ トレンド品質       (40点)
   ├─ エントリータイミング (35点)
-  ├─ リスク品質         (20点)
-  └─ セクターモメンタム   (5点)
+  └─ リスク品質         (25点)
+  + セクターモメンタムボーナス (-3〜+5)
   ↓
 ランク判定（S/A/B/C/D）
   ↓
@@ -65,8 +65,8 @@ GATES: {
 |---------|------|------|
 | トレンド品質 | **40点** | 今トレンドが出ているか、信頼できるか |
 | エントリータイミング | **35点** | 今がエントリーすべきタイミングか |
-| リスク品質 | **20点** | リスクは管理可能か |
-| セクターモメンタム | **5点** | セクターに追い風があるか |
+| リスク品質 | **25点** | リスクは管理可能か |
+| セクターモメンタム | **-3〜+5（ボーナス）** | セクターの追い風/逆風を加減 |
 
 ---
 
@@ -163,7 +163,7 @@ GATES: {
 
 ---
 
-## カテゴリ3: リスク品質（20点）
+## カテゴリ3: リスク品質（25点）
 
 ### 3-1. ATR安定性（10点）
 
@@ -187,42 +187,56 @@ CV = ATR14の直近20日間の標準偏差 / 平均値。
 
 BB幅 = `BB上限(20,2σ) - BB下限(20,2σ)`。直近60営業日分のBB幅から当日のパーセンタイル順位を算出。
 
-### 3-3. 出来高安定性（2点）
+### 3-3. 出来高安定性（7点）
 
 | 条件 | 点数 |
 |------|------|
-| 出来高5日MA > 25日MA & CV < 0.5 | 2 |
-| それ以外 | 0 |
+| 出来高5日MA > 25日MA & CV < 0.5 | 7（増加+安定） |
+| 出来高5日MA > 25日MA & CV < 0.8 | 5（増加+やや安定） |
+| CV < 0.5（増加なし） | 3（安定のみ） |
+| CV < 0.8（増加なし） | 1（やや安定） |
+| CV >= 0.8 | 0（不安定） |
 
 出来高CV = 直近25日間の日次出来高の標準偏差 / 平均値。
 
 ---
 
-## カテゴリ4: セクターモメンタム（5点）
+## セクターモメンタムボーナス（-3〜+5）
 
-セクター相対強度（対日経225の週間パフォーマンス差）をスコアに反映する。
+セクター相対強度（対日経225の週間パフォーマンス差）をボーナス/ペナルティとして最終スコアに加減する。
+3カテゴリの合計（ベーススコア）に対して加算し、0〜100の範囲にクランプする。
 
 ### 入力
 
 `calculateSectorMomentum()` が返す `relativeStrength`（セクター平均週間変化率 - 日経225週間変化率）
 
-### スコア変換テーブル
+### ボーナス変換テーブル
 
 上位の条件から順にマッチする（`>=` 比較）：
 
-| 相対強度（%） | スコア | 解釈 |
+| 相対強度（%） | ボーナス | 解釈 |
 |---|---|---|
-| >= +3.0% | 5 | セクター大幅アウトパフォーム |
-| >= +1.5% | 4 | 明確にアウトパフォーム |
-| >= +0.5% | 3 | やや強い |
-| >= -0.5% | 2 | 市場並み |
-| >= -2.0% | 1 | やや弱い |
-| < -2.0% | 0 | 弱セクター |
+| >= +2.0% | +5 | セクター大幅アウトパフォーム |
+| >= +1.0% | +3 | 明確にアウトパフォーム |
+| >= +0.5% | +1 | やや強い |
+| >= -0.5% | 0 | 市場並み（ニュートラル） |
+| >= -2.0% | -2 | やや弱い |
+| < -2.0% | -3 | 弱セクター |
 
 ### セクター不明時・銘柄数不足時
 
-- `getSectorGroup()` が `null` を返す場合 → デフォルト2点（市場並み）
-- セクターグループの銘柄数が3未満 → デフォルト2点（統計的に不安定）
+- `getSectorGroup()` が `null` を返す場合 → デフォルト0（ニュートラル）
+- セクターグループの銘柄数が3未満 → デフォルト0（統計的に不安定）
+
+### スコア計算
+
+```
+最終スコア = min(100, max(0, ベーススコア + セクターボーナス))
+```
+
+- テクニカルのみで80点以上 → セクター中立でもSランク到達
+- テクニカル77点 + 追い風(+3) → 80点でSランクにブースト
+- テクニカル82点 + 逆風(-3) → 79点でAランクに降格
 
 ---
 
@@ -288,12 +302,12 @@ interface NewLogicScore {
     candlestickSignal: number; // 0-8
   };
   riskQuality: {
-    total: number;            // 0-20
+    total: number;            // 0-25
     atrStability: number;     // 0-10
     rangeContraction: number; // 0-8
-    volumeStability: number;  // 0-2
+    volumeStability: number;  // 0-7
   };
-  sectorMomentumScore: number; // 0-5
+  sectorMomentumScore: number; // -3〜+5（ボーナス/ペナルティ）
   isDisqualified: boolean;
   disqualifyReason: string | null;
 }
@@ -316,8 +330,8 @@ model ScoringRecord {
   // カテゴリ別スコア
   trendQualityScore      Int   // 0-40
   entryTimingScore       Int   // 0-35
-  riskQualityScore       Int   // 0-20
-  sectorMomentumScore    Int   @default(0) // 0-5
+  riskQualityScore       Int   // 0-25
+  sectorMomentumScore    Int   @default(0) // -3〜+5（ボーナス/ペナルティ）
 
   // カテゴリ内訳（JSON）
   trendQualityBreakdown   Json  // { maAlignment, weeklyTrend, trendContinuity }
@@ -364,8 +378,8 @@ model ScoringRecord {
 | `src/core/scoring/gates.ts` | ゲート判定（即死ルール + 流動性ゲート） |
 | `src/core/scoring/trend-quality.ts` | トレンド品質スコア（40点） |
 | `src/core/scoring/entry-timing.ts` | エントリータイミングスコア（35点） |
-| `src/core/scoring/risk-quality.ts` | リスク品質スコア（20点） |
-| `src/core/scoring/sector-momentum.ts` | セクターモメンタムスコア（5点） |
+| `src/core/scoring/risk-quality.ts` | リスク品質スコア（25点） |
+| `src/core/scoring/sector-momentum.ts` | セクターモメンタムボーナス（-3〜+5） |
 | `src/core/scoring/types.ts` | 型定義（NewLogicScore, ScoringGateResult, ScoringInput） |
 | `src/core/scoring/index.ts` | メインエントリー: `scoreStock()`, `formatScoreForAI()` |
 | `src/lib/constants/scoring.ts` | 定数定義（SCORING） |
@@ -383,8 +397,8 @@ Pass 1: データ取得（並列）— historicalData, technicals 等
   → 不合格: isDisqualified=true, DB記録
   → 合格: スコアリングへ
   ↓
-4カテゴリスコアリング
-  → トレンド品質(40) + エントリータイミング(35) + リスク品質(20) + セクターモメンタム(5) = 総合スコア
+3カテゴリスコアリング + セクターボーナス
+  → トレンド品質(40) + エントリータイミング(35) + リスク品質(25) = ベーススコア + セクターボーナス(-3〜+5) = 総合スコア
   ↓
 逆行ボーナス加算（contrarianBonus）
   ↓
@@ -418,11 +432,11 @@ AIレビュー（Go/No-Go）
     プルバック深度: 15/15
     BO後押し目: 7/12
     ローソク足シグナル: 8/8
-  リスク品質: 20/20
+  リスク品質: 25/25
     ATR安定性: 10/10
     レンジ収縮: 8/8
-    出来高安定性: 2/2
-  セクターモメンタム: 4/5
+    出来高安定性: 7/7
+  セクターボーナス: +3
 ```
 
 ---
@@ -480,3 +494,99 @@ AIレビュー（Go/No-Go）
 | RS（相対強度） | 15点 | 廃止（MA配列・週足トレンドと重複） |
 | ランク | S/A/B/C | S/A/B/C/D（35点未満がD） |
 | 即死ルール | スプレッド, ボラ, 価格, 決算, 配当 | + 流動性ゲート + 最低ボラゲート |
+
+---
+
+## 保有継続スコアリング（Holding Score）
+
+### 概要
+
+オープンポジションの銘柄を日次評価し、トレンド劣化時にトレーリングストップを引き締めて早期撤退を可能にする。エントリータイミング（35点）を除外し、**トレンド品質（40点）+ リスク品質（25点）+ セクターモメンタムボーナス（-3〜+5）**で評価する。
+
+### スコア構成（65点満点 + セクター補正最大+5 = 最大67点）
+
+| カテゴリ | 配点 | 内容 |
+|---------|------|------|
+| トレンド品質 | 40点 | MA配列・週足トレンド・トレンド継続性（エントリー用と同一ロジック） |
+| リスク品質 | 25点 | ATR安定性・レンジ収縮・出来高安定性（エントリー用と同一ロジック） |
+| セクターモメンタム | -3〜+5 | セクター相対強度ボーナス（エントリー用と同一ロジック） |
+
+### 保有用ゲート（即死ルール）
+
+| ゲート | 条件 | 理由 |
+|--------|------|------|
+| 流動性枯渇 | avgVolume25 < 30,000 | エントリー時(50k)より低い閾値。流動性枯渇で撤退困難 |
+| 週足崩壊 | weeklyClose < weeklySMA13 | トレンドフォロー戦略の前提崩壊 |
+
+### ランク定義
+
+| ランク | スコア | 意味 | アクション |
+|--------|--------|------|-----------|
+| strong | 50-67 | トレンド健全 | 通常監視 |
+| healthy | 40-49 | 正常 | 通常監視 |
+| weakening | 30-39 | 劣化傾向 | TS引き締め（×0.7） |
+| deteriorating | 20-29 | 大幅劣化 | TS引き締め（×0.5） |
+| critical | 0-19 | トレンド崩壊 | TS引き締め（×0.5）+ Slack警告 |
+
+### アラート
+
+| タイプ | 重要度 | 条件 |
+|--------|--------|------|
+| trend_collapse | critical | 週足SMA13割れ |
+| trend_collapse | warning | トレンド品質 ≤ 10/40 |
+| risk_spike | warning | リスク品質 ≤ 5/25 |
+| sector_weakness | warning | セクターモメンタム ≤ -2 |
+| liquidity_warning | critical | 25日平均出来高 < 30,000 |
+| score_drop | critical | 前日比15点以上急落 |
+
+### position-monitor連携
+
+`holdingScoreTrailOverride` に実際のATR倍率値（例: 2.0 × 0.7 = 1.4）を保存。position-monitorが既存のoverride（連休前引き締め、cautious引き締め）と比較し、最も保守的な値を採用する。
+
+### 出力インターフェース
+
+```typescript
+interface HoldingScore {
+  totalScore: number;        // 0-67
+  holdingRank: "strong" | "healthy" | "weakening" | "deteriorating" | "critical";
+  trendQuality: { total: number; maAlignment: number; weeklyTrend: number; trendContinuity: number };
+  riskQuality: { total: number; atrStability: number; rangeContraction: number; volumeStability: number };
+  sectorMomentumScore: number;
+  gate: { passed: boolean; failedGate: "liquidity_dried" | "weekly_breakdown" | null };
+  alerts: { type: string; severity: "warning" | "critical"; message: string }[];
+}
+```
+
+### データ保存（HoldingScoreRecord）
+
+```prisma
+model HoldingScoreRecord {
+  id           String   @id @default(cuid())
+  date         DateTime @db.Date
+  positionId   String
+  tickerCode   String
+  totalScore          Int      // 0-67
+  holdingRank         String   // strong/healthy/weakening/deteriorating/critical
+  trendQualityScore   Int      // 0-40
+  riskQualityScore    Int      // 0-25
+  sectorMomentumScore Int      // -3〜+5
+  trendQualityBreakdown Json
+  riskQualityBreakdown  Json
+  gateResult            Json
+  alerts                Json?
+  currentPrice     Decimal @db.Decimal(10, 2)
+  unrealizedPnlPct Decimal @db.Decimal(8, 4)
+  holdingDays      Int
+  actionTaken      String?  // ts_tightened / null
+  @@unique([date, positionId])
+}
+```
+
+### 実装ファイル
+
+| ファイル | 役割 |
+|----------|------|
+| `src/core/scoring/holding.ts` | `scoreHolding()` メイン関数 |
+| `src/core/scoring/intermediates.ts` | 中間計算ヘルパー（`scoreStock()`と共有） |
+| `src/jobs/holding-score.ts` | 日次バッチジョブ |
+| `src/lib/constants/scoring.ts` | `HOLDING_SCORE` 定数 |

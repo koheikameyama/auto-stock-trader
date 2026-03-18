@@ -249,7 +249,7 @@ app.get("/", async (c) => {
     { category: "トレンド品質", maxScore: SCORING.CATEGORY_MAX.TREND_QUALITY, key: "trendQualityScore" as const },
     { category: "エントリータイミング", maxScore: SCORING.CATEGORY_MAX.ENTRY_TIMING, key: "entryTimingScore" as const },
     { category: "リスク品質", maxScore: SCORING.CATEGORY_MAX.RISK_QUALITY, key: "riskQualityScore" as const },
-    { category: "セクターモメンタム", maxScore: SECTOR_MOMENTUM_SCORING.CATEGORY_MAX, key: "sectorMomentumScore" as const },
+    { category: "セクターボーナス", maxScore: SECTOR_MOMENTUM_SCORING.BONUS_MAX, key: "sectorMomentumScore" as const },
   ].map(({ category, maxScore, key }) => {
     const wAvg = avgScore(winners, key);
     const lAvg = avgScore(losers, key);

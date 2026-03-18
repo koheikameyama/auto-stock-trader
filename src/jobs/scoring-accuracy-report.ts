@@ -64,8 +64,8 @@ function analyzeCategoryWeakness(missedStocks: ScoringRecordRow[]) {
       getScore: (r: ScoringRecordRow) => r.riskQualityScore,
     },
     {
-      key: "セクターモメンタム",
-      maxScore: SECTOR_MOMENTUM_SCORING.CATEGORY_MAX,
+      key: "セクターボーナス",
+      maxScore: SECTOR_MOMENTUM_SCORING.BONUS_MAX,
       getScore: (r: ScoringRecordRow) => r.sectorMomentumScore,
     },
   ];

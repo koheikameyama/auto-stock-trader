@@ -52,19 +52,23 @@ describe("scoreRangeContraction", () => {
 });
 
 describe("scoreVolumeStability", () => {
-  it("5日MA > 25日MA & CV < 0.5 → 2", () => {
-    expect(scoreVolumeStability(15000, 10000, 0.3)).toBe(2);
+  it("5日MA > 25日MA & CV < 0.5 → 7 (増加+安定)", () => {
+    expect(scoreVolumeStability(15000, 10000, 0.3)).toBe(7);
   });
 
-  it("5日MA > 25日MA & CV 0.5-0.8 → 0", () => {
-    expect(scoreVolumeStability(15000, 10000, 0.6)).toBe(0);
+  it("5日MA > 25日MA & CV 0.5-0.8 → 5 (増加+やや安定)", () => {
+    expect(scoreVolumeStability(15000, 10000, 0.6)).toBe(5);
   });
 
-  it("5日MA <= 25日MA → 0", () => {
-    expect(scoreVolumeStability(8000, 10000, 0.3)).toBe(0);
+  it("5日MA <= 25日MA & CV < 0.5 → 3 (安定のみ)", () => {
+    expect(scoreVolumeStability(8000, 10000, 0.3)).toBe(3);
   });
 
-  it("CV > 0.8 → 0", () => {
+  it("5日MA <= 25日MA & CV 0.5-0.8 → 1 (やや安定)", () => {
+    expect(scoreVolumeStability(8000, 10000, 0.6)).toBe(1);
+  });
+
+  it("CV >= 0.8 → 0 (不安定)", () => {
     expect(scoreVolumeStability(15000, 10000, 0.9)).toBe(0);
   });
 
