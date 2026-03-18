@@ -104,13 +104,6 @@ export async function main() {
   console.log("=== Market Scanner 開始 ===");
   let isShadowMode = false;
 
-  // 0. 保有継続スコアリング（オープンポジションのTS引き締め判定）
-  try {
-    await runHoldingScore();
-  } catch (error) {
-    console.error("保有スコアリングエラー（スキャン続行）:", error);
-  }
-
   // 1. 市場指標データ取得
   console.log("[1/5] 市場指標データ取得中...");
   const marketData = await fetchMarketData();
@@ -346,6 +339,13 @@ ${sectorText || "  特になし"}`;
       create: { date: getTodayForDB(), ...drawdownAssessmentData },
     });
     isShadowMode = true;
+  }
+
+  // 1.95. 保有継続スコアリング（レジーム判定後に実行 → レジーム対応TS引き締め）
+  try {
+    await runHoldingScore(regime);
+  } catch (error) {
+    console.error("保有スコアリングエラー（スキャン続行）:", error);
   }
 
   // 2. AI市場評価（VIX/ドローダウンでshadow modeの場合はスキップ）

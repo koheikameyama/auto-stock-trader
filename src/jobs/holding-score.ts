@@ -3,7 +3,7 @@
  *
  * オープンポジションの銘柄に対して日次スコアリングを実行し、
  * スコア悪化時にトレーリングストップの引き締めを適用する。
- * market-scanner の冒頭で呼び出される（前日終値ベース → 当日のTS引き締めに反映）。
+ * market-scanner のレジーム判定後に呼び出される（前日終値ベース + レジーム情報 → 当日のTS引き締めに反映）。
  */
 
 import pLimit from "p-limit";
@@ -20,6 +20,7 @@ import { HOLDING_SCORE, SECTOR_MOMENTUM_SCORING } from "../lib/constants/scoring
 import { TRAILING_STOP } from "../lib/constants";
 import { notifySlack, notifyRiskAlert } from "../lib/slack";
 import type { HoldingScore, HoldingRank } from "../core/scoring/types";
+import type { MarketRegime } from "../core/market-regime";
 
 const limit = pLimit(HOLDING_SCORE.CONCURRENCY);
 
@@ -33,8 +34,9 @@ interface PositionScoreResult {
   previousScore: number | null;
 }
 
-export async function main() {
-  console.log("=== Holding Score 開始 ===");
+export async function main(regime?: MarketRegime) {
+  const regimeLevel = regime?.level ?? "normal";
+  console.log(`=== Holding Score 開始 (レジーム: ${regimeLevel}) ===`);
 
   // 1. オープンポジション一括取得
   const positions = await getOpenPositions();
@@ -208,7 +210,7 @@ export async function main() {
 
   // 6. アクション適用（holdingScoreTrailOverride）
   for (const r of results) {
-    const trailOverride = computeTrailOverride(r.score.holdingRank);
+    const trailOverride = computeTrailOverride(r.score.holdingRank, regimeLevel);
     await prisma.tradingPosition.update({
       where: { id: r.positionId },
       data: { holdingScoreTrailOverride: trailOverride },
@@ -227,7 +229,7 @@ export async function main() {
   }
 
   // 8. Slack通知
-  await sendSlackSummary(results, dropAlerts);
+  await sendSlackSummary(results, dropAlerts, regimeLevel);
 
   console.log("=== Holding Score 完了 ===");
 }
@@ -247,21 +249,40 @@ function getActionTaken(rank: HoldingRank): string | null {
 }
 
 /**
- * ランクに応じたトレーリングストップATR倍率を計算
+ * ランク + レジームに応じたトレーリングストップATR倍率を計算
  * position-monitor が読み取る実際のATR倍率値を返す
+ *
+ * ランク倍率とレジーム倍率の小さい方（より引き締める方）を採用:
+ *   normal + healthy → null(2.0)  |  elevated + healthy → 1.7
+ *   normal + weakening → 1.4      |  crisis + healthy → 1.0
  */
-function computeTrailOverride(rank: HoldingRank): number | null {
+function computeTrailOverride(rank: HoldingRank, regimeLevel: string = "normal"): number | null {
   const normalTrail = TRAILING_STOP.TRAIL_ATR_MULTIPLIER.swing;
 
+  // ランクベースの倍率
+  let rankMultiplier: number;
   switch (rank) {
     case "weakening":
-      return normalTrail * HOLDING_SCORE.ACTIONS.TS_TIGHTEN_MULTIPLIER_WEAKENING;
+      rankMultiplier = HOLDING_SCORE.ACTIONS.TS_TIGHTEN_MULTIPLIER_WEAKENING;
+      break;
     case "deteriorating":
     case "critical":
-      return normalTrail * HOLDING_SCORE.ACTIONS.TS_TIGHTEN_MULTIPLIER_DETERIORATING;
+      rankMultiplier = HOLDING_SCORE.ACTIONS.TS_TIGHTEN_MULTIPLIER_DETERIORATING;
+      break;
     default:
-      return null; // strong/healthy → override解除
+      rankMultiplier = 1.0; // strong/healthy
   }
+
+  // レジームベースの倍率
+  const regimeMultiplier = HOLDING_SCORE.REGIME_TS_MULTIPLIER[regimeLevel] ?? 1.0;
+
+  // より引き締める方を採用
+  const effectiveMultiplier = Math.min(rankMultiplier, regimeMultiplier);
+
+  if (effectiveMultiplier >= 1.0) {
+    return null; // 引き締め不要
+  }
+  return normalTrail * effectiveMultiplier;
 }
 
 /**
@@ -286,9 +307,11 @@ function countBusinessDaysBetween(start: Date, end: Date): number {
 async function sendSlackSummary(
   results: PositionScoreResult[],
   dropAlerts: PositionScoreResult[],
+  regimeLevel: string,
 ): Promise<void> {
   const lines: string[] = [];
-  lines.push(`📊 *保有継続スコアリング* （${results.length}銘柄）`);
+  const regimeTag = regimeLevel !== "normal" ? ` [レジーム: ${regimeLevel}]` : "";
+  lines.push(`📊 *保有継続スコアリング* （${results.length}銘柄）${regimeTag}`);
   lines.push("");
 
   for (const r of results) {
@@ -308,11 +331,10 @@ async function sendSlackSummary(
       }
     }
 
-    const action = getActionTaken(r.score.holdingRank);
-    if (action === "ts_tightened") {
-      const override = computeTrailOverride(r.score.holdingRank);
+    const override = computeTrailOverride(r.score.holdingRank, regimeLevel);
+    if (override != null) {
       lines.push(
-        `  → TS引き締め（ATR×${override?.toFixed(1)}）`,
+        `  → TS引き締め（ATR×${override.toFixed(1)}）`,
       );
     }
   }

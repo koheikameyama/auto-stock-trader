@@ -230,6 +230,14 @@ export const HOLDING_SCORE = {
     SCORE_DROP_ALERT_THRESHOLD: 15,
   },
 
+  /** レジーム別TS引き締め倍率（通常trail幅に乗算） */
+  REGIME_TS_MULTIPLIER: {
+    normal: 1.0,
+    elevated: 0.85,
+    high: 0.7,
+    crisis: 0.5,
+  } as Record<string, number>,
+
   /** 並列処理の同時実行数 */
   CONCURRENCY: 5,
 } as const;
