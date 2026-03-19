@@ -65,12 +65,11 @@ export const DEFENSIVE_MODE = {
 } as const;
 
 // cautiousモード（市場環境が徐々に悪化している場合のリスク制限）
-// neutral → bearish の中間段階。新規注文数を制限し、TSを引き締めるが既存ポジションは通常監視
+// neutral → bearish の中間段階。day_tradeに強制切替して保有期間を短縮
+// day_tradeは15:10に強制決済されるため、オーバーナイトリスクを回避
 export const CAUTIOUS_MODE = {
-  // トレーリングストップ引き締め倍率（通常のswing trail幅に乗算）
-  TRAILING_TIGHTEN_MULTIPLIER: 0.8,
-  // 新規注文の最大件数（既存pending注文の更新は含まない）
-  MAX_NEW_ORDERS: 2,
+  // day_tradeに強制切替する（既存swingもday_tradeに変換）
+  FORCE_DAY_TRADE: true,
 } as const;
 
 // 昼休み再評価
