@@ -439,8 +439,61 @@ export async function main() {
     console.log("  前日レコードなし（スキップ）");
   }
 
+  // 9. スイングリターン更新（5日後・10日後）
+  console.log("[9/11] スイングリターン更新中...");
+  const swingUpdateLimit = pLimit(10);
+
+  for (const [label, range, field] of [
+    ["5日", SCORING_ACCURACY.GHOST_5DAY_CALENDAR_RANGE, "ghost5DayProfitPct"],
+    ["10日", SCORING_ACCURACY.GHOST_10DAY_CALENDAR_RANGE, "ghost10DayProfitPct"],
+  ] as const) {
+    const dateFrom = getDaysAgoForDB(range[1]);
+    const dateTo = getDaysAgoForDB(range[0]);
+
+    const swingRecords = await prisma.scoringRecord.findMany({
+      where: {
+        [field]: null,
+        entryPrice: { not: null },
+        date: { gte: dateFrom, lte: dateTo },
+      },
+      select: { id: true, tickerCode: true, entryPrice: true },
+    });
+
+    if (swingRecords.length === 0) {
+      console.log(`  ${label}後リターン: 対象レコードなし`);
+      continue;
+    }
+
+    const swingTickers = [...new Set(swingRecords.map((r) => r.tickerCode))];
+    const swingQuotes = await fetchStockQuotes(swingTickers);
+    const swingPriceMap = new Map<string, number>();
+    for (let i = 0; i < swingTickers.length; i++) {
+      const quote = swingQuotes[i];
+      if (quote) swingPriceMap.set(swingTickers[i], quote.price);
+    }
+
+    let swingUpdated = 0;
+    await Promise.all(
+      swingRecords
+        .filter((r) => swingPriceMap.has(r.tickerCode))
+        .map((r) =>
+          swingUpdateLimit(() => {
+            const entry = Number(r.entryPrice);
+            const current = swingPriceMap.get(r.tickerCode)!;
+            const pnl = entry > 0 ? ((current - entry) / entry) * 100 : 0;
+            swingUpdated++;
+            return prisma.scoringRecord.update({
+              where: { id: r.id },
+              data: { [field]: pnl },
+            });
+          }),
+        ),
+    );
+    console.log(`  ${label}後リターン更新: ${swingUpdated}/${swingRecords.length}件`);
+  }
+
   // 意思決定整合性評価
-  console.log("[8.5/9] 意思決定整合性評価中...");
+  console.log("[10/11] 意思決定整合性評価中...");
   try {
     const todayAssessment = await prisma.marketAssessment.findUnique({
       where: { date: today },
@@ -597,7 +650,7 @@ ${auditData.aiRejection.total > 0 ? `- 却下銘柄: ${auditData.aiRejection.tot
   // 逆行ウィナー分析（取引見送り日のみ）
   const noTrade = await isNoTradeDay();
   if (noTrade) {
-    console.log("[9/9] 逆行ウィナー分析中...");
+    console.log("[11/11] 逆行ウィナー分析中...");
     const winners = await getTodayContrarianWinners();
 
     if (winners.length > 0) {

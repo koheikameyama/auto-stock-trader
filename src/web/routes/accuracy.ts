@@ -114,6 +114,8 @@ app.get("/", async (c) => {
         riskQualityScore: true,
         sectorMomentumScore: true,
         ghostProfitPct: true,
+        ghost5DayProfitPct: true,
+        ghost10DayProfitPct: true,
       },
     }),
     // セクション5用: 最新 decisionAudit
@@ -159,7 +161,6 @@ app.get("/", async (c) => {
     S: { count: 0, wins: 0, pnlSum: 0 },
     A: { count: 0, wins: 0, pnlSum: 0 },
     B: { count: 0, wins: 0, pnlSum: 0 },
-    C: { count: 0, wins: 0, pnlSum: 0 },
   };
 
   for (const r of allScoredRecords) {
@@ -171,7 +172,7 @@ app.get("/", async (c) => {
     if (pnl > 0) rankBuckets[rank].wins++;
   }
 
-  const rankPerfs: RankPerf[] = ["S", "A", "B", "C"].map((rank) => {
+  const rankPerfs: RankPerf[] = ["S", "A", "B"].map((rank) => {
     const b = rankBuckets[rank];
     return {
       rank,
@@ -183,9 +184,9 @@ app.get("/", async (c) => {
     };
   });
 
-  // 序列チェック: 期待値が S > A > B > C か
+  // 序列チェック: 期待値が S > A > B か
   const inversions: string[] = [];
-  const rankOrder = ["S", "A", "B", "C"];
+  const rankOrder = ["S", "A", "B"];
   for (let i = 0; i < rankOrder.length - 1; i++) {
     const higher = rankPerfs[i];
     const lower = rankPerfs[i + 1];
@@ -199,28 +200,44 @@ app.get("/", async (c) => {
   }
 
   // --- セクション2: スコア帯別パフォーマンス ---
-  interface ScoreBandPerf {
-    label: string;
+  interface PeriodPerf {
     count: number;
     wins: number;
     winRate: number | null;
-    avgPnl: number | null;
     expectancy: number | null;
+  }
+
+  interface ScoreBandPerf {
+    label: string;
+    day1: PeriodPerf;
+    day5: PeriodPerf;
+    day10: PeriodPerf;
+  }
+
+  function calcPeriodPerf(
+    records: typeof allScoredRecords,
+    field: "ghostProfitPct" | "ghost5DayProfitPct" | "ghost10DayProfitPct",
+  ): PeriodPerf {
+    const valid = records.filter((r) => r[field] != null);
+    const wins = valid.filter((r) => Number(r[field]) > 0).length;
+    const pnlSum = valid.reduce((s, r) => s + Number(r[field]), 0);
+    return {
+      count: valid.length,
+      wins,
+      winRate: valid.length > 0 ? (wins / valid.length) * 100 : null,
+      expectancy: valid.length > 0 ? pnlSum / valid.length : null,
+    };
   }
 
   const scoreBandPerfs: ScoreBandPerf[] = SCORING_VALIDITY.SCORE_BANDS.map((band) => {
     const records = allScoredRecords.filter(
       (r) => r.totalScore >= band.min && r.totalScore <= band.max,
     );
-    const wins = records.filter((r) => Number(r.ghostProfitPct) > 0).length;
-    const pnlSum = records.reduce((s, r) => s + Number(r.ghostProfitPct), 0);
     return {
       label: band.label,
-      count: records.length,
-      wins,
-      winRate: records.length > 0 ? (wins / records.length) * 100 : null,
-      avgPnl: records.length > 0 ? pnlSum / records.length : null,
-      expectancy: records.length > 0 ? pnlSum / records.length : null,
+      day1: calcPeriodPerf(records, "ghostProfitPct"),
+      day5: calcPeriodPerf(records, "ghost5DayProfitPct"),
+      day10: calcPeriodPerf(records, "ghost10DayProfitPct"),
     };
   });
 
@@ -265,18 +282,28 @@ app.get("/", async (c) => {
   }).sort((a, b) => (b.normalizedDiff ?? -Infinity) - (a.normalizedDiff ?? -Infinity));
 
   // --- セクション4: スコアと損益の相関 ---
-  const totalScores = allScoredRecords.map((r) => r.totalScore);
-  const pnlValues = allScoredRecords.map((r) => Number(r.ghostProfitPct));
+  // 5日/10日データがあるレコードのみで相関を計算
+  const records5 = allScoredRecords.filter((r) => r.ghost5DayProfitPct != null);
+  const records10 = allScoredRecords.filter((r) => r.ghost10DayProfitPct != null);
 
-  const overallCorr = pearsonCorrelation(totalScores, pnlValues);
+  function buildCorrelations(
+    recs: typeof allScoredRecords,
+    pnlField: "ghostProfitPct" | "ghost5DayProfitPct" | "ghost10DayProfitPct",
+  ) {
+    const scores = recs.map((r) => r.totalScore);
+    const pnl = recs.map((r) => Number(r[pnlField]));
+    return [
+      { category: "総合スコア", r: pearsonCorrelation(scores, pnl) },
+      { category: "トレンド品質", r: pearsonCorrelation(recs.map((r) => r.trendQualityScore), pnl) },
+      { category: "エントリータイミング", r: pearsonCorrelation(recs.map((r) => r.entryTimingScore), pnl) },
+      { category: "リスク品質", r: pearsonCorrelation(recs.map((r) => r.riskQualityScore), pnl) },
+      { category: "セクターモメンタム", r: pearsonCorrelation(recs.map((r) => r.sectorMomentumScore), pnl) },
+    ];
+  }
 
-  const categoryCorrelations = [
-    { category: "総合スコア", r: overallCorr },
-    { category: "トレンド品質", r: pearsonCorrelation(allScoredRecords.map((r) => r.trendQualityScore), pnlValues) },
-    { category: "エントリータイミング", r: pearsonCorrelation(allScoredRecords.map((r) => r.entryTimingScore), pnlValues) },
-    { category: "リスク品質", r: pearsonCorrelation(allScoredRecords.map((r) => r.riskQualityScore), pnlValues) },
-    { category: "セクターモメンタム", r: pearsonCorrelation(allScoredRecords.map((r) => r.sectorMomentumScore), pnlValues) },
-  ];
+  const categoryCorrelations = buildCorrelations(allScoredRecords, "ghostProfitPct");
+  const categoryCorrelations5 = buildCorrelations(records5, "ghost5DayProfitPct");
+  const categoryCorrelations10 = buildCorrelations(records10, "ghost10DayProfitPct");
 
   // --- セクション5: AI判断精度（decisionAudit） ---
   type DecisionAuditData = {
@@ -390,45 +417,53 @@ app.get("/", async (c) => {
               </div>`}
 
           <!-- セクション2: スコア帯別パフォーマンス -->
-          <p class="section-title">${tt("スコア帯別パフォーマンス", "スコアの点数帯ごとの成績")}</p>
+          <p class="section-title">${tt("スコア帯別パフォーマンス", "スコアの点数帯ごとの成績（1日/5日/10日リターン）")}</p>
 
           <div class="card table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>スコア帯</th>
-                  <th>件数</th>
-                  <th>勝率</th>
-                  <th>平均損益</th>
-                  <th>${tt("期待値", "1トレードあたりの平均損益率(%)")}</th>
+                  <th rowspan="2">スコア帯</th>
+                  <th colspan="3" style="text-align:center;border-bottom:1px solid #334155">1日</th>
+                  <th colspan="3" style="text-align:center;border-bottom:1px solid #334155">5日</th>
+                  <th colspan="3" style="text-align:center;border-bottom:1px solid #334155">10日</th>
+                </tr>
+                <tr>
+                  <th>件数</th><th>勝率</th><th>${tt("期待値", "平均損益率(%)")}</th>
+                  <th>件数</th><th>勝率</th><th>${tt("期待値", "平均損益率(%)")}</th>
+                  <th>件数</th><th>勝率</th><th>${tt("期待値", "平均損益率(%)")}</th>
                 </tr>
               </thead>
               <tbody>
                 ${scoreBandPerfs.map((sb) => {
-                  const lowSample = sb.count < 10;
-                  const rowStyle = lowSample ? "color:#64748b" : "";
+                  const fmtPerf = (p: PeriodPerf) => {
+                    const low = p.count < 10;
+                    const dim = low ? "color:#64748b" : "";
+                    return {
+                      count: html`<td style="${dim}">${p.count}${low ? html`<span style="font-size:0.65rem"> ※</span>` : ""}</td>`,
+                      winRate: html`<td style="font-weight:600;${!low && p.winRate != null ? `color:${p.winRate >= 50 ? "#22c55e" : "#ef4444"}` : "color:#64748b"}">
+                        ${p.winRate != null ? `${p.winRate.toFixed(0)}%` : "-"}
+                      </td>`,
+                      expectancy: html`<td style="font-weight:600;${!low && p.expectancy != null ? `color:${p.expectancy >= 0.5 ? "#22c55e" : p.expectancy >= 0 ? "#3b82f6" : "#ef4444"}` : "color:#64748b"}">
+                        ${p.expectancy != null ? `${p.expectancy > 0 ? "+" : ""}${p.expectancy.toFixed(2)}%` : "-"}
+                      </td>`,
+                    };
+                  };
+                  const d1 = fmtPerf(sb.day1);
+                  const d5 = fmtPerf(sb.day5);
+                  const d10 = fmtPerf(sb.day10);
                   return html`
-                    <tr style="${rowStyle}">
-                      <td style="font-weight:600">${sb.label}${lowSample ? html`<span style="font-size:0.7rem;color:#94a3b8"> (n=${sb.count})</span>` : ""}</td>
-                      <td>${sb.count}件</td>
-                      <td style="font-weight:600;color:${!lowSample && sb.winRate != null ? (sb.winRate >= 50 ? "#22c55e" : "#ef4444") : "#64748b"}">
-                        ${sb.winRate != null ? `${sb.winRate.toFixed(0)}%` : "-"}
-                      </td>
-                      <td>
-                        ${sb.avgPnl != null
-                          ? html`<span style="color:${sb.avgPnl >= 0 ? "#22c55e" : "#ef4444"}">${sb.avgPnl > 0 ? "+" : ""}${sb.avgPnl.toFixed(2)}%</span>`
-                          : html`<span style="color:#64748b">-</span>`}
-                      </td>
-                      <td style="font-weight:600;color:${!lowSample && sb.expectancy != null ? (sb.expectancy >= 0.5 ? "#22c55e" : sb.expectancy >= 0 ? "#3b82f6" : "#ef4444") : "#64748b"}">
-                        ${sb.expectancy != null ? `${sb.expectancy > 0 ? "+" : ""}${sb.expectancy.toFixed(2)}%` : "-"}
-                        ${lowSample ? html`<span style="font-size:0.7rem"> ※</span>` : ""}
-                      </td>
+                    <tr>
+                      <td style="font-weight:600">${sb.label}</td>
+                      ${d1.count}${d1.winRate}${d1.expectancy}
+                      ${d5.count}${d5.winRate}${d5.expectancy}
+                      ${d10.count}${d10.winRate}${d10.expectancy}
                     </tr>
                   `;
                 })}
               </tbody>
             </table>
-            <p style="font-size:0.72rem;color:#94a3b8;margin:0.5rem 0 0">※ n<10 はサンプル不足のため参考値</p>
+            <p style="font-size:0.72rem;color:#94a3b8;margin:0.5rem 0 0">※ n<10 はサンプル不足のため参考値。5日/10日は蓄積中のためデータが少ない場合があります</p>
           </div>
 
           <!-- セクション3: カテゴリ別予測力 -->
@@ -471,35 +506,41 @@ app.get("/", async (c) => {
           </div>
 
           <!-- セクション4: スコアと損益の相関 -->
-          <p class="section-title">${tt("スコアと損益の相関", "ピアソン相関係数によるスコア予測力の定量評価")}</p>
+          <p class="section-title">${tt("スコアと損益の相関", "ピアソン相関係数によるスコア予測力の定量評価（1日/5日/10日）")}</p>
 
           <div class="card">
-            <div style="text-align:center;margin-bottom:1rem;padding-bottom:1rem;border-bottom:1px solid #1e293b">
-              <p style="font-size:0.75rem;color:#94a3b8;margin:0 0 0.25rem">総合スコア × 損益率</p>
-              <p style="font-size:1.5rem;font-weight:700;margin:0;color:${correlationLabel(overallCorr).color}">
-                r = ${fmtR(overallCorr)}
-              </p>
-              <p style="font-size:0.82rem;color:${correlationLabel(overallCorr).color};margin:0.25rem 0 0">
-                ${correlationLabel(overallCorr).text}
-              </p>
-            </div>
             <div class="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th>カテゴリ</th>
-                    <th>${tt("相関係数 (r)", "+1に近いほど正の相関、0は無相関")}</th>
-                    <th>解釈</th>
+                    <th colspan="2" style="text-align:center;border-bottom:1px solid #334155">1日 (n=${allScoredRecords.length})</th>
+                    <th colspan="2" style="text-align:center;border-bottom:1px solid #334155">5日 (n=${records5.length})</th>
+                    <th colspan="2" style="text-align:center;border-bottom:1px solid #334155">10日 (n=${records10.length})</th>
+                  </tr>
+                  <tr>
+                    <th></th>
+                    <th>r</th><th>解釈</th>
+                    <th>r</th><th>解釈</th>
+                    <th>r</th><th>解釈</th>
                   </tr>
                 </thead>
                 <tbody>
-                  ${categoryCorrelations.map((cc) => {
-                    const label = correlationLabel(cc.r);
+                  ${categoryCorrelations.map((cc, i) => {
+                    const l1 = correlationLabel(cc.r);
+                    const cc5 = categoryCorrelations5[i];
+                    const l5 = correlationLabel(cc5?.r ?? null);
+                    const cc10 = categoryCorrelations10[i];
+                    const l10 = correlationLabel(cc10?.r ?? null);
                     return html`
                       <tr>
                         <td style="font-weight:600">${cc.category}</td>
-                        <td style="font-weight:700;color:${label.color}">${fmtR(cc.r)}</td>
-                        <td style="color:${label.color}">${label.text}</td>
+                        <td style="font-weight:700;color:${l1.color}">${fmtR(cc.r)}</td>
+                        <td style="color:${l1.color};font-size:0.75rem">${l1.text}</td>
+                        <td style="font-weight:700;color:${l5.color}">${fmtR(cc5?.r ?? null)}</td>
+                        <td style="color:${l5.color};font-size:0.75rem">${l5.text}</td>
+                        <td style="font-weight:700;color:${l10.color}">${fmtR(cc10?.r ?? null)}</td>
+                        <td style="color:${l10.color};font-size:0.75rem">${l10.text}</td>
                       </tr>
                     `;
                   })}
@@ -507,7 +548,7 @@ app.get("/", async (c) => {
               </table>
             </div>
             <p style="font-size:0.72rem;color:#94a3b8;margin:0.5rem 0 0">
-              n=${allScoredRecords.length}件（過去${SCORING_VALIDITY.LOOKBACK_DAYS}日）
+              過去${SCORING_VALIDITY.LOOKBACK_DAYS}日・全ランク。5日/10日は蓄積中のため件数が少ない場合があります
             </p>
           </div>
         `}

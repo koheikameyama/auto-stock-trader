@@ -174,6 +174,8 @@ model ScoringRecord {
   ghostAnalysis       String?  @db.Text           // AI後悔分析
   nextDayClosingPrice Decimal? @db.Decimal(10, 2) // 翌営業日の終値
   nextDayProfitPct    Decimal? @db.Decimal(8, 4)  // 翌日騰落率（前日終値比）
+  ghost5DayProfitPct  Decimal? @db.Decimal(8, 4)  // 5営業日後リターン %
+  ghost10DayProfitPct Decimal? @db.Decimal(8, 4)  // 10営業日後リターン %
 
   createdAt    DateTime @default(now())
 

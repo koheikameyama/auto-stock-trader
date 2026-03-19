@@ -117,6 +117,10 @@ export const SCORING_ACCURACY = {
   MIN_LOSS_PCT_FOR_FP_ANALYSIS: 1.0,
   /** AI並列数 */
   AI_CONCURRENCY: 3,
+  /** 5日リターン: 対象期間（カレンダー日 min〜max） */
+  GHOST_5DAY_CALENDAR_RANGE: [5, 9] as const,
+  /** 10日リターン: 対象期間（カレンダー日 min〜max） */
+  GHOST_10DAY_CALENDAR_RANGE: [12, 16] as const,
 } as const;
 
 export const CONTRARIAN = {
