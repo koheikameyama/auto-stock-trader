@@ -1,0 +1,57 @@
+name: "[Reusable] Backfill Corporate Events"
+
+on:
+  workflow_call:
+    secrets:
+      DATABASE_URL:
+        required: true
+      SLACK_WEBHOOK_URL:
+        required: true
+
+env:
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  MARKET_DATA_PROVIDER: yahoo
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run backfill:corporate-events
+
+  notify-success:
+    needs: run
+    if: success()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on success
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "Backfill Corporate Events 完了"
+          SLACK_MESSAGE: "コーポレートイベント（決算日・配当日）の更新が完了しました"
+          SLACK_COLOR: good
+          SLACK_FOOTER: "Stock Buddy"
+
+  notify-failure:
+    needs: run
+    if: always() && contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on failure
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "Backfill Corporate Events 失敗"
+          SLACK_MESSAGE: |
+            コーポレートイベント更新が失敗しました。
+            詳細はGitHub Actionsログを確認してください。
+          SLACK_COLOR: danger
+          SLACK_FOOTER: "Stock Buddy"
