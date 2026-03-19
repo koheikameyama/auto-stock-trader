@@ -170,6 +170,21 @@ ${sectorText || "  特になし"}`;
     console.log(
       `  → センチメント悪化: ${assessment.sentiment} → ${result.sentiment}（主フィールドを更新）`,
     );
+
+    // cautious悪化時: 戦略をday_tradeに強制切替
+    if (result.sentiment === "cautious") {
+      updateData.tradingStrategy = "day_trade";
+      console.log(`  → cautious: 戦略をday_tradeに切替`);
+
+      // 既存swingポジションをday_tradeに変換
+      const converted = await prisma.tradingPosition.updateMany({
+        where: { status: "open", strategy: "swing" },
+        data: { strategy: "day_trade" },
+      });
+      if (converted.count > 0) {
+        console.log(`  → cautious: ${converted.count}件のスイングポジションをday_tradeに切替`);
+      }
+    }
   } else {
     console.log(
       `  → センチメント維持: ${assessment.sentiment}（昼は${result.sentiment}だが悪化していないため維持）`,
@@ -214,6 +229,13 @@ ${sectorText || "  特になし"}`;
       // bearish/crisis環境ではスイング新規買いもキャンセル
       shouldCancel = true;
       cancelReason = `${effectiveSentiment}環境でのスイング買い注文キャンセル`;
+    } else if (
+      order.strategy === "swing" &&
+      effectiveSentiment === "cautious"
+    ) {
+      // cautious環境: swing注文はday_tradeパラメータと不整合のためキャンセル
+      shouldCancel = true;
+      cancelReason = "cautious環境でのスイング買い注文キャンセル（day_trade切替のため）";
     }
 
     if (shouldCancel) {

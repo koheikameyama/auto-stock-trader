@@ -181,7 +181,7 @@ ${sectorText || "  特になし"}`;
   console.log(`  → レジーム: ${regime.level}（${regime.reason}）`);
 
   // 1.8.1. 戦略決定
-  const strategyDecision: StrategyDecision = determineTradingStrategy(
+  let strategyDecision: StrategyDecision = determineTradingStrategy(
     marketData.vix.price,
     cmeDivergencePct,
   );
@@ -321,6 +321,25 @@ ${sectorText || "  特になし"}`;
       nikkeiChange: marketData.nikkei.changePercent,
       vix: marketData.vix.price,
     });
+
+    // cautious環境: 戦略をday_tradeに強制切替（保有期間短縮でオーバーナイトリスク回避）
+    if (assessment.sentiment === "cautious" && strategyDecision.strategy !== "day_trade") {
+      const originalStrategy = strategyDecision.strategy;
+      strategyDecision = {
+        strategy: "day_trade",
+        reason: `cautious環境のためデイトレに切替（元の戦略: ${originalStrategy}）`,
+      };
+      console.log(`  → cautious: 戦略を${originalStrategy} → day_tradeに切替`);
+
+      // 既存swingポジションをday_tradeに変換（VIX≥30パターンと同じ）
+      const updated = await prisma.tradingPosition.updateMany({
+        where: { status: "open", strategy: "swing" },
+        data: { strategy: "day_trade" },
+      });
+      if (updated.count > 0) {
+        console.log(`  → cautious: ${updated.count}件のスイングポジションをday_tradeに切替`);
+      }
+    }
 
     const assessmentData = {
       ...buildMarketFields(marketData),

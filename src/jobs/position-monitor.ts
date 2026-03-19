@@ -14,7 +14,6 @@ import {
   TRADING_SCHEDULE,
   POSITION_DEFAULTS,
   DEFENSIVE_MODE,
-  CAUTIOUS_MODE,
   STOP_LOSS,
   WEEKEND_RISK,
   TRAILING_STOP,
@@ -282,14 +281,6 @@ export async function main() {
     );
   }
 
-  const currentSentimentForTrail = latestAssessmentForBuyBlock?.sentiment;
-  if (currentSentimentForTrail === "cautious") {
-    const tightenedMultiplier = TRAILING_STOP.TRAIL_ATR_MULTIPLIER.swing * CAUTIOUS_MODE.TRAILING_TIGHTEN_MULTIPLIER;
-    console.log(
-      `  cautiousモード: トレーリングストップ引き締め（ATR倍率 ${TRAILING_STOP.TRAIL_ATR_MULTIPLIER.swing} → ${tightenedMultiplier.toFixed(1)}）`,
-    );
-  }
-
   for (const position of openPositions) {
     if (!(await isSystemActive())) {
       console.log("  → システム停止中のため終了");
@@ -347,21 +338,12 @@ export async function main() {
       );
     }
 
-    // スイングポジションのみ引き締め（デイトレは当日決済のため不要）
-    const isCautiousMode = latestAssessmentForBuyBlock?.sentiment === "cautious";
+    // スイングポジションのみ連休前引き締め（デイトレは当日決済のため不要）
     let trailOverride: number | undefined;
     if (position.strategy === "swing") {
       const normalTrail = TRAILING_STOP.TRAIL_ATR_MULTIPLIER.swing;
-      if (isPreLongHoliday && isCautiousMode) {
-        // 両方適用: より保守的な値を採用
-        trailOverride = Math.min(
-          normalTrail * WEEKEND_RISK.TRAILING_TIGHTEN_MULTIPLIER,
-          normalTrail * CAUTIOUS_MODE.TRAILING_TIGHTEN_MULTIPLIER,
-        );
-      } else if (isPreLongHoliday) {
+      if (isPreLongHoliday) {
         trailOverride = normalTrail * WEEKEND_RISK.TRAILING_TIGHTEN_MULTIPLIER;
-      } else if (isCautiousMode) {
-        trailOverride = normalTrail * CAUTIOUS_MODE.TRAILING_TIGHTEN_MULTIPLIER;
       }
     }
 
