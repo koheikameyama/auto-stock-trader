@@ -10,6 +10,14 @@ on:
         description: "休場日チェックをスキップ"
         type: boolean
         default: false
+      job:
+        description: "実行するジョブ（空欄=全て）"
+        type: choice
+        options:
+          - all
+          - stock-data
+          - corporate-events
+          - trading-config
 
 concurrency:
   group: backfill-prices
@@ -53,7 +61,7 @@ jobs:
   # stock-data / corporate-events / trading-config を並列実行
   stock-data:
     needs: check-market-day
-    if: needs.check-market-day.outputs.should_run == 'true'
+    if: needs.check-market-day.outputs.should_run == 'true' && (github.event.inputs.job == 'all' || github.event.inputs.job == 'stock-data' || github.event.inputs.job == '')
     uses: ./.github/workflows/reusable_backfill-stock-data.yml
     secrets:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -61,7 +69,7 @@ jobs:
 
   corporate-events:
     needs: check-market-day
-    if: needs.check-market-day.outputs.should_run == 'true'
+    if: needs.check-market-day.outputs.should_run == 'true' && (github.event.inputs.job == 'all' || github.event.inputs.job == 'corporate-events' || github.event.inputs.job == '')
     uses: ./.github/workflows/reusable_backfill-corporate-events.yml
     secrets:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -69,7 +77,7 @@ jobs:
 
   trading-config:
     needs: check-market-day
-    if: needs.check-market-day.outputs.should_run == 'true'
+    if: needs.check-market-day.outputs.should_run == 'true' && (github.event.inputs.job == 'all' || github.event.inputs.job == 'trading-config' || github.event.inputs.job == '')
     uses: ./.github/workflows/reusable_backfill-trading-config.yml
     secrets:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -77,7 +85,7 @@ jobs:
 
   notify-success:
     needs: [stock-data, corporate-events, trading-config]
-    if: success()
+    if: always() && !contains(needs.*.result, 'failure') && contains(needs.*.result, 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Notify Slack on success
