@@ -14,11 +14,13 @@ import { fetchHistoricalData, fetchMarketData } from "../core/market-data";
 import { analyzeTechnicals } from "../core/technical-analysis";
 import { calculateSectorMomentum } from "../core/sector-analyzer";
 import { getSectorGroup } from "../lib/constants";
-import { getOpenPositions } from "../core/position-manager";
+import { getOpenPositions, closePosition } from "../core/position-manager";
 import { scoreHolding } from "../core/scoring/holding";
 import { HOLDING_SCORE, SECTOR_MOMENTUM_SCORING } from "../lib/constants/scoring";
-import { TRAILING_STOP } from "../lib/constants";
-import { notifySlack, notifyRiskAlert } from "../lib/slack";
+import { TRAILING_STOP, DELISTING_RISK } from "../lib/constants";
+import { notifySlack, notifyRiskAlert, notifyOrderFilled } from "../lib/slack";
+import { fetchStockQuote } from "../core/market-data";
+import type { ExitSnapshot } from "../types/snapshots";
 import type { HoldingScore, HoldingRank } from "../core/scoring/types";
 import type { MarketRegime } from "../core/market-regime";
 
@@ -214,6 +216,101 @@ export async function main(regime?: MarketRegime) {
     await prisma.tradingPosition.update({
       where: { id: r.positionId },
       data: { holdingScoreTrailOverride: trailOverride },
+    });
+  }
+
+  // 6.5. 上場廃止予定銘柄チェック（投資戦略の一環としてTS引き締め or 強制クローズ）
+  const delistingAlerts: string[] = [];
+  let delistingCloseCount = 0;
+  const delistingPositions = positions.filter((p) => p.stock.delistingDate != null);
+
+  for (const position of delistingPositions) {
+    const diffDays = Math.floor(
+      (position.stock.delistingDate!.getTime() - new Date().getTime()) / 86_400_000,
+    );
+    const entryPriceNum = Number(position.entryPrice);
+
+    if (diffDays <= DELISTING_RISK.FORCE_CLOSE_DAYS_BEFORE) {
+      // 廃止5営業日以内 → 強制クローズ
+      const quote = await fetchStockQuote(position.stock.tickerCode);
+      if (!quote) continue;
+
+      const maxHigh = position.maxHighDuringHold
+        ? Math.max(Number(position.maxHighDuringHold), quote.high)
+        : quote.high;
+      const minLow = position.minLowDuringHold
+        ? Math.min(Number(position.minLowDuringHold), quote.low)
+        : quote.low;
+
+      const exitSnapshot: ExitSnapshot = {
+        exitReason: `上場廃止強制決済（廃止まで${diffDays}日）`,
+        exitPrice: quote.price,
+        priceJourney: {
+          maxHigh,
+          minLow,
+          maxFavorableExcursion: ((maxHigh - entryPriceNum) / entryPriceNum) * 100,
+          maxAdverseExcursion: ((entryPriceNum - minLow) / entryPriceNum) * 100,
+        },
+        marketContext: null,
+      };
+
+      console.log(
+        `  → ${position.stock.tickerCode}: 上場廃止強制決済（廃止まで${diffDays}日）@ ¥${quote.price.toLocaleString()}`,
+      );
+
+      const closed = await closePosition(position.id, quote.price, exitSnapshot as object);
+      await notifyOrderFilled({
+        tickerCode: position.stock.tickerCode,
+        name: position.stock.name,
+        side: "sell",
+        filledPrice: quote.price,
+        quantity: position.quantity,
+        pnl: closed.realizedPnl ? Number(closed.realizedPnl) : 0,
+      });
+      delistingCloseCount++;
+      delistingAlerts.push(
+        `${position.stock.tickerCode} ${position.stock.name}: 廃止まで${diffDays}日 → 強制決済`,
+      );
+    } else {
+      // 廃止予定だが猶予あり → TS引き締め（ATR×0.5）
+      const tightenedMultiplier =
+        TRAILING_STOP.TRAIL_ATR_MULTIPLIER.swing * DELISTING_RISK.TS_TIGHTEN_MULTIPLIER;
+
+      // step 6で設定したTS overrideと比較して、より厳しい方を適用
+      const currentOverride = await prisma.tradingPosition.findUnique({
+        where: { id: position.id },
+        select: { holdingScoreTrailOverride: true },
+      });
+      const existing = currentOverride?.holdingScoreTrailOverride
+        ? Number(currentOverride.holdingScoreTrailOverride)
+        : null;
+
+      if (!existing || tightenedMultiplier < existing) {
+        await prisma.tradingPosition.update({
+          where: { id: position.id },
+          data: { holdingScoreTrailOverride: tightenedMultiplier },
+        });
+      }
+
+      console.log(
+        `  → ${position.stock.tickerCode}: 廃止まで${diffDays}日 → TS引き締め（ATR×${tightenedMultiplier.toFixed(1)}）`,
+      );
+      delistingAlerts.push(
+        `${position.stock.tickerCode} ${position.stock.name}: 廃止まで${diffDays}日 → TS引き締め（ATR×${tightenedMultiplier.toFixed(1)}）`,
+      );
+    }
+  }
+
+  if (delistingAlerts.length > 0) {
+    await notifyRiskAlert({
+      type: "上場廃止予定銘柄を保有中",
+      message: delistingAlerts.join("\n"),
+    });
+  }
+  if (delistingCloseCount > 0) {
+    await notifyRiskAlert({
+      type: "上場廃止強制決済",
+      message: `${delistingCloseCount}件のポジションを上場廃止前に強制決済しました`,
     });
   }
 

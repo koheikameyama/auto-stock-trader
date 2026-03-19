@@ -19,7 +19,6 @@ import {
   WEEKEND_RISK,
   TRAILING_STOP,
   SCORING,
-  DELISTING_RISK,
 } from "../lib/constants";
 import { validateStopLoss } from "../core/risk-manager";
 import { fetchStockQuote } from "../core/market-data";
@@ -569,107 +568,6 @@ export async function main() {
     });
   } else {
     console.log("  → 決算前強制決済対象なし");
-  }
-
-  // 3.3. 上場廃止予定銘柄（TS引き締め or 強制クローズ）
-  console.log("[2.3/3] 上場廃止予定チェック...");
-  const remainingForDelisting = await getOpenPositions();
-  const delistingPositions = remainingForDelisting.filter(
-    (p) => p.stock.delistingDate != null,
-  );
-  let delistingCloseCount = 0;
-
-  if (delistingPositions.length > 0) {
-    for (const position of delistingPositions) {
-      const diffDays = Math.floor(
-        (position.stock.delistingDate!.getTime() - todayJst.toDate().getTime()) / 86_400_000,
-      );
-      const entryPriceNum = Number(position.entryPrice);
-
-      // 廃止5営業日以内 → 強制クローズ
-      if (diffDays <= DELISTING_RISK.FORCE_CLOSE_DAYS_BEFORE) {
-        const quote = await fetchStockQuote(position.stock.tickerCode);
-        if (!quote) continue;
-
-        const maxHigh = position.maxHighDuringHold
-          ? Math.max(Number(position.maxHighDuringHold), quote.high)
-          : quote.high;
-        const minLow = position.minLowDuringHold
-          ? Math.min(Number(position.minLowDuringHold), quote.low)
-          : quote.low;
-
-        const exitSnapshot: ExitSnapshot = {
-          exitReason: `上場廃止強制決済（廃止まで${diffDays}日）`,
-          exitPrice: quote.price,
-          priceJourney: {
-            maxHigh,
-            minLow,
-            maxFavorableExcursion: ((maxHigh - entryPriceNum) / entryPriceNum) * 100,
-            maxAdverseExcursion: ((entryPriceNum - minLow) / entryPriceNum) * 100,
-          },
-          marketContext: null,
-        };
-
-        console.log(
-          `  → ${position.stock.tickerCode}: 上場廃止強制決済（廃止まで${diffDays}日）@ ¥${quote.price.toLocaleString()}`,
-        );
-
-        const closed = await closePosition(position.id, quote.price, exitSnapshot as object);
-        await notifyOrderFilled({
-          tickerCode: position.stock.tickerCode,
-          name: position.stock.name,
-          side: "sell",
-          filledPrice: quote.price,
-          quantity: position.quantity,
-          pnl: closed.realizedPnl ? Number(closed.realizedPnl) : 0,
-        });
-        delistingCloseCount++;
-      } else {
-        // 廃止予定だが猶予あり → TS引き締め（ATR×0.5）
-        const tightenedMultiplier =
-          TRAILING_STOP.TRAIL_ATR_MULTIPLIER.swing * DELISTING_RISK.TS_TIGHTEN_MULTIPLIER;
-
-        // holdingScoreTrailOverrideと比較して、より厳しい方を適用
-        const currentOverride = position.holdingScoreTrailOverride
-          ? Number(position.holdingScoreTrailOverride)
-          : null;
-        if (!currentOverride || tightenedMultiplier < currentOverride) {
-          await prisma.tradingPosition.update({
-            where: { id: position.id },
-            data: { holdingScoreTrailOverride: tightenedMultiplier },
-          });
-        }
-
-        const pnlPct = (Number(position.stock.latestPrice) || 0) > 0
-          ? (((Number(position.stock.latestPrice) || 0) - entryPriceNum) / entryPriceNum * 100).toFixed(1)
-          : "?";
-        console.log(
-          `  → ${position.stock.tickerCode}: 廃止まで${diffDays}日 → TS引き締め（ATR×${tightenedMultiplier.toFixed(1)}）含み損益: ${pnlPct}%`,
-        );
-      }
-    }
-
-    // Slack通知
-    const alertDetails = delistingPositions.map((p) => {
-      const diffDays = Math.floor(
-        (p.stock.delistingDate!.getTime() - todayJst.toDate().getTime()) / 86_400_000,
-      );
-      const action = diffDays <= DELISTING_RISK.FORCE_CLOSE_DAYS_BEFORE ? "強制決済" : "TS引き締め";
-      return `${p.stock.tickerCode} ${p.stock.name}: 廃止まで${diffDays}日 → ${action}`;
-    });
-    await notifyRiskAlert({
-      type: "上場廃止予定銘柄を保有中",
-      message: alertDetails.join("\n"),
-    });
-  } else {
-    console.log("  → 廃止予定銘柄の保有なし");
-  }
-
-  if (delistingCloseCount > 0) {
-    await notifyRiskAlert({
-      type: "上場廃止強制決済",
-      message: `${delistingCloseCount}件のポジションを上場廃止前に強制決済しました`,
-    });
   }
 
   // システム停止チェック（フェーズ間で再確認）
