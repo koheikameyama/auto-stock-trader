@@ -125,10 +125,10 @@ export const DAILY_BACKTEST = {
     takeProfitRatio: 1.50,    // overrideTpSl=true 時のみ使用
     stopLossRatio: 0.98,      // overrideTpSl=true 時のみ使用
     atrMultiplier: 1.0,       // overrideTpSl=true 時のみ使用
-    trailingActivationMultiplier: 3.0,  // TS発動閾値（ATR×N上昇で発動）— PF 1.97実績
-    trailMultiplier: 1.0,               // トレール幅（最高値 - ATR×N、発動時=ブレイクイーブン）— WF検証でOOS PF 1.74
+    trailingActivationMultiplier: 2.5,  // TS発動閾値（ATR×N上昇で発動）— BE=1.5との連携でPF改善
+    trailMultiplier: 1.5,               // トレール幅（最高値 - ATR×N、発動時ATR×1.0の含み益確保）
     strategy: "swing" as const,
-    overrideTpSl: true,       // ATRベースSL（ATR×1.0）— WF検証でOOS PF 1.74
+    overrideTpSl: true,       // ATRベースSL（ATR×1.0）— WF検証でOOS PF 1.68
     cooldownDays: 5,          // ストップアウト後の同一銘柄再エントリー禁止日数
   },
 
@@ -184,8 +184,8 @@ export const DAILY_BACKTEST = {
     },
     /** 旧ベースラインのパラメータ（変更前の DEFAULT_PARAMS との差分） */
     OLD_BASELINE: {
-      overrideTpSl: false,
-      trailMultiplier: 2.0,
+      trailingActivationMultiplier: 3.0,
+      trailMultiplier: 1.0,
     },
   },
 } as const;
