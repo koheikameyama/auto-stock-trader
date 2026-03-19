@@ -8,6 +8,7 @@
 
 import dayjs from "dayjs";
 
+import { prisma } from "../lib/prisma";
 import { normalizeTickerCode } from "../lib/ticker-utils";
 import { DATA_QUALITY, YAHOO_FINANCE } from "../lib/constants";
 import { sleep } from "../lib/retry-utils";
@@ -275,6 +276,62 @@ export async function fetchHistoricalDataBatch(
           // fetchHistoricalData 内部でエラーログ済み
         }
       }
+    }
+  }
+
+  return results;
+}
+
+// ========================================
+// DBからヒストリカルデータ読み取り
+// ========================================
+
+/**
+ * DBに保存済みのOHLCV日足を一括読み取り
+ * backfill-prices で事前保存されたデータを使用する。
+ * @returns Map<tickerCode, OHLCVBar[]> (newest-first)
+ */
+export async function readHistoricalFromDB(
+  tickerCodes: string[],
+  days: number = YAHOO_FINANCE.HISTORICAL_DAYS,
+): Promise<Map<string, OHLCVBar[]>> {
+  const results = new Map<string, OHLCVBar[]>();
+  if (tickerCodes.length === 0) return results;
+
+  const cutoffDate = dayjs().subtract(days, "day").toDate();
+
+  const rows = await prisma.stockDailyBar.findMany({
+    where: {
+      tickerCode: { in: tickerCodes },
+      date: { gte: cutoffDate },
+    },
+    orderBy: { date: "desc" },
+    select: {
+      tickerCode: true,
+      date: true,
+      open: true,
+      high: true,
+      low: true,
+      close: true,
+      volume: true,
+    },
+  });
+
+  for (const row of rows) {
+    const bar: OHLCVBar = {
+      date: dayjs(row.date).format("YYYY-MM-DD"),
+      open: row.open,
+      high: row.high,
+      low: row.low,
+      close: row.close,
+      volume: Number(row.volume),
+    };
+
+    const existing = results.get(row.tickerCode);
+    if (existing) {
+      existing.push(bar);
+    } else {
+      results.set(row.tickerCode, [bar]);
     }
   }
 

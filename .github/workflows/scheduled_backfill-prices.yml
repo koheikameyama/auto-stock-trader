@@ -2,8 +2,8 @@ name: "[Scheduled] Backfill Prices"
 
 on:
   schedule:
-    # 日曜 03:00 JST = 土曜 18:00 UTC
-    - cron: "0 18 * * 6"
+    # 平日 17:00 JST = 08:00 UTC (月-金)
+    - cron: "0 8 * * 1-5"
   workflow_dispatch:
 
 concurrency:
@@ -37,7 +37,7 @@ jobs:
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_TITLE: "Backfill Prices 完了"
-          SLACK_MESSAGE: "株価・ファンダメンタルデータの週次バックフィルが完了しました"
+          SLACK_MESSAGE: "株価・OHLCV日足・ファンダメンタルデータのバックフィルが完了しました"
           SLACK_COLOR: good
           SLACK_FOOTER: "Stock Buddy"
 

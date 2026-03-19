@@ -20,6 +20,7 @@ import {
 } from "../lib/constants";
 import { SECTOR_MOMENTUM_SCORING } from "../lib/constants/scoring";
 import {
+  readHistoricalFromDB,
   fetchHistoricalDataBatch,
 } from "../core/market-data";
 import { analyzeTechnicals } from "../core/technical-analysis";
@@ -230,7 +231,22 @@ export async function main(context?: MarketAssessmentContext) {
   const scoredCandidates: ScoredCandidate[] = [];
 
   const allTickerCodes = candidates.map((c) => c.tickerCode);
-  const historicalMap = await fetchHistoricalDataBatch(allTickerCodes);
+
+  // DBからOHLCV日足を読み取り（backfill-pricesで事前保存済み）
+  let historicalMap = await readHistoricalFromDB(allTickerCodes);
+
+  // DBにデータがない銘柄はyfinanceからフォールバック取得
+  const missingTickers = allTickerCodes.filter(
+    (t) => !historicalMap.has(t) || (historicalMap.get(t)?.length ?? 0) < TECHNICAL_MIN_DATA.SCANNER_MIN_BARS,
+  );
+  if (missingTickers.length > 0) {
+    console.log(`  DB未保存${missingTickers.length}銘柄 → yfinanceフォールバック`);
+    const fallbackMap = await fetchHistoricalDataBatch(missingTickers);
+    for (const ticker of missingTickers) {
+      const bars = fallbackMap.get(ticker);
+      if (bars) historicalMap.set(ticker, bars);
+    }
+  }
 
   for (const stock of candidates) {
     try {
