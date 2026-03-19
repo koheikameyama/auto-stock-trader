@@ -21,6 +21,7 @@ import {
   TECHNICAL_MIN_DATA,
   JOB_CONCURRENCY,
   DEFENSIVE_MODE,
+  CAUTIOUS_MODE,
   WEEKEND_RISK,
 } from "../lib/constants";
 import { countNonTradingDaysAhead } from "../lib/market-calendar";
@@ -369,18 +370,27 @@ export async function main() {
   // スコア順ソート
   budgetCandidates.sort((a, b) => b.score - a.score);
 
+  // cautiousモード: 新規注文数を制限（既存pending更新は制限対象外）
+  const isCautiousMode = todayAssessment.sentiment === "cautious";
+  const maxNewOrders = isCautiousMode ? CAUTIOUS_MODE.MAX_NEW_ORDERS : Infinity;
+
   // 予算配分
   let budgetUsed = 0;
+  let newOrderCount = 0;
   const keepOrderIds = new Set<string>();
   const keepNewTickers = new Set<string>();
   const cancelOrderIds: string[] = [];
   const cancelledInfo: Array<{ tickerCode: string; score: number }> = [];
 
   for (const c of budgetCandidates) {
+    if (c.type === "new" && newOrderCount >= maxNewOrders) continue;
     if (budgetUsed + c.requiredAmount <= totalOrderBudget) {
       budgetUsed += c.requiredAmount;
       if (c.type === "existing") keepOrderIds.add(c.orderId!);
-      else keepNewTickers.add(c.tickerCode);
+      else {
+        keepNewTickers.add(c.tickerCode);
+        newOrderCount++;
+      }
     } else {
       if (c.type === "existing") {
         cancelOrderIds.push(c.orderId!);
@@ -388,6 +398,12 @@ export async function main() {
       }
       // new は passed から除外される（keepNewTickers に入らない）
     }
+  }
+
+  if (isCautiousMode) {
+    console.log(
+      `  cautiousモード: 新規注文を最大${CAUTIOUS_MODE.MAX_NEW_ORDERS}件に制限（採用: ${newOrderCount}件）`,
+    );
   }
 
   // 余力超過の既存 pending をキャンセル

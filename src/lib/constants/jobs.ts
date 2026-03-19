@@ -69,6 +69,8 @@ export const DEFENSIVE_MODE = {
 export const CAUTIOUS_MODE = {
   // トレーリングストップ引き締め倍率（通常のswing trail幅に乗算）
   TRAILING_TIGHTEN_MULTIPLIER: 0.8,
+  // 新規注文の最大件数（既存pending注文の更新は含まない）
+  MAX_NEW_ORDERS: 2,
 } as const;
 
 // 昼休み再評価

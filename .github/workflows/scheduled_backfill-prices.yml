@@ -50,23 +50,33 @@ jobs:
             echo "should_run=$CHECK" >> "$GITHUB_OUTPUT"
           fi
 
-  backfill:
+  # stock-data / corporate-events / trading-config を並列実行
+  stock-data:
     needs: check-market-day
     if: needs.check-market-day.outputs.should_run == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 180
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: ".tool-versions"
-          cache: "npm"
-      - run: npm ci
-      - run: npx prisma generate
-      - run: npm run backfill
+    uses: ./.github/workflows/reusable_backfill-stock-data.yml
+    secrets:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  corporate-events:
+    needs: check-market-day
+    if: needs.check-market-day.outputs.should_run == 'true'
+    uses: ./.github/workflows/reusable_backfill-corporate-events.yml
+    secrets:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  trading-config:
+    needs: check-market-day
+    if: needs.check-market-day.outputs.should_run == 'true'
+    uses: ./.github/workflows/reusable_backfill-trading-config.yml
+    secrets:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   notify-success:
-    needs: backfill
+    needs: [stock-data, corporate-events, trading-config]
     if: success()
     runs-on: ubuntu-latest
     steps:
@@ -74,13 +84,13 @@ jobs:
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "Backfill Prices 完了"
-          SLACK_MESSAGE: "株価・OHLCV日足・ファンダメンタルデータのバックフィルが完了しました"
+          SLACK_TITLE: "Backfill Prices 全処理完了"
+          SLACK_MESSAGE: "株価データ・コーポレートイベント・TradingConfigの全バックフィルが完了しました"
           SLACK_COLOR: good
           SLACK_FOOTER: "Stock Buddy"
 
   notify-failure:
-    needs: backfill
+    needs: [stock-data, corporate-events, trading-config]
     if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     steps:
@@ -88,9 +98,9 @@ jobs:
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "Backfill Prices 失敗"
+          SLACK_TITLE: "Backfill Prices 一部失敗"
           SLACK_MESSAGE: |
-            株価バックフィルが失敗しました。
+            バックフィル処理の一部が失敗しました。
             詳細はGitHub Actionsログを確認してください。
           SLACK_COLOR: danger
           SLACK_FOOTER: "Stock Buddy"
