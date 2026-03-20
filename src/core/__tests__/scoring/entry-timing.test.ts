@@ -26,10 +26,10 @@ describe("scorePullbackDepth", () => {
     expect(result).toBe(10);
   });
 
-  it("SMA5上（押してない）→ 3", () => {
+  it("SMA5上（押してない）→ 4", () => {
     const bars = [makeBar(), makeBar()];
     const result = scorePullbackDepth(100, 98, 90, 11.1, bars);
-    expect(result).toBe(3);
+    expect(result).toBe(4);
   });
 
   it("SMA25大幅下（乖離-3%超） → 0", () => {

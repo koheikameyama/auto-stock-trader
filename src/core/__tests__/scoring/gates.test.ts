@@ -24,7 +24,7 @@ describe("checkGates", () => {
   });
 
   it("株価超過 → spread", () => {
-    const result = checkGates({ ...baseInput, latestPrice: 5000 });
+    const result = checkGates({ ...baseInput, latestPrice: 5001 });
     expect(result.passed).toBe(false);
     expect(result.failedGate).toBe("spread");
   });
