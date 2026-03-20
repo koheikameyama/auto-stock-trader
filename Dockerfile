@@ -15,7 +15,8 @@ RUN python3 -m venv /opt/venv && \
 # Node.js 依存関係インストール
 COPY package*.json ./
 COPY prisma ./prisma
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --ignore-scripts && \
+    npx prisma generate
 
 COPY . .
 
