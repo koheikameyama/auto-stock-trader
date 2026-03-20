@@ -20,9 +20,11 @@ import { main as runMonitor } from "./jobs/position-monitor";
 import { app } from "./web/app";
 import { setJobState } from "./web/routes/dashboard";
 import { prisma } from "./lib/prisma";
-import { notifySlack } from "./lib/slack";
+import { notifySlack, notifyBrokerError } from "./lib/slack";
 import { isMarketDay } from "./lib/market-calendar";
 import { cronControl } from "./lib/cron-control";
+import { getTachibanaClient, resetTachibanaClient } from "./core/broker-client";
+import { getEffectiveBrokerMode } from "./core/broker-orders";
 
 // ジョブ状態（ダッシュボード・cronルートから参照可能）
 const jobState = {
@@ -171,6 +173,50 @@ const port = parseInt(process.env.PORT || "3000", 10);
 serve({ fetch: app.fetch, port }, (info) => {
   console.log(`  Dashboard: http://localhost:${info.port}`);
 });
+
+// ブローカーセッション初期化
+(async () => {
+  try {
+    const mode = await getEffectiveBrokerMode();
+    if (mode !== "simulation") {
+      console.log(`  ブローカーモード: ${mode} — ログイン中...`);
+      const client = getTachibanaClient();
+      await client.login();
+      client.startAutoRefresh();
+      console.log(`  ブローカーセッション確立`);
+    } else {
+      console.log(`  ブローカーモード: simulation（APIスキップ）`);
+    }
+  } catch (e) {
+    console.error("  ブローカーログイン失敗:", e);
+    await notifyBrokerError(
+      "起動時ログイン失敗",
+      e instanceof Error ? e.message : String(e),
+    ).catch(() => {});
+  }
+})();
+
+// シャットダウン
+async function shutdown(signal: string) {
+  console.log(`\n[${nowJST()}] ${signal} 受信、シャットダウン中...`);
+  for (const task of cronTasks) task.stop();
+
+  try {
+    const client = getTachibanaClient();
+    if (client.isLoggedIn()) {
+      await client.logout();
+    }
+    resetTachibanaClient();
+  } catch (e) {
+    console.warn("  ブローカーログアウトエラー:", e);
+  }
+
+  await prisma.$disconnect();
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
 
 console.log(`\n=== Worker 起動完了 ===`);
 console.log(`  JST時刻: [${nowJST()}]`);

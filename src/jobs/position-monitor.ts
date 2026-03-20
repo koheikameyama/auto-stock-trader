@@ -44,6 +44,7 @@ import {
 } from "../core/corporate-event-handler";
 import { fetchCorporateEvents } from "../core/market-data";
 import { notifyOrderFilled, notifyRiskAlert } from "../lib/slack";
+import { syncBrokerOrderStatuses } from "../core/broker-orders";
 import type { ExitSnapshot } from "../types/snapshots";
 import type { TradingStrategy } from "../core/market-regime";
 import dayjs from "dayjs";
@@ -67,6 +68,13 @@ export async function main() {
   if (!(await isSystemActive())) {
     console.log("  → システム停止中のため終了");
     return;
+  }
+
+  // 0. ブローカー注文ステータス同期（Phase 1: 情報取得のみ）
+  try {
+    await syncBrokerOrderStatuses();
+  } catch (e) {
+    console.warn("[position-monitor] Broker sync error (ignored):", e);
   }
 
   // 1. 期限切れ注文をキャンセル

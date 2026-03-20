@@ -790,3 +790,41 @@ export async function notifyUnfilledOrderFollowUp(data: {
     ],
   });
 }
+
+// ========================================
+// ブローカー通知
+// ========================================
+
+/** ブローカー注文送信通知 */
+export async function notifyBrokerOrderSubmitted(data: {
+  mode: "DRY_RUN" | "LIVE";
+  ticker: string;
+  side: string;
+  quantity: number;
+  limitPrice: number | null;
+  orderNumber?: string;
+}): Promise<void> {
+  const prefix = data.mode === "DRY_RUN" ? "[DRY]" : "[LIVE]";
+  const price =
+    data.limitPrice != null
+      ? `¥${data.limitPrice.toLocaleString()}`
+      : "成行";
+
+  await notifySlack({
+    title: `${prefix} ブローカー注文送信: ${data.ticker} [${data.side.toUpperCase()}]`,
+    message: `${price} × ${data.quantity}株${data.orderNumber ? ` (注文番号: ${data.orderNumber})` : ""}`,
+    color: data.mode === "LIVE" ? "#2196F3" : "#36a64f",
+  });
+}
+
+/** ブローカーエラー通知 */
+export async function notifyBrokerError(
+  title: string,
+  detail: string,
+): Promise<void> {
+  await notifySlack({
+    title: `🚨 ブローカーエラー: ${title}`,
+    message: detail,
+    color: "danger",
+  });
+}

@@ -86,3 +86,24 @@ export function prepareTickerForYahoo(tickerCode: string): string {
 export function prepareTickerForDB(tickerCode: string): string {
   return normalizeTickerCode(tickerCode);
 }
+
+/**
+ * DB/内部形式 → ブローカー用コードに変換
+ * 立花証券APIは4桁数字のみ（".T" サフィックスなし）
+ *
+ * @param ticker - DB保存形式（例: "7203.T"）
+ * @returns ブローカー用コード（例: "7203"）
+ */
+export function tickerToBrokerCode(ticker: string): string {
+  return removeTickerSuffix(ticker);
+}
+
+/**
+ * ブローカー用コード → DB/内部形式に変換
+ *
+ * @param brokerCode - ブローカー用コード（例: "7203"）
+ * @returns DB保存形式（例: "7203.T"）
+ */
+export function brokerCodeToTicker(brokerCode: string): string {
+  return normalizeTickerCode(brokerCode);
+}
