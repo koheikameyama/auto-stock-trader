@@ -82,6 +82,7 @@
 - コード全般を書く前 → `coding-standards.md`
 - Claude Code の設定を変更する前 → `claude-code-settings.md`
 - バックテスト・パラメータを変更する前 → `backtest.md`
+- 立花証券APIを実装する前 → `tachibana-api.md`
 
 ### 仕様書の管理
 
@@ -137,3 +138,4 @@
 | [coding-standards.md](.claude/rules/coding-standards.md) | マジックナンバー、後方互換性、並列化、設計ファイル |
 | [claude-code-settings.md](.claude/rules/claude-code-settings.md) | Claude Code 設定管理（permissions はローカルファイル） |
 | [backtest.md](.claude/rules/backtest.md) | バックテスト運用（walk-forward の実行タイミング・判定基準） |
+| [tachibana-api.md](.claude/rules/tachibana-api.md) | 立花証券 e支店 API（認証、注文、口座、時価、EVENT I/F） |
