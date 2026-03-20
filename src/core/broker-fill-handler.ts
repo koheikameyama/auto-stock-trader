@@ -7,9 +7,10 @@
 
 import { prisma } from "../lib/prisma";
 import { TACHIBANA_ORDER_STATUS } from "../lib/constants/broker";
-import { getOrderDetail, submitOrder } from "./broker-orders";
+import { getOrderDetail } from "./broker-orders";
 import { fillOrder } from "./order-executor";
 import { openPosition, closePosition } from "./position-manager";
+import { submitBrokerSL } from "./broker-sl-manager";
 import { validateStopLoss } from "./risk-manager";
 import { notifyOrderFilled, notifySlack } from "../lib/slack";
 import type { ExecutionEvent } from "./broker-event-stream";
@@ -205,29 +206,14 @@ async function handleBuyFill(
     data: { positionId: position.id },
   });
 
-  // TP/SL 注文をブローカーに発注
-  try {
-    // SL 逆指値注文（成行）
-    const slResult = await submitOrder({
-      ticker: order.stock.tickerCode,
-      side: "sell",
-      quantity: order.quantity,
-      limitPrice: null,
-      stopTriggerPrice: stopLossPrice,
-      stopOrderPrice: undefined, // 成行
-    });
-
-    if (slResult.success && slResult.orderNumber) {
-      console.log(
-        `[broker-fill] SL order submitted: ${slResult.orderNumber} @ trigger ¥${stopLossPrice}`,
-      );
-    }
-  } catch (err) {
-    console.error(
-      `[broker-fill] Failed to submit SL order for ${order.stock.tickerCode}:`,
-      err,
-    );
-  }
+  // SL 逆指値注文をブローカーに発注（エラーはbroker-sl-manager内で処理）
+  await submitBrokerSL({
+    positionId: position.id,
+    ticker: order.stock.tickerCode,
+    quantity: order.quantity,
+    stopTriggerPrice: stopLossPrice,
+    strategy: order.strategy,
+  });
 
   // Slack 通知
   await notifyOrderFilled({

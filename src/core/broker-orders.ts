@@ -13,6 +13,7 @@ import {
   DEFAULT_BROKER_MODE,
   TACHIBANA_CLMID,
   TACHIBANA_ORDER,
+  TACHIBANA_ORDER_STATUS,
   TACHIBANA_ORDER_QUERY,
 } from "../lib/constants/broker";
 import { notifySlack } from "../lib/slack";
@@ -363,12 +364,29 @@ export async function syncBrokerOrderStatuses(): Promise<void> {
     const brokerStatus = String(bo.sOrderStatus ?? "");
 
     if (order.brokerStatus !== brokerStatus) {
+      // ブローカー側で失効・取消された注文はDB statusも更新
+      const statusUpdate: Record<string, string> = { brokerStatus };
+      if (
+        brokerStatus === TACHIBANA_ORDER_STATUS.EXPIRED ||
+        brokerStatus === TACHIBANA_ORDER_STATUS.CANCELLED
+      ) {
+        if (order.status === "pending") {
+          statusUpdate.status =
+            brokerStatus === TACHIBANA_ORDER_STATUS.EXPIRED
+              ? "expired"
+              : "cancelled";
+          console.log(
+            `[broker-orders] ${order.stock.tickerCode} order ${order.brokerOrderId}: ブローカー${statusUpdate.status} → DB status更新`,
+          );
+        }
+      }
+
       await prisma.tradingOrder.update({
         where: { id: order.id },
-        data: { brokerStatus },
+        data: statusUpdate,
       });
       console.log(
-        `[broker-orders] Synced ${order.stock.ticker} order ${order.brokerOrderId}: ${order.brokerStatus} → ${brokerStatus}`,
+        `[broker-orders] Synced ${order.stock.tickerCode} order ${order.brokerOrderId}: ${order.brokerStatus} → ${brokerStatus}`,
       );
     }
   }

@@ -18,7 +18,10 @@ vi.mock("../../lib/prisma", () => ({
 
 vi.mock("../broker-orders", () => ({
   getOrderDetail: vi.fn(),
-  submitOrder: vi.fn().mockResolvedValue({ success: true }),
+}));
+
+vi.mock("../broker-sl-manager", () => ({
+  submitBrokerSL: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../order-executor", () => ({
@@ -46,6 +49,7 @@ vi.mock("../../lib/slack", () => ({
 import { handleBrokerFill } from "../broker-fill-handler";
 import { prisma } from "../../lib/prisma";
 import { getOrderDetail } from "../broker-orders";
+import { submitBrokerSL } from "../broker-sl-manager";
 import { fillOrder } from "../order-executor";
 import { openPosition, closePosition } from "../position-manager";
 import { notifyOrderFilled } from "../../lib/slack";
@@ -54,6 +58,7 @@ import type { ExecutionEvent } from "../broker-event-stream";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockPrisma = prisma as any;
 const mockGetOrderDetail = vi.mocked(getOrderDetail);
+const mockSubmitBrokerSL = vi.mocked(submitBrokerSL);
 const mockFillOrder = vi.mocked(fillOrder);
 const mockOpenPosition = vi.mocked(openPosition);
 const mockClosePosition = vi.mocked(closePosition);
@@ -194,6 +199,25 @@ describe("handleBrokerFill", () => {
         expect.objectContaining({
           where: { id: "order-1" },
           data: expect.objectContaining({ positionId: "pos-123" }),
+        }),
+      );
+    });
+
+    it("SL注文をブローカーに発注する", async () => {
+      mockPrisma.tradingOrder.findFirst.mockResolvedValue(
+        makeOrder() as never,
+      );
+      mockGetOrderDetail.mockResolvedValue(makeOrderDetail() as never);
+      mockPrisma.tradingPosition.findFirst.mockResolvedValue(null);
+
+      await handleBrokerFill(makeEvent());
+
+      expect(mockSubmitBrokerSL).toHaveBeenCalledWith(
+        expect.objectContaining({
+          positionId: "pos-123",
+          ticker: "7203.T",
+          quantity: 100,
+          strategy: "swing",
         }),
       );
     });

@@ -254,6 +254,10 @@ model TradingPosition {
   // 保有継続スコアリングによるTS倍率オーバーライド
   holdingScoreTrailOverride Decimal? @db.Decimal(5, 2)
 
+  // ブローカーSL注文追跡
+  slBrokerOrderId     String? // SL逆指値注文のブローカー注文番号
+  slBrokerBusinessDay String? // SL注文の営業日
+
   orders              TradingOrder[]
   defensiveFollowUp   DefensiveExitFollowUp?
   holdingScores       HoldingScoreRecord[]
