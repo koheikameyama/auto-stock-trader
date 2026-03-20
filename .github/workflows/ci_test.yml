@@ -38,20 +38,6 @@ jobs:
       - run: npx prisma generate
       - run: npm test
 
-  notify-success:
-    needs: [lint, test]
-    if: success()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Notify Slack on success
-        uses: rtCamp/action-slack-notify@v2
-        env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "✅ CI成功"
-          SLACK_MESSAGE: "Lint・テストが正常にパスしました"
-          SLACK_COLOR: good
-          SLACK_FOOTER: "Stock Buddy"
-
   notify-failure:
     needs: [lint, test]
     if: failure()
