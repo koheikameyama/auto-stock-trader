@@ -102,17 +102,35 @@ export class TachibanaClient {
       );
     }
 
+    // デバッグ: 仮想URL取得確認
+    const urlRequest = raw.sUrlRequest as string | undefined;
+    const urlMaster = raw.sUrlMaster as string | undefined;
+    const urlPrice = raw.sUrlPrice as string | undefined;
+    const urlEvent = raw.sUrlEvent as string | undefined;
+    const urlEventWebSocket = raw.sUrlEventWebSocket as string | undefined;
+
+    if (!urlRequest || !urlMaster || !urlPrice) {
+      console.error("[TachibanaClient] Login response missing virtual URLs. Raw keys:", Object.keys(raw));
+      console.error("[TachibanaClient] Raw response (partial):", JSON.stringify(raw, null, 2).slice(0, 2000));
+      throw new Error(
+        `Tachibana login succeeded but virtual URLs are missing: urlRequest=${urlRequest}, urlMaster=${urlMaster}, urlPrice=${urlPrice}`,
+      );
+    }
+
     this.session = {
-      urlRequest: raw.sUrlRequest as string,
-      urlMaster: raw.sUrlMaster as string,
-      urlPrice: raw.sUrlPrice as string,
-      urlEvent: raw.sUrlEvent as string,
-      urlEventWebSocket: raw.sUrlEventWebSocket as string,
+      urlRequest,
+      urlMaster,
+      urlPrice,
+      urlEvent: urlEvent ?? "",
+      urlEventWebSocket: urlEventWebSocket ?? "",
       loginAt: new Date(),
     };
 
     console.log(
       `[TachibanaClient] Login successful (${this.env}) at ${this.session.loginAt.toISOString()}`,
+    );
+    console.log(
+      `[TachibanaClient] Virtual URLs: request=${urlRequest?.slice(0, 60)}..., master=${urlMaster?.slice(0, 60)}..., price=${urlPrice?.slice(0, 60)}...`,
     );
 
     return this.session;
@@ -165,7 +183,7 @@ export class TachibanaClient {
   async request(
     params: TachibanaRequestParams,
   ): Promise<TachibanaResponse> {
-    this.ensureSession();
+    await this.ensureSession();
     return this.requestToVirtualUrl(this.session!.urlRequest, params);
   }
 
@@ -175,7 +193,7 @@ export class TachibanaClient {
   async requestMaster(
     params: TachibanaRequestParams,
   ): Promise<TachibanaResponse> {
-    this.ensureSession();
+    await this.ensureSession();
     return this.requestToVirtualUrl(this.session!.urlMaster, params);
   }
 
@@ -185,7 +203,7 @@ export class TachibanaClient {
   async requestPrice(
     params: TachibanaRequestParams,
   ): Promise<TachibanaResponse> {
-    this.ensureSession();
+    await this.ensureSession();
     return this.requestToVirtualUrl(this.session!.urlPrice, params);
   }
 
@@ -240,11 +258,9 @@ export class TachibanaClient {
   // 内部ユーティリティ
   // ========================================
 
-  private ensureSession(): void {
+  private async ensureSession(): Promise<void> {
     if (!this.session) {
-      throw new Error(
-        "TachibanaClient is not logged in. Call login() first.",
-      );
+      await this.login();
     }
   }
 
