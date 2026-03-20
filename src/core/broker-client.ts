@@ -195,14 +195,17 @@ export class TachibanaClient {
 
   /**
    * 30分ごとに自動再ログインを開始
+   *
+   * @param onRefresh - 再ログイン成功時のコールバック（WebSocket再接続等に使用）
    */
-  startAutoRefresh(): void {
+  startAutoRefresh(onRefresh?: (session: TachibanaSession) => void): void {
     this.stopAutoRefresh();
 
     this.refreshTimer = setInterval(async () => {
       try {
         console.log("[TachibanaClient] Auto-refreshing session...");
-        await this.login();
+        const session = await this.login();
+        onRefresh?.(session);
       } catch (e) {
         console.error("[TachibanaClient] Auto-refresh failed:", e);
       }

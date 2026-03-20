@@ -45,6 +45,7 @@ import {
 import { fetchCorporateEvents } from "../core/market-data";
 import { notifyOrderFilled, notifyRiskAlert } from "../lib/slack";
 import { syncBrokerOrderStatuses } from "../core/broker-orders";
+import { TACHIBANA_ORDER_STATUS } from "../lib/constants/broker";
 import type { ExitSnapshot } from "../types/snapshots";
 import type { TradingStrategy } from "../core/market-regime";
 import dayjs from "dayjs";
@@ -118,6 +119,14 @@ export async function main() {
         where: { id: order.id },
         data: { status: "cancelled" },
       });
+      continue;
+    }
+
+    // WebSocket約定ハンドラで既に処理済みの場合はスキップ（二重処理防止）
+    if (order.brokerStatus === TACHIBANA_ORDER_STATUS.FULLY_FILLED) {
+      console.log(
+        `  → ${order.stock.tickerCode}: ブローカー約定済み（WebSocket処理待ち）、スキップ`,
+      );
       continue;
     }
 

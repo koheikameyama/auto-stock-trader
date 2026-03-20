@@ -367,12 +367,14 @@ position-monitor (毎分) → quote取得 → low ≤ SL? → closePosition()
 trailingStopPrice 更新時 → ブローカーのSL注文を変更（modify order）
 ```
 
-### 5. 約定通知ハンドラー（Webhook or ポーリング）
+### 5. 約定通知ハンドラー（WebSocket EVENT I/F）— ✅ 実装済み
 
-立花証券APIの仕様次第だが、約定通知を受け取る仕組みが必要。
+立花API EVENT I/F（WebSocket）で約定通知（EC）をリアルタイム受信。
 
-- **Webhook方式**: ブローカーから HTTP コールバック → エンドポイント追加
-- **ポーリング方式**: 定期的にブローカーの注文ステータスを確認
+- `src/core/broker-event-stream.ts` — WebSocket 接続・メッセージパース・イベントディスパッチ
+- `src/core/broker-fill-handler.ts` — EC イベント受信 → `CLMOrderListDetail` で詳細取得 → DB更新・ポジション操作
+- Worker 起動時に接続、セッション更新（30分毎）で自動再接続
+- position-monitor の毎分ポーリングとの二重処理防止（`brokerStatus` チェック）
 
 ### 6. リコンシリエーション（整合性チェック）
 

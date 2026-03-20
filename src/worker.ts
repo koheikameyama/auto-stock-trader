@@ -25,6 +25,8 @@ import { isMarketDay } from "./lib/market-calendar";
 import { cronControl } from "./lib/cron-control";
 import { getTachibanaClient, resetTachibanaClient } from "./core/broker-client";
 import { getEffectiveBrokerMode } from "./core/broker-orders";
+import { getBrokerEventStream, resetBrokerEventStream } from "./core/broker-event-stream";
+import { handleBrokerFill } from "./core/broker-fill-handler";
 
 // ジョブ状態（ダッシュボード・cronルートから参照可能）
 const jobState = {
@@ -179,8 +181,25 @@ serve({ fetch: app.fetch, port }, (info) => {
     if (mode !== "simulation") {
       console.log(`  ブローカーモード: ${mode} — ログイン中...`);
       const client = getTachibanaClient();
-      await client.login();
-      client.startAutoRefresh();
+      const session = await client.login();
+
+      // WebSocket EVENT I/F 接続（約定通知のリアルタイム受信）
+      const stream = getBrokerEventStream();
+      stream.on("execution", (event) => {
+        handleBrokerFill(event).catch((err) => {
+          console.error("[worker] broker-fill error:", err);
+        });
+      });
+      stream.on("error", (err) => {
+        console.error("[worker] EventStream error:", err);
+      });
+      stream.connect(session.urlEventWebSocket);
+
+      // セッション更新時にWebSocket再接続
+      client.startAutoRefresh((newSession) => {
+        stream.reconnect(newSession.urlEventWebSocket);
+      });
+
       console.log(`  ブローカーセッション確立`);
     } else {
       console.log(`  ブローカーモード: simulation（APIスキップ）`);
@@ -198,6 +217,9 @@ serve({ fetch: app.fetch, port }, (info) => {
 async function shutdown(signal: string) {
   console.log(`\n[${nowJST()}] ${signal} 受信、シャットダウン中...`);
   for (const task of cronTasks) task.stop();
+
+  // WebSocket 切断
+  resetBrokerEventStream();
 
   try {
     const client = getTachibanaClient();
