@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   runMonteCarloSimulation,
   type MonteCarloConfig,
-  type MonteCarloResult,
 } from "../monte-carlo";
 
 function makeConfig(overrides: Partial<MonteCarloConfig> = {}): MonteCarloConfig {

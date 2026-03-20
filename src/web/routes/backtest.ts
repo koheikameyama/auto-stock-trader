@@ -10,7 +10,6 @@ import { DAILY_BACKTEST, CAPITAL_SCENARIOS } from "../../lib/constants";
 import { layout } from "../views/layout";
 import { COLORS } from "../views/styles";
 import {
-  formatYen,
   pnlPercent,
   emptyState,
   tt,

@@ -93,7 +93,7 @@ export function calculateMACD(prices: PriceData[]): {
   signal: number | null;
   histogram: number | null;
 } {
-  const minRequired = MACD_CONFIG.SLOW_PERIOD + MACD_CONFIG.SIGNAL_PERIOD - 1;
+  const _minRequired = MACD_CONFIG.SLOW_PERIOD + MACD_CONFIG.SIGNAL_PERIOD - 1;
   if (prices.length < MACD_CONFIG.SLOW_PERIOD) {
     return { macd: null, signal: null, histogram: null };
   }
@@ -425,7 +425,7 @@ export function detectGaps(prices: PriceData[]): {
         type: "up",
         price: yesterday.high,
         isFilled,
-        date: (today as any).date || null,
+        date: (today as unknown as Record<string, unknown>).date as string || null,
       };
     }
 
@@ -444,7 +444,7 @@ export function detectGaps(prices: PriceData[]): {
         type: "down",
         price: yesterday.low,
         isFilled,
-        date: (today as any).date || null,
+        date: (today as unknown as Record<string, unknown>).date as string || null,
       };
     }
   }

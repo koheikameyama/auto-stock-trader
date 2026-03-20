@@ -252,7 +252,7 @@ export async function main(context?: MarketAssessmentContext) {
   const allTickerCodes = candidates.map((c) => c.tickerCode);
 
   // DBからOHLCV日足を読み取り（backfill-pricesで事前保存済み）
-  let historicalMap = await readHistoricalFromDB(allTickerCodes);
+  const historicalMap = await readHistoricalFromDB(allTickerCodes);
 
   // DBにデータがない銘柄はyfinanceからフォールバック取得
   const missingTickers = allTickerCodes.filter(

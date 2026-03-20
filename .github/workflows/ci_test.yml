@@ -1,4 +1,4 @@
-name: "[CI] Test"
+name: "[CI] Test & Lint"
 
 on:
   pull_request:
@@ -11,6 +11,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run lint
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -25,7 +38,7 @@ jobs:
       - run: npm test
 
   notify-success:
-    needs: test
+    needs: [lint, test]
     if: success()
     runs-on: ubuntu-latest
     steps:
@@ -33,13 +46,13 @@ jobs:
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "✅ テスト成功"
-          SLACK_MESSAGE: "全テストが正常にパスしました"
+          SLACK_TITLE: "✅ CI成功"
+          SLACK_MESSAGE: "Lint・テストが正常にパスしました"
           SLACK_COLOR: good
           SLACK_FOOTER: "Stock Buddy"
 
   notify-failure:
-    needs: test
+    needs: [lint, test]
     if: failure()
     runs-on: ubuntu-latest
     steps:
@@ -47,9 +60,9 @@ jobs:
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "❌ テスト失敗"
+          SLACK_TITLE: "❌ CI失敗"
           SLACK_MESSAGE: |
-            テストが失敗しました。
+            Lint またはテストが失敗しました。
             詳細はGitHub Actionsログを確認してください。
           SLACK_COLOR: danger
           SLACK_FOOTER: "Stock Buddy"

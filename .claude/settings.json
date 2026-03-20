@@ -6,7 +6,10 @@
       "Bash(npx eslint:*)",
       "Bash(node -c:*)",
       "Bash(gh api:*)",
-      "Bash(git fetch:*)"
+      "Bash(git fetch:*)",
+      "Bash(npm install:*)",
+      "Bash(npm test:*)",
+      "Bash(npx husky init)"
     ]
   },
   "hooks": {

@@ -82,7 +82,7 @@ export async function main() {
   const todayAssessmentForStrategy = await prisma.marketAssessment.findUnique({
     where: { date: getTodayForDB() },
   });
-  const todayStrategy = (todayAssessmentForStrategy as Record<string, unknown> | null)?.tradingStrategy as string | null;
+  const _todayStrategy = (todayAssessmentForStrategy as Record<string, unknown> | null)?.tradingStrategy as string | null;
 
   // 1a. デイトレ未決済ポジションの強制決済
   console.log("[1a/5] デイトレ未決済ポジション強制決済...");

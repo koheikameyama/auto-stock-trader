@@ -12,7 +12,6 @@ import { layout } from "../views/layout";
 import {
   formatYen,
   pnlText,
-  pnlPercent,
   sentimentBadge,
   strategyBadge,
   emptyState,

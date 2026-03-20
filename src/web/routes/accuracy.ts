@@ -54,7 +54,7 @@ function parseGhostAnalysis(raw: string | null): { analysis: string; recommendat
   try {
     const parsed = JSON.parse(raw);
     if (parsed.analysis) return { analysis: parsed.analysis, recommendation: parsed.recommendation ?? "", misjudgmentType: parsed.misjudgmentType ?? null };
-  } catch {}
+  } catch { /* parse error */ }
   return null;
 }
 

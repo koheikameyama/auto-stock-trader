@@ -177,7 +177,7 @@ async function main() {
     exitReasons[reason].count++;
     exitReasons[reason].totalPnl += t.pnlPct ?? 0;
   }
-  for (const [reason, data] of Object.entries(exitReasons)) {
+  for (const [, data] of Object.entries(exitReasons)) {
     data.avgPnl = data.count > 0 ? data.totalPnl / data.count : 0;
   }
 

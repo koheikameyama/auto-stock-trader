@@ -39,7 +39,10 @@
     "postinstall": "prisma generate",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "prepare": "husky"
   },
   "dependencies": {
     "@holiday-jp/holiday_jp": "^2.5.1",
@@ -60,10 +63,18 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "@types/node": "^20",
     "@types/node-cron": "^3.0.11",
+    "eslint": "^9.39.4",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
     "prisma": "^6.19.2",
     "tsx": "^4.21.0",
+    "typescript-eslint": "^8.57.1",
     "vitest": "^4.1.0"
+  },
+  "lint-staged": {
+    "*.ts": "eslint --fix"
   }
 }

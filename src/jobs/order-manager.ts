@@ -371,7 +371,6 @@ export async function main() {
 
   // 予算配分
   let budgetUsed = 0;
-  let newOrderCount = 0;
   const keepOrderIds = new Set<string>();
   const keepNewTickers = new Set<string>();
   const cancelOrderIds: string[] = [];
@@ -383,7 +382,6 @@ export async function main() {
       if (c.type === "existing") keepOrderIds.add(c.orderId!);
       else {
         keepNewTickers.add(c.tickerCode);
-        newOrderCount++;
       }
     } else {
       if (c.type === "existing") {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { DATA_RETENTION } from "../../lib/constants/retention";
+import "../../lib/constants/retention";
 
 // vi.hoisted で mock 関数を定義（vi.mock のホイスティングに対応）
 const {
@@ -42,7 +42,7 @@ const allMocks = [
 
 // getDaysAgoForDB をモック
 vi.mock("../../lib/date-utils", () => ({
-  getDaysAgoForDB: vi.fn((days: number) => new Date(`2026-01-01T00:00:00Z`)),
+  getDaysAgoForDB: vi.fn((_days: number) => new Date(`2026-01-01T00:00:00Z`)),
 }));
 
 import { runDataCleanup } from "../data-cleanup";

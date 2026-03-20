@@ -356,7 +356,7 @@ export function validateStopLoss(
   entryPrice: number,
   proposedStopLoss: number,
   atr14: number | null,
-  supports: number[],
+  _supports: number[],
 ): StopLossValidation {
   let validatedPrice = proposedStopLoss;
   let wasOverridden = false;

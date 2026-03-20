@@ -6,7 +6,7 @@
  */
 
 import { Hono } from "hono";
-import { html, raw } from "hono/html";
+import { html } from "hono/html";
 import dayjs from "dayjs";
 import { prisma } from "../../lib/prisma";
 import { QUERY_LIMITS, ROUTE_LOOKBACK_DAYS } from "../../lib/constants";
@@ -18,7 +18,6 @@ import {
   pnlPercent,
   tickerLink,
   emptyState,
-  tt,
 } from "../views/components";
 
 const app = new Hono();

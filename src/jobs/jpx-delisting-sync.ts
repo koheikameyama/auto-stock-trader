@@ -62,7 +62,7 @@ async function fetchDelistingSchedule(): Promise<DelistingEntry[]> {
     for (let i = 2; i < cells.length; i++) {
       const cellText = $(cells[i]).text().trim();
       // 日付パターン（YYYY/MM/DD or YYYY年MM月DD日）を検出
-      if (!dateStr && /\d{4}[\/年]\d{1,2}[\/月]\d{1,2}/.test(cellText)) {
+      if (!dateStr && /\d{4}[/年]\d{1,2}[/月]\d{1,2}/.test(cellText)) {
         dateStr = cellText;
       } else if (dateStr && !reason && cellText.length > 0) {
         reason = cellText;

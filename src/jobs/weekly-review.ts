@@ -94,7 +94,7 @@ export async function main() {
   const cashBalance = Number(latestSummary.cashBalance);
 
   // 直近の注文履歴
-  const recentOrders = await prisma.tradingOrder.findMany({
+  const _recentOrders = await prisma.tradingOrder.findMany({
     where: {
       createdAt: { gte: weekAgo },
       status: "filled",

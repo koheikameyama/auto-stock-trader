@@ -21,8 +21,6 @@ import { TECHNICAL_MIN_DATA } from "../src/lib/constants/technical.js";
 import {
   scoreDayForAllStocks,
   extractTradingDays,
-  type ScoredRecord,
-  type StockFundamentals,
 } from "../src/backtest/on-the-fly-scorer.js";
 
 const prisma = new PrismaClient();
