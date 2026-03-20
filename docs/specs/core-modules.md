@@ -303,7 +303,32 @@ result = Math.floor(maxShares / UNIT_SHARES) * UNIT_SHARES
 | カテゴリ | 主要定数 |
 |----------|---------|
 | 売買単位 | `UNIT_SHARES = 100` |
-| 取引時間 | 9:00-15:00、デイトレ強制決済 14:50（Yahoo Finance遅延+20分考慮） |
+| 取引時間 | 9:00-15:00、デイトレ強制決済 14:50 |
 | テクニカル閾値 | RSI: 70/30、VIX: 30/25/20 |
 | Yahoo Finance | バッチ=10、レート制限=1000ms、ヒストリカル=60日 |
 | セクターマスタ | 11セクターグループ（TSE業種→グループへの変換） |
+
+## 7. Broker Event Stream（src/core/broker-event-stream.ts）
+
+立花証券 EVENT I/F（WebSocket）クライアント。約定通知（EC）やキープアライブ（KP）をリアルタイムで受信する。
+
+| 関数/クラス | 説明 |
+|------------|------|
+| `BrokerEventStream` | WebSocket接続管理、メッセージパース、イベント発火 |
+| `parseEventMessage` | `\x01` 区切りメッセージのパース |
+| `getBrokerEventStream` | シングルトンインスタンス取得 |
+| `resetBrokerEventStream` | シングルトンリセット（テスト/シャットダウン用） |
+
+**イベント:** `execution`（約定）、`keepalive`、`connected`、`disconnected`、`error`、`status`
+
+## 8. Broker Fill Handler（src/core/broker-fill-handler.ts）
+
+WebSocket 約定通知（EC）受信時の約定処理。
+
+| 関数 | 説明 |
+|------|------|
+| `handleBrokerFill` | EC イベント → `CLMOrderListDetail` で詳細取得 → DB更新・ポジション操作 |
+
+- 買い約定: ポジションオープン + SL逆指値注文をブローカーに発注
+- 売り約定: ポジションクローズ + 損益計算
+- `brokerStatus` を即座に更新し、position-monitor との二重処理を防止

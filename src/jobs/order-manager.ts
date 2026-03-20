@@ -1,5 +1,5 @@
 /**
- * 注文マネージャー（9:50 JST / 平日）
+ * 注文マネージャー（9:30 JST / 平日）
  *
  * 「ロジックが主役、AIが最終審判」フロー:
  * 1. 今日のMarketAssessmentを確認（shouldTrade = true のみ）
@@ -39,8 +39,9 @@ import type {
 import { canOpenPosition, validateStopLoss } from "../core/risk-manager";
 import { getCashBalance } from "../core/position-manager";
 import { analyzeOpeningSession } from "../core/opening-session";
-import { notifyOrderPlaced, notifyRiskAlert, notifySlack } from "../lib/slack";
+import { notifyOrderPlaced, notifyRiskAlert, notifySlack, notifyBrokerError } from "../lib/slack";
 import { getSectorGroup } from "../lib/constants";
+import { submitOrder as submitBrokerOrder } from "../core/broker-orders";
 import type { EntrySnapshot } from "../types/snapshots";
 import type { TradingStrategy } from "../core/market-regime";
 import dayjs from "dayjs";
@@ -624,7 +625,7 @@ export async function main() {
       console.log(`    → 既存pending注文を更新 (${pendingBuyOrderId})`);
       ordersUpdated++;
     } else {
-      await prisma.tradingOrder.create({
+      const newOrder = await prisma.tradingOrder.create({
         data: {
           stockId,
           side: "buy",
@@ -641,6 +642,40 @@ export async function main() {
         },
       });
       ordersCreated++;
+
+      // ブローカー発注（Phase 1: エラーでもシミュレーションは止めない）
+      try {
+        const brokerResult = await submitBrokerOrder({
+          ticker: tickerCode,
+          side: "buy",
+          quantity: finalCondition.quantity,
+          limitPrice: finalCondition.limitPrice,
+          stopTriggerPrice: finalCondition.stopLossPrice,
+          stopOrderPrice: undefined, // SL成行
+        });
+        if (brokerResult.success && brokerResult.orderNumber) {
+          await prisma.tradingOrder.update({
+            where: { id: newOrder.id },
+            data: {
+              brokerOrderId: brokerResult.orderNumber,
+              brokerBusinessDay: brokerResult.businessDay,
+            },
+          });
+        } else if (!brokerResult.success && !brokerResult.isDryRun) {
+          console.warn(
+            `[order-manager] Broker order failed for ${tickerCode}: ${brokerResult.error}`,
+          );
+          await notifyBrokerError(
+            `注文送信失敗: ${tickerCode}`,
+            brokerResult.error ?? "Unknown error",
+          );
+        }
+      } catch (brokerErr) {
+        console.error(
+          `[order-manager] Broker error for ${tickerCode}:`,
+          brokerErr,
+        );
+      }
     }
     cashBalance -= requiredAmount;
 

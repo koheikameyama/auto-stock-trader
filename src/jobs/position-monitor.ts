@@ -1,5 +1,5 @@
 /**
- * ポジションモニター（9:20〜15:19 / 毎分）
+ * ポジションモニター（9:00〜15:00 / 毎分）
  *
  * 1. pending注文の約定チェック
  * 2. 約定した買い注文 → ポジションをオープン + 利確/損切り注文を作成
@@ -44,6 +44,9 @@ import {
 } from "../core/corporate-event-handler";
 import { fetchCorporateEvents } from "../core/market-data";
 import { notifyOrderFilled, notifyRiskAlert } from "../lib/slack";
+import { syncBrokerOrderStatuses, cancelOrder, submitOrder } from "../core/broker-orders";
+import { cancelBrokerSL, updateBrokerSL } from "../core/broker-sl-manager";
+import { TACHIBANA_ORDER_STATUS } from "../lib/constants/broker";
 import type { ExitSnapshot } from "../types/snapshots";
 import type { TradingStrategy } from "../core/market-regime";
 import dayjs from "dayjs";
@@ -67,6 +70,13 @@ export async function main() {
   if (!(await isSystemActive())) {
     console.log("  → システム停止中のため終了");
     return;
+  }
+
+  // 0. ブローカー注文ステータス同期（Phase 1: 情報取得のみ）
+  try {
+    await syncBrokerOrderStatuses();
+  } catch (e) {
+    console.warn("[position-monitor] Broker sync error (ignored):", e);
   }
 
   // 1. 期限切れ注文をキャンセル
@@ -106,10 +116,24 @@ export async function main() {
       console.log(
         `  → ${order.stock.tickerCode}: ディフェンシブモード中のため買い注文キャンセル`,
       );
+      // ブローカー注文も取消
+      if (order.brokerOrderId && order.brokerBusinessDay) {
+        await cancelOrder(order.brokerOrderId, order.brokerBusinessDay).catch(
+          (err) => console.error(`[position-monitor] cancel error: ${err}`),
+        );
+      }
       await prisma.tradingOrder.update({
         where: { id: order.id },
         data: { status: "cancelled" },
       });
+      continue;
+    }
+
+    // WebSocket約定ハンドラで既に処理済みの場合はスキップ（二重処理防止）
+    if (order.brokerStatus === TACHIBANA_ORDER_STATUS.FULLY_FILLED) {
+      console.log(
+        `  → ${order.stock.tickerCode}: ブローカー約定済み（WebSocket処理待ち）、スキップ`,
+      );
       continue;
     }
 
@@ -139,6 +163,15 @@ export async function main() {
             console.log(
               `  → ${order.stock.tickerCode}: ${timeCheck.reason}のためキャンセル`,
             );
+            // ブローカー注文も取消
+            if (order.brokerOrderId && order.brokerBusinessDay) {
+              await cancelOrder(
+                order.brokerOrderId,
+                order.brokerBusinessDay,
+              ).catch((err) =>
+                console.error(`[position-monitor] cancel error: ${err}`),
+              );
+            }
             await prisma.tradingOrder.update({
               where: { id: order.id },
               data: { status: "cancelled" },
@@ -332,6 +365,14 @@ export async function main() {
           stopLossPrice: originalSL,
         },
       });
+      // ブローカーSL注文も更新
+      await updateBrokerSL({
+        positionId: position.id,
+        ticker: position.stock.tickerCode,
+        quantity: position.quantity,
+        newStopTriggerPrice: originalSL,
+        strategy: position.strategy,
+      });
       console.log(
         `  → ${position.stock.tickerCode}: TP/SL修正（TP: ¥${rawTP} → ¥${originalTP}, SL: ¥${rawSL} → ¥${originalSL}）`,
       );
@@ -422,6 +463,17 @@ export async function main() {
           : null,
       };
 
+      // ブローカー連携: SL注文取消 + 成行売り発注
+      await cancelBrokerSL(position.id);
+      await submitOrder({
+        ticker: position.stock.tickerCode,
+        side: "sell",
+        quantity: position.quantity,
+        limitPrice: null,
+      }).catch((err) =>
+        console.error(`[position-monitor] sell order error: ${err}`),
+      );
+
       const closedPosition = await closePosition(
         position.id,
         exitPrice,
@@ -453,6 +505,17 @@ export async function main() {
         : null;
       if (exitResult.trailingStopPrice !== currentTrailing) {
         updateData.trailingStopPrice = exitResult.trailingStopPrice;
+
+        // ブローカーSL注文も更新（トレーリングストップ引き上げ）
+        if (exitResult.trailingStopPrice != null) {
+          await updateBrokerSL({
+            positionId: position.id,
+            ticker: position.stock.tickerCode,
+            quantity: position.quantity,
+            newStopTriggerPrice: exitResult.trailingStopPrice,
+            strategy: position.strategy,
+          });
+        }
       }
 
       if (Object.keys(updateData).length > 0) {
@@ -522,6 +585,17 @@ export async function main() {
 
     console.log(
       `  → ${position.stock.tickerCode}: ${earningsReason} @ ¥${quote.price.toLocaleString()}`,
+    );
+
+    // ブローカー連携: SL注文取消 + 成行売り発注
+    await cancelBrokerSL(position.id);
+    await submitOrder({
+      ticker: position.stock.tickerCode,
+      side: "sell",
+      quantity: position.quantity,
+      limitPrice: null,
+    }).catch((err) =>
+      console.error(`[position-monitor] sell order error: ${err}`),
     );
 
     const closed = await closePosition(
@@ -637,6 +711,17 @@ export async function main() {
           `  → ${position.stock.tickerCode}: ${defensiveReason} @ ¥${quote.price.toLocaleString()}`,
         );
 
+        // ブローカー連携: SL注文取消 + 成行売り発注
+        await cancelBrokerSL(position.id);
+        await submitOrder({
+          ticker: position.stock.tickerCode,
+          side: "sell",
+          quantity: position.quantity,
+          limitPrice: null,
+        }).catch((err) =>
+          console.error(`[position-monitor] sell order error: ${err}`),
+        );
+
         const closed = await closePosition(
           position.id,
           quote.price,
@@ -722,6 +807,17 @@ export async function main() {
         },
         marketContext: null,
       };
+
+      // ブローカー連携: SL注文取消 + 成行売り発注
+      await cancelBrokerSL(position.id);
+      await submitOrder({
+        ticker: position.stock.tickerCode,
+        side: "sell",
+        quantity: position.quantity,
+        limitPrice: null,
+      }).catch((err) =>
+        console.error(`[position-monitor] sell order error: ${err}`),
+      );
 
       const closed = await closePosition(
         position.id,
@@ -812,6 +908,15 @@ async function applyCorporateEventAdjustments(
           },
         });
 
+        // ブローカーSL注文も更新（配当落ち調整）
+        await updateBrokerSL({
+          positionId: pos.id,
+          ticker: stock.tickerCode,
+          quantity: pos.quantity,
+          newStopTriggerPrice: result.newStopLoss,
+          strategy: pos.strategy,
+        });
+
         // ポジションのメモリ内データも更新（後続のループで最新値を使うため）
         pos.stopLossPrice = new Prisma.Decimal(result.newStopLoss);
         if (result.newTrailingStop !== null) {
@@ -878,6 +983,15 @@ async function applyCorporateEventAdjustments(
               trailingStopPrice: adj.trailingStopPrice.new,
               entryAtr: adj.entryAtr.new,
             },
+          });
+
+          // ブローカーSL注文も更新（株式分割調整）
+          await updateBrokerSL({
+            positionId: pos.id,
+            ticker: stock.tickerCode,
+            quantity: adj.quantity.new,
+            newStopTriggerPrice: adj.stopLossPrice.new,
+            strategy: pos.strategy,
           });
 
           await prisma.corporateEventLog.create({

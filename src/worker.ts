@@ -20,9 +20,13 @@ import { main as runMonitor } from "./jobs/position-monitor";
 import { app } from "./web/app";
 import { setJobState } from "./web/routes/dashboard";
 import { prisma } from "./lib/prisma";
-import { notifySlack } from "./lib/slack";
+import { notifySlack, notifyBrokerError } from "./lib/slack";
 import { isMarketDay } from "./lib/market-calendar";
 import { cronControl } from "./lib/cron-control";
+import { getTachibanaClient, resetTachibanaClient } from "./core/broker-client";
+import { getEffectiveBrokerMode } from "./core/broker-orders";
+import { getBrokerEventStream, resetBrokerEventStream } from "./core/broker-event-stream";
+import { handleBrokerFill } from "./core/broker-fill-handler";
 
 // ジョブ状態（ダッシュボード・cronルートから参照可能）
 const jobState = {
@@ -118,15 +122,13 @@ function nowJST(): string {
 // ※ news-collector, market-scanner, scoring-accuracy, weekly-review は
 //   GitHub Actions cron に移行済み（KOH-296）
 const schedules = [
-  // 9:20-11:49, 12:50-15:39 毎分 ポジション監視（平日）
-  // ※ yfinance の約20分遅延を考慮して各セッション+20分ずらし
-  //   前場 9:00-11:30 → 監視 9:20-11:49 / 後場 12:30-15:00 → 監視 12:50-15:39
-  { cron: "20-59 9 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
+  // 9:00-11:30, 12:30-15:00 毎分 ポジション監視（平日・市場時間）
+  { cron: "0-59 9 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
   { cron: "* 10 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
-  { cron: "0-49 11 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
-  { cron: "50-59 12 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
+  { cron: "0-30 11 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
+  { cron: "30-59 12 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
   { cron: "* 13-14 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
-  { cron: "0-39 15 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
+  { cron: "0-0 15 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
 ];
 
 // cron 登録
@@ -171,6 +173,70 @@ const port = parseInt(process.env.PORT || "3000", 10);
 serve({ fetch: app.fetch, port }, (info) => {
   console.log(`  Dashboard: http://localhost:${info.port}`);
 });
+
+// ブローカーセッション初期化
+(async () => {
+  try {
+    const mode = await getEffectiveBrokerMode();
+    if (mode !== "simulation") {
+      console.log(`  ブローカーモード: ${mode} — ログイン中...`);
+      const client = getTachibanaClient();
+      const session = await client.login();
+
+      // WebSocket EVENT I/F 接続（約定通知のリアルタイム受信）
+      const stream = getBrokerEventStream();
+      stream.on("execution", (event) => {
+        handleBrokerFill(event).catch((err) => {
+          console.error("[worker] broker-fill error:", err);
+        });
+      });
+      stream.on("error", (err) => {
+        console.error("[worker] EventStream error:", err);
+      });
+      stream.connect(session.urlEventWebSocket);
+
+      // セッション更新時にWebSocket再接続
+      client.startAutoRefresh((newSession) => {
+        stream.reconnect(newSession.urlEventWebSocket);
+      });
+
+      console.log(`  ブローカーセッション確立`);
+    } else {
+      console.log(`  ブローカーモード: simulation（APIスキップ）`);
+    }
+  } catch (e) {
+    console.error("  ブローカーログイン失敗:", e);
+    await notifyBrokerError(
+      "起動時ログイン失敗",
+      e instanceof Error ? e.message : String(e),
+    ).catch(() => {});
+  }
+})();
+
+// シャットダウン
+async function shutdown(signal: string) {
+  console.log(`\n[${nowJST()}] ${signal} 受信、シャットダウン中...`);
+  for (const task of cronTasks) task.stop();
+
+  // WebSocket 切断
+  resetBrokerEventStream();
+
+  try {
+    const client = getTachibanaClient();
+    if (client.isLoggedIn()) {
+      await client.logout();
+    }
+    resetTachibanaClient();
+  } catch (e) {
+    console.warn("  ブローカーログアウトエラー:", e);
+  }
+
+  await prisma.$disconnect();
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
 
 console.log(`\n=== Worker 起動完了 ===`);
 console.log(`  JST時刻: [${nowJST()}]`);

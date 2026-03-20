@@ -2,8 +2,8 @@ name: "[cron-job.org] Order Manager"
 
 on:
   # schedule:
-  #   # 9:20 JST = 00:20 UTC
-  #   - cron: "20 0 * * 1-5"
+  #   # 9:30 JST = 00:30 UTC
+  #   - cron: "30 0 * * 1-5"
   workflow_dispatch:
     inputs:
       skip_market_day_check:

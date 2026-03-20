@@ -136,20 +136,37 @@ create → ブローカーに送信 → pending（ブローカーID付き）
 
 ---
 
-## B. マーケットデータ
+## B. マーケットデータ（実装済み）
 
-### 現状: Yahoo Finance（15-20分遅延）
+### 現状: 立花API + Yahoo Finance ハイブリッド
 
-`src/core/market-data.ts` が全てのデータソース。
+`MARKET_DATA_PROVIDER=tachibana` 設定で、日本株クォートは立花API（リアルタイム）、その他はyfinance。
 
-### 変更対象
+### 実装状況
 
-| 関数 | 現状 | 変更後 |
-|------|------|--------|
-| `fetchStockQuote()` | Yahoo Finance `quote()` | ブローカーリアルタイムAPI |
-| `fetchStockQuotesBatch()` | Yahoo Finance バッチ | ブローカーバッチAPI or 個別呼び出し |
-| `fetchHistoricalData()` | Yahoo Finance `chart()` | ブローカー日足API or 別データプロバイダー |
-| `fetchMarketData()` | Yahoo Finance（指数） | 据え置き可能（指数はブローカーAPI外の場合も） |
+| 関数 | 取得元 | 状態 |
+|------|--------|------|
+| `fetchStockQuote()` | 立花API `CLMMfdsGetMarketPrice` → yfinance fallback | **実装済み** |
+| `fetchStockQuotesBatch()` | 立花API（p-limit並列） → yfinance fallback | **実装済み** |
+| `fetchHistoricalData()` | yfinance（変更なし） | 据え置き |
+| `fetchMarketData()` | yfinance（変更なし、US指標は立花で取得不可） | 据え置き |
+| ファンダメンタルズ（PER/PBR/EPS） | yfinance（立花APIでは取得不可） | 据え置き |
+| コーポレートイベント | yfinance（変更なし） | 据え置き |
+| ニュース | yfinance（変更なし） | 据え置き |
+
+### 関連ファイル
+
+| ファイル | 内容 |
+|---------|------|
+| `src/lib/tachibana-price-client.ts` | 立花API時価取得クライアント |
+| `src/lib/market-data-provider.ts` | "tachibana" プロバイダーモード追加 |
+| `src/lib/constants/broker.ts` | PRICE系カラムコード定数 |
+| `src/lib/tachibana-key-map.ts` | 時価レスポンスのキーマッピング |
+
+### 注意事項
+
+- `backfill-stock-data.ts`: 立花モードではファンダメンタルズがnullで返るため、null時はDB既存値を保持するよう修正済み
+- スケジュールの+20分オフセット（Yahoo Finance遅延補正）は撤廃済み。全スケジュールが実市場時刻で動作
 
 ### ボラティリティ指標
 
@@ -195,55 +212,21 @@ interface MarketDataProvider {
 
 ---
 
-## C. スケジュール変更
+## C. スケジュール変更（実装済み）
 
-### 現在のオフセット（Yahoo Finance 約20分遅延対策）
+### +20分オフセット撤廃
 
-全ての時間依存処理は「実市場時刻 + 20分」で設定している。
+立花APIによるリアルタイムデータ取得に移行したため、Yahoo Finance 約20分遅延を補正する+20分オフセットを全て撤廃した。
 
-| 対象 | 実市場時刻 | システム時刻（+20分） | 設定箇所 |
-|------|-----------|---------------------|---------|
-| position-monitor開始 | 9:00 | 9:20 | `worker.ts` cron |
-| 寄付き保留 | 9:00-9:30 | 9:20-9:50 | `TIME_WINDOW.OPENING_VOLATILITY` |
-| order-manager | 9:30 | 9:50 | cron-job.org |
-| position-monitor昼休み | 11:30-12:30 | 11:50-12:50 | `worker.ts` cron |
-| midday-reassessment | (前場11:30終了+45分) | 12:15 | cron-job.org |
-| デイトレ締切 | 14:30 | 14:50 | `TIME_WINDOW.DAY_TRADE_ENTRY_CUTOFF` |
-| デイトレ強制決済 | 14:50 | 15:10 | `TRADING_SCHEDULE.DAY_TRADE_FORCE_EXIT` |
-| position-monitor終了 | 15:20 | 15:39 | `worker.ts` cron |
-| end-of-day | 15:30 | 15:50 | cron-job.org |
-
-### API移行後のスケジュール変更
-
-リアルタイムデータ取得が可能になれば、+20分オフセットを解消し実市場時刻で動作させる。
-
-| ジョブ | 現在（+20分） | 移行後 | 理由 |
-|--------|-------------|--------|------|
-| order-manager | 9:50 | **9:00-9:05** | リアルタイムデータなら寄付き直後に発注可能 |
-| position-monitor | 9:20-15:39 | **9:00-15:00** | リアルタイムで全取引時間をカバー |
-| end-of-day | 15:50 | **15:05-15:10** | 大引け後すぐに処理可能 |
-| DAY_TRADE_FORCE_EXIT | 15:10 | **14:50-14:55** | 遅延なしでも大引け前の安全マージンは残す |
-
-### 寄付き時間帯フィルタの見直し
-
-**現状**: Yahoo Finance 20分遅延を考慮し、寄付き保留を9:20-9:50（実市場9:00-9:30）に設定済み。ただし `quote.high`/`quote.low` は当日の累積値のため、寄付きの急落は終日lowに残り続ける制約がある。
-
-**移行後の対応**: リアルタイムデータ取得後に以下を実装する。
-
-1. position-monitorの寄付きフィルタを**区間データ（直近の板情報・約定データ）ベース**に変更
-2. order-managerを9:00-9:05に前倒し（リアルタイムデータなら寄付き直後に発注可能）
-3. 寄付き回避が必要な場合は、**ブローカー側の時間指定注文**（寄付き後N分で発注）を活用
-
-### 重要: 9:00-9:20の空白時間
-
-**現在**: 9:00-9:20はposition-monitorが動いているが、Yahoo Finance遅延によりデータは前日終値ベース。既存swing注文の約定チェックのみ有効。
-
-**移行後**: リアルタイムデータなら9:00から即座に全機能が動作可能。SLが寄付きのギャップダウンで突き抜けるリスクにはブローカー側のSL逆指値注文で対策する。
-
-**対策**:
-1. ブローカー側にSL逆指値注文を事前に出しておく（前日or寄付き前）
-2. position-monitorを9:00開始に変更
-3. 寄付き前の板寄せで約定する場合のハンドリング追加
+| 対象 | 旧（+20分） | 現在（実市場時刻） | 設定箇所 |
+|------|-----------|------------------|---------|
+| position-monitor | 9:20-15:39 | 9:00-15:00 | `worker.ts` cron |
+| 寄付き保留 | 9:20-9:50 | 9:00-9:30 | `TIME_WINDOW.OPENING_VOLATILITY` |
+| order-manager | 9:50 | 9:30 | cron-job.org |
+| デイトレ締切 | 14:50 | 14:30 | `TIME_WINDOW.DAY_TRADE_ENTRY_CUTOFF` |
+| デイトレ強制決済 | 15:10 | 14:50 | `TRADING_SCHEDULE.DAY_TRADE_FORCE_EXIT` |
+| midday-reassessment | 12:15 | 12:15（変更なし） | cron-job.org |
+| end-of-day | 15:50 | 15:50（変更なし、余裕を持たせる） | cron-job.org |
 
 ---
 
@@ -384,12 +367,14 @@ position-monitor (毎分) → quote取得 → low ≤ SL? → closePosition()
 trailingStopPrice 更新時 → ブローカーのSL注文を変更（modify order）
 ```
 
-### 5. 約定通知ハンドラー（Webhook or ポーリング）
+### 5. 約定通知ハンドラー（WebSocket EVENT I/F）— ✅ 実装済み
 
-立花証券APIの仕様次第だが、約定通知を受け取る仕組みが必要。
+立花API EVENT I/F（WebSocket）で約定通知（EC）をリアルタイム受信。
 
-- **Webhook方式**: ブローカーから HTTP コールバック → エンドポイント追加
-- **ポーリング方式**: 定期的にブローカーの注文ステータスを確認
+- `src/core/broker-event-stream.ts` — WebSocket 接続・メッセージパース・イベントディスパッチ
+- `src/core/broker-fill-handler.ts` — EC イベント受信 → `CLMOrderListDetail` で詳細取得 → DB更新・ポジション操作
+- Worker 起動時に接続、セッション更新（30分毎）で自動再接続
+- position-monitor の毎分ポーリングとの二重処理防止（`brokerStatus` チェック）
 
 ### 6. リコンシリエーション（整合性チェック）
 

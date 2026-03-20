@@ -73,12 +73,12 @@ Dockerfile               # Railwayデプロイ用
       ├─ NO → 保存して終了
       └─ YES → 銘柄スクリーニング → テクニカル分析 → AI銘柄選定
                                                       ↓
-9:20  order-manager
+9:30  order-manager
       ├─ 選定銘柄ごとにAI売買判断
       ├─ リスクチェック
       └─ 注文生成（pending）
                 ↓
-9:20-15:19  position-monitor（毎分実行）
+9:00-15:00  position-monitor（毎分実行）
       ├─ 期限切れ注文の処理
       ├─ 約定チェック（limit/stop条件）
       ├─ ポジション監視（利確/損切）

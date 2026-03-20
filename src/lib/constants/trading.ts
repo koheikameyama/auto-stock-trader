@@ -115,23 +115,22 @@ export const TRADING_SCHEDULE = {
   MORNING_CLOSE: { hour: 11, minute: 30 },
   AFTERNOON_OPEN: { hour: 12, minute: 30 },
   MARKET_CLOSE: { hour: 15, minute: 0 },
-  // デイトレの強制決済時刻（実市場14:50 + Yahoo Finance約20分遅延）
-  DAY_TRADE_FORCE_EXIT: { hour: 15, minute: 10 },
+  // デイトレの強制決済時刻（14:50）
+  DAY_TRADE_FORCE_EXIT: { hour: 14, minute: 50 },
 } as const;
 
 // ========================================
 // エントリー時間帯フィルタ
-// ※ Yahoo Finance約20分遅延を考慮し、全て実市場時刻+20分で設定
 // ========================================
 
 export const TIME_WINDOW = {
-  // 寄付き直後（実市場 9:00-9:30 → 遅延考慮 9:20-9:50）
+  // 寄付き直後（9:00-9:30）
   OPENING_VOLATILITY: {
-    start: { hour: 9, minute: 20 },
-    end: { hour: 9, minute: 50 },
+    start: { hour: 9, minute: 0 },
+    end: { hour: 9, minute: 30 },
   },
-  // デイトレ新規エントリー締切（実市場 14:30 → 遅延考慮 14:50）
-  DAY_TRADE_ENTRY_CUTOFF: { hour: 14, minute: 50 },
+  // デイトレ新規エントリー締切（14:30）
+  DAY_TRADE_ENTRY_CUTOFF: { hour: 14, minute: 30 },
 } as const;
 
 // ========================================
@@ -139,17 +138,9 @@ export const TIME_WINDOW = {
 // ========================================
 
 export const YAHOO_FINANCE = {
-  HISTORICAL_PERIOD: "10mo", // テクニカル分析用データ期間（週足SMA26に200日必要）
   HISTORICAL_DAYS: 200, // データポイント数（週足トレンド分析対応）
   BATCH_SIZE: 50, // バッチクォート取得サイズ（1リクエストで複数銘柄）
-  HISTORICAL_BATCH_SIZE: 10, // ヒストリカルデータ取得の並列数
   RATE_LIMIT_DELAY_MS: 2000, // レート制限用ディレイ
-  RETRY_MAX_ATTEMPTS: 3, // リトライ最大回数
-  RETRY_BASE_DELAY_MS: 3000, // リトライ初回待機（指数バックオフ: 3s,6s,12s）
-  // スロットルキュー設定（429回避）
-  THROTTLE_CONCURRENCY: 1, // 同時実行数（1 = 直列実行）
-  THROTTLE_MIN_DELAY_MS: 1000, // リクエスト間最小ディレイ（ms）
-  THROTTLE_MAX_DELAY_MS: 2000, // リクエスト間最大ディレイ（ms）
 } as const;
 
 // ========================================
