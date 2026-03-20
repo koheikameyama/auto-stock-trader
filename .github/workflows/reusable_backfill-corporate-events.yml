@@ -11,6 +11,7 @@ on:
 env:
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
   MARKET_DATA_PROVIDER: yahoo
+  YAHOO_THROTTLE_CONCURRENCY: "3"
 
 jobs:
   run:

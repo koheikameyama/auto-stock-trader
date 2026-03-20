@@ -11,7 +11,9 @@
 import pLimit from "p-limit";
 import { YAHOO_FINANCE } from "./constants";
 
-const queue = pLimit(YAHOO_FINANCE.THROTTLE_CONCURRENCY);
+const concurrency =
+  Number(process.env.YAHOO_THROTTLE_CONCURRENCY) || YAHOO_FINANCE.THROTTLE_CONCURRENCY;
+const queue = pLimit(concurrency);
 
 function jitterDelay(): Promise<void> {
   const delay =

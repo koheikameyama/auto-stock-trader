@@ -20,13 +20,10 @@ export async function main() {
     return;
   }
 
-  const eventLimit = pLimit(10);
+  const eventLimit = pLimit(20);
   const now = new Date();
   const needsUpdateStocks = allStocks.filter((stock) =>
-    !stock.nextEarningsDate ||
-    stock.nextEarningsDate < now ||
-    !stock.exDividendDate ||
-    stock.exDividendDate < now,
+    !stock.nextEarningsDate || stock.nextEarningsDate < now,
   );
   console.log(`  更新対象: ${needsUpdateStocks.length}/${allStocks.length}件`);
 
