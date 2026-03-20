@@ -47,6 +47,28 @@ const NUMERIC_KEY_MAP: Record<string, string> = {
   // 買余力
   "746": "sSummaryNseityouTousiKanougaku",
   "451": "sHusokukinHasseiFlg",
+
+  // 時価情報 (CLMMfdsGetMarketPrice)
+  "71": "aMarketPriceList",
+  "473": "sTargetIssueCode",
+  "115": "pCurrentPrice",     // pDPP - 現在値
+  "112": "pOpenPrice",        // pDOP - 始値
+  "106": "pHighPrice",        // pDHP - 高値
+  "110": "pLowPrice",         // pDLP - 安値
+  "181": "pPreviousClose",    // pPRP - 前日終値
+  "117": "pVolume",           // pDV  - 出来高
+  "108": "pTradingValue",     // pDJ  - 売買代金
+  "120": "pChange",           // pDYWP - 前日比
+  "119": "pChangePercent",    // pDYRP - 前日比率(%)
+  "182": "pAskPrice",         // pQAP - 売気配値
+  "184": "pBidPrice",         // pQBP - 買気配値
+  "183": "pAskSize",          // pQAS - 売気配数量
+  "185": "pBidSize",          // pQBS - 買気配数量
+  "213": "pVWAP",             // pVWAP
+  "938": "tPriceTime",        // tDPP:T - 約定時刻
+  "105": "pHighFlag",         // pDHF
+  "109": "pLowFlag",          // pDLF
+  "114": "pPriceFlag",        // pDPG
 };
 
 /** 配列キーのマッピング */

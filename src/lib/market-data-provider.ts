@@ -25,11 +25,15 @@ import {
   type YfCorporateEvents,
   type YfNewsItem,
 } from "./yfinance-client";
+import {
+  tachibanaFetchQuote,
+  tachibanaFetchQuotesBatch,
+} from "./tachibana-price-client";
 import { getYahooFinance } from "./yahoo-finance-client";
 import { throttledYahooRequest } from "./yahoo-finance-throttle";
 import { withRetry } from "./retry-utils";
 
-type ProviderMode = "yfinance" | "yahoo" | "yfinance_only";
+type ProviderMode = "yfinance" | "yahoo" | "yfinance_only" | "tachibana";
 
 const PROVIDER_MODE: ProviderMode =
   (process.env.MARKET_DATA_PROVIDER as ProviderMode) || "yfinance";
@@ -99,6 +103,14 @@ function yahooParseQuote(result: any, symbol: string): YfQuoteResult {
  * 個別銘柄のクォートを取得
  */
 export async function providerFetchQuote(symbol: string): Promise<YfQuoteResult> {
+  if (PROVIDER_MODE === "tachibana") {
+    return withFallback(
+      `quote:${symbol}`,
+      () => tachibanaFetchQuote(symbol),
+      () => yfFetchQuote(symbol),
+    );
+  }
+
   return withFallback(
     `quote:${symbol}`,
     () => yfFetchQuote(symbol),
@@ -121,6 +133,14 @@ export async function providerFetchQuote(symbol: string): Promise<YfQuoteResult>
 export async function providerFetchQuotesBatch(
   symbols: string[],
 ): Promise<(YfQuoteResult | null)[]> {
+  if (PROVIDER_MODE === "tachibana") {
+    return withFallback(
+      `quotes:batch[${symbols.length}]`,
+      () => tachibanaFetchQuotesBatch(symbols),
+      () => yfFetchQuotesBatch(symbols),
+    );
+  }
+
   return withFallback(
     `quotes:batch[${symbols.length}]`,
     () => yfFetchQuotesBatch(symbols),

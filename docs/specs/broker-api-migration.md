@@ -136,20 +136,37 @@ create → ブローカーに送信 → pending（ブローカーID付き）
 
 ---
 
-## B. マーケットデータ
+## B. マーケットデータ（実装済み）
 
-### 現状: Yahoo Finance（15-20分遅延）
+### 現状: 立花API + Yahoo Finance ハイブリッド
 
-`src/core/market-data.ts` が全てのデータソース。
+`MARKET_DATA_PROVIDER=tachibana` 設定で、日本株クォートは立花API（リアルタイム）、その他はyfinance。
 
-### 変更対象
+### 実装状況
 
-| 関数 | 現状 | 変更後 |
-|------|------|--------|
-| `fetchStockQuote()` | Yahoo Finance `quote()` | ブローカーリアルタイムAPI |
-| `fetchStockQuotesBatch()` | Yahoo Finance バッチ | ブローカーバッチAPI or 個別呼び出し |
-| `fetchHistoricalData()` | Yahoo Finance `chart()` | ブローカー日足API or 別データプロバイダー |
-| `fetchMarketData()` | Yahoo Finance（指数） | 据え置き可能（指数はブローカーAPI外の場合も） |
+| 関数 | 取得元 | 状態 |
+|------|--------|------|
+| `fetchStockQuote()` | 立花API `CLMMfdsGetMarketPrice` → yfinance fallback | **実装済み** |
+| `fetchStockQuotesBatch()` | 立花API（p-limit並列） → yfinance fallback | **実装済み** |
+| `fetchHistoricalData()` | yfinance（変更なし） | 据え置き |
+| `fetchMarketData()` | yfinance（変更なし、US指標は立花で取得不可） | 据え置き |
+| ファンダメンタルズ（PER/PBR/EPS） | yfinance（立花APIでは取得不可） | 据え置き |
+| コーポレートイベント | yfinance（変更なし） | 据え置き |
+| ニュース | yfinance（変更なし） | 据え置き |
+
+### 関連ファイル
+
+| ファイル | 内容 |
+|---------|------|
+| `src/lib/tachibana-price-client.ts` | 立花API時価取得クライアント |
+| `src/lib/market-data-provider.ts` | "tachibana" プロバイダーモード追加 |
+| `src/lib/constants/broker.ts` | PRICE系カラムコード定数 |
+| `src/lib/tachibana-key-map.ts` | 時価レスポンスのキーマッピング |
+
+### 注意事項
+
+- `backfill-stock-data.ts`: 立花モードではファンダメンタルズがnullで返るため、null時はDB既存値を保持するよう修正済み
+- スケジュールの+20分オフセット（Yahoo Finance遅延補正）は未撤廃。リアルタイムデータ移行時に別途対応が必要
 
 ### ボラティリティ指標
 

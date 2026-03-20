@@ -60,7 +60,43 @@ export const TACHIBANA_CLMID = {
 
   // 時価
   MARKET_PRICE: "CLMMfdsGetMarketPrice",
+  MARKET_PRICE_HISTORY: "CLMMfdsGetMarketPriceHistory",
 } as const;
+
+// ========================================
+// 時価取得用カラムコード
+// ========================================
+
+/** CLMMfdsGetMarketPrice の sTargetColumn に指定するカラムコード */
+export const TACHIBANA_PRICE_COLUMNS = {
+  CURRENT_PRICE: "pDPP",
+  OPEN: "pDOP",
+  HIGH: "pDHP",
+  LOW: "pDLP",
+  PREVIOUS_CLOSE: "pPRP",
+  VOLUME: "pDV",
+  TRADING_VALUE: "pDJ",
+  CHANGE: "pDYWP",
+  CHANGE_PERCENT: "pDYRP",
+  ASK_PRICE: "pQAP",
+  BID_PRICE: "pQBP",
+  ASK_SIZE: "pQAS",
+  BID_SIZE: "pQBS",
+  VWAP: "pVWAP",
+  PRICE_TIME: "tDPP:T",
+} as const;
+
+/** クォート取得に必要なカラムの一括指定文字列 */
+export const TACHIBANA_QUOTE_COLUMNS = [
+  TACHIBANA_PRICE_COLUMNS.CURRENT_PRICE,
+  TACHIBANA_PRICE_COLUMNS.OPEN,
+  TACHIBANA_PRICE_COLUMNS.HIGH,
+  TACHIBANA_PRICE_COLUMNS.LOW,
+  TACHIBANA_PRICE_COLUMNS.PREVIOUS_CLOSE,
+  TACHIBANA_PRICE_COLUMNS.VOLUME,
+  TACHIBANA_PRICE_COLUMNS.CHANGE,
+  TACHIBANA_PRICE_COLUMNS.CHANGE_PERCENT,
+].join(",");
 
 // ========================================
 // 注文パラメータ値

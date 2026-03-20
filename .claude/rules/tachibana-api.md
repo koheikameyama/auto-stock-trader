@@ -202,8 +202,48 @@ URL: {API専用URL}/auth/?{JSON}
 
 ### 時価情報問合取得 (CLMMfdsGetMarketPrice)
 
-- 詳細はPDF文書参照: `api_request_if_v4r7.pdf`
-- 板情報（bid/ask）、出来高、時価等を取得可能
+**リクエスト:**
+```json
+{
+  "sCLMID": "CLMMfdsGetMarketPrice",
+  "sTargetIssueCode": "7203",
+  "sTargetSizyouC": "00",
+  "sTargetColumn": "pDPP,pDOP,pDHP,pDLP,pPRP,pDV,pDYWP,pDYRP"
+}
+```
+
+**sTargetColumn カラムコード:**
+
+| コード | 数値キー | 説明 |
+|--------|---------|------|
+| pDPP | 115 | 現在値 |
+| pDOP | 112 | 始値 |
+| pDHP | 106 | 高値 |
+| pDLP | 110 | 安値 |
+| pPRP | 181 | 前日終値 |
+| pDV | 117 | 出来高 |
+| pDJ | 108 | 売買代金 |
+| pDYWP | 120 | 前日比（円） |
+| pDYRP | 119 | 前日比率（%） |
+| pQAP | 182 | 売気配値 |
+| pQBP | 184 | 買気配値 |
+| pQAS | 183 | 売気配数量 |
+| pQBS | 185 | 買気配数量 |
+| pVWAP | 213 | VWAP |
+| tDPP:T | 938 | 約定時刻（HH:MM） |
+
+**レスポンス:**
+```json
+{
+  "71": [{ "115": "3325", "112": "3360", "473": "7203", ... }],
+  "sResultCode": "0",
+  "sCLMID": "CLMMfdsGetMarketPrice"
+}
+```
+
+- `71` = aMarketPriceList（配列）。各要素が1銘柄のデータ
+- `473` = sTargetIssueCode（銘柄コード）
+- ファンダメンタルズ（PER, PBR, EPS, 時価総額）は取得不可
 
 ### 蓄積情報問合取得 (CLMMfdsGetMarketPriceHistory)
 

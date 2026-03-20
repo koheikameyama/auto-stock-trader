@@ -207,11 +207,11 @@ export async function main() {
         latestPriceDate: now,
         priceUpdatedAt: now,
         fetchFailCount: 0,
-        per: clampDecimal(quote.per, "8,2"),
-        pbr: clampDecimal(quote.pbr, "8,2"),
-        eps: quote.eps != null && Number.isFinite(quote.eps) ? quote.eps : null,
-        marketCap: quote.marketCap != null && Number.isFinite(quote.marketCap) ? quote.marketCap : null,
-        isProfitable: quote.eps != null ? quote.eps > 0 : null,
+        // ファンダメンタルズがnull（立花APIなど）の場合は既存DB値を保持
+        ...(quote.per != null ? { per: clampDecimal(quote.per, "8,2") } : {}),
+        ...(quote.pbr != null ? { pbr: clampDecimal(quote.pbr, "8,2") } : {}),
+        ...(quote.eps != null && Number.isFinite(quote.eps) ? { eps: quote.eps, isProfitable: quote.eps > 0 } : {}),
+        ...(quote.marketCap != null && Number.isFinite(quote.marketCap) ? { marketCap: quote.marketCap } : {}),
       },
     });
   });
