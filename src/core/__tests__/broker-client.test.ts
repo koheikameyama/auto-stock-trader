@@ -96,10 +96,18 @@ describe("TachibanaClient", () => {
   });
 
   describe("request", () => {
-    it("ログインしていない場合にエラーをスローする", async () => {
+    it("セッションがない場合は自動ログインを試みる（失敗時はエラー）", async () => {
+      // fetchモックが設定されていないので自動ログインが失敗する
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          "287": "1",
+          "286": "login failed",
+          "334": "CLMAuthLoginAck",
+        }),
+      );
       await expect(
         client.request({ sCLMID: "CLMOrderList" }),
-      ).rejects.toThrow("not logged in");
+      ).rejects.toThrow("Tachibana login failed");
     });
 
     it("ログイン後にリクエストを送信できる", async () => {
