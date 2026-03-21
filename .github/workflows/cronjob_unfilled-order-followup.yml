@@ -18,6 +18,11 @@ concurrency:
 env:
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  MARKET_DATA_PROVIDER: ${{ secrets.MARKET_DATA_PROVIDER }}
+  TACHIBANA_USER_ID: ${{ secrets.TACHIBANA_USER_ID }}
+  TACHIBANA_PASSWORD: ${{ secrets.TACHIBANA_PASSWORD }}
+  TACHIBANA_SECOND_PASSWORD: ${{ secrets.TACHIBANA_SECOND_PASSWORD }}
+  TACHIBANA_ENV: ${{ secrets.TACHIBANA_ENV }}
 
 jobs:
   check-market-day:
