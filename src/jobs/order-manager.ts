@@ -468,7 +468,7 @@ export async function main() {
     } = result;
 
     console.log(
-      `\n  [${tickerCode}] スコア: ${score.totalScore}点（${score.rank}） / リスク品質: ${score.riskQuality.total}点`,
+      `\n  [${tickerCode}] スコア: ${score.totalScore}点 / リスク品質: ${score.riskQuality.total}点`,
     );
     console.log(
       `    → ロジック算出: 指値¥${entryCondition.limitPrice} / 利確¥${entryCondition.takeProfitPrice} / 損切¥${entryCondition.stopLossPrice} / ${entryCondition.quantity}株 / RR 1:${entryCondition.riskRewardRatio}`,
@@ -572,7 +572,6 @@ export async function main() {
     const entrySnapshot: EntrySnapshot = {
       score: {
         totalScore: score.totalScore,
-        rank: score.rank,
         gate: score.gate,
         trendQuality: score.trendQuality,
         entryTiming: score.entryTiming,

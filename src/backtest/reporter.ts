@@ -70,26 +70,6 @@ export function printBacktestReport(result: BacktestResult): void {
     console.log("");
   }
 
-  // ランク別
-  const rankOrder = ["S", "A", "B"];
-  const rankEntries = rankOrder
-    .filter((r) => metrics.byRank[r])
-    .map((r) => ({ rank: r, ...metrics.byRank[r] }));
-
-  if (rankEntries.length > 0) {
-    console.log("-".repeat(50));
-    console.log("  ランク別");
-    console.log("-".repeat(50));
-    console.log("  ランク  取引数  勝率     平均損益");
-    for (const r of rankEntries) {
-      const pnlSign = r.avgPnlPct >= 0 ? "+" : "";
-      console.log(
-        `  ${r.rank.padEnd(6)} ${String(r.totalTrades).padStart(4)}   ${String(r.winRate + "%").padStart(6)}   ${pnlSign}${r.avgPnlPct}%`,
-      );
-    }
-    console.log("");
-  }
-
   // トレード一覧（最大20件）
   const closedTrades = result.trades.filter(
     (t) => t.exitReason === "take_profit" || t.exitReason === "stop_loss" || t.exitReason === "trailing_profit" || t.exitReason === "time_stop" || t.exitReason === "defensive_exit",

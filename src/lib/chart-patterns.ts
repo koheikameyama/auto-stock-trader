@@ -28,8 +28,7 @@ export interface PricePoint {
   volume?: number
 }
 
-import type { ScoringRank } from "../core/scoring";
-export type ChartPatternRank = ScoringRank;
+export type ChartPatternRank = "S" | "A" | "B";
 
 export interface ChartPatternResult {
   pattern: string

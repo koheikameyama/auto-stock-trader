@@ -387,7 +387,6 @@ export async function notifyContrarianWinners(data: {
   winners: Array<{
     tickerCode: string;
     score: number;
-    rank: string;
     ghostProfitPct: number;
     contrarianWins?: number;
   }>;
@@ -397,7 +396,7 @@ export async function notifyContrarianWinners(data: {
   const winnerList = data.winners
     .map(
       (w, i) =>
-        `${i + 1}. ${w.tickerCode} [${w.rank}:${w.score}点] +${w.ghostProfitPct.toFixed(2)}%${
+        `${i + 1}. ${w.tickerCode} [${w.score}点] +${w.ghostProfitPct.toFixed(2)}%${
           w.contrarianWins != null && w.contrarianWins > 0
             ? ` (過去90日: ${w.contrarianWins}回逆行勝ち)`
             : ""
@@ -439,14 +438,12 @@ export async function notifyScoringAccuracy(data: {
   fpList: Array<{
     tickerCode: string;
     score: number;
-    rank: string;
     profitPct: number;
     misjudgmentType?: string;
   }>;
   fnList: Array<{
     tickerCode: string;
     score: number;
-    rank: string;
     profitPct: number;
     rejectionReason: string;
     misjudgmentType?: string;
@@ -458,7 +455,7 @@ export async function notifyScoringAccuracy(data: {
   const recallStr = recall != null ? `${recall.toFixed(1)}%` : "N/A";
   const f1Str = f1 != null ? `${f1.toFixed(1)}%` : "N/A";
 
-  // ランク別 Precision
+  // スコア帯別 Precision
   const rankLines = Object.entries(data.byRank)
     .filter(([, v]) => v.tp + v.fp > 0)
     .sort(([a], [b]) => a.localeCompare(b))
@@ -481,7 +478,7 @@ export async function notifyScoringAccuracy(data: {
     data.fpList
       .map(
         (m, i) =>
-          `${i + 1}. ${m.tickerCode} [${m.rank}:${m.score}点] ${m.profitPct.toFixed(2)}%${m.misjudgmentType ? ` → ${m.misjudgmentType}` : ""}`,
+          `${i + 1}. ${m.tickerCode} [${m.score}点] ${m.profitPct.toFixed(2)}%${m.misjudgmentType ? ` → ${m.misjudgmentType}` : ""}`,
       )
       .join("\n") || "なし";
 
@@ -490,7 +487,7 @@ export async function notifyScoringAccuracy(data: {
     data.fnList
       .map(
         (m, i) =>
-          `${i + 1}. ${m.tickerCode} [${m.rank}:${m.score}点] +${m.profitPct.toFixed(2)}% (${reasonLabel[m.rejectionReason] || m.rejectionReason})${m.misjudgmentType ? ` → ${m.misjudgmentType}` : ""}`,
+          `${i + 1}. ${m.tickerCode} [${m.score}点] +${m.profitPct.toFixed(2)}% (${reasonLabel[m.rejectionReason] || m.rejectionReason})${m.misjudgmentType ? ` → ${m.misjudgmentType}` : ""}`,
       )
       .join("\n") || "なし";
 
@@ -502,7 +499,7 @@ export async function notifyScoringAccuracy(data: {
     `✅ TP（買い→上昇）: ${tp}件  |  ❌ FP（買い→下落）: ${fp}件`,
     `⚠️ FN（見送り→上昇）: ${fn}件 | ✅ TN（見送り→下落）: ${tn}件`,
     "",
-    rankLines ? `━━ ランク別 Precision ━━\n${rankLines}` : "",
+    rankLines ? `━━ スコア帯別 Precision ━━\n${rankLines}` : "",
     "",
     "━━ FP注目銘柄（買ったが下落） ━━",
     fpLines,
@@ -671,7 +668,7 @@ export async function notifyScoringAccuracyReport(data: {
     "━━ カテゴリ別弱点 ━━",
     categoryLines || "データなし",
     "",
-    "━━ ランク別実績 ━━",
+    "━━ スコア帯別実績 ━━",
     rankLines || "データなし",
     "",
     "━━ 却下理由別の機会損失 ━━",
@@ -687,9 +684,9 @@ export async function notifyScoringAccuracyReport(data: {
     haltedSection,
   ].join("\n");
 
-  // Sランクの上昇率を取得
-  const sRank = data.rankAccuracy.find((r) => r.rank === "S");
-  const sRankPositiveRate = sRank ? `${sRank.positiveRate.toFixed(0)}%` : "N/A";
+  // 75+帯の上昇率を取得
+  const topBand = data.rankAccuracy.find((r) => r.rank === "75+");
+  const topBandPositiveRate = topBand ? `${topBand.positiveRate.toFixed(0)}%` : "N/A";
 
   await notifySlack({
     title: `🎯 スコアリング精度レポート（${data.periodLabel}）`,
@@ -707,8 +704,8 @@ export async function notifyScoringAccuracyReport(data: {
         short: true,
       },
       {
-        title: "Sランク上昇率",
-        value: sRankPositiveRate,
+        title: "75+上昇率",
+        value: topBandPositiveRate,
         short: true,
       },
       {

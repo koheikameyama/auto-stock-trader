@@ -161,7 +161,6 @@ app.get("/stock/:tickerCode/analysis", async (c) => {
       select: {
         date: true,
         totalScore: true,
-        rank: true,
         trendQualityScore: true,
         entryTimingScore: true,
         riskQualityScore: true,
@@ -231,7 +230,6 @@ app.get("/stock/:tickerCode/modal", async (c) => {
         select: {
           date: true,
           totalScore: true,
-          rank: true,
           trendQualityScore: true,
           entryTimingScore: true,
           riskQualityScore: true,

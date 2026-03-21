@@ -13,7 +13,7 @@ import { QUERY_LIMITS, ROUTE_LOOKBACK_DAYS } from "../../lib/constants";
 import { getDaysAgoForDB } from "../../lib/date-utils";
 import { layout } from "../views/layout";
 import {
-  rankBadge,
+  scoreBadge,
   formatYen,
   pnlPercent,
   tickerLink,
@@ -122,10 +122,11 @@ app.get("/", async (c) => {
   const nameMap = new Map(stocks.map((s) => [s.tickerCode, s.name]));
 
   // サマリー集計
-  const rankCounts: Record<string, number> = { S: 0, A: 0, B: 0 };
+  const bandCounts: Record<string, number> = { "75+": 0, "60-74": 0, "<60": 0 };
   let disqualifiedCount = 0;
   for (const r of records) {
-    rankCounts[r.rank] = (rankCounts[r.rank] ?? 0) + 1;
+    const band = r.totalScore >= 75 ? "75+" : r.totalScore >= 60 ? "60-74" : "<60";
+    bandCounts[band] = (bandCounts[band] ?? 0) + 1;
     if (r.isDisqualified) disqualifiedCount++;
   }
 
@@ -148,11 +149,11 @@ app.get("/", async (c) => {
         <div style="font-size:1.2rem;font-weight:700">${records.length}</div>
       </div>
       <div>
-        <div style="color:#94a3b8;font-size:0.75rem">ランク分布</div>
+        <div style="color:#94a3b8;font-size:0.75rem">スコア帯分布</div>
         <div style="font-size:0.85rem;font-weight:600">
-          <span style="color:#f59e0b">S:${rankCounts.S ?? 0}</span>
-          <span style="color:#3b82f6;margin-left:4px">A:${rankCounts.A ?? 0}</span>
-          <span style="color:#94a3b8;margin-left:4px">B:${rankCounts.B ?? 0}</span>
+          <span style="color:#f59e0b">75+:${bandCounts["75+"] ?? 0}</span>
+          <span style="color:#3b82f6;margin-left:4px">60-74:${bandCounts["60-74"] ?? 0}</span>
+          <span style="color:#22c55e;margin-left:4px">&lt;60:${bandCounts["<60"] ?? 0}</span>
         </div>
       </div>
       <div>
@@ -182,7 +183,7 @@ app.get("/", async (c) => {
                 </div>
                 <div style="display:flex;align-items:center;gap:0.5rem">
                   <span style="font-size:1.1rem;font-weight:700">${r.totalScore}</span>
-                  ${rankBadge(r.rank)}
+                  ${scoreBadge(r.totalScore)}
                 </div>
               </div>
               <!-- カテゴリスコア + AI判定 -->
@@ -267,7 +268,7 @@ app.get("/:tickerCode", async (c) => {
                 <a href="/scoring?date=${dayjs(r.date).format("YYYY-MM-DD")}" style="color:#3b82f6;text-decoration:none;font-weight:600">${dayjs(r.date).format("M/D")}</a>
                 <div style="display:flex;align-items:center;gap:0.5rem">
                   <span style="font-size:1.1rem;font-weight:700">${r.totalScore}</span>
-                  ${rankBadge(r.rank)}
+                  ${scoreBadge(r.totalScore)}
                 </div>
               </div>
               <div style="display:flex;align-items:center;justify-content:space-between;font-size:0.8rem;color:#94a3b8">

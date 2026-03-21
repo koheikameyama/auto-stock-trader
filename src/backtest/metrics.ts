@@ -82,7 +82,6 @@ export function calculateMetrics(
   const { maxDrawdown, period: maxDrawdownPeriod } =
     calculateMaxDrawdown(equityCurve);
   const sharpeRatio = calculateSharpeRatio(equityCurve);
-  const byRank = calculateByRank(closedTrades);
   const byRegime = calculateByRegime(closedTrades);
 
   // 期待値 = (勝率 × 平均利益%) + (敗率 × 平均損失%)
@@ -110,7 +109,6 @@ export function calculateMetrics(
     avgHoldingDays: round2(avgHoldingDays),
     totalPnl: Math.round(totalPnl),
     totalReturnPct: round2(totalReturnPct),
-    byRank,
     byRegime,
     totalCommission: Math.round(totalCommission),
     totalTax: Math.round(totalTax),
@@ -185,46 +183,6 @@ function calculateSharpeRatio(equityCurve: DailyEquity[]): number | null {
   if (std === 0) return null;
 
   return (mean / std) * Math.sqrt(252);
-}
-
-function calculateByRank(
-  trades: SimulatedPosition[],
-): Record<string, RankMetrics> {
-  const ranks: Record<string, RankMetrics> = {};
-
-  for (const trade of trades) {
-    const rank = trade.rank;
-    if (!ranks[rank]) {
-      ranks[rank] = {
-        totalTrades: 0,
-        wins: 0,
-        losses: 0,
-        winRate: 0,
-        avgPnlPct: 0,
-      };
-    }
-    ranks[rank].totalTrades++;
-    if (trade.pnl != null && trade.pnl > 0) {
-      ranks[rank].wins++;
-    } else {
-      ranks[rank].losses++;
-    }
-  }
-
-  for (const rank of Object.keys(ranks)) {
-    const r = ranks[rank];
-    r.winRate = r.totalTrades > 0 ? round2((r.wins / r.totalTrades) * 100) : 0;
-    const rankTrades = trades.filter((t) => t.rank === rank);
-    r.avgPnlPct =
-      rankTrades.length > 0
-        ? round2(
-            rankTrades.reduce((s, t) => s + (t.pnlPct ?? 0), 0) /
-              rankTrades.length,
-          )
-        : 0;
-  }
-
-  return ranks;
 }
 
 function calculateByRegime(

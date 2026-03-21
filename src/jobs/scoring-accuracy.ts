@@ -44,7 +44,6 @@ interface RecordWithPnl {
   id: string;
   tickerCode: string;
   totalScore: number;
-  rank: string;
   rejectionReason: string | null;
   aiDecision: string | null;
   aiReasoning: string | null;
@@ -60,7 +59,6 @@ interface RecordWithPnl {
 function buildFnAnalysisPrompt(record: {
   tickerCode: string;
   totalScore: number;
-  rank: string;
   rejectionReason: string | null;
   aiReasoning: string | null;
   trendQualityBreakdown: unknown;
@@ -80,7 +78,7 @@ function buildFnAnalysisPrompt(record: {
   return `以下の銘柄は自動売買システムが見送りましたが、実際には利益が出ていました。
 
 【銘柄】${record.tickerCode}
-【スコア】${record.totalScore}/100（${record.rank}ランク）
+【スコア】${record.totalScore}/100
 【見送り理由】${reasonLabel[record.rejectionReason ?? ""] ?? record.rejectionReason}
 ${record.aiReasoning ? `【AIの否決理由】${record.aiReasoning}` : ""}
 【スコア内訳】
@@ -98,7 +96,6 @@ ${record.aiReasoning ? `【AIの否決理由】${record.aiReasoning}` : ""}
 function buildFpAnalysisPrompt(record: {
   tickerCode: string;
   totalScore: number;
-  rank: string;
   aiReasoning: string | null;
   trendQualityBreakdown: unknown;
   entryTimingBreakdown: unknown;
@@ -111,7 +108,7 @@ function buildFpAnalysisPrompt(record: {
   return `以下の銘柄は自動売買システムが買いと判断しましたが、実際には下落しました。
 
 【銘柄】${record.tickerCode}
-【スコア】${record.totalScore}/100（${record.rank}ランク）
+【スコア】${record.totalScore}/100
 ${record.aiReasoning ? `【AIの承認理由】${record.aiReasoning}` : ""}
 【スコア内訳】
   トレンド品質: ${JSON.stringify(record.trendQualityBreakdown)}
@@ -223,7 +220,6 @@ export async function main() {
         id: r.id,
         tickerCode: r.tickerCode,
         totalScore: r.totalScore,
-        rank: r.rank,
         rejectionReason: r.rejectionReason,
         aiDecision: r.aiDecision,
         aiReasoning: r.aiReasoning,
@@ -340,13 +336,16 @@ export async function main() {
   const fnAnalysisMap = new Map(fnResults.map((a) => [a.tickerCode, a.result]));
   const fpAnalysisMap = new Map(fpResults.map((a) => [a.tickerCode, a.result]));
 
-  // ランク別精度
-  const byRank: Record<string, { tp: number; fp: number; fn: number; tn: number; precision: number | null }> = {};
+  // スコア帯別精度
+  const getScoreBand = (score: number): string =>
+    score >= 75 ? "75+" : score >= 60 ? "60-74" : "<60";
+  const byScoreBand: Record<string, { tp: number; fp: number; fn: number; tn: number; precision: number | null }> = {};
   for (const r of allRecordsWithPnl) {
-    if (!byRank[r.rank]) {
-      byRank[r.rank] = { tp: 0, fp: 0, fn: 0, tn: 0, precision: null };
+    const band = getScoreBand(r.totalScore);
+    if (!byScoreBand[band]) {
+      byScoreBand[band] = { tp: 0, fp: 0, fn: 0, tn: 0, precision: null };
     }
-    const bucket = byRank[r.rank];
+    const bucket = byScoreBand[band];
     if (r.rejectionReason === null) {
       if (r.pnlPct > 0) bucket.tp++;
       else bucket.fp++;
@@ -355,7 +354,7 @@ export async function main() {
       else bucket.tn++;
     }
   }
-  for (const v of Object.values(byRank)) {
+  for (const v of Object.values(byScoreBand)) {
     v.precision =
       v.tp + v.fp > 0 ? (v.tp / (v.tp + v.fp)) * 100 : null;
   }
@@ -370,14 +369,13 @@ export async function main() {
       recall,
       f1,
     },
-    byRank,
+    byRank: byScoreBand,
     fpList: fp
       .sort((a, b) => a.pnlPct - b.pnlPct)
       .slice(0, 10)
       .map((r) => ({
         tickerCode: r.tickerCode,
         score: r.totalScore,
-        rank: r.rank,
         profitPct: r.pnlPct,
         misjudgmentType: fpAnalysisMap.get(r.tickerCode)?.misjudgmentType,
       })),
@@ -387,7 +385,6 @@ export async function main() {
       .map((r) => ({
         tickerCode: r.tickerCode,
         score: r.totalScore,
-        rank: r.rank,
         profitPct: r.pnlPct,
         rejectionReason: r.rejectionReason ?? "unknown",
         misjudgmentType: fnAnalysisMap.get(r.tickerCode)?.misjudgmentType,
@@ -501,11 +498,11 @@ export async function main() {
 
     const allTodayRecords = await prisma.scoringRecord.findMany({
       where: { date: today },
-      select: { aiDecision: true, rejectionReason: true, rank: true },
+      select: { aiDecision: true, rejectionReason: true, totalScore: true },
     });
     const aiGoCount = allTodayRecords.filter((r) => r.aiDecision === "go").length;
-    const rankCounts = allTodayRecords.reduce(
-      (acc, r) => { acc[r.rank] = (acc[r.rank] || 0) + 1; return acc; },
+    const bandCounts = allTodayRecords.reduce(
+      (acc, r) => { const band = getScoreBand(r.totalScore); acc[band] = (acc[band] || 0) + 1; return acc; },
       {} as Record<string, number>,
     );
 
@@ -521,7 +518,7 @@ export async function main() {
       scoringSummary: {
         totalScored: allTodayRecords.length,
         aiApproved: aiGoCount,
-        rankBreakdown: rankCounts,
+        scoreBandBreakdown: bandCounts,
       },
       marketHalt: todayAssessment
         ? {
@@ -565,13 +562,12 @@ export async function main() {
         recall,
         f1,
       },
-      byRank,
+      byRank: byScoreBand,
       fpAnalysis: fpResults.map((a) => {
         const record = fp.find((r) => r.id === a.id)!;
         return {
           tickerCode: a.tickerCode,
           score: record.totalScore,
-          rank: record.rank,
           profitPct: record.pnlPct,
           misjudgmentType: a.result.misjudgmentType,
         };
@@ -580,15 +576,15 @@ export async function main() {
     };
 
     // AI verdict 生成
-    const rankSummary = Object.entries(auditData.scoringSummary.rankBreakdown)
+    const bandSummary = Object.entries(auditData.scoringSummary.scoreBandBreakdown)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([rank, count]) => `${rank}=${count}`)
+      .map(([band, count]) => `${band}=${count}`)
       .join(", ");
 
     const verdictPrompt = `本日の自動売買システムの意思決定を評価してください。
 
 【スコアリング全体像】
-- 総スコアリング銘柄: ${auditData.scoringSummary.totalScored}件（${rankSummary}）
+- 総スコアリング銘柄: ${auditData.scoringSummary.totalScored}件（${bandSummary}）
 - AI承認（go）: ${auditData.scoringSummary.aiApproved}件
 - AI却下（no_go）: ${auditData.aiRejection.total}件
 
@@ -669,7 +665,6 @@ ${auditData.aiRejection.total > 0 ? `- 却下銘柄: ${auditData.aiRejection.tot
           .map((w) => ({
             tickerCode: w.tickerCode,
             score: w.totalScore,
-            rank: w.rank,
             ghostProfitPct: w.ghostProfitPct,
             contrarianWins: historyMap.get(w.tickerCode)?.wins,
           })),

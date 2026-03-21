@@ -30,13 +30,9 @@ export interface ScoringInput {
   sectorRelativeStrength?: number | null;
 }
 
-/** スコアリングランク（S≥75: エントリー対象, A≥60: フォールバック, B<60: 対象外） */
-export type ScoringRank = "S" | "A" | "B";
-
 /** 新スコアリング結果 */
 export interface NewLogicScore {
   totalScore: number;
-  rank: ScoringRank;
   gate: ScoringGateResult;
   trendQuality: {
     total: number;
@@ -104,15 +100,7 @@ export interface HoldingAlert {
   message: string;
 }
 
-import { SCORING, HOLDING_SCORE } from "../../lib/constants/scoring";
-
-/** ランク判定（エントリースコア用） */
-export function getRank(score: number): ScoringRank {
-  const { S_RANK, A_RANK } = SCORING.THRESHOLDS;
-  if (score >= S_RANK) return "S";
-  if (score >= A_RANK) return "A";
-  return "B";
-}
+import { HOLDING_SCORE } from "../../lib/constants/scoring";
 
 /** ランク判定（保有継続スコア用） */
 export function getHoldingRank(score: number): HoldingRank {

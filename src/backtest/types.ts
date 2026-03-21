@@ -3,7 +3,6 @@
  */
 
 import type { TradingStrategy } from "../core/market-regime";
-import type { ScoringRank } from "../core/scoring";
 
 export interface BacktestConfig {
   tickers: string[];
@@ -77,7 +76,6 @@ export interface SimulatedPosition {
   takeProfitPrice: number;
   stopLossPrice: number;
   quantity: number;
-  rank: ScoringRank;
   score: number;
   scoreBreakdown: ScoreBreakdown | null;
   regime: RegimeLevel | null;
@@ -138,7 +136,6 @@ export interface PerformanceMetrics {
   avgHoldingDays: number;
   totalPnl: number;
   totalReturnPct: number;
-  byRank: Record<string, RankMetrics>;
   byRegime: Record<string, RankMetrics>;
   // 取引コスト関連
   totalCommission: number;

@@ -16,7 +16,6 @@ import { CONTRARIAN } from "../lib/constants";
 export interface ContrarianWinner {
   tickerCode: string;
   totalScore: number;
-  rank: string;
   ghostProfitPct: number;
   entryPrice: number;
   closingPrice: number;
@@ -70,7 +69,6 @@ export async function getTodayContrarianWinners(): Promise<
   return winners.map((w) => ({
     tickerCode: w.tickerCode,
     totalScore: w.totalScore,
-    rank: w.rank,
     ghostProfitPct: Number(w.ghostProfitPct),
     entryPrice: Number(w.entryPrice),
     closingPrice: Number(w.closingPrice!),

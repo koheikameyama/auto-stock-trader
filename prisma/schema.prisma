@@ -136,7 +136,6 @@ model ScoringRecord {
 
   // 総合
   totalScore   Int
-  rank         String   // S / A / B
 
   // カテゴリ別スコア（3カテゴリ + セクターボーナス）
   trendQualityScore    Int   // 0-40
@@ -182,7 +181,6 @@ model ScoringRecord {
 
   @@unique([date, tickerCode])
   @@index([date(sort: Desc)])
-  @@index([rank])
   @@index([tradeResult])
   @@index([rejectionReason])
 }

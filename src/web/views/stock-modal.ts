@@ -21,7 +21,6 @@ export interface ModalAnalysis {
   patterns: PatternsResponse | null;
   scoring: {
     totalScore: number;
-    rank: string;
     trendQualityScore: number;
     entryTimingScore: number;
     riskQualityScore: number;
@@ -386,16 +385,14 @@ function scoringSection(
 ): HtmlContent {
   if (!scoring) return html``;
   const rc =
-    { S: "#f59e0b", A: "#3b82f6", B: "#22c55e", C: "#94a3b8" }[
-      scoring.rank
-    ] ?? "#94a3b8";
+    scoring.totalScore >= 75 ? "#f59e0b" : scoring.totalScore >= 60 ? "#3b82f6" : "#22c55e";
 
   return html`<div class="modal-section">スコアリング</div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
       <span style="font-size:24px;font-weight:700">${scoring.totalScore}</span>
       <span style="font-size:12px;color:#94a3b8">/100</span>
       <span class="badge" style="background:${rc}20;color:${rc}"
-        >${scoring.rank}ランク</span
+        >${scoring.totalScore}点</span
       >
       ${scoring.isDisqualified
         ? html`<span

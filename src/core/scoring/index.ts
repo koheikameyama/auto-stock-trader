@@ -5,17 +5,16 @@ import { scoreEntryTiming } from "./entry-timing";
 import { scoreRiskQuality } from "./risk-quality";
 import { scoreSectorMomentum } from "./sector-momentum";
 import { computeScoringIntermediates } from "./intermediates";
-import { getRank } from "./types";
 import type { ScoringInput, NewLogicScore } from "./types";
 
-export type { ScoringInput, NewLogicScore, ScoringGateResult, ScoringRank } from "./types";
+export type { ScoringInput, NewLogicScore, ScoringGateResult } from "./types";
 export type {
   HoldingScore,
   HoldingRank,
   HoldingGateResult,
   HoldingAlert,
 } from "./types";
-export { getRank, getHoldingRank } from "./types";
+export { getHoldingRank } from "./types";
 export { scoreHolding } from "./holding";
 
 /**
@@ -43,7 +42,6 @@ export function scoreStock(input: ScoringInput): NewLogicScore {
 
   const zeroResult: NewLogicScore = {
     totalScore: 0,
-    rank: "B",
     gate,
     trendQuality: { total: 0, maAlignment: 0, weeklyTrend: 0, trendContinuity: 0 },
     entryTiming: { total: 0, pullbackDepth: 0, priorBreakout: 0, candlestickSignal: 0 },
@@ -116,7 +114,6 @@ export function scoreStock(input: ScoringInput): NewLogicScore {
 
   return {
     totalScore,
-    rank: getRank(totalScore),
     gate,
     trendQuality,
     entryTiming,
@@ -135,7 +132,7 @@ export function formatScoreForAI(
   summary: { rsi: number | null; sma25: number | null; atr14: number | null },
 ): string {
   const lines: string[] = [];
-  lines.push(`【総合スコア】${score.totalScore}/100（${score.rank}ランク）`);
+  lines.push(`【総合スコア】${score.totalScore}/100`);
 
   if (score.isDisqualified) {
     lines.push(`【即死ルール】${score.disqualifyReason}`);

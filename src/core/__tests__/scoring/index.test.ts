@@ -73,21 +73,6 @@ describe("scoreStock", () => {
     expect(result.totalScore).toBe(expected);
   });
 
-  it("ランクが正しく割り当てられる", () => {
-    const result = scoreStock({
-      historicalData: makeOHLCV(100),
-      latestPrice: 100,
-      latestVolume: 100000,
-      weeklyVolatility: 3,
-      summary: makeSummary(),
-      avgVolume25: 100000,
-    });
-    const rank = result.rank;
-    if (result.totalScore >= 75) expect(rank).toBe("S");
-    else if (result.totalScore >= 60) expect(rank).toBe("A");
-    else expect(rank).toBe("B");
-  });
-
   it("出来高不足のゲート → liquidity", () => {
     const result = scoreStock({
       historicalData: makeOHLCV(100),

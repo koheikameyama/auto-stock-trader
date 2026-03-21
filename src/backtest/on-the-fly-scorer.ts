@@ -33,7 +33,6 @@ export interface StockFundamentals {
 export interface ScoredRecord {
   tickerCode: string;
   totalScore: number;
-  rank: string;
   trendQualityScore: number;
   trendQualityBreakdown: {
     maAlignment: number;
@@ -170,7 +169,6 @@ export function scoreDayForAllStocks(
       results.push({
         tickerCode: ticker,
         totalScore: score.totalScore,
-        rank: score.rank,
         trendQualityScore: score.trendQuality.total,
         trendQualityBreakdown: {
           maAlignment: score.trendQuality.maAlignment,

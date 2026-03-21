@@ -8,7 +8,6 @@
 export interface EntrySnapshot {
   score: {
     totalScore: number;
-    rank: string;
     gate: {
       passed: boolean;
       failedGate: string | null;

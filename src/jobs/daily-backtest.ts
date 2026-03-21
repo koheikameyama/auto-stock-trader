@@ -57,7 +57,7 @@ export async function main() {
         totalPnl: cr.metrics.totalPnl,
         totalReturnPct: cr.metrics.totalReturnPct,
         avgHoldingDays: cr.metrics.avgHoldingDays,
-        byRank: cr.metrics.byRank as object,
+        byRank: {},
         fullResult: {
           ...(cr.metrics as object),
           tradeReturns: cr.tradeReturns,
@@ -82,7 +82,7 @@ export async function main() {
         totalPnl: cr.metrics.totalPnl,
         totalReturnPct: cr.metrics.totalReturnPct,
         avgHoldingDays: cr.metrics.avgHoldingDays,
-        byRank: cr.metrics.byRank as object,
+        byRank: {},
         fullResult: {
           ...(cr.metrics as object),
           tradeReturns: cr.tradeReturns,
@@ -129,7 +129,7 @@ export async function main() {
           totalPnl: cr.metrics.totalPnl,
           totalReturnPct: cr.metrics.totalReturnPct,
           avgHoldingDays: cr.metrics.avgHoldingDays,
-          byRank: cr.metrics.byRank as object,
+          byRank: {},
           fullResult: {
             ...(cr.metrics as object),
             tradeReturns: cr.tradeReturns,
@@ -154,7 +154,7 @@ export async function main() {
           totalPnl: cr.metrics.totalPnl,
           totalReturnPct: cr.metrics.totalReturnPct,
           avgHoldingDays: cr.metrics.avgHoldingDays,
-          byRank: cr.metrics.byRank as object,
+          byRank: {},
           fullResult: {
             ...(cr.metrics as object),
             tradeReturns: cr.tradeReturns,

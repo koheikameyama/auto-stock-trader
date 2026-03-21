@@ -33,12 +33,6 @@ export const SCORING = {
     VOLUME_STABILITY: 7,
   },
 
-  /** ランク閾値（S≥75: エントリー対象, A≥60: フォールバック, B<60: 対象外） */
-  THRESHOLDS: {
-    S_RANK: 75,
-    A_RANK: 60,
-  },
-
   /** ゲート（即死ルール） */
   GATES: {
     MIN_AVG_VOLUME_25: 50_000,
@@ -191,11 +185,11 @@ export const COLLAR = {
 export const POSITION_SIZING = {
   /** 1トレードあたりリスク: 総資金の2%（スコア未指定時のデフォルト） */
   RISK_PER_TRADE_PCT: 2,
-  /** スコア別リスク%テーブル（降順で最初にマッチしたものを採用、SCORING.THRESHOLDSに連動） */
+  /** スコア別リスク%テーブル（降順で最初にマッチしたものを採用） */
   SCORE_RISK_TABLE: [
-    { minScore: 75, riskPct: 3.0 }, // Sランク
-    { minScore: 60, riskPct: 2.0 }, // Aランク
-    { minScore: 0, riskPct: 1.5 }, // Bランク
+    { minScore: 75, riskPct: 3.0 }, // 高スコア
+    { minScore: 60, riskPct: 2.0 }, // 中スコア
+    { minScore: 0, riskPct: 1.5 }, // 低スコア
   ],
 } as const;
 

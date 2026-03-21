@@ -103,17 +103,11 @@ export function orderStatusBadge(status: string): HtmlContent {
   >`;
 }
 
-/** Rank バッジ（S/A/B/C） */
-export function rankBadge(rank: string): HtmlContent {
-  const colorMap: Record<string, string> = {
-    S: "#f59e0b",
-    A: "#3b82f6",
-    B: "#22c55e",
-    C: "#94a3b8",
-  };
-  const color = colorMap[rank] ?? "#94a3b8";
+/** スコアバッジ（数値で表示、スコア帯で色分け） */
+export function scoreBadge(score: number): HtmlContent {
+  const color = score >= 75 ? "#f59e0b" : score >= 60 ? "#3b82f6" : "#22c55e";
   return html`<span class="badge" style="background:${color}20;color:${color}"
-    >${rank}</span
+    >${score}</span
   >`;
 }
 

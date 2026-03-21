@@ -19,7 +19,7 @@ import {
   tickerLink,
   tt,
   nikkeiChartShell,
-  rankBadge,
+  scoreBadge,
   scoreBar,
   holdingRankBadge,
 } from "../views/components";
@@ -93,7 +93,7 @@ app.get("/", async (c) => {
   let todayScoring: Awaited<ReturnType<typeof prisma.scoringRecord.findMany>> = [];
   let prevScoring: Pick<
     Awaited<ReturnType<typeof prisma.scoringRecord.findMany>>[number],
-    "totalScore" | "rank" | "trendQualityScore" | "entryTimingScore" | "riskQualityScore" | "sectorMomentumScore" | "isDisqualified"
+    "totalScore" | "trendQualityScore" | "entryTimingScore" | "riskQualityScore" | "sectorMomentumScore" | "isDisqualified"
   >[] = [];
 
   if (scoringDate) {
@@ -113,7 +113,6 @@ app.get("/", async (c) => {
             where: { date: prevDate.date },
             select: {
               totalScore: true,
-              rank: true,
               trendQualityScore: true,
               entryTimingScore: true,
               riskQualityScore: true,
@@ -136,17 +135,19 @@ app.get("/", async (c) => {
       : [];
   const scoringNameMap = new Map(scoringStocks.map((s) => [s.tickerCode, s.name]));
 
-  // Rank distribution
-  const rankCounts: Record<string, number> = { S: 0, A: 0, B: 0 };
+  // Score band distribution
+  const getScoreBand = (score: number): string =>
+    score >= 75 ? "75+" : score >= 60 ? "60-74" : "<60";
+  const bandCounts: Record<string, number> = { "75+": 0, "60-74": 0, "<60": 0 };
   let disqualifiedCount = 0;
   for (const r of todayScoring) {
-    rankCounts[r.rank] = (rankCounts[r.rank] ?? 0) + 1;
+    bandCounts[getScoreBand(r.totalScore)] = (bandCounts[getScoreBand(r.totalScore)] ?? 0) + 1;
     if (r.isDisqualified) disqualifiedCount++;
   }
 
-  const prevRankCounts: Record<string, number> = { S: 0, A: 0, B: 0 };
+  const prevBandCounts: Record<string, number> = { "75+": 0, "60-74": 0, "<60": 0 };
   for (const r of prevScoring) {
-    prevRankCounts[r.rank] = (prevRankCounts[r.rank] ?? 0) + 1;
+    prevBandCounts[getScoreBand(r.totalScore)] = (prevBandCounts[getScoreBand(r.totalScore)] ?? 0) + 1;
   }
 
   // Category averages (non-disqualified only)
@@ -298,22 +299,22 @@ app.get("/", async (c) => {
             </span>
           </p>
 
-          <!-- Rank distribution -->
+          <!-- Score band distribution -->
           <div class="card">
-            <div class="card-title">ランク分布</div>
+            <div class="card-title">スコア帯分布</div>
             <div style="display:flex;justify-content:space-around;text-align:center;margin:8px 0">
-              ${["S", "A", "B"].map((rank) => {
+              ${(["75+", "60-74", "<60"] as const).map((band) => {
                 const colorMap: Record<string, string> = {
-                  S: "#f59e0b",
-                  A: "#3b82f6",
-                  B: "#94a3b8",
+                  "75+": "#f59e0b",
+                  "60-74": "#3b82f6",
+                  "<60": "#22c55e",
                 };
-                const color = colorMap[rank] ?? "#94a3b8";
-                const count = rankCounts[rank] ?? 0;
-                const diff = count - (prevRankCounts[rank] ?? 0);
+                const color = colorMap[band] ?? "#94a3b8";
+                const count = bandCounts[band] ?? 0;
+                const diff = count - (prevBandCounts[band] ?? 0);
                 return html`
                   <div>
-                    <div style="font-size:11px;color:${color};font-weight:600">${rank}</div>
+                    <div style="font-size:11px;color:${color};font-weight:600">${band}</div>
                     <div style="font-size:20px;font-weight:700;color:${color}">${count}</div>
                     ${hasPrev && diff !== 0
                       ? html`<div style="font-size:10px;color:${diff > 0 ? COLORS.profit : COLORS.loss}">
@@ -329,9 +330,9 @@ app.get("/", async (c) => {
                   即死棄却: ${disqualifiedCount}件
                 </div>`
               : html``}
-            ${rankCounts["S"] === 0
+            ${bandCounts["75+"] === 0
               ? html`<div style="margin-top:8px;padding:8px 12px;background:${COLORS.bg};border-radius:8px;border-left:3px solid ${COLORS.warning};font-size:12px;color:${COLORS.warning}">
-                  Sランク該当なし — ボトルネック: ${bottleneck.name}（達成率${bottleneck.pct.toFixed(0)}%）
+                  75点以上該当なし — ボトルネック: ${bottleneck.name}（達成率${bottleneck.pct.toFixed(0)}%）
                 </div>`
               : html``}
           </div>
@@ -375,7 +376,7 @@ app.get("/", async (c) => {
                   </div>
                   <div style="display:flex;align-items:center;gap:6px">
                     <span style="font-weight:700">${r.totalScore}</span>
-                    ${rankBadge(r.rank)}
+                    ${scoreBadge(r.totalScore)}
                   </div>
                 </div>
               `,

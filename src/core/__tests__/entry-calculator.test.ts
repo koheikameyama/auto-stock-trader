@@ -7,7 +7,6 @@ import { STOP_LOSS } from "../../lib/constants";
 function makeScore(totalScore = 70): NewLogicScore {
   return {
     totalScore,
-    rank: "A",
     gate: { passed: true, failedGate: null },
     trendQuality: { total: 30, maAlignment: 10, weeklyTrend: 10, trendContinuity: 10 },
     entryTiming: { total: 25, bbPosition: 8, rsiZone: 8, macdMomentum: 9 },

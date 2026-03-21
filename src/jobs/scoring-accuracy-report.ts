@@ -22,7 +22,7 @@ import { notifyScoringAccuracyReport } from "../lib/slack";
 import dayjs from "dayjs";
 
 interface ScoringRecordRow {
-  rank: string;
+  totalScore: number;
   trendQualityScore: number;
   entryTimingScore: number;
   riskQualityScore: number;
@@ -35,7 +35,7 @@ function toRows(
   records: Awaited<ReturnType<typeof prisma.scoringRecord.findMany>>,
 ): ScoringRecordRow[] {
   return records.map((r) => ({
-    rank: r.rank,
+    totalScore: r.totalScore,
     trendQualityScore: r.trendQualityScore,
     entryTimingScore: r.entryTimingScore,
     riskQualityScore: r.riskQualityScore,
@@ -84,20 +84,24 @@ function analyzeCategoryWeakness(missedStocks: ScoringRecordRow[]) {
   });
 }
 
-/** ランク別実績集計 */
-function analyzeRankAccuracy(rows: ScoringRecordRow[]) {
-  const ranks = ["S", "A", "B"];
-  return ranks.map((rank) => {
-    const group = rows.filter((r) => r.rank === rank);
+/** スコア帯別実績集計 */
+function analyzeScoreBandAccuracy(rows: ScoringRecordRow[]) {
+  const bands = [
+    { label: "75+", filter: (s: number) => s >= 75 },
+    { label: "60-74", filter: (s: number) => s >= 60 && s < 75 },
+    { label: "<60", filter: (s: number) => s < 60 },
+  ];
+  return bands.map(({ label, filter }) => {
+    const group = rows.filter((r) => filter(r.totalScore));
     const count = group.length;
     if (count === 0) {
-      return { rank, avgProfitPct: 0, positiveRate: 0, count: 0 };
+      return { rank: label, avgProfitPct: 0, positiveRate: 0, count: 0 };
     }
     const avgProfitPct =
       group.reduce((s, r) => s + r.ghostProfitPct, 0) / count;
     const positiveRate =
       (group.filter((r) => r.ghostProfitPct > 0).length / count) * 100;
-    return { rank, avgProfitPct, positiveRate, count };
+    return { rank: label, avgProfitPct, positiveRate, count };
   });
 }
 
@@ -187,7 +191,7 @@ export async function main() {
 
   // 各セクションの集計
   const categoryWeakness = analyzeCategoryWeakness(missedStocks);
-  const rankAccuracy = analyzeRankAccuracy(weeklyRows);
+  const rankAccuracy = analyzeScoreBandAccuracy(weeklyRows);
   const rejectionCost = analyzeRejectionCost(weeklyRows);
   const weeklyStats = computeStats(weeklyRows);
   const monthlyStats = computeStats(monthlyRows);
@@ -196,7 +200,7 @@ export async function main() {
 
   console.log(`  見逃し銘柄: ${missedStocks.length}件`);
   console.log(
-    `  ランク別: ${rankAccuracy.map((r) => `${r.rank}=${r.count}件`).join(", ")}`,
+    `  スコア帯別: ${rankAccuracy.map((r) => `${r.rank}=${r.count}件`).join(", ")}`,
   );
 
   // 4象限メトリクスの集計（decisionAudit から取得）

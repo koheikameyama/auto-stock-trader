@@ -8,7 +8,7 @@
 import type { OHLCVData } from "../core/technical-analysis";
 import { analyzeTechnicals } from "../core/technical-analysis";
 import { scoreStock } from "../core/scoring";
-import type { NewLogicScore, ScoringRank } from "../core/scoring";
+import type { NewLogicScore } from "../core/scoring";
 import { calculateEntryCondition } from "../core/entry-calculator";
 import { TECHNICAL_MIN_DATA, DEFENSIVE_MODE, DAILY_BACKTEST, WEEKEND_RISK, TRAILING_STOP } from "../lib/constants";
 import { countNonTradingDaysAhead } from "../lib/market-calendar";
@@ -132,7 +132,6 @@ export function runBacktest(
         takeProfitPrice: filled.takeProfitPrice,
         stopLossPrice: filled.stopLossPrice,
         quantity: filled.quantity,
-        rank: filled.rank,
         score: filled.score,
         scoreBreakdown: filled.scoreBreakdown,
         regime: filled.regime,
@@ -159,7 +158,7 @@ export function runBacktest(
       if (config.verbose) {
         const gapNote = fillPrice < filled.limitPrice ? ` (GD寄¥${fillPrice})` : "";
         console.log(
-          `  [${today}] ${filled.ticker} 約定: ¥${fillPrice} x${filled.quantity} (${filled.rank}:${filled.score}pt)${gapNote}`,
+          `  [${today}] ${filled.ticker} 約定: ¥${fillPrice} x${filled.quantity} (${filled.score}pt)${gapNote}`,
         );
       }
     }
@@ -438,7 +437,6 @@ export function runBacktest(
           takeProfitPrice: candidate.entry.takeProfitPrice,
           stopLossPrice: candidate.entry.stopLossPrice,
           quantity: candidate.entry.quantity,
-          rank: candidate.score.rank,
           score: candidate.score.totalScore,
           scoreBreakdown: {
             trendQuality: candidate.score.trendQuality,
@@ -498,7 +496,6 @@ interface PendingOrder {
   takeProfitPrice: number;
   stopLossPrice: number;
   quantity: number;
-  rank: ScoringRank;
   score: number;
   scoreBreakdown: ScoreBreakdown | null;
   entryAtr: number | null;

@@ -27,7 +27,7 @@ import {
 } from "../core/market-data";
 import { analyzeTechnicals } from "../core/technical-analysis";
 import type { TechnicalSummary } from "../core/technical-analysis";
-import { scoreStock, getRank, formatScoreForAI } from "../core/scoring";
+import { scoreStock, formatScoreForAI } from "../core/scoring";
 import type { NewLogicScore } from "../core/scoring";
 import {
   getContrarianHistoryBatch,
@@ -327,7 +327,6 @@ export async function main(context?: MarketAssessmentContext) {
     const cb = contrarianBonusMap.get(c.tickerCode);
     if (cb && !c.score.isDisqualified) {
       c.score.totalScore = Math.min(100, c.score.totalScore + cb.bonus);
-      c.score.rank = getRank(c.score.totalScore);
     }
   }
 
@@ -386,12 +385,14 @@ export async function main(context?: MarketAssessmentContext) {
   );
 
   // スコア分布ログ
-  const rankCounts: Record<string, number> = { S: 0, A: 0, B: 0 };
+  const scoreDist = { high: 0, mid: 0, low: 0 };
   for (const c of qualified) {
-    rankCounts[c.score.rank]++;
+    if (c.score.totalScore >= 75) scoreDist.high++;
+    else if (c.score.totalScore >= 60) scoreDist.mid++;
+    else scoreDist.low++;
   }
   console.log(
-    `  ランク分布: S=${rankCounts.S} A=${rankCounts.A} B=${rankCounts.B}`,
+    `  スコア分布: 75+=${scoreDist.high} 60-74=${scoreDist.mid} <60=${scoreDist.low}`,
   );
 
   // 銘柄別ニュースコンテキストを添付
@@ -427,7 +428,6 @@ export async function main(context?: MarketAssessmentContext) {
     date: today,
     tickerCode: c.tickerCode,
     totalScore: c.score.totalScore,
-    rank: c.score.rank,
     trendQualityScore: c.score.trendQuality.total,
     entryTimingScore: c.score.entryTiming.total,
     riskQualityScore: c.score.riskQuality.total,
@@ -541,7 +541,6 @@ export async function main(context?: MarketAssessmentContext) {
         reasoning: g.reasoning,
         riskFlags: g.riskFlags,
         technicalScore: scored?.score.totalScore ?? 0,
-        technicalRank: scored?.score.rank ?? "B",
       };
     });
 

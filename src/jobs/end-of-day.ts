@@ -239,7 +239,7 @@ export async function main() {
         .sort((a, b) => b.totalScore - a.totalScore)
         .slice(0, 3);
       if (topRecords.length > 0) {
-        noTradeContext += `- 上位銘柄: ${topRecords.map((r) => `${r.tickerCode}(${r.totalScore}点/${r.rank})`).join(", ")}\n`;
+        noTradeContext += `- 上位銘柄: ${topRecords.map((r) => `${r.tickerCode}(${r.totalScore}点)`).join(", ")}\n`;
       }
     }
   }

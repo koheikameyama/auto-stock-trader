@@ -20,7 +20,7 @@ import {
   pnlPercent,
   tickerLink,
   emptyState,
-  rankBadge,
+  scoreBadge,
   tt,
 } from "../views/components";
 
@@ -108,7 +108,6 @@ app.get("/", async (c) => {
         tickerCode: true,
         date: true,
         totalScore: true,
-        rank: true,
         trendQualityScore: true,
         entryTimingScore: true,
         riskQualityScore: true,
@@ -134,10 +133,10 @@ app.get("/", async (c) => {
       orderBy: { date: "desc" },
       take: SCORING_VALIDITY.FP_FN_DISPLAY_LIMIT,
     }),
-    // FN一覧（Aランク以上+棄却+上昇）
+    // FN一覧（60点以上+棄却+上昇）
     prisma.scoringRecord.findMany({
       where: {
-        totalScore: { gte: SCORING.THRESHOLDS.A_RANK },
+        totalScore: { gte: 60 },
         rejectionReason: { not: null },
         ghostProfitPct: { gt: 0 },
         closingPrice: { not: null },
@@ -147,9 +146,12 @@ app.get("/", async (c) => {
     }),
   ]);
 
-  // --- セクション1: ランク別パフォーマンス ---
-  interface RankPerf {
-    rank: string;
+  // --- セクション1: スコア帯別パフォーマンス（概要） ---
+  const getScoreBand = (score: number): string =>
+    score >= 75 ? "75+" : score >= 60 ? "60-74" : "<60";
+
+  interface BandOverview {
+    band: string;
     count: number;
     wins: number;
     winRate: number | null;
@@ -157,25 +159,24 @@ app.get("/", async (c) => {
     expectancy: number | null;
   }
 
-  const rankBuckets: Record<string, { count: number; wins: number; pnlSum: number }> = {
-    S: { count: 0, wins: 0, pnlSum: 0 },
-    A: { count: 0, wins: 0, pnlSum: 0 },
-    B: { count: 0, wins: 0, pnlSum: 0 },
+  const bandBuckets: Record<string, { count: number; wins: number; pnlSum: number }> = {
+    "75+": { count: 0, wins: 0, pnlSum: 0 },
+    "60-74": { count: 0, wins: 0, pnlSum: 0 },
+    "<60": { count: 0, wins: 0, pnlSum: 0 },
   };
 
   for (const r of allScoredRecords) {
-    const rank = r.rank as string;
-    if (!rankBuckets[rank]) rankBuckets[rank] = { count: 0, wins: 0, pnlSum: 0 };
+    const band = getScoreBand(r.totalScore);
     const pnl = Number(r.ghostProfitPct);
-    rankBuckets[rank].count++;
-    rankBuckets[rank].pnlSum += pnl;
-    if (pnl > 0) rankBuckets[rank].wins++;
+    bandBuckets[band].count++;
+    bandBuckets[band].pnlSum += pnl;
+    if (pnl > 0) bandBuckets[band].wins++;
   }
 
-  const rankPerfs: RankPerf[] = ["S", "A", "B"].map((rank) => {
-    const b = rankBuckets[rank];
+  const scoreBandPerfsOverview: BandOverview[] = ["75+", "60-74", "<60"].map((band) => {
+    const b = bandBuckets[band];
     return {
-      rank,
+      band,
       count: b.count,
       wins: b.wins,
       winRate: b.count > 0 ? (b.wins / b.count) * 100 : null,
@@ -184,18 +185,18 @@ app.get("/", async (c) => {
     };
   });
 
-  // 序列チェック: 期待値が S > A > B か
+  // 序列チェック: 期待値が 75+ > 60-74 > <60 か
   const inversions: string[] = [];
-  const rankOrder = ["S", "A", "B"];
-  for (let i = 0; i < rankOrder.length - 1; i++) {
-    const higher = rankPerfs[i];
-    const lower = rankPerfs[i + 1];
+  const bandOrder = ["75+", "60-74", "<60"];
+  for (let i = 0; i < bandOrder.length - 1; i++) {
+    const higher = scoreBandPerfsOverview[i];
+    const lower = scoreBandPerfsOverview[i + 1];
     if (
       higher.expectancy != null && lower.expectancy != null &&
       higher.count >= 5 && lower.count >= 5 &&
       higher.expectancy < lower.expectancy
     ) {
-      inversions.push(`${lower.rank} > ${higher.rank}`);
+      inversions.push(`${lower.band} > ${higher.band}`);
     }
   }
 
@@ -350,7 +351,6 @@ app.get("/", async (c) => {
     fpAnalysis: Array<{
       tickerCode: string;
       score: number;
-      rank: string;
       profitPct: number;
       misjudgmentType: string;
     }>;
@@ -374,26 +374,27 @@ app.get("/", async (c) => {
 
   // --- HTML ---
   const content = html`
-    <!-- セクション1: ランク別パフォーマンス -->
-    <p class="section-title">${tt("ランク別パフォーマンス", "S/A/B/Cランクごとの過去90日の成績")}（過去${SCORING_VALIDITY.LOOKBACK_DAYS}日）</p>
+    <!-- セクション1: スコア帯別パフォーマンス（概要） -->
+    <p class="section-title">${tt("スコア帯別パフォーマンス", "スコア帯ごとの過去90日の成績")}（過去${SCORING_VALIDITY.LOOKBACK_DAYS}日）</p>
 
     ${allScoredRecords.length === 0
       ? html`<div class="card">${emptyState("スコアリングデータが蓄積されるまでお待ちください")}</div>`
       : html`
-          <div class="card" style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.5rem">
-            ${rankPerfs.map((rp) => {
-              const lowSample = rp.count < 10;
+          <div class="card" style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.5rem">
+            ${scoreBandPerfsOverview.map((bp) => {
+              const lowSample = bp.count < 10;
               const dimStyle = lowSample ? "opacity:0.5" : "";
+              const bandColor = bp.band === "75+" ? "#f59e0b" : bp.band === "60-74" ? "#3b82f6" : "#22c55e";
               return html`
                 <div style="text-align:center;padding:0.75rem 0.25rem;${dimStyle}">
-                  <p style="margin:0 0 0.5rem">${rankBadge(rp.rank)}</p>
-                  <p style="font-size:0.72rem;color:#94a3b8;margin:0">${rp.count}件</p>
-                  <p style="font-size:0.85rem;font-weight:700;margin:0.25rem 0;color:${rp.winRate != null && rp.winRate >= 50 ? "#22c55e" : rp.winRate != null ? "#ef4444" : "#64748b"}">
-                    ${rp.winRate != null ? `${rp.winRate.toFixed(0)}%` : "-"}
+                  <p style="margin:0 0 0.5rem"><span class="badge" style="background:${bandColor}20;color:${bandColor}">${bp.band}</span></p>
+                  <p style="font-size:0.72rem;color:#94a3b8;margin:0">${bp.count}件</p>
+                  <p style="font-size:0.85rem;font-weight:700;margin:0.25rem 0;color:${bp.winRate != null && bp.winRate >= 50 ? "#22c55e" : bp.winRate != null ? "#ef4444" : "#64748b"}">
+                    ${bp.winRate != null ? `${bp.winRate.toFixed(0)}%` : "-"}
                   </p>
                   <p style="font-size:0.72rem;color:#94a3b8;margin:0 0 0.25rem">${tt("期待値", "1トレードあたりの平均損益率(%)")}</p>
-                  <p style="font-size:0.95rem;font-weight:700;margin:0;color:${rp.expectancy != null ? (rp.expectancy >= 0.5 ? "#22c55e" : rp.expectancy >= 0 ? "#3b82f6" : "#ef4444") : "#64748b"}">
-                    ${rp.expectancy != null ? `${rp.expectancy > 0 ? "+" : ""}${rp.expectancy.toFixed(2)}%` : "-"}
+                  <p style="font-size:0.95rem;font-weight:700;margin:0;color:${bp.expectancy != null ? (bp.expectancy >= 0.5 ? "#22c55e" : bp.expectancy >= 0 ? "#3b82f6" : "#ef4444") : "#64748b"}">
+                    ${bp.expectancy != null ? `${bp.expectancy > 0 ? "+" : ""}${bp.expectancy.toFixed(2)}%` : "-"}
                   </p>
                   ${lowSample ? html`<p style="font-size:0.65rem;color:#94a3b8;margin:0.25rem 0 0">n<10</p>` : ""}
                 </div>
@@ -407,12 +408,12 @@ app.get("/", async (c) => {
                   序列逆転を検出: ${inversions.join(", ")}
                 </p>
                 <p style="font-size:0.72rem;color:#94a3b8;margin:0.25rem 0 0">
-                  上位ランクの期待値が下位を下回っています。スコアリングロジックの見直しを検討してください。
+                  上位スコア帯の期待値が下位を下回っています。スコアリングロジックの見直しを検討してください。
                 </p>
               </div>`
             : html`<div class="card" style="background:#22c55e10;border:1px solid #22c55e30;padding:0.75rem">
                 <p style="font-size:0.82rem;color:#22c55e;margin:0;font-weight:600">
-                  序列正常: S > A > B > C
+                  序列正常: 75+ > 60-74 > &lt;60
                 </p>
               </div>`}
 
@@ -501,7 +502,7 @@ app.get("/", async (c) => {
               </tbody>
             </table>
             <p style="font-size:0.72rem;color:#94a3b8;margin:0.5rem 0 0">
-              勝ち: ${winners.length}件 / 負け: ${losers.length}件（過去${SCORING_VALIDITY.LOOKBACK_DAYS}日・全ランク）
+              勝ち: ${winners.length}件 / 負け: ${losers.length}件（過去${SCORING_VALIDITY.LOOKBACK_DAYS}日）
             </p>
           </div>
 
@@ -548,7 +549,7 @@ app.get("/", async (c) => {
               </table>
             </div>
             <p style="font-size:0.72rem;color:#94a3b8;margin:0.5rem 0 0">
-              過去${SCORING_VALIDITY.LOOKBACK_DAYS}日・全ランク。5日/10日は蓄積中のため件数が少ない場合があります
+              過去${SCORING_VALIDITY.LOOKBACK_DAYS}日。5日/10日は蓄積中のため件数が少ない場合があります
             </p>
           </div>
         `}
@@ -638,15 +639,15 @@ app.get("/", async (c) => {
             </div>
           </div>
 
-          <!-- ランク別精度（折りたたみ） -->
+          <!-- スコア帯別精度（折りたたみ） -->
           <div class="card">
             <details>
-              <summary style="cursor:pointer;font-size:0.82rem;color:#94a3b8;user-select:none">ランク別精度テーブル</summary>
+              <summary style="cursor:pointer;font-size:0.82rem;color:#94a3b8;user-select:none">スコア帯別精度テーブル</summary>
               <div class="table-wrap" style="margin-top:0.75rem">
                 <table>
                   <thead>
                     <tr>
-                      <th>ランク</th>
+                      <th>スコア帯</th>
                       <th>TP</th>
                       <th>FP</th>
                       <th>FN</th>
@@ -658,9 +659,9 @@ app.get("/", async (c) => {
                     ${Object.entries(audit.byRank)
                       .sort(([a], [b]) => a.localeCompare(b))
                       .map(
-                        ([rank, v]) => html`
+                        ([band, v]) => html`
                           <tr>
-                            <td>${rankBadge(rank)}</td>
+                            <td style="font-weight:600">${band}</td>
                             <td style="color:#22c55e">${v.tp}</td>
                             <td style="color:#ef4444">${v.fp}</td>
                             <td style="color:#f59e0b">${v.fn}</td>
@@ -689,9 +690,8 @@ app.get("/", async (c) => {
                   <th style="width:12%">日付</th>
                   <th style="width:18%">銘柄</th>
                   <th style="width:14%">スコア</th>
-                  <th style="width:14%">ランク</th>
-                  <th style="width:20%">騰落率</th>
-                  <th style="width:22%">${tt("誤判断タイプ", "AI分析による誤判断の分類")}</th>
+                  <th style="width:28%">騰落率</th>
+                  <th style="width:28%">${tt("誤判断タイプ", "AI分析による誤判断の分類")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -701,8 +701,7 @@ app.get("/", async (c) => {
                     <tr>
                       <td>${dayjs(r.date).format("M/D")}</td>
                       <td>${tickerLink(r.tickerCode)}</td>
-                      <td>${r.totalScore}</td>
-                      <td>${rankBadge(r.rank)}</td>
+                      <td>${scoreBadge(r.totalScore)}</td>
                       <td>
                         ${pnlPercent(Number(r.ghostProfitPct))}
                         ${ghost ? html`<span class="ghost-toggle" onclick="toggleGhost(this)" style="cursor:pointer;margin-left:4px">💡</span>` : ""}
@@ -715,7 +714,7 @@ app.get("/", async (c) => {
                     </tr>
                     ${ghost ? html`
                       <tr class="ghost-detail" style="display:none">
-                        <td colspan="6" style="background:#1e293b;padding:0.75rem;font-size:0.82rem;line-height:1.6;word-break:break-word;white-space:normal">
+                        <td colspan="5" style="background:#1e293b;padding:0.75rem;font-size:0.82rem;line-height:1.6;word-break:break-word;white-space:normal">
                           <p style="margin:0 0 0.5rem;color:#cbd5e1">${ghost.analysis}</p>
                           ${ghost.recommendation ? html`<p style="margin:0;color:#94a3b8"><strong>改善提案:</strong> ${recommendationLabels[ghost.recommendation] ?? ghost.recommendation}</p>` : ""}
                         </td>
@@ -729,8 +728,8 @@ app.get("/", async (c) => {
         `
       : html`<div class="card">${emptyState("誤エントリーはまだありません")}</div>`}
 
-    <!-- FN: 見逃し銘柄（Aランク以上のみ） -->
-    <p class="section-title">見逃し銘柄（Aランク以上・棄却したが上昇）</p>
+    <!-- FN: 見逃し銘柄（60点以上） -->
+    <p class="section-title">見逃し銘柄（60点以上・棄却したが上昇）</p>
     ${fnStocks.length > 0
       ? html`
           <div class="card table-wrap">
@@ -741,8 +740,7 @@ app.get("/", async (c) => {
                   <th style="width:18%">銘柄</th>
                   <th style="width:22%">棄却理由</th>
                   <th style="width:14%">スコア</th>
-                  <th style="width:14%">ランク</th>
-                  <th style="width:20%">騰落率</th>
+                  <th style="width:34%">騰落率</th>
                 </tr>
               </thead>
               <tbody>
@@ -753,8 +751,7 @@ app.get("/", async (c) => {
                       <td>${dayjs(r.date).format("M/D")}</td>
                       <td>${tickerLink(r.tickerCode)}</td>
                       <td>${rejectionBadge(r.rejectionReason)}</td>
-                      <td>${r.totalScore}</td>
-                      <td>${rankBadge(r.rank)}</td>
+                      <td>${scoreBadge(r.totalScore)}</td>
                       <td>
                         ${pnlPercent(Number(r.ghostProfitPct))}
                         ${ghost ? html`<span class="ghost-toggle" onclick="toggleGhost(this)" style="cursor:pointer;margin-left:4px">💡</span>` : ""}
@@ -762,7 +759,7 @@ app.get("/", async (c) => {
                     </tr>
                     ${ghost ? html`
                       <tr class="ghost-detail" style="display:none">
-                        <td colspan="6" style="background:#1e293b;padding:0.75rem;font-size:0.82rem;line-height:1.6;word-break:break-word;white-space:normal">
+                        <td colspan="5" style="background:#1e293b;padding:0.75rem;font-size:0.82rem;line-height:1.6;word-break:break-word;white-space:normal">
                           <p style="margin:0 0 0.5rem;color:#cbd5e1">${ghost.analysis}</p>
                           ${ghost.recommendation ? html`<p style="margin:0;color:#94a3b8"><strong>改善提案:</strong> ${recommendationLabels[ghost.recommendation] ?? ghost.recommendation}</p>` : ""}
                         </td>
