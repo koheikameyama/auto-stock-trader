@@ -1,12 +1,9 @@
 /**
- * マーケットデータプロバイダー（ハイブリッド切り替え層）
- *
- * yfinance (Python) をプライマリデータソースとして使用。
- * tachibana モードでは立花APIをプライマリ、yfinance をフォールバックとする。
+ * マーケットデータプロバイダー（切り替え層）
  *
  * 環境変数 MARKET_DATA_PROVIDER で制御:
  * - "yfinance"   (デフォルト): yfinance のみ
- * - "tachibana"   : 立花API → yfinance フォールバック
+ * - "tachibana"   : 立花APIのみ（失敗時はエラー）
  */
 
 import {
@@ -35,29 +32,6 @@ const PROVIDER_MODE: ProviderMode =
   (process.env.MARKET_DATA_PROVIDER as ProviderMode) || "yfinance";
 
 // ========================================
-// フォールバックヘルパー（tachibana モード用）
-// ========================================
-
-/**
- * プライマリ → フォールバックの順で試行（tachibana モード用）
- */
-async function withFallback<T>(
-  label: string,
-  primaryFn: () => Promise<T>,
-  fallbackFn: () => Promise<T>,
-): Promise<T> {
-  try {
-    return await primaryFn();
-  } catch (primaryError) {
-    console.warn(
-      `[market-data-provider] Primary failed for ${label}, falling back:`,
-      primaryError instanceof Error ? primaryError.message : primaryError,
-    );
-    return fallbackFn();
-  }
-}
-
-// ========================================
 // 公開 API
 // ========================================
 
@@ -66,11 +40,7 @@ async function withFallback<T>(
  */
 export async function providerFetchQuote(symbol: string): Promise<YfQuoteResult> {
   if (PROVIDER_MODE === "tachibana") {
-    return withFallback(
-      `quote:${symbol}`,
-      () => tachibanaFetchQuote(symbol),
-      () => yfFetchQuote(symbol),
-    );
+    return tachibanaFetchQuote(symbol);
   }
 
   return yfFetchQuote(symbol);
@@ -83,11 +53,7 @@ export async function providerFetchQuotesBatch(
   symbols: string[],
 ): Promise<(YfQuoteResult | null)[]> {
   if (PROVIDER_MODE === "tachibana") {
-    return withFallback(
-      `quotes:batch[${symbols.length}]`,
-      () => tachibanaFetchQuotesBatch(symbols),
-      () => yfFetchQuotesBatch(symbols),
-    );
+    return tachibanaFetchQuotesBatch(symbols);
   }
 
   return yfFetchQuotesBatch(symbols);
