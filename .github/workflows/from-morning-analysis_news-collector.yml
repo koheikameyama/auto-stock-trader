@@ -64,6 +64,8 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npx prisma generate
+      - name: Start yfinance sidecar
+        uses: ./.github/actions/start-yfinance
       - run: npm run news
 
   notify-success:
