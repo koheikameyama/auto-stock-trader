@@ -63,6 +63,16 @@ export async function main() {
   });
   quotesFailed = failedStocks.length;
 
+  // 失敗率が閾値を超えた場合はサイドカー障害（タイムアウト等）とみなす。
+  // 全銘柄を誤って廃止候補にしないよう incrementFailAndMarkDelisted をスキップし、ジョブをエラー終了する。
+  const failureRate = allStocks.length > 0 ? quotesFailed / allStocks.length : 0;
+  if (failureRate >= STOCK_FETCH.QUOTE_FAILURE_THRESHOLD) {
+    throw new Error(
+      `クォート取得の失敗率が高すぎます（${quotesFailed}/${allStocks.length} = ${(failureRate * 100).toFixed(1)}%）。` +
+        `yfinanceサイドカーのタイムアウトまたは接続エラーの可能性があります。`,
+    );
+  }
+
   if (failedStocks.length > 0) {
     const currentCounts = new Map(failedStocks.map((s) => [s.id, s.fetchFailCount]));
     await incrementFailAndMarkDelisted(

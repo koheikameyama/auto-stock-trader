@@ -17,6 +17,7 @@ export const ORDER_EXPIRY = {
 export const STOCK_FETCH = {
   FAIL_THRESHOLD: 5, // 上場廃止判定の失敗回数
   WEEKLY_CHANGE_MIN_DAYS: 5, // 週間変化率計算の最低日数
+  QUOTE_FAILURE_THRESHOLD: 0.8, // この割合以上のクォート失敗はサイドカー障害とみなしてジョブをエラー終了
 } as const;
 
 // ジョブの同時実行数
