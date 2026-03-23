@@ -7,7 +7,7 @@
 
 const YFINANCE_URL = process.env.YFINANCE_URL || "http://localhost:8000";
 const SIDECAR_SECRET = process.env.SIDECAR_SECRET || "";
-const TIMEOUT_MS = 30_000;
+const TIMEOUT_MS = 180_000; // 30秒だと90銘柄(1秒/銘柄)でタイムアウトするため3分に延長
 
 // リトライ設定
 const RETRY_MAX = 3;
