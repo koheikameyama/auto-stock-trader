@@ -111,7 +111,7 @@ export const DAILY_BACKTEST = {
 
   /** デフォルトシミュレーションパラメータ */
   DEFAULT_PARAMS: {
-    scoreThreshold: 65,       // WF OOS PF 1.85（TS3.5+CD3との組み合わせで堅牢）
+    scoreThreshold: 75,       // WF OOS PF 1.85（TS3.5+CD3との組み合わせで堅牢）
     takeProfitRatio: 1.50,    // overrideTpSl=true 時のみ使用
     stopLossRatio: 0.98,      // overrideTpSl=true 時のみ使用
     atrMultiplier: 1.0,       // overrideTpSl=true 時のみ使用
