@@ -168,6 +168,35 @@ export function determineNikkeiTrend(nikkeiData: OHLCVData[]): NikkeiTrendResult
   };
 }
 
+/**
+ * NikkeiトレンドフィルターをMarketRegimeに適用する（より制限的な方を採用）
+ */
+export function applyNikkeiFilter(
+  regime: MarketRegime,
+  nikkeiTrend: NikkeiTrendResult,
+): MarketRegime {
+  if (nikkeiTrend.isUptrend) return regime;
+
+  const newMinScore =
+    nikkeiTrend.minScore !== null &&
+    (regime.minScore === null || nikkeiTrend.minScore > regime.minScore)
+      ? nikkeiTrend.minScore
+      : regime.minScore;
+
+  const newMaxPositions = Math.min(regime.maxPositions, nikkeiTrend.maxPositions);
+
+  if (newMinScore === regime.minScore && newMaxPositions === regime.maxPositions) {
+    return regime;
+  }
+
+  return {
+    ...regime,
+    minScore: newMinScore,
+    maxPositions: newMaxPositions,
+    reason: `${regime.reason} + 日経SMA: ${nikkeiTrend.reason}`,
+  };
+}
+
 export type TradingStrategy = "day_trade" | "swing";
 
 export interface StrategyDecision {

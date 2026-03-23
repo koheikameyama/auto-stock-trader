@@ -42,6 +42,8 @@ import {
   determineMarketRegime,
   determinePreMarketRegime,
   calculateCmeDivergence,
+  determineNikkeiTrend,
+  applyNikkeiFilter,
 } from "../core/market-regime";
 import type { MarketRegime, Sentiment, TradingStrategy } from "../core/market-regime";
 import { calculateDrawdownStatus } from "../core/drawdown-manager";
@@ -146,7 +148,23 @@ export async function main(context?: MarketAssessmentContext) {
 
   // コンテキストがなければDBから復元
   const ctx = context ?? await restoreContextFromDB();
-  const { regime, isShadowMode, drawdown, strategyDecision } = ctx;
+  let { regime } = ctx;
+  const { isShadowMode, drawdown, strategyDecision } = ctx;
+
+  // 日経225 SMA(25)フィルター適用（本番: より制限的な方を採用）
+  try {
+    const nikkeiDataMap = await fetchHistoricalDataBatch(["^N225"]);
+    const nikkeiOhlcv = nikkeiDataMap.get("^N225");
+    if (nikkeiOhlcv && nikkeiOhlcv.length > 0) {
+      const nikkeiTrend = determineNikkeiTrend(nikkeiOhlcv);
+      regime = applyNikkeiFilter(regime, nikkeiTrend);
+      if (!nikkeiTrend.isUptrend) {
+        console.log(`  日経SMAフィルター適用: ${nikkeiTrend.reason}`);
+      }
+    }
+  } catch (err) {
+    console.warn("  日経225データ取得失敗（フィルターなしで続行）:", err);
+  }
 
   // shadow modeの場合、スコアリング失敗がhalt判定に影響しないようtry-catchで囲む
   try {

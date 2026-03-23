@@ -111,7 +111,7 @@ export const DAILY_BACKTEST = {
 
   /** デフォルトシミュレーションパラメータ */
   DEFAULT_PARAMS: {
-    scoreThreshold: 65,       // WF OOS PF 1.85（TS3.5+CD3との組み合わせで堅牢）
+    scoreThreshold: 75,       // WF OOS PF 1.85（TS3.5+CD3との組み合わせで堅牢）
     takeProfitRatio: 1.50,    // overrideTpSl=true 時のみ使用
     stopLossRatio: 0.98,      // overrideTpSl=true 時のみ使用
     atrMultiplier: 1.0,       // overrideTpSl=true 時のみ使用
@@ -120,6 +120,7 @@ export const DAILY_BACKTEST = {
     strategy: "swing" as const,
     overrideTpSl: true,       // ATRベースSL（ATR×1.0）— WF検証でOOS PF 1.68
     cooldownDays: 3,          // ストップアウト後の同一銘柄再エントリー禁止日数 — WF OOS PF 1.85
+    maxHoldingDays: 5,        // 新規追加: 10→5（5日足でアルファが最も明確: +0.62% vs +0.26%）
   },
 
   /** ボラティリティ＆RSフィルターの閾値 */
@@ -175,7 +176,7 @@ export const DAILY_BACKTEST = {
     /** 旧ベースラインのパラメータ（変更前の DEFAULT_PARAMS との差分） */
     OLD_BASELINE: {
       trailingActivationMultiplier: 2.5,
-      scoreThreshold: 75,
+      scoreThreshold: 65,
       cooldownDays: 5,
     },
   },
