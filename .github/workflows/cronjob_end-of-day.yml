@@ -77,20 +77,6 @@ jobs:
         uses: ./.github/actions/start-yfinance
       - run: npm run eod
 
-  notify-success:
-    needs: end-of-day
-    if: success()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Notify Slack on success
-        uses: rtCamp/action-slack-notify@v2
-        env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "✅ end-of-day 完了"
-          SLACK_MESSAGE: "end-of-day が正常に完了しました"
-          SLACK_COLOR: good
-          SLACK_FOOTER: "Stock Buddy"
-
   notify-failure:
     needs: end-of-day
     if: failure()

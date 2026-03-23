@@ -77,20 +77,6 @@ jobs:
         uses: ./.github/actions/start-yfinance
       - run: npm run daily-backtest
 
-  notify-success:
-    needs: daily-backtest
-    if: success()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Notify Slack on success
-        uses: rtCamp/action-slack-notify@v2
-        env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "✅ daily-backtest 完了"
-          SLACK_MESSAGE: "日次バックテストが正常に完了しました"
-          SLACK_COLOR: good
-          SLACK_FOOTER: "Stock Buddy"
-
   notify-failure:
     needs: daily-backtest
     if: failure()

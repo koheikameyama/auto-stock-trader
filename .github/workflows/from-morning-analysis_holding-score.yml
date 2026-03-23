@@ -66,20 +66,6 @@ jobs:
         uses: ./.github/actions/start-yfinance
       - run: npm run holding-score
 
-  notify-success:
-    needs: holding-score
-    if: success()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Notify Slack on success
-        uses: rtCamp/action-slack-notify@v2
-        env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "Holding Score 完了"
-          SLACK_MESSAGE: "保有継続スコアリングが正常に完了しました"
-          SLACK_COLOR: good
-          SLACK_FOOTER: "Stock Buddy"
-
   notify-failure:
     needs: holding-score
     if: always() && contains(needs.*.result, 'failure')

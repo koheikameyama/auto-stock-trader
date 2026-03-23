@@ -69,20 +69,6 @@ jobs:
         uses: ./.github/actions/start-yfinance
       - run: npm run news
 
-  notify-success:
-    needs: news-collector
-    if: success()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Notify Slack on success
-        uses: rtCamp/action-slack-notify@v2
-        env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "News Collector 完了"
-          SLACK_MESSAGE: "ニュース収集が正常に完了しました"
-          SLACK_COLOR: good
-          SLACK_FOOTER: "Stock Buddy"
-
   notify-failure:
     needs: news-collector
     if: failure()

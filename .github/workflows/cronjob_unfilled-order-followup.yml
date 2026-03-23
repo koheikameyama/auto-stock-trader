@@ -73,20 +73,6 @@ jobs:
         uses: ./.github/actions/start-yfinance
       - run: npm run unfilled-followup
 
-  notify-success:
-    needs: unfilled-order-followup
-    if: success()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Notify Slack on success
-        uses: rtCamp/action-slack-notify@v2
-        env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "Unfilled Order Follow-Up 完了"
-          SLACK_MESSAGE: "未約定注文フォローアップが正常に完了しました"
-          SLACK_COLOR: good
-          SLACK_FOOTER: "Stock Buddy"
-
   notify-failure:
     needs: unfilled-order-followup
     if: failure()

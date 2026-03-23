@@ -70,20 +70,6 @@ jobs:
         uses: ./.github/actions/start-yfinance
       - run: npm run assess
 
-  notify-success:
-    needs: market-assessment
-    if: success()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Notify Slack on success
-        uses: rtCamp/action-slack-notify@v2
-        env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "Market Assessment 完了"
-          SLACK_MESSAGE: "市場評価が正常に完了しました"
-          SLACK_COLOR: good
-          SLACK_FOOTER: "Stock Buddy"
-
   notify-failure:
     needs: market-assessment
     if: always() && contains(needs.*.result, 'failure')

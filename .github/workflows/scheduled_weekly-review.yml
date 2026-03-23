@@ -35,20 +35,6 @@ jobs:
         uses: ./.github/actions/start-yfinance
       - run: npm run weekly
 
-  notify-success:
-    needs: weekly-review
-    if: success()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Notify Slack on success
-        uses: rtCamp/action-slack-notify@v2
-        env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "Weekly Review 完了"
-          SLACK_MESSAGE: "週次レビューが正常に完了しました"
-          SLACK_COLOR: good
-          SLACK_FOOTER: "Stock Buddy"
-
   notify-failure:
     needs: weekly-review
     if: failure()
