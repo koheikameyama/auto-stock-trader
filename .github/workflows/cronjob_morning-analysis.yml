@@ -14,10 +14,9 @@ on:
         default: all
         options:
           - all
-          - news
           - assess
           - holding
-          - scan
+          - watchlist
       skip_market_day_check:
         description: "休場日チェックをスキップ"
         type: boolean
@@ -72,31 +71,10 @@ jobs:
             echo "should_run=$CHECK" >> "$GITHUB_OUTPUT"
           fi
 
-  news-collector:
+  market-assessment:
     needs: check-market-day
     if: |
       needs.check-market-day.outputs.should_run == 'true' &&
-      (github.event_name != 'workflow_dispatch' || inputs.job == 'all' || inputs.job == 'news')
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version-file: ".tool-versions"
-          cache: "npm"
-      - run: npm ci
-      - run: npx prisma generate
-      - name: Start yfinance sidecar
-        uses: ./.github/actions/start-yfinance
-      - run: npm run news
-
-  market-assessment:
-    needs: [check-market-day, news-collector]
-    if: |
-      always() &&
-      needs.check-market-day.outputs.should_run == 'true' &&
-      needs.news-collector.result != 'failure' &&
       (github.event_name != 'workflow_dispatch' || inputs.job == 'all' || inputs.job == 'assess')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -133,15 +111,15 @@ jobs:
         uses: ./.github/actions/start-yfinance
       - run: npm run holding-score
 
-  stock-scanner:
+  watchlist-builder:
     needs: [check-market-day, market-assessment]
     if: |
       always() &&
       needs.check-market-day.outputs.should_run == 'true' &&
       needs.market-assessment.result != 'failure' &&
-      (github.event_name != 'workflow_dispatch' || inputs.job == 'all' || inputs.job == 'scan')
+      (github.event_name != 'workflow_dispatch' || inputs.job == 'all' || inputs.job == 'watchlist')
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -150,12 +128,10 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npx prisma generate
-      - name: Start yfinance sidecar
-        uses: ./.github/actions/start-yfinance
-      - run: npm run stock-scan
+      - run: npm run watchlist-build
 
   notify-failure:
-    needs: [news-collector, market-assessment, holding-score, stock-scanner]
+    needs: [market-assessment, holding-score, watchlist-builder]
     if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     steps:
