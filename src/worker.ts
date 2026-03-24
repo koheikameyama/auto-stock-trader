@@ -17,6 +17,7 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 import { main as runMonitor } from "./jobs/position-monitor";
+import { main as runBreakoutMonitor } from "./jobs/breakout-monitor";
 import { app } from "./web/app";
 import { setJobState } from "./web/routes/dashboard";
 import { prisma } from "./lib/prisma";
@@ -129,6 +130,13 @@ const schedules = [
   { cron: "30-59 12 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
   { cron: "* 13-14 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
   { cron: "0-0 15 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
+  // 9:00-11:30, 12:30-15:00 毎分 ブレイクアウト監視（平日・市場時間）
+  { cron: "0-59 9 * * 1-5", job: runBreakoutMonitor, name: "breakout-monitor", requiresMarketDay: true },
+  { cron: "* 10 * * 1-5", job: runBreakoutMonitor, name: "breakout-monitor", requiresMarketDay: true },
+  { cron: "0-30 11 * * 1-5", job: runBreakoutMonitor, name: "breakout-monitor", requiresMarketDay: true },
+  { cron: "30-59 12 * * 1-5", job: runBreakoutMonitor, name: "breakout-monitor", requiresMarketDay: true },
+  { cron: "* 13-14 * * 1-5", job: runBreakoutMonitor, name: "breakout-monitor", requiresMarketDay: true },
+  { cron: "0-0 15 * * 1-5", job: runBreakoutMonitor, name: "breakout-monitor", requiresMarketDay: true },
 ];
 
 // cron 登録
@@ -151,6 +159,7 @@ cronControl.register(
   () => {
     for (const task of cronTasks) task.start();
     holidaySkipLogged.delete("position-monitor:inactive");
+    holidaySkipLogged.delete("breakout-monitor:inactive");
     console.log(`[${nowJST()}] cron タスク再開（${cronTasks.length}件）`);
   },
 );
