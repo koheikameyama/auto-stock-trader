@@ -18,6 +18,7 @@ import { canOpenPosition } from "../risk-manager";
 import { submitOrder as submitBrokerOrder } from "../broker-orders";
 import { notifyOrderPlaced, notifySlack } from "../../lib/slack";
 import { STOP_LOSS, POSITION_SIZING, UNIT_SHARES } from "../../lib/constants";
+import { BREAKOUT } from "../../lib/constants/breakout";
 import type { BreakoutTrigger } from "./types";
 
 export interface ExecutionResult {
@@ -66,7 +67,7 @@ export async function executeEntry(
   const cashBalance = await getCashBalance();
 
   // 4. SL価格 = currentPrice - ATR × 1.0（最大3%に制限）
-  const rawStopLoss = currentPrice - atr14 * STOP_LOSS.ATR_DEFAULT_MULTIPLIER;
+  const rawStopLoss = currentPrice - atr14 * BREAKOUT.STOP_LOSS.ATR_MULTIPLIER;
   const maxStopLoss = currentPrice * (1 - STOP_LOSS.MAX_LOSS_PCT);
   const stopLossPrice = Math.round(Math.max(rawStopLoss, maxStopLoss));
 

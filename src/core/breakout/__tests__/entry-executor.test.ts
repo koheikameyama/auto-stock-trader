@@ -105,10 +105,10 @@ describe("executeEntry", () => {
 
     // デフォルトのハッピーパスのモック設定
     // trigger: currentPrice=1000, atr14=20
-    // SL = max(1000 - 20*0.8, 1000*0.97) = max(984, 970) = 984
-    // riskPerShare = 16
-    // effectiveCapital=500,000 → riskAmount=10,000 → rawQty=625 → 600株
-    // requiredAmount = 1000 * 600 = 600,000 → cashBalance=1,000,000 で十分
+    // SL = max(1000 - 20*1.0, 1000*0.97) = max(980, 970) = 980
+    // riskPerShare = 20
+    // effectiveCapital=500,000 → riskAmount=10,000 → rawQty=500 → 500株
+    // requiredAmount = 1000 * 500 = 500,000 → cashBalance=1,000,000 で十分
     mockPrisma.marketAssessment.findUnique.mockResolvedValue(makeAssessment(true));
     mockPrisma.stock.findUnique.mockResolvedValue(makeStock());
     mockGetCashBalance.mockResolvedValue(1_000_000);
@@ -139,9 +139,9 @@ describe("executeEntry", () => {
 
   // 2. 買い余力不足 → 注文しない
   it("2. 買い余力不足 → 注文を作成しない", async () => {
-    // currentPrice=1000, atr14=20 → SL=984, riskPerShare=16
-    // effectiveCapital=500,000 → riskAmount=10,000 → rawQty=625 → quantity=600株
-    // requiredAmount = 1000 * 600 = 600,000 > cashBalance=50,000 → 残高不足
+    // currentPrice=1000, atr14=20 → SL=980, riskPerShare=20
+    // effectiveCapital=500,000 → riskAmount=10,000 → rawQty=500 → quantity=500株
+    // requiredAmount = 1000 * 500 = 500,000 > cashBalance=50,000 → 残高不足
     mockGetCashBalance.mockResolvedValue(50_000);
     // effectiveCapital はデフォルトの 500,000 のまま
 
@@ -154,7 +154,7 @@ describe("executeEntry", () => {
 
   // 3. SLが3%を超える → 3%にクランプされる
   it("3. ATRベースSLが3%超 → 3%上限にクランプされる", async () => {
-    // currentPrice=1000, atr14=50 → rawSL = 1000 - 50*0.8 = 960 (4%下) → max3% → SL=970
+    // currentPrice=1000, atr14=50 → rawSL = 1000 - 50*1.0 = 950 (5%下) → max3% → SL=970
     const trigger = makeTrigger({ currentPrice: 1000, atr14: 50 });
 
     const result = await executeEntry(trigger, "simulation");
@@ -171,11 +171,11 @@ describe("executeEntry", () => {
 
   // 4. ポジションサイズが100株単位に丸められる
   it("4. ポジションサイズが100株単位に切り捨てられる", async () => {
-    // currentPrice=1000, atr14=20 → SL = max(1000-16, 970) = 984
-    // riskPerShare = 1000 - 984 = 16
+    // currentPrice=1000, atr14=15 → SL = max(1000-15, 970) = 985
+    // riskPerShare = 1000 - 985 = 15
     // effectiveCapital=500,000（デフォルト） → riskAmount=10,000
-    // rawQuantity = 10,000 / 16 = 625 → floor(625/100)*100 = 600（100単位切捨て）
-    const trigger = makeTrigger({ currentPrice: 1000, atr14: 20 });
+    // rawQuantity = 10,000 / 15 = 666.67 → floor(666/100)*100 = 600（100単位切捨て）
+    const trigger = makeTrigger({ currentPrice: 1000, atr14: 15 });
     const result = await executeEntry(trigger, "simulation");
 
     expect(result.success).toBe(true);
@@ -185,7 +185,7 @@ describe("executeEntry", () => {
     // 100の倍数であることを確認
     expect(quantity % 100).toBe(0);
     expect(quantity).toBeGreaterThan(0);
-    // 625 → 600 であることを確認
+    // 666 → 600 であることを確認
     expect(quantity).toBe(600);
   });
 

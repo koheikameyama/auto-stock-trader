@@ -35,6 +35,12 @@ export const BREAKOUT = {
     HOT_INTERVAL_MS: 1 * 60 * 1000,
   },
 
+  /** ストップロス設定 */
+  STOP_LOSS: {
+    /** ATR乗数（ブレイクアウト戦略用: 確認エントリーのためタイトなSL） */
+    ATR_MULTIPLIER: 1.0,
+  },
+
   /** エントリーガード条件 */
   GUARD: {
     /** 最早エントリー時刻（JST） */
