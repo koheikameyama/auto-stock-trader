@@ -57,9 +57,9 @@ export const DAILY_BACKTEST = {
     { key: "ts_act_2.5", label: "TS起動2.5", param: "trailingActivationMultiplier", value: 2.5 },
     { key: "ts_act_3.0", label: "TS起動3.0", param: "trailingActivationMultiplier", value: 3.0 },
 
-    // スコア閾値（ベースライン=65）
+    // スコア閾値（ベースライン=75）
+    { key: "score_65", label: "スコア65", param: "scoreThreshold", value: 65 },
     { key: "score_70", label: "スコア70", param: "scoreThreshold", value: 70 },
-    { key: "score_75", label: "スコア75", param: "scoreThreshold", value: 75 },
     { key: "score_80", label: "スコア80", param: "scoreThreshold", value: 80 },
 
     // ATR倍率（損切幅、ベースライン=1.0）— overrideTpSl=true 必須（SL計算に影響）
@@ -67,9 +67,9 @@ export const DAILY_BACKTEST = {
     { key: "atr_1.2", label: "ATR1.2", param: "atrMultiplier", value: 1.2, overrideTpSl: true },
     { key: "atr_1.5", label: "ATR1.5", param: "atrMultiplier", value: 1.5, overrideTpSl: true },
 
-    // トレール幅ATR倍率（ベースライン=1.0）
+    // トレール幅ATR倍率（ベースライン=1.5）
+    { key: "trail_1.0", label: "トレール1.0", param: "trailMultiplier", value: 1.0 },
     { key: "trail_1.2", label: "トレール1.2", param: "trailMultiplier", value: 1.2 },
-    { key: "trail_1.5", label: "トレール1.5", param: "trailMultiplier", value: 1.5 },
     { key: "trail_2.0", label: "トレール2.0", param: "trailMultiplier", value: 2.0 },
 
     // トレンド＆プルバックフィルター（ベースライン=トレンドON）

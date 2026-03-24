@@ -212,9 +212,14 @@ async function main() {
       { key: `${w.label}_IS`, start: w.isStart, end: w.isEnd },
       { key: `${w.label}_OOS`, start: w.oosStart, end: w.oosEnd },
     ]) {
+      // 全条件の最小scoreThresholdで構築し、条件ごとの閾値変更を有効にする
+      const scoreThresholds = DAILY_BACKTEST.PARAMETER_CONDITIONS
+        .filter((c): c is Extract<typeof c, { param: string }> => "param" in c && c.param === "scoreThreshold")
+        .map((c) => c.value);
+      const minScoreThreshold = Math.min(DAILY_BACKTEST.DEFAULT_PARAMS.scoreThreshold, ...scoreThresholds);
       const result = buildCandidateMapOnTheFly(
         allData, fundamentalsMap, stocks, period.start, period.end,
-        DAILY_BACKTEST.DEFAULT_PARAMS.scoreThreshold,
+        minScoreThreshold,
         nikkei225Ohlcv ? [...nikkei225Ohlcv] : undefined,
       );
       candidateMaps.set(period.key, result);
@@ -243,6 +248,7 @@ async function main() {
       strategy: DEFAULT_PARAMS.strategy,
       costModelEnabled: true,
       cooldownDays: DEFAULT_PARAMS.cooldownDays,
+      maxHoldingDays: DEFAULT_PARAMS.maxHoldingDays,
       overrideTpSl: DEFAULT_PARAMS.overrideTpSl,
       priceLimitEnabled: true,
       gapRiskEnabled: true,
