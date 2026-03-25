@@ -189,8 +189,7 @@ export class TachibanaClient {
   async request(
     params: TachibanaRequestParams,
   ): Promise<TachibanaResponse> {
-    await this.ensureSession();
-    return this.requestToVirtualUrl(this.session!.urlRequest, params);
+    return this.requestWithRetry(() => this.session!.urlRequest, params);
   }
 
   /**
@@ -199,8 +198,7 @@ export class TachibanaClient {
   async requestMaster(
     params: TachibanaRequestParams,
   ): Promise<TachibanaResponse> {
-    await this.ensureSession();
-    return this.requestToVirtualUrl(this.session!.urlMaster, params);
+    return this.requestWithRetry(() => this.session!.urlMaster, params);
   }
 
   /**
@@ -209,8 +207,7 @@ export class TachibanaClient {
   async requestPrice(
     params: TachibanaRequestParams,
   ): Promise<TachibanaResponse> {
-    await this.ensureSession();
-    return this.requestToVirtualUrl(this.session!.urlPrice, params);
+    return this.requestWithRetry(() => this.session!.urlPrice, params);
   }
 
   // ========================================
@@ -263,6 +260,37 @@ export class TachibanaClient {
   // ========================================
   // 内部ユーティリティ
   // ========================================
+
+  /**
+   * セッション切断エラーかどうか判定
+   */
+  private isSessionError(res: TachibanaResponse): boolean {
+    return res.sResultCode === "2";
+  }
+
+  /**
+   * セッション切断時に自動再ログイン＋リトライ付きリクエスト
+   *
+   * 1回目のリクエストでセッション切断を検知した場合、
+   * 再ログインして新しい仮想URLで1回だけリトライする。
+   */
+  private async requestWithRetry(
+    getUrl: () => string,
+    params: TachibanaRequestParams,
+  ): Promise<TachibanaResponse> {
+    await this.ensureSession();
+    const res = await this.requestToVirtualUrl(getUrl(), params);
+
+    if (this.isSessionError(res)) {
+      console.warn(
+        `[TachibanaClient] Session disconnected (${res.sResultText ?? ""}), re-logging in...`,
+      );
+      await this.login();
+      return this.requestToVirtualUrl(getUrl(), params);
+    }
+
+    return res;
+  }
 
   private async ensureSession(): Promise<void> {
     if (!this.session) {
