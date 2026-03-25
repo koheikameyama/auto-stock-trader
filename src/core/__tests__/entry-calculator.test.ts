@@ -1,17 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { calculateEntryCondition } from "../entry-calculator";
 import { makeSummary } from "../../__test-utils__/helpers";
-import type { NewLogicScore } from "../scoring";
 import { STOP_LOSS } from "../../lib/constants";
 
-function makeScore(totalScore = 70): NewLogicScore {
-  return {
-    totalScore,
-    gate: { passed: true, failedGate: null },
-    trendQuality: { total: 30, maAlignment: 10, weeklyTrend: 10, trendContinuity: 10 },
-    entryTiming: { total: 25, bbPosition: 8, rsiZone: 8, macdMomentum: 9 },
-    riskQuality: { total: 15, atrStability: 8, volumeStability: 7 },
-  } as NewLogicScore;
+function makeScore(totalScore = 70): { totalScore: number } {
+  return { totalScore };
 }
 
 describe("calculateEntryCondition", () => {

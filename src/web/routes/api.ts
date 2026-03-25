@@ -161,33 +161,14 @@ app.get("/stock/:tickerCode", async (c) => {
 app.get("/stock/:tickerCode/analysis", async (c) => {
   const tickerCode = c.req.param("tickerCode");
 
-  // 並列: ヒストリカルデータ取得 + 最新スコアリング取得
-  const [ohlcv, scoring] = await Promise.all([
-    fetchHistoricalData(tickerCode),
-    prisma.scoringRecord.findFirst({
-      where: { tickerCode },
-      orderBy: { date: "desc" },
-      select: {
-        date: true,
-        totalScore: true,
-        trendQualityScore: true,
-        entryTimingScore: true,
-        riskQualityScore: true,
-        sectorMomentumScore: true,
-        isDisqualified: true,
-        disqualifyReason: true,
-        aiDecision: true,
-      },
-    }),
-  ]);
+  const ohlcv = await fetchHistoricalData(tickerCode);
 
-  // チャートデータがなくてもスコアリング等の取得済みデータは返す
+  // チャートデータがなければ空を返す
   if (!ohlcv || ohlcv.length === 0) {
     return c.json({
       ohlcv: [],
       technical: null,
       patterns: null,
-      scoring,
     });
   }
 
@@ -212,7 +193,6 @@ app.get("/stock/:tickerCode/analysis", async (c) => {
     ohlcv: oldestFirst,
     technical,
     patterns,
-    scoring,
   });
 });
 
@@ -231,23 +211,8 @@ app.get("/stock/:tickerCode/modal", async (c) => {
   let analysis: ModalAnalysis | null = null;
   let positionInfo: ModalPositionInfo | null = null;
   try {
-    const [ohlcv, scoring, openPosition, quote] = await Promise.all([
+    const [ohlcv, openPosition, quote] = await Promise.all([
       fetchHistoricalData(tickerCode),
-      prisma.scoringRecord.findFirst({
-        where: { tickerCode },
-        orderBy: { date: "desc" },
-        select: {
-          date: true,
-          totalScore: true,
-          trendQualityScore: true,
-          entryTimingScore: true,
-          riskQualityScore: true,
-          sectorMomentumScore: true,
-          isDisqualified: true,
-          disqualifyReason: true,
-          aiDecision: true,
-        },
-      }),
       prisma.tradingPosition.findFirst({
         where: { stockId: stock.id, status: "open" },
       }),
@@ -268,10 +233,7 @@ app.get("/stock/:tickerCode/modal", async (c) => {
           i === oldestFirst.length - 1 ? technical.macd.histogram : null,
       }));
       const patterns = generatePatternsResponse(chartData);
-      analysis = { ohlcv: oldestFirst, technical, patterns, scoring };
-    } else if (scoring) {
-      // チャートデータがなくてもスコアリング情報は表示する
-      analysis = { ohlcv: [], technical: null, patterns: null, scoring };
+      analysis = { ohlcv: oldestFirst, technical, patterns };
     }
 
     if (openPosition) {

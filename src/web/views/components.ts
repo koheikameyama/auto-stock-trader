@@ -6,7 +6,6 @@ import { html } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { COLORS } from "./styles";
 import { CHART_PADDING, CHART_LABEL_THRESHOLD, NIKKEI_CHART_PERIODS } from "../../lib/constants";
-import { getScoreRank } from "../../core/scoring";
 
 type HtmlContent = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -101,38 +100,6 @@ export function orderStatusBadge(status: string): HtmlContent {
     class="badge"
     style="background:${color}20;color:${color}"
     >${labels[status] ?? status}</span
-  >`;
-}
-
-/** スコアバッジ（数値で表示、スコア帯で色分け） */
-export function scoreBadge(score: number): HtmlContent {
-  const rank = getScoreRank(score);
-  const color = rank === "S" ? "#f59e0b" : rank === "A" ? "#3b82f6" : "#22c55e";
-  return html`<span class="badge" style="background:${color}20;color:${color}"
-    >${score}</span
-  >`;
-}
-
-/** 保有ランクバッジ */
-export function holdingRankBadge(rank: string, score: number): HtmlContent {
-  const colorMap: Record<string, string> = {
-    strong: "#22c55e",
-    healthy: "#3b82f6",
-    weakening: "#f59e0b",
-    deteriorating: "#f97316",
-    critical: "#ef4444",
-  };
-  const labelMap: Record<string, string> = {
-    strong: "強",
-    healthy: "良",
-    weakening: "注意",
-    deteriorating: "劣化",
-    critical: "危険",
-  };
-  const color = colorMap[rank] ?? "#94a3b8";
-  const label = labelMap[rank] ?? rank;
-  return html`<span class="badge" style="background:${color}20;color:${color}"
-    >${score} ${label}</span
   >`;
 }
 
@@ -352,26 +319,6 @@ export function nikkeiChartShell(): HtmlContent {
 }
 
 /** スコアバー */
-export function scoreBar(
-  label: string | HtmlContent,
-  value: number,
-  max: number,
-  color: string,
-): HtmlContent {
-  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
-  return html`<div class="score-bar-wrap">
-    <div class="score-bar-label">
-      <span>${label}</span><span>${value}/${max}</span>
-    </div>
-    <div class="score-bar-track">
-      <div
-        class="score-bar-fill"
-        style="width:${pct}%;background:${color}"
-      ></div>
-    </div>
-  </div>`;
-}
-
 /** SVG 折れ線チャート（累積PnL） */
 export function sparklineChart(
   data: { label: string; value: number }[],

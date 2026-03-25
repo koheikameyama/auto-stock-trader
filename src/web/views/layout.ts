@@ -5,7 +5,6 @@
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { CSS } from "./styles";
-import { SCORING_UI_ENABLED } from "../../lib/constants/web";
 
 type HtmlContent = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -41,11 +40,6 @@ const NAV_ITEMS = [
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17l-5-5-4 4-3-3"/></svg>`,
   },
   {
-    path: "/accuracy",
-    label: "精度",
-    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg>`,
-  },
-  {
     path: "/history",
     label: "履歴",
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
@@ -59,11 +53,6 @@ const NAV_ITEMS = [
     path: "/news",
     label: "ニュース",
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 10h16M4 14h10M4 18h8"/></svg>`,
-  },
-  {
-    path: "/scoring",
-    label: "スコア",
-    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>`,
   },
 ];
 
@@ -109,7 +98,7 @@ export function layout(
         <div id="stock-modal"></div>
 
         <nav class="bottom-nav">
-          ${NAV_ITEMS.filter((item) => SCORING_UI_ENABLED || (item.path !== "/scoring" && item.path !== "/accuracy")).map(
+          ${NAV_ITEMS.map(
             (item) => html`
               <a
                 href="${item.path}"

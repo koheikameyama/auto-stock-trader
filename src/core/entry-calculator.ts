@@ -6,7 +6,6 @@
  */
 
 import type { TechnicalSummary } from "./technical-analysis";
-import type { NewLogicScore } from "./scoring";
 import {
   validateStopLoss,
   calculatePositionSize,
@@ -38,7 +37,7 @@ export interface EntryCondition {
 export function calculateEntryCondition(
   currentPrice: number,
   summary: TechnicalSummary,
-  score: NewLogicScore,
+  score: { totalScore: number },
   strategy: TradingStrategy,
   availableBudget: number,
   maxPositionPct: number,

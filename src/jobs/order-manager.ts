@@ -29,8 +29,11 @@ import { countNonTradingDaysAhead } from "../lib/market-calendar";
 import { fetchStockQuote, fetchHistoricalData } from "../core/market-data";
 import { analyzeTechnicals } from "../core/technical-analysis";
 import type { TechnicalSummary } from "../core/technical-analysis";
-import { scoreStock, formatScoreForAI } from "../core/scoring";
-import type { NewLogicScore } from "../core/scoring";
+// scoring は無効化済み（breakout 戦略に移行）
+ 
+const scoreStock = (_params: unknown): { totalScore: number } => ({ totalScore: 0 });
+ 
+const formatScoreForAI = (_score: unknown, _summary: unknown): string => "";
 import { calculateEntryCondition } from "../core/entry-calculator";
 import type { EntryCondition } from "../core/entry-calculator";
 import { reviewTrade } from "../core/ai-decision";
@@ -59,7 +62,8 @@ interface AnalysisResult {
   latestVolume: number;
   quote: { price: number };
   techSummary: TechnicalSummary;
-  score: NewLogicScore;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  score: any;
   entryCondition: EntryCondition;
   review: TradeReviewResult;
   newsContext: string | undefined;

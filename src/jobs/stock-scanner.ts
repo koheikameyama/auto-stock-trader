@@ -27,8 +27,12 @@ import {
 } from "../core/market-data";
 import { analyzeTechnicals } from "../core/technical-analysis";
 import type { TechnicalSummary } from "../core/technical-analysis";
-import { scoreStock, formatScoreForAI, getScoreRank } from "../core/scoring";
-import type { NewLogicScore } from "../core/scoring";
+// scoring は無効化済み（breakout 戦略に移行）
+ 
+const scoreStock = (_params: unknown): { totalScore: number } => ({ totalScore: 0 });
+ 
+const formatScoreForAI = (_score: unknown, _summary: unknown): string => "";
+const getScoreRank = (_score: number): "S" | "A" | "B" => "B";
 import {
   getContrarianHistoryBatch,
   calculateContrarianBonus,
@@ -59,7 +63,8 @@ interface ScoredCandidate {
   tickerCode: string;
   name: string;
   summary: TechnicalSummary;
-  score: NewLogicScore;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  score: any;
   newsContext?: string;
 }
 

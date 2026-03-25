@@ -11,9 +11,7 @@ import ordersRoute from "./routes/orders";
 import watchlistRoute from "./routes/watchlist";
 import historyRoute from "./routes/history";
 import riskRoute from "./routes/risk";
-import accuracyRoute from "./routes/accuracy";
 import newsRoute from "./routes/news";
-import scoringRoute from "./routes/scoring";
 import weeklyRoute from "./routes/weekly";
 import apiRoute from "./routes/api";
 import cronRoute from "./routes/cron";
@@ -131,9 +129,7 @@ app.route("/orders", ordersRoute);
 app.route("/watchlist", watchlistRoute);
 app.route("/history", historyRoute);
 app.route("/risk", riskRoute);
-app.route("/accuracy", accuracyRoute);
 app.route("/news", newsRoute);
-app.route("/scoring", scoringRoute);
 app.route("/weekly", weeklyRoute);
 
 // API routes (authenticated)

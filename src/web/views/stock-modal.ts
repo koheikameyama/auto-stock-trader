@@ -10,8 +10,7 @@ import type { HtmlEscapedString } from "hono/utils/html";
 import type { Stock } from "@prisma/client";
 import type { TechnicalSummary, OHLCVData } from "../../core/technical-analysis";
 import type { PatternsResponse } from "../../lib/candlestick-patterns";
-import { tt, scoreBar } from "./components";
-import { getScoreRank } from "../../core/scoring";
+import { tt } from "./components";
 
 type HtmlContent = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -20,16 +19,6 @@ export interface ModalAnalysis {
   ohlcv: OHLCVData[];
   technical: TechnicalSummary | null;
   patterns: PatternsResponse | null;
-  scoring: {
-    totalScore: number;
-    trendQualityScore: number;
-    entryTimingScore: number;
-    riskQualityScore: number;
-    sectorMomentumScore: number;
-    isDisqualified: boolean;
-    disqualifyReason: string | null;
-    aiDecision: string | null;
-  } | null;
 }
 
 /** ポジション情報（モーダル表示用） */
@@ -154,7 +143,6 @@ function chartTab(analysis: ModalAnalysis | null): HtmlContent {
           ${trendInfo(analysis.technical)}
           ${supportResistanceInfo(analysis.technical)}`
       : ""}
-    ${analysis ? scoringSection(analysis.scoring) : ""}
   </div>`;
 }
 
@@ -377,53 +365,6 @@ function latestCandle(patterns: PatternsResponse): HtmlContent {
         >${lp.description}</span
       >
       <span style="color:#94a3b8;font-size:11px">${lp.learnMore}</span>
-    </div>`;
-}
-
-/** スコアリングセクション */
-function scoringSection(
-  scoring: ModalAnalysis["scoring"],
-): HtmlContent {
-  if (!scoring) return html``;
-  const rank = getScoreRank(scoring.totalScore);
-  const rc = rank === "S" ? "#f59e0b" : rank === "A" ? "#3b82f6" : "#22c55e";
-
-  return html`<div class="modal-section">スコアリング</div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <span style="font-size:24px;font-weight:700">${scoring.totalScore}</span>
-      <span style="font-size:12px;color:#94a3b8">/100</span>
-      <span class="badge" style="background:${rc}20;color:${rc}"
-        >${scoring.totalScore}点</span
-      >
-      ${scoring.isDisqualified
-        ? html`<span
-            class="badge tt"
-            data-tooltip="${scoring.disqualifyReason || "即死ルールに該当し自動失格"}"
-            style="background:rgba(239,68,68,0.15);color:#ef4444"
-            >即死</span
-          >`
-        : ""}
-      ${scoring.aiDecision
-        ? (() => {
-            const aiColor =
-              scoring.aiDecision === "go" ? "#22c55e" : "#ef4444";
-            const aiLabel = scoring.aiDecision === "go" ? "GO" : "NO GO";
-            return html`<span
-              class="badge"
-              style="background:${aiColor}20;color:${aiColor}"
-              >${aiLabel}</span
-            >`;
-          })()
-        : ""}
-    </div>
-    ${scoreBar(tt("トレンド品質", "MA整列・週足トレンド・トレンド継続性の評価"), scoring.trendQualityScore, 40, "#3b82f6")}
-    ${scoreBar(tt("エントリー", "押し目深さ・ブレイクアウト・ローソク足シグナルの評価"), scoring.entryTimingScore, 35, "#a855f7")}
-    ${scoreBar(tt("リスク品質", "ATR安定性・レンジ収束・出来高安定性の評価"), scoring.riskQualityScore, 25, "#22c55e")}
-    <div class="score-bar-wrap">
-      <div class="score-bar-label">
-        <span>${tt("セクターボーナス", "セクター相対強度によるボーナス/ペナルティ")}</span>
-        <span style="color:${scoring.sectorMomentumScore > 0 ? "#22c55e" : scoring.sectorMomentumScore < 0 ? "#ef4444" : "#94a3b8"}">${scoring.sectorMomentumScore >= 0 ? "+" : ""}${scoring.sectorMomentumScore}</span>
-      </div>
     </div>`;
 }
 
