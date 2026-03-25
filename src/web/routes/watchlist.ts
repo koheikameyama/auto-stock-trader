@@ -2,15 +2,22 @@
  * ウォッチリストページ（GET /watchlist）
  */
 
+import dayjs from "dayjs";
+import timezone from "dayjs/plugin/timezone.js";
+import utc from "dayjs/plugin/utc.js";
 import { Hono } from "hono";
 import { html, raw } from "hono/html";
 import { prisma } from "../../lib/prisma";
-import { QUERY_LIMITS } from "../../lib/constants";
+import { QUERY_LIMITS, TIMEZONE } from "../../lib/constants";
 import { BREAKOUT } from "../../lib/constants/breakout";
 import { layout } from "../views/layout";
 import { formatYen, tickerLink, emptyState, tt } from "../views/components";
 import { getWatchlist } from "../../jobs/watchlist-builder";
 import { getScannerState } from "../../jobs/breakout-monitor";
+import { getTodayForDB } from "../../lib/date-utils";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 const app = new Hono();
 
@@ -69,6 +76,26 @@ function surgeRatioClass(ratio: number | undefined): string {
   return "";
 }
 
+/** 出来高条件の✓/✗表示 */
+function volumeCheckHtml(ratio: number | undefined): string {
+  if (ratio === undefined) return `<span style="color: #64748b;">出来高-</span>`;
+  const ok = ratio >= BREAKOUT.VOLUME_SURGE.TRIGGER_THRESHOLD;
+  const color = ok ? "#22c55e" : "#64748b";
+  const mark = ok ? "✓" : "✗";
+  return `<span style="color: ${color}; font-size: 11px;">出来高${mark}</span>`;
+}
+
+/** グローバル条件: 時間帯チェック */
+function isInEntryTimeWindow(): boolean {
+  const now = dayjs().tz(TIMEZONE);
+  const [eh, em] = BREAKOUT.GUARD.EARLIEST_ENTRY_TIME.split(":").map(Number);
+  const [lh, lm] = BREAKOUT.GUARD.LATEST_ENTRY_TIME.split(":").map(Number);
+  const h = now.hour();
+  const m = now.minute();
+  const current = h * 60 + m;
+  return current >= eh * 60 + em && current <= lh * 60 + lm;
+}
+
 app.get("/", async (c) => {
   const watchlist = await getWatchlist();
 
@@ -79,19 +106,31 @@ app.get("/", async (c) => {
   const holdingTickers = scannerInfo?.holdingTickers ?? new Set();
   const surgeRatios = scannerInfo?.state.lastSurgeRatios ?? new Map();
 
-  // 当日のブレイクアウト買い注文ティッカーを取得（triggered → ordered/rejected 判定用）
+  // グローバル条件 + 当日注文ティッカーを並列取得
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
-  const todayOrders = triggeredToday.size
-    ? await prisma.tradingOrder.findMany({
-        where: {
-          side: "buy",
-          strategy: "breakout",
-          createdAt: { gte: todayStart },
-        },
-        select: { stock: { select: { tickerCode: true } } },
-      })
-    : [];
+  const [todayOrders, todayAssessment, dailyEntryCount] = await Promise.all([
+    triggeredToday.size
+      ? prisma.tradingOrder.findMany({
+          where: {
+            side: "buy",
+            strategy: "breakout",
+            createdAt: { gte: todayStart },
+          },
+          select: { stock: { select: { tickerCode: true } } },
+        })
+      : Promise.resolve([]),
+    prisma.marketAssessment.findUnique({
+      where: { date: getTodayForDB() },
+      select: { shouldTrade: true },
+    }),
+    prisma.tradingOrder.count({
+      where: {
+        side: "buy",
+        createdAt: { gte: todayStart },
+      },
+    }),
+  ]);
   const orderedTickers = new Set(todayOrders.map((o) => o.stock.tickerCode));
 
   // ステータス付きウォッチリストを作成しソート
@@ -129,16 +168,29 @@ app.get("/", async (c) => {
   const hotCount = watchlistWithStatus.filter((w) => w.status === "hot").length;
   const holdingCount = watchlistWithStatus.filter((w) => w.status === "holding").length;
 
+  // グローバル条件
+  const inTimeWindow = isInEntryTimeWindow();
+  const shouldTrade = todayAssessment?.shouldTrade ?? false;
+  const maxEntries = BREAKOUT.GUARD.MAX_DAILY_ENTRIES;
+  const entrySlotOk = dailyEntryCount < maxEntries;
+
   const content = html`
     <p class="section-title">${tt("監視中のウォッチリスト", "毎朝8:00に構築。ブレイクアウト候補銘柄")} (${watchlist.length})</p>
     ${scannerInfo
       ? html`
-          <div class="card" style="padding: 8px 12px; margin-bottom: 8px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px;">
-            ${orderedCount ? html`<span class="badge badge-triggered">注文済: ${orderedCount}</span>` : ""}
-            ${rejectedCount ? html`<span class="badge badge-rejected">却下: ${rejectedCount}</span>` : ""}
-            ${hotCount ? html`<span class="badge badge-hot">急騰中: ${hotCount}</span>` : ""}
-            ${holdingCount ? html`<span class="badge badge-holding">保有中: ${holdingCount}</span>` : ""}
-            <span style="color: #94a3b8;">監視中: ${watchlistWithStatus.filter((w) => w.status === "cold").length}</span>
+          <div class="card" style="padding: 8px 12px; margin-bottom: 8px; font-size: 12px;">
+            <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 6px;">
+              ${orderedCount ? html`<span class="badge badge-triggered">注文済: ${orderedCount}</span>` : ""}
+              ${rejectedCount ? html`<span class="badge badge-rejected">却下: ${rejectedCount}</span>` : ""}
+              ${hotCount ? html`<span class="badge badge-hot">急騰中: ${hotCount}</span>` : ""}
+              ${holdingCount ? html`<span class="badge badge-holding">保有中: ${holdingCount}</span>` : ""}
+              <span style="color: #94a3b8;">監視中: ${watchlistWithStatus.filter((w) => w.status === "cold").length}</span>
+            </div>
+            <div style="display: flex; gap: 12px; flex-wrap: wrap; color: #94a3b8; font-size: 11px; border-top: 1px solid #334155; padding-top: 6px;">
+              <span>${raw(`${tt("エントリー枠", `当日注文数/${maxEntries}。上限で新規停止`)}: <span style="color: ${entrySlotOk ? "#22c55e" : "#ef4444"};">${dailyEntryCount}/${maxEntries}</span>`)}</span>
+              <span>${raw(`${tt("時間帯", `${BREAKOUT.GUARD.EARLIEST_ENTRY_TIME}〜${BREAKOUT.GUARD.LATEST_ENTRY_TIME}`)}: <span style="color: ${inTimeWindow ? "#22c55e" : "#ef4444"};">${inTimeWindow ? "○" : "×"}</span>`)}</span>
+              <span>${raw(`${tt("市場評価", "MarketAssessment.shouldTrade")}: <span style="color: ${shouldTrade ? "#22c55e" : "#ef4444"};">${shouldTrade ? "取引可" : "見送り"}</span>`)}</span>
+            </div>
           </div>
         `
       : ""}
@@ -150,6 +202,7 @@ app.get("/", async (c) => {
                 <tr>
                   <th>銘柄</th>
                   <th>${tt("状態", "監視中→急騰中→注文済/却下")}</th>
+                  <th>${tt("条件", "出来高≥2.0x かつ 価格>20日高値 で注文")}</th>
                   <th>${tt("サージ", "出来高サージ比率（1.5x=Hot, 2.0x=Trigger）")}</th>
                   <th>${tt("現在価格", "リアルタイム価格")}</th>
                   <th>${tt("20日高値", "ブレイクアウト基準価格")}</th>
@@ -162,6 +215,7 @@ app.get("/", async (c) => {
                     <tr data-quote-row data-ticker="${w.ticker}" data-order-price="${w.high20}">
                       <td>${tickerLink(w.ticker, nameMap.get(w.ticker) ?? w.ticker)}</td>
                       <td>${statusBadgeHtml(w.status)}</td>
+                      <td style="font-size: 11px; white-space: nowrap;">${raw(volumeCheckHtml(w.surgeRatio))} <span data-price-check style="color: #64748b;">価格-</span></td>
                       <td>${raw(`<span ${surgeRatioClass(w.surgeRatio)}>${formatSurgeRatio(w.surgeRatio)}</span>`)}</td>
                       <td data-quote-price><span class="quote-loading">...</span></td>
                       <td>¥${formatYen(w.high20)}</td>

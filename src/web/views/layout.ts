@@ -368,6 +368,16 @@ export function layout(
                     devEl.innerHTML = pctHtml(dev);
                   }
 
+                  // ウォッチリスト: 価格条件チェック
+                  var priceCheckEl = row.querySelector('[data-price-check]');
+                  if (priceCheckEl && orderPrice) {
+                    var priceOk = q.price > orderPrice;
+                    var color = priceOk ? '#22c55e' : '#64748b';
+                    var mark = priceOk ? '\u2713' : '\u2717';
+                    priceCheckEl.innerHTML = '\u4fa1\u683c' + mark;
+                    priceCheckEl.style.color = color;
+                  }
+
                   // ポートフォリオ計算用
                   if (quantity) portfolioInvested += q.price * quantity;
                 });
