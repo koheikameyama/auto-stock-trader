@@ -540,3 +540,35 @@ model BreakoutWatchlistEntry {
   @@unique([date, tickerCode])
   @@index([date(sort: Desc)])
 }
+
+// バックテスト実行結果（ブレイクアウト戦略）
+model BacktestRun {
+  id              String   @id @default(cuid())
+  runAt           DateTime
+  startDate       String   // YYYY-MM-DD
+  endDate         String   // YYYY-MM-DD
+
+  // 指標カラム（履歴一覧・比較用）
+  totalTrades     Int
+  wins            Int
+  losses          Int
+  winRate         Float
+  profitFactor    Float
+  maxDrawdown     Float
+  sharpeRatio     Float?
+  expectancy      Float
+  riskRewardRatio Float
+  netReturnPct    Float
+  totalNetPnl     Float
+  avgHoldingDays  Float
+
+  // 詳細JSON
+  metricsJson     Json     // PerformanceMetrics 全体（byRegime含む）
+  equityCurveJson Json     // DailyEquity[]
+  tradesJson      Json     // SimulatedPosition[]
+  configJson      Json     // BreakoutBacktestConfig
+
+  createdAt       DateTime @default(now())
+
+  @@index([runAt(sort: Desc)])
+}
