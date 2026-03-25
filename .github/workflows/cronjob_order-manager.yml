@@ -4,98 +4,98 @@
 # breakoutの実績検証後、並列運用を検討する際に再有効化する可能性あり。
 # =============================================
 
-# name: "[cron-job.org] Order Manager"
-#
-# on:
+name: "[cron-job.org] Order Manager"
+
+on:
 #   # schedule:
 #   #   # 9:30 JST = 00:30 UTC
 #   #   - cron: "30 0 * * 1-5"
-#   workflow_dispatch:
-#     inputs:
-#       skip_market_day_check:
-#         description: "休場日チェックをスキップ"
-#         type: boolean
-#         default: false
-#
-# concurrency:
-#   group: order-manager
-#   cancel-in-progress: false
-#
-# env:
-#   DATABASE_URL: ${{ secrets.DATABASE_URL }}
-#   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-#   LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
-#   LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
-#   LANGFUSE_BASE_URL: ${{ secrets.LANGFUSE_BASE_URL }}
-#   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-#   MARKET_DATA_PROVIDER: ${{ secrets.MARKET_DATA_PROVIDER }}
-#   BROKER_MODE: ${{ secrets.BROKER_MODE }}
-#   TACHIBANA_USER_ID: ${{ secrets.TACHIBANA_USER_ID }}
-#   TACHIBANA_PASSWORD: ${{ secrets.TACHIBANA_PASSWORD }}
-#   TACHIBANA_SECOND_PASSWORD: ${{ secrets.TACHIBANA_SECOND_PASSWORD }}
-#   TACHIBANA_ENV: ${{ secrets.TACHIBANA_ENV }}
-#   YFINANCE_PROXY: ${{ secrets.YFINANCE_PROXY }}
-#
-# jobs:
-#   check-market-day:
-#     runs-on: ubuntu-latest
-#     outputs:
-#       should_run: ${{ steps.result.outputs.should_run }}
-#     steps:
-#       - uses: actions/checkout@v5
-#       - uses: actions/setup-node@v5
-#         with:
-#           node-version-file: ".tool-versions"
-#           cache: "npm"
-#       - run: npm ci
-#       - run: npx prisma generate
-#
-#       - name: Check market day and system active
-#         id: check
-#         run: |
-#           RESULT=$(npx tsx scripts/check-market-day.ts)
-#           echo "should_run=$RESULT" >> "$GITHUB_OUTPUT"
-#
-#       - name: Determine final result
-#         id: result
-#         run: |
-#           SKIP="${{ github.event.inputs.skip_market_day_check }}"
-#           CHECK="${{ steps.check.outputs.should_run }}"
-#           if [ "$SKIP" = "true" ]; then
-#             echo "should_run=true" >> "$GITHUB_OUTPUT"
-#           else
-#             echo "should_run=$CHECK" >> "$GITHUB_OUTPUT"
-#           fi
-#
-#   order-manager:
-#     needs: check-market-day
-#     if: needs.check-market-day.outputs.should_run == 'true'
-#     runs-on: ubuntu-latest
-#     timeout-minutes: 15
-#     steps:
-#       - uses: actions/checkout@v5
-#       - uses: actions/setup-node@v5
-#         with:
-#           node-version-file: ".tool-versions"
-#           cache: "npm"
-#       - run: npm ci
-#       - run: npx prisma generate
-#       - name: Start yfinance sidecar
-#         uses: ./.github/actions/start-yfinance
-#       - run: npm run order
-#
-#   notify-failure:
-#     needs: order-manager
-#     if: failure()
-#     runs-on: ubuntu-latest
-#     steps:
-#       - name: Notify Slack on failure
-#         uses: rtCamp/action-slack-notify@v2
-#         env:
-#           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-#           SLACK_TITLE: "❌ order-manager 失敗"
-#           SLACK_MESSAGE: |
-#             order-manager が失敗しました。
-#             詳細はGitHub Actionsログを確認してください。
-#           SLACK_COLOR: danger
-#           SLACK_FOOTER: "Stock Buddy"
+  workflow_dispatch:
+    inputs:
+      skip_market_day_check:
+        description: "休場日チェックをスキップ"
+        type: boolean
+        default: false
+
+concurrency:
+  group: order-manager
+  cancel-in-progress: false
+
+env:
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+  LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+  LANGFUSE_BASE_URL: ${{ secrets.LANGFUSE_BASE_URL }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  MARKET_DATA_PROVIDER: ${{ secrets.MARKET_DATA_PROVIDER }}
+  BROKER_MODE: ${{ secrets.BROKER_MODE }}
+  TACHIBANA_USER_ID: ${{ secrets.TACHIBANA_USER_ID }}
+  TACHIBANA_PASSWORD: ${{ secrets.TACHIBANA_PASSWORD }}
+  TACHIBANA_SECOND_PASSWORD: ${{ secrets.TACHIBANA_SECOND_PASSWORD }}
+  TACHIBANA_ENV: ${{ secrets.TACHIBANA_ENV }}
+  YFINANCE_PROXY: ${{ secrets.YFINANCE_PROXY }}
+
+jobs:
+  check-market-day:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.result.outputs.should_run }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+
+      - name: Check market day and system active
+        id: check
+        run: |
+          RESULT=$(npx tsx scripts/check-market-day.ts)
+          echo "should_run=$RESULT" >> "$GITHUB_OUTPUT"
+
+      - name: Determine final result
+        id: result
+        run: |
+          SKIP="${{ github.event.inputs.skip_market_day_check }}"
+          CHECK="${{ steps.check.outputs.should_run }}"
+          if [ "$SKIP" = "true" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=$CHECK" >> "$GITHUB_OUTPUT"
+          fi
+
+  order-manager:
+    needs: check-market-day
+    if: needs.check-market-day.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - name: Start yfinance sidecar
+        uses: ./.github/actions/start-yfinance
+      - run: npm run order
+
+  notify-failure:
+    needs: order-manager
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on failure
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "❌ order-manager 失敗"
+          SLACK_MESSAGE: |
+            order-manager が失敗しました。
+            詳細はGitHub Actionsログを確認してください。
+          SLACK_COLOR: danger
+          SLACK_FOOTER: "Stock Buddy"
