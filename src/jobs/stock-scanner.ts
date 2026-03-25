@@ -497,6 +497,26 @@ export async function main(context?: MarketAssessmentContext) {
     }
   } else {
     // === 通常モード ===
+    if (!filtered.length) {
+      console.log("[2/3] AIレビュー: スキップ（候補0銘柄）");
+      console.log("[3/3] 結果保存中...");
+
+      const scoringRecords = accuracyTrackingCandidates.map((c) => ({
+        ...buildScoringFields(c),
+        aiDecision: null,
+        aiReasoning: null,
+        rejectionReason: "below_threshold",
+      }));
+
+      if (scoringRecords.length > 0) {
+        await prisma.scoringRecord.deleteMany({ where: { date: today } });
+        await prisma.scoringRecord.createMany({ data: scoringRecords });
+        console.log(`  ScoringRecord 保存: ${scoringRecords.length}件`);
+      }
+
+      return;
+    }
+
     console.log("[2/3] AIレビュー中...");
     const newsSentiment = await getNewsSectorSentiment();
 
