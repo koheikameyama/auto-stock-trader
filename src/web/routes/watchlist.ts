@@ -14,26 +14,31 @@ import { getScannerState } from "../../jobs/breakout-monitor";
 
 const app = new Hono();
 
-type WatchlistStatus = "hot" | "triggered" | "holding" | "cold";
+type WatchlistStatus = "ordered" | "rejected" | "hot" | "holding" | "cold";
 
 function getTickerStatus(
   ticker: string,
   hotSet: Map<string, unknown>,
   triggeredToday: Set<string>,
   holdingTickers: Set<string>,
+  orderedTickers: Set<string>,
 ): WatchlistStatus {
   if (holdingTickers.has(ticker)) return "holding";
-  if (triggeredToday.has(ticker)) return "triggered";
+  if (triggeredToday.has(ticker)) {
+    return orderedTickers.has(ticker) ? "ordered" : "rejected";
+  }
   if (hotSet.has(ticker)) return "hot";
   return "cold";
 }
 
 function statusBadgeHtml(status: WatchlistStatus) {
   switch (status) {
+    case "ordered":
+      return raw(`<span class="badge badge-triggered">注文済</span>`);
+    case "rejected":
+      return raw(`<span class="badge badge-rejected">却下</span>`);
     case "hot":
-      return raw(`<span class="badge badge-hot">Hot</span>`);
-    case "triggered":
-      return raw(`<span class="badge badge-triggered">Triggered</span>`);
+      return raw(`<span class="badge badge-hot">急騰中</span>`);
     case "holding":
       return raw(`<span class="badge badge-holding">保有中</span>`);
     case "cold":
@@ -44,10 +49,11 @@ function statusBadgeHtml(status: WatchlistStatus) {
 /** ステータスのソート優先度（小さいほど上） */
 function statusOrder(status: WatchlistStatus): number {
   switch (status) {
-    case "triggered": return 0;
-    case "hot": return 1;
-    case "holding": return 2;
-    case "cold": return 3;
+    case "ordered": return 0;
+    case "rejected": return 1;
+    case "hot": return 2;
+    case "holding": return 3;
+    case "cold": return 4;
   }
 }
 
@@ -73,9 +79,24 @@ app.get("/", async (c) => {
   const holdingTickers = scannerInfo?.holdingTickers ?? new Set();
   const surgeRatios = scannerInfo?.state.lastSurgeRatios ?? new Map();
 
+  // 当日のブレイクアウト買い注文ティッカーを取得（triggered → ordered/rejected 判定用）
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todayOrders = triggeredToday.size
+    ? await prisma.tradingOrder.findMany({
+        where: {
+          side: "buy",
+          strategy: "breakout",
+          createdAt: { gte: todayStart },
+        },
+        select: { stock: { select: { tickerCode: true } } },
+      })
+    : [];
+  const orderedTickers = new Set(todayOrders.map((o) => o.stock.tickerCode));
+
   // ステータス付きウォッチリストを作成しソート
   const watchlistWithStatus = watchlist.map((w) => {
-    const status = getTickerStatus(w.ticker, hotSet, triggeredToday, holdingTickers);
+    const status = getTickerStatus(w.ticker, hotSet, triggeredToday, holdingTickers, orderedTickers);
     const surgeRatio = surgeRatios.get(w.ticker);
     return { ...w, status, surgeRatio };
   });
@@ -103,8 +124,9 @@ app.get("/", async (c) => {
   const nameMap = new Map(stocks.map((s) => [s.tickerCode, s.name]));
 
   // サマリー統計
+  const orderedCount = watchlistWithStatus.filter((w) => w.status === "ordered").length;
+  const rejectedCount = watchlistWithStatus.filter((w) => w.status === "rejected").length;
   const hotCount = watchlistWithStatus.filter((w) => w.status === "hot").length;
-  const triggeredCount = watchlistWithStatus.filter((w) => w.status === "triggered").length;
   const holdingCount = watchlistWithStatus.filter((w) => w.status === "holding").length;
 
   const content = html`
@@ -112,8 +134,9 @@ app.get("/", async (c) => {
     ${scannerInfo
       ? html`
           <div class="card" style="padding: 8px 12px; margin-bottom: 8px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px;">
-            ${hotCount ? html`<span class="badge badge-hot">Hot: ${hotCount}</span>` : ""}
-            ${triggeredCount ? html`<span class="badge badge-triggered">Triggered: ${triggeredCount}</span>` : ""}
+            ${orderedCount ? html`<span class="badge badge-triggered">注文済: ${orderedCount}</span>` : ""}
+            ${rejectedCount ? html`<span class="badge badge-rejected">却下: ${rejectedCount}</span>` : ""}
+            ${hotCount ? html`<span class="badge badge-hot">急騰中: ${hotCount}</span>` : ""}
             ${holdingCount ? html`<span class="badge badge-holding">保有中: ${holdingCount}</span>` : ""}
             <span style="color: #94a3b8;">監視中: ${watchlistWithStatus.filter((w) => w.status === "cold").length}</span>
           </div>
@@ -126,7 +149,7 @@ app.get("/", async (c) => {
               <thead>
                 <tr>
                   <th>銘柄</th>
-                  <th>${tt("状態", "Cold→Hot→Triggered のパイプライン状態")}</th>
+                  <th>${tt("状態", "監視中→急騰中→注文済/却下")}</th>
                   <th>${tt("サージ", "出来高サージ比率（1.5x=Hot, 2.0x=Trigger）")}</th>
                   <th>${tt("現在価格", "リアルタイム価格")}</th>
                   <th>${tt("20日高値", "ブレイクアウト基準価格")}</th>
