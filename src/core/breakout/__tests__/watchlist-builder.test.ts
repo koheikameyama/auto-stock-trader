@@ -3,9 +3,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // ----------------------------------------
 // Mock definitions (hoisted so vi.mock can reference them)
 // ----------------------------------------
-const { mockStockFindMany, mockReadHistoricalFromDB } = vi.hoisted(() => ({
+const { mockStockFindMany, mockReadHistoricalFromDB, mockGetEffectiveCapital } = vi.hoisted(() => ({
   mockStockFindMany: vi.fn(),
   mockReadHistoricalFromDB: vi.fn(),
+  mockGetEffectiveCapital: vi.fn(),
 }));
 
 vi.mock("../../../lib/prisma", () => ({
@@ -16,6 +17,10 @@ vi.mock("../../../lib/prisma", () => ({
 
 vi.mock("../../market-data", () => ({
   readHistoricalFromDB: mockReadHistoricalFromDB,
+}));
+
+vi.mock("../../position-manager", () => ({
+  getEffectiveCapital: mockGetEffectiveCapital,
 }));
 
 import { buildWatchlist } from "../watchlist-builder";
@@ -113,6 +118,8 @@ function makeStock(
 describe("buildWatchlist", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // デフォルト: 十分な資金があると仮定
+    mockGetEffectiveCapital.mockResolvedValue(10_000_000);
   });
 
   it("ゲートを通過し週足上昇トレンドの銘柄がウォッチリストに入る", async () => {
