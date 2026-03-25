@@ -1,0 +1,45 @@
+name: "[Scheduled] Daily Backtest"
+
+on:
+  schedule:
+    # 平日 16:30 JST = 07:30 UTC
+    - cron: "30 7 * * 1-5"
+  workflow_dispatch:
+
+concurrency:
+  group: daily-backtest
+  cancel-in-progress: false
+
+env:
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+jobs:
+  run-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run backtest:breakout
+
+  notify-failure:
+    needs: run-backtest
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on failure
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "❌ Daily Backtest 失敗"
+          SLACK_MESSAGE: |
+            バックテストが失敗しました。
+            詳細はGitHub Actionsログを確認してください。
+          SLACK_COLOR: danger
+          SLACK_FOOTER: "Stock Buddy"
