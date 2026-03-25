@@ -46,18 +46,29 @@ export async function main(): Promise<void> {
   );
 
   // DB保存
-  const id = await saveBacktestResult(result);
-  console.log(`[run-backtest] 保存完了: ${id}`);
+  let savedId: string | null = null;
+  try {
+    savedId = await saveBacktestResult(result);
+    console.log(`[run-backtest] 保存完了: ${savedId}`);
+  } catch (err) {
+    console.error("[run-backtest] DB保存失敗:", err);
+    throw err;
+  }
 
   // Slack通知
-  const m = result.metrics;
-  await notifyBreakoutBacktest({
-    period: `${startDate} 〜 ${endDate}`,
-    profitFactor: m.profitFactor === Infinity ? 9999 : m.profitFactor,
-    winRate: m.winRate,
-    expectancy: m.expectancy,
-    netReturnPct: m.netReturnPct,
-    maxDrawdown: m.maxDrawdown,
-    totalTrades: m.totalTrades,
-  });
+  try {
+    const m = result.metrics;
+    await notifyBreakoutBacktest({
+      period: `${startDate} 〜 ${endDate}`,
+      profitFactor: m.profitFactor === Infinity ? 9999 : m.profitFactor,
+      winRate: m.winRate,
+      expectancy: m.expectancy,
+      netReturnPct: m.netReturnPct,
+      maxDrawdown: m.maxDrawdown,
+      totalTrades: m.totalTrades,
+    });
+  } catch (err) {
+    console.error("[run-backtest] Slack通知失敗:", err);
+    // 通知失敗はジョブを失敗させない
+  }
 }
