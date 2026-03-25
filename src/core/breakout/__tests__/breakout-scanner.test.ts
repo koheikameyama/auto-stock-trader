@@ -220,14 +220,14 @@ describe("BreakoutScanner", () => {
     expect(scanner.getState().hotSet.size).toBe(0);
   });
 
-  // 8. After 15:00 → no trigger firing
-  it("8. 15:00 より後 → トリガーが発火しない（Hot 昇格は可能）", () => {
+  // 8. After 15:25 → no trigger firing
+  it("8. 15:25 より後 → トリガーが発火しない（Hot 昇格は可能）", () => {
     // First promote to hot at 9:30
     scanner.scan([makeQuote(DEFAULT_TICKER, 1.5)], SCAN_TIME, DAILY_ENTRY_COUNT, NO_HOLDINGS);
     expect(scanner.getState().hotSet.has(DEFAULT_TICKER)).toBe(true);
 
-    // After 15:00, attempt to trigger
-    const lateTime = makeTime(15, 1);
+    // After 15:25, attempt to trigger
+    const lateTime = makeTime(15, 26);
     const triggerQuote: QuoteData = {
       ticker: DEFAULT_TICKER,
       price: 1010,
