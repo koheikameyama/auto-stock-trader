@@ -112,6 +112,10 @@ export const CSS = `
   .badge-crisis { background: rgba(220,38,38,0.15); color: ${COLORS.crisis}; }
   .badge-day_trade { background: rgba(59,130,246,0.15); color: ${COLORS.accent}; }
   .badge-swing { background: rgba(168,85,247,0.15); color: #a855f7; }
+  .badge-hot { background: rgba(245,158,11,0.15); color: #f59e0b; }
+  .badge-triggered { background: rgba(59,130,246,0.15); color: ${COLORS.accent}; }
+  .badge-holding { background: rgba(34,197,94,0.15); color: ${COLORS.bullish}; }
+  .badge-cold { background: rgba(148,163,184,0.1); color: ${COLORS.neutral}; }
 
   /* Table */
   .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }

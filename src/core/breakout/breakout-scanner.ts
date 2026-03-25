@@ -31,6 +31,7 @@ export class BreakoutScanner {
       hotSet: new Map<string, HotListEntry>(),
       triggeredToday: new Set<string>(),
       lastColdScanTime: new Map<string, number>(),
+      lastSurgeRatios: new Map<string, number>(),
     };
     this.watchlistMap = new Map(watchlist.map((e) => [e.ticker, e]));
   }
@@ -81,6 +82,7 @@ export class BreakoutScanner {
         hour,
         minute,
       );
+      this.state.lastSurgeRatios.set(ticker, surgeRatio);
 
       if (
         surgeRatio >= BREAKOUT.VOLUME_SURGE.TRIGGER_THRESHOLD &&
@@ -138,6 +140,7 @@ export class BreakoutScanner {
         hour,
         minute,
       );
+      this.state.lastSurgeRatios.set(ticker, surgeRatio);
 
       if (surgeRatio >= BREAKOUT.VOLUME_SURGE.HOT_THRESHOLD) {
         // Cold → Hot 昇格
@@ -161,6 +164,7 @@ export class BreakoutScanner {
       hotSet: new Map<string, HotListEntry>(),
       triggeredToday: new Set<string>(),
       lastColdScanTime: new Map<string, number>(),
+      lastSurgeRatios: new Map<string, number>(),
     };
     this.watchlistMap = new Map(newWatchlist.map((e) => [e.ticker, e]));
   }

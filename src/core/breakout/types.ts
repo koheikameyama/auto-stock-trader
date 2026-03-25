@@ -36,6 +36,8 @@ export interface ScannerState {
   triggeredToday: Set<string>;
   /** 最後のコールドスキャン時刻（ティッカー単位のキャッシュ） */
   lastColdScanTime: Map<string, number>;
+  /** 直近スキャン時の出来高サージ比率（ティッカー → 比率） */
+  lastSurgeRatios: Map<string, number>;
 }
 
 /** ウォッチリスト構築のフィルター統計 */

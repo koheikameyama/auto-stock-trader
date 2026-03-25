@@ -24,6 +24,20 @@ dayjs.extend(timezone);
 
 let scanner: BreakoutScanner | null = null;
 let lastScanDate: string | null = null;
+/** 保有中ティッカー（直近スキャン時のスナップショット） */
+let lastHoldingTickers: Set<string> = new Set();
+
+/**
+ * スキャナーの状態を外部から取得する（Web UIで使用）
+ * スキャナー未起動時は null を返す
+ */
+export function getScannerState() {
+  if (!scanner) return null;
+  return {
+    state: scanner.getState(),
+    holdingTickers: lastHoldingTickers,
+  };
+}
 
 /**
  * ブレイクアウトモニターのメイン処理（1分間隔で呼ばれる）
@@ -68,6 +82,7 @@ export async function main(): Promise<void> {
   }
 
   const holdingTickers = new Set(openPositions.map((p) => p.stock.tickerCode));
+  lastHoldingTickers = holdingTickers;
 
   // 3. スキャン対象ティッカーを取得（ウォッチリスト全銘柄）
   const tickers = watchlist.map((e) => e.ticker);
