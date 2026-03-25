@@ -839,3 +839,26 @@ export async function notifyBrokerError(
     color: "danger",
   });
 }
+
+export async function notifyBreakoutBacktest(data: {
+  period: string;
+  profitFactor: number;
+  winRate: number;
+  expectancy: number;
+  netReturnPct: number;
+  maxDrawdown: number;
+  totalTrades: number;
+}): Promise<void> {
+  const pf = data.profitFactor >= 9999 ? "∞" : data.profitFactor.toFixed(2);
+  const expSign = data.expectancy >= 0 ? "+" : "";
+  const retSign = data.netReturnPct >= 0 ? "+" : "";
+
+  await notifySlack({
+    title: "📊 バックテスト完了",
+    message: [
+      `期間: ${data.period}`,
+      `PF:${pf} | 勝率:${data.winRate}% | 期待値:${expSign}${data.expectancy.toFixed(2)}% | 純リターン:${retSign}${data.netReturnPct.toFixed(2)}% | DD:-${data.maxDrawdown}% | ${data.totalTrades}件`,
+    ].join("\n"),
+    color: data.profitFactor >= 1.3 ? "good" : data.profitFactor >= 1.0 ? "warning" : "danger",
+  });
+}
