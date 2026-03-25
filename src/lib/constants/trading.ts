@@ -139,8 +139,8 @@ export const TIME_WINDOW = {
     start: { hour: 9, minute: 0 },
     end: { hour: 9, minute: 30 },
   },
-  // デイトレ新規エントリー締切（14:30）
-  DAY_TRADE_ENTRY_CUTOFF: { hour: 14, minute: 30 },
+  // デイトレ新規エントリー締切（15:00）
+  DAY_TRADE_ENTRY_CUTOFF: { hour: 15, minute: 0 },
 } as const;
 
 // ========================================
