@@ -132,8 +132,7 @@ async function main() {
 
     console.log(`  IS  最適PF: ${formatPF(bestIsMetrics.profitFactor)} (${bestIsMetrics.totalTrades}トレード, 勝率${bestIsMetrics.winRate}%)`);
     console.log(`  OOS PF:     ${formatPF(oosResult.metrics.profitFactor)} (${oosResult.metrics.totalTrades}トレード, 勝率${oosResult.metrics.winRate}%)`);
-    console.log(`  最適パラメータ: trigger=${bestParams.triggerThreshold}x, high=${bestParams.highLookbackDays}日, ` +
-      `atr=${bestParams.atrMultiplier}, be=${bestParams.beActivationMultiplier}, trail=${bestParams.trailMultiplier}, ts=${bestParams.tsActivationMultiplier}`);
+    console.log(`  最適パラメータ: atr=${bestParams.atrMultiplier}, be=${bestParams.beActivationMultiplier}, trail=${bestParams.trailMultiplier}, ts=${bestParams.tsActivationMultiplier}`);
     console.log("");
   }
 
@@ -214,7 +213,7 @@ function printSummary(results: WindowResult[]): void {
   console.log("-".repeat(90));
   for (const r of results) {
     const p = r.bestIsParams;
-    const paramStr = `trig=${p.triggerThreshold} high=${p.highLookbackDays} atr=${p.atrMultiplier} be=${p.beActivationMultiplier} trail=${p.trailMultiplier} ts=${p.tsActivationMultiplier}`;
+    const paramStr = `atr=${p.atrMultiplier} be=${p.beActivationMultiplier} trail=${p.trailMultiplier} ts=${p.tsActivationMultiplier}`;
     console.log(
       `  ${r.windowIdx + 1}    | ${padPF(r.isMetrics.profitFactor)} | ${padPF(r.oosMetrics.profitFactor)} | ` +
       `${r.oosMetrics.winRate.toFixed(1).padStart(5)}%  | ${String(r.oosMetrics.totalTrades).padStart(11)} | ${paramStr}`,
@@ -223,7 +222,7 @@ function printSummary(results: WindowResult[]): void {
 
   // パラメータ安定性分析
   console.log("\n[パラメータ安定性]");
-  const paramKeys = ["triggerThreshold", "highLookbackDays", "atrMultiplier", "beActivationMultiplier", "trailMultiplier", "tsActivationMultiplier"] as const;
+  const paramKeys = ["atrMultiplier", "beActivationMultiplier", "trailMultiplier", "tsActivationMultiplier"] as const;
   for (const key of paramKeys) {
     const values = results.map((r) => r.bestIsParams[key]);
     const uniqueValues = [...new Set(values)];

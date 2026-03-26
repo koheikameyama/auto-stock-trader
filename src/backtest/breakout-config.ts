@@ -48,15 +48,12 @@ export const BREAKOUT_BACKTEST_DEFAULTS: Omit<BreakoutBacktestConfig, "startDate
 /** 1トレードあたりリスク（%） */
 export const RISK_PER_TRADE_PCT = POSITION_SIZING.RISK_PER_TRADE_PCT; // 2
 
-/** walk-forward パラメータグリッド */
+/** walk-forward パラメータグリッド（エグジット系のみ — エントリー系はデフォルト固定） */
 export const PARAMETER_GRID = {
-  triggerThreshold: [1.5, 1.8, 2.0, 2.5, 3.0],
-  highLookbackDays: [10, 15, 20, 30],
-  atrMultiplier: [0.8, 1.0, 1.2, 1.5],
+  atrMultiplier: [0.8, 1.0, 1.2],
   beActivationMultiplier: [0.8, 1.0, 1.5],
   trailMultiplier: [0.8, 1.0, 1.5],
   tsActivationMultiplier: [1.5, 2.0, 2.5],
-  maxChaseAtr: [0.5, 1.0, 1.5, 2.0],
 } as const;
 
 export type ParameterKey = keyof typeof PARAMETER_GRID;
@@ -65,25 +62,16 @@ export type ParameterKey = keyof typeof PARAMETER_GRID;
 export function generateParameterCombinations(): Array<Partial<BreakoutBacktestConfig>> {
   const combos: Array<Partial<BreakoutBacktestConfig>> = [];
 
-  for (const triggerThreshold of PARAMETER_GRID.triggerThreshold) {
-    for (const highLookbackDays of PARAMETER_GRID.highLookbackDays) {
-      for (const atrMultiplier of PARAMETER_GRID.atrMultiplier) {
-        for (const beActivationMultiplier of PARAMETER_GRID.beActivationMultiplier) {
-          for (const trailMultiplier of PARAMETER_GRID.trailMultiplier) {
-            for (const tsActivationMultiplier of PARAMETER_GRID.tsActivationMultiplier) {
-              for (const maxChaseAtr of PARAMETER_GRID.maxChaseAtr) {
-                combos.push({
-                  triggerThreshold,
-                  highLookbackDays,
-                  atrMultiplier,
-                  beActivationMultiplier,
-                  trailMultiplier,
-                  tsActivationMultiplier,
-                  maxChaseAtr,
-                });
-              }
-            }
-          }
+  for (const atrMultiplier of PARAMETER_GRID.atrMultiplier) {
+    for (const beActivationMultiplier of PARAMETER_GRID.beActivationMultiplier) {
+      for (const trailMultiplier of PARAMETER_GRID.trailMultiplier) {
+        for (const tsActivationMultiplier of PARAMETER_GRID.tsActivationMultiplier) {
+          combos.push({
+            atrMultiplier,
+            beActivationMultiplier,
+            trailMultiplier,
+            tsActivationMultiplier,
+          });
         }
       }
     }

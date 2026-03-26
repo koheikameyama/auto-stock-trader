@@ -33,10 +33,10 @@ export const BREAK_EVEN_STOP = {
   ACTIVATION_ATR_MULTIPLIER: {
     day_trade: 0.8,  // ATR×0.8の含み益でBE発動（トレーリング発動=1.2より手前）
     swing: 1.5,      // ATR×1.5の含み益でBE発動（トレーリング発動=2.5より手前）
-    breakout: 1.5,   // swingと同じ（ブレイクアウトはスイングトレード）
+    breakout: 1.0,   // ATR×1.0で早めに建値ロック（ブレイクアウト初動の利益を守る）
   },
   // ATR不明時のフォールバック（%ベース）
-  ACTIVATION_PCT: { day_trade: 0.01, swing: 0.03, breakout: 0.03 },
+  ACTIVATION_PCT: { day_trade: 0.01, swing: 0.03, breakout: 0.02 },
 } as const;
 
 // トレーリングストップ
@@ -46,17 +46,17 @@ export const TRAILING_STOP = {
   ACTIVATION_ATR_MULTIPLIER: {
     day_trade: 1.2,  // trail=0.8より大きく設定しBE保証不要に
     swing: 2.5,      // ATR×2.5上昇で発動（BE=1.5との連携でPF改善）
-    breakout: 2.5,   // swingと同じ
+    breakout: 1.5,   // ATR×1.5で初動の利益をTSで捕捉（BE=1.0との連携）
   },
   // トレール幅（最高値 - ATR×N がストップライン）
   TRAIL_ATR_MULTIPLIER: {
     day_trade: 0.8,  // activation=1.2に対して十分小さく
     swing: 1.5,      // activation=2.5に対してtrail=1.5→発動時ATR×1.0の含み益確保
-    breakout: 1.5,   // swingと同じ
+    breakout: 1.0,   // activation=1.5に対してtrail=1.0→タイトに追従して利益を逃さない
   },
   // ATR不明時のフォールバック（%ベース）— 同じ制約: ACTIVATION >= TRAIL
-  ACTIVATION_PCT: { day_trade: 0.015, swing: 0.04, breakout: 0.04 },
-  TRAIL_PCT: { day_trade: 0.01, swing: 0.04, breakout: 0.04 },
+  ACTIVATION_PCT: { day_trade: 0.015, swing: 0.04, breakout: 0.03 },
+  TRAIL_PCT: { day_trade: 0.01, swing: 0.04, breakout: 0.02 },
 } as const;
 
 // ディフェンシブモード（市場環境悪化時のポジション防衛）

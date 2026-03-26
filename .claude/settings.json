@@ -12,7 +12,14 @@
       "Bash(npx husky init)",
       "Bash(npx jest:*)",
       "Bash(find:*)",
-      "Bash(set:*)"
+      "Bash(set:*)",
+      "Bash(kill:*)",
+      "Bash(BACKFILL_CONFIRM=y python3:*)",
+      "Bash(yes:*)"
+    ],
+    "additionalDirectories": [
+      "/tmp",
+      "/Users/kouheikameyama/development/auto-stock-system/docs/superpowers/specs"
     ]
   },
   "hooks": {
