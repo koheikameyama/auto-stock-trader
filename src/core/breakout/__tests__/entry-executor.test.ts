@@ -266,4 +266,24 @@ describe("executeEntry", () => {
     expect(result.reason).toContain("MarketAssessmentがありません");
     expect(mockPrisma.tradingOrder.create).not.toHaveBeenCalled();
   });
+
+  it("expiresAtが5日後の15:00に設定される", async () => {
+    const result = await executeEntry(makeTrigger(), "simulation");
+
+    expect(result.success).toBe(true);
+
+    const createCall = mockPrisma.tradingOrder.create.mock.calls[0][0];
+    const expiresAt: Date = createCall.data.expiresAt;
+    expect(expiresAt).toBeInstanceOf(Date);
+
+    // 現在から4〜6日後の範囲であること（テスト実行タイミングの揺れを許容）
+    const now = new Date();
+    const diffDays = (expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+    expect(diffDays).toBeGreaterThan(4);
+    expect(diffDays).toBeLessThan(6);
+
+    // 時刻が15:00であること（JST→UTCで6:00）
+    expect(expiresAt.getUTCHours()).toBe(6);
+    expect(expiresAt.getUTCMinutes()).toBe(0);
+  });
 });

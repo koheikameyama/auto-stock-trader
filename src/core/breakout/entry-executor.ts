@@ -11,6 +11,9 @@
  * 7. Slack通知
  */
 
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc.js";
+import timezone from "dayjs/plugin/timezone.js";
 import { prisma } from "../../lib/prisma";
 import { getTodayForDB } from "../../lib/date-utils";
 import { getCashBalance, getEffectiveCapital } from "../position-manager";
@@ -18,8 +21,13 @@ import { canOpenPosition } from "../risk-manager";
 import { submitOrder as submitBrokerOrder, modifyOrder, cancelOrder } from "../broker-orders";
 import { notifyOrderPlaced, notifySlack } from "../../lib/slack";
 import { STOP_LOSS, POSITION_SIZING, UNIT_SHARES } from "../../lib/constants";
+import { TIMEZONE } from "../../lib/constants/timezone";
 import { BREAKOUT } from "../../lib/constants/breakout";
+import { ORDER_EXPIRY } from "../../lib/constants/jobs";
 import type { BreakoutTrigger } from "./types";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 export interface ExecutionResult {
   success: boolean;
@@ -137,6 +145,7 @@ export async function executeEntry(
       stopLossPrice,
       quantity,
       status: "pending",
+      expiresAt: dayjs().tz(TIMEZONE).add(ORDER_EXPIRY.SWING_DAYS, "day").hour(15).minute(0).second(0).toDate(),
       reasoning: `ブレイクアウトトリガー: 出来高サージ比率 ${trigger.volumeSurgeRatio.toFixed(2)}x, 20日高値 ¥${trigger.high20} 突破`,
       entrySnapshot: {
         trigger: {
