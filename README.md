@@ -50,6 +50,49 @@
 cp .env.example .env
 ```
 
+#### ブローカー・市場データ設定
+
+トレーディング動作を制御する3つの環境変数:
+
+| 環境変数 | 値 | 説明 |
+|---|---|---|
+| `TACHIBANA_ENV` | `demo` / `production` | 立花証券APIの接続先 |
+| `BROKER_MODE` | `simulation` / `dry_run` / `live` | 注文の発注モード |
+| `MARKET_DATA_PROVIDER` | `yfinance` / `tachibana` | 株価データの取得元 |
+
+**各環境変数の影響範囲:**
+
+| 環境変数 | 注文 | 株価取得 | 買余力 | WebSocket |
+|---|---|---|---|---|
+| `TACHIBANA_ENV` | 接続先(デモ/本番) | - | `production`のみAPI取得 | 接続先 |
+| `BROKER_MODE` | 発注するか否か | - | - | `live`のみ接続 |
+| `MARKET_DATA_PROVIDER` | - | 取得元(yfinance/立花) | - | - |
+
+**全組み合わせ一覧:**
+
+| `TACHIBANA_ENV` | `BROKER_MODE` | `MARKET_DATA_PROVIDER` | 注文 | 株価取得 | 買余力 | WebSocket |
+|---|---|---|---|---|---|---|
+| `demo` | `simulation` | `yfinance` | 発注しない | yfinance | DB計算 | 接続しない |
+| `demo` | `simulation` | `tachibana` | 発注しない | デモAPI | DB計算 | 価格用のみログイン |
+| `demo` | `dry_run` | `yfinance` | ログのみ | yfinance | DB計算 | 接続しない |
+| `demo` | `dry_run` | `tachibana` | ログのみ | デモAPI | DB計算 | 接続しない |
+| `demo` | `live` | `yfinance` | デモAPIに発注 | yfinance | DB計算 | 接続する |
+| `demo` | `live` | `tachibana` | デモAPIに発注 | デモAPI | DB計算 | 接続する |
+| `production` | `simulation` | `yfinance` | 発注しない | yfinance | API取得 | 接続しない |
+| `production` | `simulation` | `tachibana` | 発注しない | 本番API | API取得 | 価格用のみログイン |
+| `production` | `dry_run` | `yfinance` | ログのみ | yfinance | API取得 | 接続しない |
+| `production` | `dry_run` | `tachibana` | ログのみ | 本番API | API取得 | 接続しない |
+| `production` | `live` | `yfinance` | 本番APIに発注 | yfinance | API取得 | 接続する |
+| `production` | `live` | `tachibana` | 本番APIに発注 | 本番API | API取得 | 接続する |
+
+**推奨設定パターン:**
+
+| 用途 | `TACHIBANA_ENV` | `BROKER_MODE` | `MARKET_DATA_PROVIDER` |
+|---|---|---|---|
+| ローカル開発(API接続なし) | `demo` | `simulation` | `yfinance` |
+| デモ運用 | `demo` | `live` | `tachibana` |
+| 本番運用 | `production` | `live` | `tachibana` |
+
 ### 2. データベースのセットアップ
 
 PostgreSQLデータベースを用意し、接続URLを`.env`の`DATABASE_URL`に設定します。

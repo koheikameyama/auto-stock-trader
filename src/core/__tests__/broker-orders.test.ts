@@ -32,37 +32,19 @@ vi.mock("../broker-client", () => ({
   }),
 }));
 
-import { prisma } from "../../lib/prisma";
-
 describe("getEffectiveBrokerMode", () => {
   beforeEach(() => {
     vi.stubEnv("BROKER_MODE", "");
   });
 
-  it("DBにbrokerModeがある場合はそれを返す", async () => {
-    vi.mocked(prisma.tradingConfig.findFirst).mockResolvedValueOnce({
-      brokerMode: "dry_run",
-    } as never);
-
-    const mode = await getEffectiveBrokerMode();
-    expect(mode).toBe("dry_run");
-  });
-
-  it("DBにない場合はenv変数を返す", async () => {
-    vi.mocked(prisma.tradingConfig.findFirst).mockResolvedValueOnce({
-      brokerMode: "",
-    } as never);
+  it("env変数がある場合はそれを返す", () => {
     vi.stubEnv("BROKER_MODE", "live");
-
-    const mode = await getEffectiveBrokerMode();
-    expect(mode).toBe("live");
+    expect(getEffectiveBrokerMode()).toBe("live");
   });
 
-  it("両方ない場合はsimulationを返す", async () => {
-    vi.mocked(prisma.tradingConfig.findFirst).mockResolvedValueOnce(null);
-
-    const mode = await getEffectiveBrokerMode();
-    expect(mode).toBe("simulation");
+  it("env変数がない場合はsimulationを返す", () => {
+    vi.stubEnv("BROKER_MODE", "");
+    expect(getEffectiveBrokerMode()).toBe("simulation");
   });
 });
 
@@ -72,7 +54,6 @@ describe("submitOrder", () => {
   });
 
   it("simulationモードでは即座に成功を返す", async () => {
-    vi.mocked(prisma.tradingConfig.findFirst).mockResolvedValueOnce(null);
     vi.stubEnv("BROKER_MODE", "simulation");
 
     const result = await submitOrder({
@@ -87,9 +68,7 @@ describe("submitOrder", () => {
   });
 
   it("dry_runモードではログ出力してモックレスポンスを返す", async () => {
-    vi.mocked(prisma.tradingConfig.findFirst).mockResolvedValueOnce({
-      brokerMode: "dry_run",
-    } as never);
+    vi.stubEnv("BROKER_MODE", "dry_run");
 
     const result = await submitOrder({
       ticker: "7203.T",
@@ -106,7 +85,6 @@ describe("submitOrder", () => {
 
 describe("cancelOrder", () => {
   it("simulationモードでは即座に成功を返す", async () => {
-    vi.mocked(prisma.tradingConfig.findFirst).mockResolvedValueOnce(null);
     vi.stubEnv("BROKER_MODE", "simulation");
 
     const result = await cancelOrder("12345", "20260320");
@@ -116,7 +94,6 @@ describe("cancelOrder", () => {
 
 describe("modifyOrder", () => {
   it("simulationモードでは即座に成功を返す", async () => {
-    vi.mocked(prisma.tradingConfig.findFirst).mockResolvedValueOnce(null);
     vi.stubEnv("BROKER_MODE", "simulation");
 
     const result = await modifyOrder("12345", "20260320", { price: 2600 });

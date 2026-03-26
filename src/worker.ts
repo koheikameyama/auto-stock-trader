@@ -186,7 +186,7 @@ serve({ fetch: app.fetch, port }, (info) => {
 // ブローカーセッション初期化
 (async () => {
   try {
-    const mode = await getEffectiveBrokerMode();
+    const mode = getEffectiveBrokerMode();
     const needsPriceSession =
       process.env.MARKET_DATA_PROVIDER === "tachibana";
 

@@ -77,7 +77,7 @@ export async function main() {
   // ブローカーセッション初期化（スタンドアロン実行時）
   let brokerCleanup: (() => Promise<void>) | null = null;
   if (!getTachibanaClient().isLoggedIn()) {
-    const mode = await getEffectiveBrokerMode();
+    const mode = getEffectiveBrokerMode();
     const broker = await initBrokerForBatch(mode);
     brokerCleanup = broker.cleanup;
   }

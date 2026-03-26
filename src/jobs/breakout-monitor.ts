@@ -125,7 +125,7 @@ export async function main(): Promise<void> {
   }
 
   // 6. ブローカーモード取得
-  const brokerMode = await getEffectiveBrokerMode();
+  const brokerMode = getEffectiveBrokerMode();
 
   // 6.5 既存pending注文の株数チェック（資金変動対応）
   await resizePendingOrders(brokerMode);

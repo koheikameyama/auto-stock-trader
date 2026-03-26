@@ -70,20 +70,9 @@ export interface BrokerHolding {
 // ========================================
 
 /**
- * 有効なbrokerModeを取得（DB → env → デフォルト）
+ * 有効なbrokerModeを取得（env → デフォルト）
  */
-export async function getEffectiveBrokerMode(): Promise<BrokerMode> {
-  try {
-    const config = await prisma.tradingConfig.findFirst({
-      orderBy: { createdAt: "desc" },
-    });
-    if (config?.brokerMode) {
-      return config.brokerMode as BrokerMode;
-    }
-  } catch {
-    // DB接続エラー時はenvにフォールバック
-  }
-
+export function getEffectiveBrokerMode(): BrokerMode {
   return (process.env.BROKER_MODE as BrokerMode) || DEFAULT_BROKER_MODE;
 }
 
@@ -97,7 +86,7 @@ export async function getEffectiveBrokerMode(): Promise<BrokerMode> {
 export async function submitOrder(
   req: BrokerOrderRequest,
 ): Promise<BrokerOrderResult> {
-  const mode = await getEffectiveBrokerMode();
+  const mode = getEffectiveBrokerMode();
 
   if (mode === "simulation") {
     return { success: true, isDryRun: false };
@@ -156,7 +145,7 @@ export async function cancelOrder(
   orderId: string,
   businessDay: string,
 ): Promise<BrokerOrderResult> {
-  const mode = await getEffectiveBrokerMode();
+  const mode = getEffectiveBrokerMode();
 
   if (mode === "simulation") {
     return { success: true, isDryRun: false };
@@ -188,7 +177,7 @@ export async function modifyOrder(
     expireDay?: string;
   },
 ): Promise<BrokerOrderResult> {
-  const mode = await getEffectiveBrokerMode();
+  const mode = getEffectiveBrokerMode();
 
   if (mode === "simulation") {
     return { success: true, isDryRun: false };
@@ -222,7 +211,7 @@ export async function getOrders(filter?: {
   ticker?: string;
   statusFilter?: string;
 }): Promise<TachibanaResponse | null> {
-  const mode = await getEffectiveBrokerMode();
+  const mode = getEffectiveBrokerMode();
   if (mode === "simulation") return null;
 
   const client = getTachibanaClient();
@@ -243,7 +232,7 @@ export async function getOrderDetail(
   orderId: string,
   businessDay: string,
 ): Promise<TachibanaResponse | null> {
-  const mode = await getEffectiveBrokerMode();
+  const mode = getEffectiveBrokerMode();
   if (mode === "simulation") return null;
 
   const client = getTachibanaClient();
@@ -260,7 +249,7 @@ export async function getOrderDetail(
  * 現物保有銘柄一覧取得
  */
 export async function getHoldings(): Promise<BrokerHolding[]> {
-  const mode = await getEffectiveBrokerMode();
+  const mode = getEffectiveBrokerMode();
   if (mode === "simulation") return [];
 
   const client = getTachibanaClient();
@@ -310,7 +299,7 @@ export async function getBuyingPower(): Promise<number | null> {
  * ブローカー注文ステータスをDBに同期
  */
 export async function syncBrokerOrderStatuses(): Promise<void> {
-  const mode = await getEffectiveBrokerMode();
+  const mode = getEffectiveBrokerMode();
   if (mode === "simulation") return;
 
   const client = getTachibanaClient();
