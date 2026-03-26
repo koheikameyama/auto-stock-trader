@@ -187,16 +187,24 @@ export async function getCashBalance(): Promise<number> {
     // API失敗時はDBフォールバック
   }
 
-  const [effectiveCapital, openPositions] = await Promise.all([
+  const [effectiveCapital, openPositions, pendingBuyOrders] = await Promise.all([
     getEffectiveCapital(),
     prisma.tradingPosition.findMany({ where: { status: "open" } }),
+    prisma.tradingOrder.findMany({
+      where: { side: "buy", status: "pending" },
+      select: { limitPrice: true, quantity: true },
+    }),
   ]);
 
   const investedAmount = openPositions.reduce((sum, pos) => {
     return sum + Number(pos.entryPrice) * pos.quantity;
   }, 0);
 
-  return effectiveCapital - investedAmount;
+  const pendingAmount = pendingBuyOrders.reduce((sum, order) => {
+    return sum + Number(order.limitPrice) * order.quantity;
+  }, 0);
+
+  return effectiveCapital - investedAmount - pendingAmount;
 }
 
 // ========================================

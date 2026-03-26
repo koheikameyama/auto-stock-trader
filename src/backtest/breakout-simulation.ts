@@ -93,6 +93,7 @@ export function runBreakoutBacktest(
           currentTrailingStop: pos.trailingStopPrice,
           strategy: "swing",
           holdingBusinessDays: holdingDays,
+          beActivationMultiplierOverride: config.beActivationMultiplier,
           activationMultiplierOverride: config.tsActivationMultiplier,
           trailMultiplierOverride: config.trailMultiplier,
           maxHoldingDaysOverride: config.maxExtendedHoldingDays,
@@ -184,7 +185,16 @@ export function runBreakoutBacktest(
 
       for (const entry of entries) {
         if (openPositions.length >= config.maxPositions) break;
-        if (cash < entry.entryPrice * entry.quantity) break;
+
+        // 資金変動後の株数再計算（前のエントリーでcashが減っている場合に対応）
+        const riskPerShare = entry.entryPrice - entry.stopLossPrice;
+        if (riskPerShare <= 0) continue;
+        const riskAmount = cash * (RISK_PER_TRADE_PCT / 100);
+        const rawQuantity = Math.floor(riskAmount / riskPerShare);
+        const quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
+        if (quantity <= 0) continue;
+        if (entry.entryPrice * quantity > cash) continue;
+        entry.quantity = quantity;
 
         const tradeValue = entry.entryPrice * entry.quantity;
         const entryCommission = config.costModelEnabled ? calculateCommission(tradeValue) : 0;
