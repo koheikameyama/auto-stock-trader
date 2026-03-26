@@ -52,6 +52,10 @@ export interface BreakoutBacktestConfig {
   // クールダウン
   cooldownDays: number;
 
+  // スコアフィルター
+  /** スコアフィルター設定（省略時はフィルターなし） */
+  scoreFilter?: ScoreFilterConfig;
+
   verbose: boolean;
 }
 
@@ -149,4 +153,24 @@ export interface RankMetrics {
   losses: number;
   winRate: number;
   avgPnlPct: number;
+}
+
+// ──────────────────────────────────────────
+// スコアフィルター
+// ──────────────────────────────────────────
+
+/** スコアフィルター結果 */
+export interface ScoreFilterResult {
+  total: number; // 0-100
+  trend: number; // 0-40
+  timing: number; // 0-35
+  risk: number; // 0-25
+}
+
+/** スコアフィルター設定（バックテスト用） */
+export interface ScoreFilterConfig {
+  /** フィルター対象カテゴリ */
+  category: "total" | "trend" | "timing" | "risk";
+  /** 最低スコア閾値 */
+  minScore: number;
 }
