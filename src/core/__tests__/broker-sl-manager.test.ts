@@ -21,7 +21,7 @@ vi.mock("../broker-orders", () => ({
     isDryRun: false,
   }),
   cancelOrder: vi.fn().mockResolvedValue({ success: true, isDryRun: false }),
-  getEffectiveBrokerMode: vi.fn().mockResolvedValue("live"),
+  getEffectiveBrokerMode: vi.fn().mockReturnValue("live"),
 }));
 
 vi.mock("../../lib/slack", () => ({
@@ -45,7 +45,7 @@ const mockGetEffectiveBrokerMode = vi.mocked(getEffectiveBrokerMode);
 describe("submitBrokerSL", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetEffectiveBrokerMode.mockResolvedValue("live");
+    mockGetEffectiveBrokerMode.mockReturnValue("live");
   });
 
   it("SL注文を発注してポジションに紐付ける", async () => {
@@ -108,7 +108,7 @@ describe("submitBrokerSL", () => {
   });
 
   it("simulationモードでは何もしない", async () => {
-    mockGetEffectiveBrokerMode.mockResolvedValue("simulation");
+    mockGetEffectiveBrokerMode.mockReturnValue("simulation");
 
     await submitBrokerSL({
       positionId: "pos-1",
@@ -151,7 +151,7 @@ describe("submitBrokerSL", () => {
 describe("cancelBrokerSL", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetEffectiveBrokerMode.mockResolvedValue("live");
+    mockGetEffectiveBrokerMode.mockReturnValue("live");
   });
 
   it("SL注文を取消してフィールドをクリアする", async () => {
@@ -185,7 +185,7 @@ describe("cancelBrokerSL", () => {
   });
 
   it("simulationモードでは何もしない", async () => {
-    mockGetEffectiveBrokerMode.mockResolvedValue("simulation");
+    mockGetEffectiveBrokerMode.mockReturnValue("simulation");
 
     await cancelBrokerSL("pos-1");
 
@@ -224,7 +224,7 @@ describe("cancelBrokerSL", () => {
 describe("updateBrokerSL", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetEffectiveBrokerMode.mockResolvedValue("live");
+    mockGetEffectiveBrokerMode.mockReturnValue("live");
   });
 
   it("cancel → resubmit の順序で実行する", async () => {
@@ -266,7 +266,7 @@ describe("updateBrokerSL", () => {
   });
 
   it("simulationモードでは何もしない", async () => {
-    mockGetEffectiveBrokerMode.mockResolvedValue("simulation");
+    mockGetEffectiveBrokerMode.mockReturnValue("simulation");
 
     await updateBrokerSL({
       positionId: "pos-1",
