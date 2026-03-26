@@ -15,7 +15,7 @@ import { prisma } from "../../lib/prisma";
 import { getTodayForDB } from "../../lib/date-utils";
 import { getCashBalance, getEffectiveCapital } from "../position-manager";
 import { canOpenPosition } from "../risk-manager";
-import { submitOrder as submitBrokerOrder, modifyOrder } from "../broker-orders";
+import { submitOrder as submitBrokerOrder, modifyOrder, cancelOrder } from "../broker-orders";
 import { notifyOrderPlaced, notifySlack } from "../../lib/slack";
 import { STOP_LOSS, POSITION_SIZING, UNIT_SHARES } from "../../lib/constants";
 import { BREAKOUT } from "../../lib/constants/breakout";
@@ -157,6 +157,23 @@ export async function executeEntry(
     `[entry-executor] ${ticker} 注文作成: id=${newOrder.id}, 指値=¥${currentPrice}, SL=¥${stopLossPrice}, TP=¥${takeProfitPrice}, 数量=${quantity}株`,
   );
 
+  // 6.5 注文作成後のキャッシュ残高再検証（レースコンディション防御）
+  const postCash = await getCashBalance();
+  if (postCash < 0) {
+    await prisma.tradingOrder.update({
+      where: { id: newOrder.id },
+      data: { status: "cancelled" },
+    });
+    const reason = `注文作成後キャッシュ不足のためキャンセル（残高: ¥${postCash.toLocaleString()}）`;
+    console.log(`[entry-executor] ${ticker} ${reason}`);
+    await notifySlack({
+      title: `注文キャンセル: ${ticker}`,
+      message: reason,
+      color: "warning",
+    });
+    return { success: false, reason, retryable: true };
+  }
+
   // 7. ブローカー発注（simulationモードはスキップ）
   if (brokerMode !== "simulation") {
     try {
@@ -261,8 +278,39 @@ export async function resizePendingOrders(brokerMode: string): Promise<void> {
 
     const newQuantity = Math.min(riskBasedQty, cashBasedQty);
 
-    if (newQuantity <= 0 || newQuantity >= order.quantity) {
+    if (newQuantity >= order.quantity) {
       remainingCash -= limitPrice * order.quantity;
+      continue;
+    }
+
+    // 株数が0以下 → 注文キャンセル
+    if (newQuantity <= 0) {
+      if (order.brokerOrderId && order.brokerBusinessDay && brokerMode !== "simulation") {
+        const result = await cancelOrder(order.brokerOrderId, order.brokerBusinessDay);
+        if (!result.success) {
+          console.warn(
+            `[pending-resize] ${order.stock.tickerCode} ブローカー取消失敗: ${result.error}`,
+          );
+          remainingCash -= limitPrice * order.quantity;
+          continue;
+        }
+      }
+
+      await prisma.tradingOrder.update({
+        where: { id: order.id },
+        data: { status: "cancelled" },
+      });
+
+      console.log(
+        `[pending-resize] ${order.stock.tickerCode} 残高不足のためキャンセル（残高: ¥${Math.round(remainingCash).toLocaleString()}）`,
+      );
+
+      await notifySlack({
+        title: `注文キャンセル: ${order.stock.tickerCode}`,
+        message: `${order.quantity}株 → キャンセル（残高不足）`,
+        color: "warning",
+      });
+
       continue;
     }
 
