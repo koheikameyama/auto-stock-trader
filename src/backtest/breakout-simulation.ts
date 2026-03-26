@@ -42,6 +42,16 @@ export function runBreakoutBacktest(
   const lastExitDayIdx = new Map<string, number>();
   let cash = config.initialBudget;
 
+  // 各銘柄の date→index ルックアップを事前構築（O(1)探索用）
+  const dateIndexMap = new Map<string, Map<string, number>>();
+  for (const [ticker, bars] of allData) {
+    const indexMap = new Map<string, number>();
+    for (let i = 0; i < bars.length; i++) {
+      indexMap.set(bars[i].date, i);
+    }
+    dateIndexMap.set(ticker, indexMap);
+  }
+
   // 全銘柄の営業日をマージしてソート
   const allDatesSet = new Set<string>();
   for (const bars of allData.values()) {
@@ -53,22 +63,30 @@ export function runBreakoutBacktest(
   }
   const tradingDays = [...allDatesSet].sort();
 
+  // tradingDays の日付→index ルックアップ
+  const tradingDayIndex = new Map<string, number>();
+  for (let i = 0; i < tradingDays.length; i++) {
+    tradingDayIndex.set(tradingDays[i], i);
+  }
+
   // 市場breadth事前計算（marketTrendFilter用）
   const dailyBreadth = new Map<string, number>();
   if (config.marketTrendFilter) {
     const SMA_LEN = 25;
     // 各銘柄のclose配列をdate順で保持
-    const tickerCloses = new Map<string, { dates: string[]; closes: number[] }>();
+    const tickerCloses = new Map<string, { dateIndex: Map<string, number>; closes: number[] }>();
     for (const [ticker, bars] of allData) {
       const sorted = bars.filter((b) => b.date >= config.startDate && b.date <= config.endDate);
-      tickerCloses.set(ticker, { dates: sorted.map((b) => b.date), closes: sorted.map((b) => b.close) });
+      const di = new Map<string, number>();
+      for (let i = 0; i < sorted.length; i++) di.set(sorted[i].date, i);
+      tickerCloses.set(ticker, { dateIndex: di, closes: sorted.map((b) => b.close) });
     }
     for (const day of tradingDays) {
       let above = 0;
       let total = 0;
       for (const [, data] of tickerCloses) {
-        const idx = data.dates.indexOf(day);
-        if (idx < SMA_LEN - 1) continue;
+        const idx = data.dateIndex.get(day);
+        if (idx == null || idx < SMA_LEN - 1) continue;
         let sum = 0;
         for (let j = idx - SMA_LEN + 1; j <= idx; j++) sum += data.closes[j];
         const sma = sum / SMA_LEN;
@@ -98,10 +116,12 @@ export function runBreakoutBacktest(
     for (let i = 0; i < openPositions.length; i++) {
       const pos = openPositions[i];
       const bars = allData.get(pos.ticker);
-      const todayBar = bars?.find((b) => b.date === today);
-      if (!todayBar) continue;
+      if (!bars) continue;
+      const barIdx = dateIndexMap.get(pos.ticker)?.get(today);
+      if (barIdx == null) continue;
+      const todayBar = bars[barIdx];
 
-      const entryDayIdx = tradingDays.indexOf(pos.entryDate);
+      const entryDayIdx = tradingDayIndex.get(pos.entryDate) ?? -1;
       const holdingDays = entryDayIdx >= 0 ? dayIdx - entryDayIdx : 0;
 
       // エントリー日はSL判定をスキップ（日中ノイズ防止）
@@ -136,7 +156,8 @@ export function runBreakoutBacktest(
 
       // 値幅制限シミュレーション
       if (config.priceLimitEnabled && exitPrice != null && exitReason === "stop_loss") {
-        const prevBar = dayIdx > 0 ? bars?.find((b) => b.date === tradingDays[dayIdx - 1]) : null;
+        const prevBarIdx = dayIdx > 0 ? dateIndexMap.get(pos.ticker)?.get(tradingDays[dayIdx - 1]) : undefined;
+        const prevBar = prevBarIdx != null ? bars[prevBarIdx] : null;
         if (prevBar) {
           const limitDown = getLimitDownPrice(prevBar.close);
           if (todayBar.open <= limitDown && todayBar.low <= limitDown && todayBar.close <= limitDown) {
@@ -173,9 +194,9 @@ export function runBreakoutBacktest(
       const defensiveToClose: number[] = [];
       for (let i = 0; i < openPositions.length; i++) {
         const pos = openPositions[i];
-        const bars = allData.get(pos.ticker);
-        const todayBar = bars?.find((b) => b.date === today);
-        if (!todayBar) continue;
+        const defBarIdx = dateIndexMap.get(pos.ticker)?.get(today);
+        if (defBarIdx == null) continue;
+        const todayBar = allData.get(pos.ticker)![defBarIdx];
 
         const currentProfitPct = ((todayBar.close - pos.entryPrice) / pos.entryPrice) * 100;
         let shouldClose = false;
@@ -216,7 +237,7 @@ export function runBreakoutBacktest(
           console.log(`  [${today}] 市場breadth ${(breadth * 100).toFixed(0)}% < 50%: エントリースキップ`);
         }
       } else {
-        const entries = detectBreakoutEntries(config, allData, today, cash, openPositions, lastExitDayIdx, dayIdx, tradingDays);
+        const entries = detectBreakoutEntries(config, allData, today, cash, openPositions, lastExitDayIdx, dayIdx, tradingDays, dateIndexMap);
 
         for (const entry of entries) {
           if (openPositions.length >= config.maxPositions) break;
@@ -279,9 +300,8 @@ export function runBreakoutBacktest(
     // ──────────────────────────────────────────
     let positionsValue = 0;
     for (const pos of openPositions) {
-      const bars = allData.get(pos.ticker);
-      const todayBar = bars?.find((b) => b.date === today);
-      const markPrice = todayBar?.close ?? pos.entryPrice;
+      const eqBarIdx = dateIndexMap.get(pos.ticker)?.get(today);
+      const markPrice = eqBarIdx != null ? allData.get(pos.ticker)![eqBarIdx].close : pos.entryPrice;
       positionsValue += markPrice * pos.quantity;
     }
 
@@ -332,6 +352,7 @@ function detectBreakoutEntries(
   lastExitDayIdx: Map<string, number>,
   currentDayIdx: number,
   tradingDays: string[],
+  dateIndexMap: Map<string, Map<string, number>>,
 ): BreakoutEntry[] {
   const entries: BreakoutEntry[] = [];
 
@@ -351,14 +372,15 @@ function detectBreakoutEntries(
     }
 
     // シグナル日のバーを取得（通常=today、確認足=yesterday）
-    const signalIdx = bars.findIndex((b) => b.date === signalDate);
-    if (signalIdx < 0) continue;
+    const tickerIndex = dateIndexMap.get(ticker);
+    const signalIdx = tickerIndex?.get(signalDate);
+    if (signalIdx == null) continue;
 
     // 確認足モード: 今日のバーも必要
     const todayIdx = config.confirmationEntry
-      ? bars.findIndex((b) => b.date === today)
+      ? tickerIndex?.get(today)
       : signalIdx;
-    if (todayIdx < 0) continue;
+    if (todayIdx == null) continue;
 
     // ウィンドウスライス（シグナル日ベース）
     const windowEnd = signalIdx + 1;

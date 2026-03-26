@@ -150,6 +150,66 @@ function runEntryFilterComparison(
   console.log("");
 }
 
+interface ExitParamRow {
+  label: string;
+  atrMultiplier: number;
+  beActivationMultiplier: number;
+  tsActivationMultiplier: number;
+  trailMultiplier: number;
+}
+
+const EXIT_PARAM_GRID: ExitParamRow[] = [
+  // 現行デフォルト
+  { label: "default", atrMultiplier: 1.0, beActivationMultiplier: 1.5, tsActivationMultiplier: 2.5, trailMultiplier: 1.5 },
+  // --- trail幅の細かい探索 (BE=0.5, TS=1.0) ---
+  { label: "t0.3", atrMultiplier: 1.0, beActivationMultiplier: 0.5, tsActivationMultiplier: 1.0, trailMultiplier: 0.3 },
+  { label: "t0.4", atrMultiplier: 1.0, beActivationMultiplier: 0.5, tsActivationMultiplier: 1.0, trailMultiplier: 0.4 },
+  { label: "t0.5", atrMultiplier: 1.0, beActivationMultiplier: 0.5, tsActivationMultiplier: 1.0, trailMultiplier: 0.5 },
+  { label: "t0.6", atrMultiplier: 1.0, beActivationMultiplier: 0.5, tsActivationMultiplier: 1.0, trailMultiplier: 0.6 },
+  { label: "t0.7", atrMultiplier: 1.0, beActivationMultiplier: 0.5, tsActivationMultiplier: 1.0, trailMultiplier: 0.7 },
+  { label: "t0.8", atrMultiplier: 1.0, beActivationMultiplier: 0.5, tsActivationMultiplier: 1.0, trailMultiplier: 0.8 },
+  // --- BE発動タイミング変化 (trail=0.6固定) ---
+  { label: "BE0.3 t0.6", atrMultiplier: 1.0, beActivationMultiplier: 0.3, tsActivationMultiplier: 1.0, trailMultiplier: 0.6 },
+  { label: "BE0.5 t0.6", atrMultiplier: 1.0, beActivationMultiplier: 0.5, tsActivationMultiplier: 1.0, trailMultiplier: 0.6 },
+  { label: "BE0.8 t0.6", atrMultiplier: 1.0, beActivationMultiplier: 0.8, tsActivationMultiplier: 1.0, trailMultiplier: 0.6 },
+  // --- ベストtrail + SL広め ---
+  { label: "SL1.5 t0.5", atrMultiplier: 1.5, beActivationMultiplier: 0.5, tsActivationMultiplier: 1.0, trailMultiplier: 0.5 },
+  { label: "SL1.5 t0.6", atrMultiplier: 1.5, beActivationMultiplier: 0.5, tsActivationMultiplier: 1.0, trailMultiplier: 0.6 },
+  { label: "SL2.0 t0.5", atrMultiplier: 2.0, beActivationMultiplier: 0.5, tsActivationMultiplier: 1.0, trailMultiplier: 0.5 },
+  { label: "SL2.0 t0.6", atrMultiplier: 2.0, beActivationMultiplier: 0.5, tsActivationMultiplier: 1.0, trailMultiplier: 0.6 },
+];
+
+function runExitParamComparison(
+  baseConfig: BreakoutBacktestConfig,
+  allData: Map<string, OHLCVData[]>,
+  vixData: Map<string, number> | undefined,
+): void {
+  console.log("\n=== Exit Parameter Comparison ===");
+  console.log(
+    `${"Params".padEnd(18)}| ${"Trades".padStart(6)} | ${"WinRate".padStart(7)} | ${"PF".padStart(5)} | ${"Expect".padStart(8)} | ${"MaxDD".padStart(7)} | ${"RR".padStart(5)} | ${"AvgHold".padStart(7)} | ${"Return".padStart(8)}`,
+  );
+  console.log("-".repeat(95));
+
+  for (const row of EXIT_PARAM_GRID) {
+    const config: BreakoutBacktestConfig = {
+      ...baseConfig,
+      atrMultiplier: row.atrMultiplier,
+      beActivationMultiplier: row.beActivationMultiplier,
+      tsActivationMultiplier: row.tsActivationMultiplier,
+      trailMultiplier: row.trailMultiplier,
+      verbose: false,
+    };
+    const result = runBreakoutBacktest(config, allData, vixData);
+    const m = result.metrics;
+    const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
+    const returnStr = (m.totalReturnPct >= 0 ? "+" : "") + m.totalReturnPct.toFixed(1) + "%";
+    console.log(
+      `${row.label.padEnd(18)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(6)}% | ${m.profitFactor.toFixed(2).padStart(5)} | ${expectStr.padStart(8)} | ${m.maxDrawdown.toFixed(1).padStart(6)}% | ${m.riskRewardRatio.toFixed(1).padStart(5)} | ${m.avgHoldingDays.toFixed(1).padStart(6)}d | ${returnStr.padStart(8)}`,
+    );
+  }
+  console.log("");
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const startDate = getArg(args, "--start") ?? dayjs().subtract(12, "month").format("YYYY-MM-DD");
@@ -159,6 +219,8 @@ async function main() {
   const scoreCompare = args.includes("--score-compare");
   const strategyCompare = args.includes("--strategy-compare");
   const entryCompare = args.includes("--entry-compare");
+  const exitCompare = args.includes("--exit-compare");
+  const noCost = args.includes("--no-cost");
 
   const config: BreakoutBacktestConfig = {
     ...BREAKOUT_BACKTEST_DEFAULTS,
@@ -167,6 +229,7 @@ async function main() {
     verbose,
   };
   if (budgetStr) config.initialBudget = Number(budgetStr);
+  if (noCost) config.costModelEnabled = false;
 
   console.log("=".repeat(60));
   console.log("ブレイクアウトバックテスト");
@@ -218,6 +281,14 @@ async function main() {
   if (entryCompare) {
     const vix = vixData.size > 0 ? vixData : undefined;
     runEntryFilterComparison(config, allData, vix);
+    await prisma.$disconnect();
+    return;
+  }
+
+  // 4d. 出口パラメータ比較モード
+  if (exitCompare) {
+    const vix = vixData.size > 0 ? vixData : undefined;
+    runExitParamComparison(config, allData, vix);
     await prisma.$disconnect();
     return;
   }

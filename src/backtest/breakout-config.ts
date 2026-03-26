@@ -55,9 +55,9 @@ export const RISK_PER_TRADE_PCT = POSITION_SIZING.RISK_PER_TRADE_PCT; // 2
 /** walk-forward パラメータグリッド（エグジット系のみ — エントリー系はデフォルト固定） */
 export const PARAMETER_GRID = {
   atrMultiplier: [0.8, 1.0, 1.2],
-  beActivationMultiplier: [0.8, 1.0, 1.5],
-  trailMultiplier: [0.8, 1.0, 1.5],
-  tsActivationMultiplier: [1.5, 2.0, 2.5],
+  beActivationMultiplier: [0.3, 0.5, 1.0, 1.5],
+  trailMultiplier: [0.3, 0.5, 0.8, 1.0, 1.5],
+  tsActivationMultiplier: [1.0, 1.5, 2.0, 2.5],
 } as const;
 
 export type ParameterKey = keyof typeof PARAMETER_GRID;

@@ -35,17 +35,22 @@ if not DATABASE_URL:
     print("ERROR: DATABASE_URL が見つかりません")
     sys.exit(1)
 
+SKIP_CONFIRM = "--yes" in sys.argv  # 確認スキップ
+
 # 本番DB確認
 if "localhost" not in DATABASE_URL and "127.0.0.1" not in DATABASE_URL:
     print(f"本番DB に接続します: {DATABASE_URL[:50]}...")
-    print("続行しますか？ (y/N): ", end="")
-    if input().strip().lower() != "y":
-        print("中止しました")
-        sys.exit(0)
+    if not SKIP_CONFIRM:
+        print("続行しますか？ (y/N): ", end="")
+        if input().strip().lower() != "y":
+            print("中止しました")
+            sys.exit(0)
+    else:
+        print("--yes フラグにより確認スキップ")
 
-BATCH_SIZE = 50  # yfinance一括取得サイズ
+BATCH_SIZE = 100  # yfinance一括取得サイズ
 PERIOD = "2y"    # 2年分
-MAX_WORKERS = 3  # 並列DB書き込み数
+INSERT_PAGE_SIZE = 500  # INSERT バッチサイズ（小さめで接続切れ防止）
 
 
 def get_active_tickers(conn) -> list[str]:
@@ -126,10 +131,9 @@ def insert_bars(conn, all_bars: list[tuple]):
         return 0
 
     inserted = 0
-    page_size = 1000
     with conn.cursor() as cur:
-        for i in range(0, len(all_bars), page_size):
-            batch = all_bars[i:i + page_size]
+        for i in range(0, len(all_bars), INSERT_PAGE_SIZE):
+            batch = all_bars[i:i + INSERT_PAGE_SIZE]
             psycopg2.extras.execute_values(
                 cur,
                 """
@@ -138,74 +142,111 @@ def insert_bars(conn, all_bars: list[tuple]):
                 ON CONFLICT ("tickerCode", date) DO NOTHING
                 """,
                 batch,
-                page_size=page_size,
+                page_size=INSERT_PAGE_SIZE,
             )
             inserted += cur.rowcount
     conn.commit()
     return inserted
 
 
-def main():
-    print("=" * 60)
-    print("StockDailyBar 2年分バックフィル")
-    print("=" * 60)
+def do_insert(all_bars: list[tuple]) -> int:
+    """DB挿入（リトライ付き、バッチごとに接続）"""
+    inserted = 0
+    for retry in range(3):
+        batch_conn = None
+        try:
+            batch_conn = psycopg2.connect(DATABASE_URL, connect_timeout=30)
+            inserted = insert_bars(batch_conn, all_bars)
+            batch_conn.close()
+            return inserted
+        except Exception as e:
+            print(f"  DB error (retry {retry + 1}/3): {e}", flush=True)
+            if batch_conn:
+                try:
+                    batch_conn.close()
+                except Exception:
+                    pass
+            if retry < 2:
+                time.sleep(5)
+            else:
+                print("  SKIP: DB挿入に失敗", flush=True)
+    return inserted
 
-    conn = psycopg2.connect(DATABASE_URL)
+
+def main():
+    print("=" * 60, flush=True)
+    print("StockDailyBar 2年分バックフィル", flush=True)
+    print("=" * 60, flush=True)
+
+    conn = psycopg2.connect(DATABASE_URL, connect_timeout=30)
 
     # 既存データ確認
     min_date, max_date, count = get_existing_date_range(conn)
-    print(f"既存データ: {min_date} 〜 {max_date} ({count:,}件)")
+    print(f"既存データ: {min_date} 〜 {max_date} ({count:,}件)", flush=True)
 
     # アクティブ銘柄取得
     tickers = get_active_tickers(conn)
-    print(f"対象銘柄: {len(tickers)}件")
+    print(f"対象銘柄: {len(tickers)}件", flush=True)
+    conn.close()
 
     total_batches = (len(tickers) + BATCH_SIZE - 1) // BATCH_SIZE
     total_inserted = 0
     total_bars = 0
-    failed_tickers = []
+    failed_tickers: list[str] = []
 
-    for batch_idx in range(total_batches):
-        start = batch_idx * BATCH_SIZE
-        end = min(start + BATCH_SIZE, len(tickers))
-        batch_tickers = tickers[start:end]
+    # パイプライン: 現バッチのDB挿入中に次バッチをpre-fetch
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        # 最初のバッチのfetchを先行開始
+        current_future = executor.submit(fetch_ohlcv_batch, tickers[:BATCH_SIZE])
 
-        print(f"\n[{batch_idx + 1}/{total_batches}] {batch_tickers[0]}〜{batch_tickers[-1]} ({len(batch_tickers)}銘柄)")
+        for batch_idx in range(total_batches):
+            start = batch_idx * BATCH_SIZE
+            end = min(start + BATCH_SIZE, len(tickers))
+            batch_tickers = tickers[start:end]
 
-        results = fetch_ohlcv_batch(batch_tickers)
+            # 次バッチのfetchを先行開始（現バッチの処理と並行）
+            next_start = end
+            next_batch_tickers = tickers[next_start:next_start + BATCH_SIZE] if next_start < len(tickers) else None
+            if next_batch_tickers:
+                next_future = executor.submit(fetch_ohlcv_batch, next_batch_tickers)
 
-        # 全バーを収集
-        all_bars = []
-        for t in batch_tickers:
-            bars = results.get(t, [])
-            if not bars:
-                failed_tickers.append(t)
-            all_bars.extend(bars)
+            print(f"\n[{batch_idx + 1}/{total_batches}] {batch_tickers[0]}〜{batch_tickers[-1]} ({len(batch_tickers)}銘柄)", flush=True)
 
-        total_bars += len(all_bars)
+            # 現バッチのfetch結果を待つ
+            results = current_future.result()
 
-        # DB挿入
-        inserted = insert_bars(conn, all_bars)
-        total_inserted += inserted
+            # バーを収集
+            all_bars = []
+            for t in batch_tickers:
+                bars = results.get(t, [])
+                if not bars:
+                    failed_tickers.append(t)
+                all_bars.extend(bars)
+            total_bars += len(all_bars)
 
-        print(f"  取得: {len(results)}/{len(batch_tickers)}銘柄, {len(all_bars)}バー, 新規INSERT: {inserted}件")
+            # DB挿入（次バッチのfetchと並行して実行される）
+            inserted = do_insert(all_bars)
+            total_inserted += inserted
 
-        # レート制限回避
-        if batch_idx < total_batches - 1:
-            time.sleep(2)
+            print(f"  取得: {len(results)}/{len(batch_tickers)}銘柄, {len(all_bars)}バー, 新規INSERT: {inserted}件", flush=True)
+
+            # 次バッチへ
+            if next_batch_tickers:
+                current_future = next_future
+                time.sleep(1)  # レート制限回避（短縮: 2s→1s）
 
     # 最終確認
-    min_date2, max_date2, count2 = get_existing_date_range(conn)
+    final_conn = psycopg2.connect(DATABASE_URL, connect_timeout=30)
+    min_date2, max_date2, count2 = get_existing_date_range(final_conn)
+    final_conn.close()
 
-    print("\n" + "=" * 60)
-    print("完了")
-    print("=" * 60)
-    print(f"取得バー数: {total_bars:,}")
-    print(f"新規INSERT: {total_inserted:,}")
-    print(f"失敗銘柄: {len(failed_tickers)}")
-    print(f"DB: {min_date2} 〜 {max_date2} ({count2:,}件)")
-
-    conn.close()
+    print("\n" + "=" * 60, flush=True)
+    print("完了", flush=True)
+    print("=" * 60, flush=True)
+    print(f"取得バー数: {total_bars:,}", flush=True)
+    print(f"新規INSERT: {total_inserted:,}", flush=True)
+    print(f"失敗銘柄: {len(failed_tickers)}", flush=True)
+    print(f"DB: {min_date2} 〜 {max_date2} ({count2:,}件)", flush=True)
 
 
 if __name__ == "__main__":

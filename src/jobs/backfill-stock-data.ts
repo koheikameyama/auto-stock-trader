@@ -17,8 +17,8 @@ import { analyzeTechnicals } from "../core/technical-analysis";
 import { sleep } from "../lib/retry-utils";
 import { clampDecimal, incrementFailAndMarkDelisted } from "../lib/decimal-utils";
 
-/** OHLCV保持日数（これより古いバーをpruneする） */
-const OHLCV_RETENTION_DAYS = 250;
+/** OHLCV保持日数（これより古いバーをpruneする）— walk-forward分析に2年分必要 */
+const OHLCV_RETENTION_DAYS = 750;
 
 export async function main() {
   console.log("=== Backfill Stock Data 開始 ===");

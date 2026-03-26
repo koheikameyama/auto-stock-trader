@@ -4,18 +4,23 @@
  * IS（In-Sample）6ヶ月 / OOS（Out-of-Sample）3ヶ月
  * 3ヶ月スライド × 6ウィンドウ = 24ヶ月
  *
- * パラメータグリッド（720通り）を IS で最適化し、
+ * パラメータグリッド（240通り）を IS で最適化し、
  * OOS で汎化性能を検証する。
+ *
+ * 選択方式:
+ *   デフォルト: ロバスト（近傍中央値PF） — 孤立ピークを避ける
+ *   --max-pf:   従来の最大PF選択
  *
  * Usage:
  *   npm run walk-forward:breakout
+ *   npm run walk-forward:breakout -- --max-pf
  */
 
 import dayjs from "dayjs";
 import { prisma } from "../src/lib/prisma";
 import { fetchHistoricalFromDB, fetchVixFromDB } from "../src/backtest/data-fetcher";
 import { runBreakoutBacktest } from "../src/backtest/breakout-simulation";
-import { BREAKOUT_BACKTEST_DEFAULTS, generateParameterCombinations } from "../src/backtest/breakout-config";
+import { BREAKOUT_BACKTEST_DEFAULTS, generateParameterCombinations, PARAMETER_GRID } from "../src/backtest/breakout-config";
 import type { BreakoutBacktestConfig, PerformanceMetrics } from "../src/backtest/types";
 
 const IS_MONTHS = 6;
@@ -35,7 +40,94 @@ interface WindowResult {
   oosMetrics: PerformanceMetrics;
 }
 
+// --- パラメータ選択ヘルパー ---
+
+interface ComboResult {
+  params: Partial<BreakoutBacktestConfig>;
+  metrics: PerformanceMetrics;
+}
+
+function paramComboKey(params: Partial<BreakoutBacktestConfig>): string {
+  return `${params.atrMultiplier}_${params.beActivationMultiplier}_${params.trailMultiplier}_${params.tsActivationMultiplier}`;
+}
+
+function calcMedian(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+/** IS最大PFで選択（従来方式） */
+function selectByMaxPF(comboResults: Map<string, ComboResult>): ComboResult | null {
+  let bestPF = -Infinity;
+  let best: ComboResult | null = null;
+  for (const result of comboResults.values()) {
+    if (result.metrics.profitFactor > bestPF) {
+      bestPF = result.metrics.profitFactor;
+      best = result;
+    }
+  }
+  return best;
+}
+
+/** 近傍中央値PFで選択（ロバスト方式） */
+function selectByRobustness(comboResults: Map<string, ComboResult>): ComboResult | null {
+  const gridArrays: number[][] = [
+    [...PARAMETER_GRID.atrMultiplier],
+    [...PARAMETER_GRID.beActivationMultiplier],
+    [...PARAMETER_GRID.trailMultiplier],
+    [...PARAMETER_GRID.tsActivationMultiplier],
+  ];
+  const gridSizes = gridArrays.map((a) => a.length);
+
+  let bestScore = -Infinity;
+  let best: ComboResult | null = null;
+
+  for (const result of comboResults.values()) {
+    const p = result.params;
+    const indices = [
+      gridArrays[0].indexOf(p.atrMultiplier!),
+      gridArrays[1].indexOf(p.beActivationMultiplier!),
+      gridArrays[2].indexOf(p.trailMultiplier!),
+      gridArrays[3].indexOf(p.tsActivationMultiplier!),
+    ];
+
+    // 近傍 (±1 grid step in each dimension) のPFを収集
+    const neighborPFs: number[] = [];
+    const ranges = indices.map((idx, dim) => {
+      const vals: number[] = [];
+      for (let i = Math.max(0, idx - 1); i <= Math.min(gridSizes[dim] - 1, idx + 1); i++) {
+        vals.push(i);
+      }
+      return vals;
+    });
+
+    for (const i0 of ranges[0]) {
+      for (const i1 of ranges[1]) {
+        for (const i2 of ranges[2]) {
+          for (const i3 of ranges[3]) {
+            const nKey = `${gridArrays[0][i0]}_${gridArrays[1][i1]}_${gridArrays[2][i2]}_${gridArrays[3][i3]}`;
+            const nResult = comboResults.get(nKey);
+            if (nResult) neighborPFs.push(nResult.metrics.profitFactor);
+          }
+        }
+      }
+    }
+
+    const score = calcMedian(neighborPFs);
+    if (score > bestScore) {
+      bestScore = score;
+      best = result;
+    }
+  }
+
+  return best;
+}
+
 async function main() {
+  const args = process.argv.slice(2);
+  const useRobust = !args.includes("--max-pf"); // デフォルトはロバスト方式
   const endDate = dayjs().format("YYYY-MM-DD");
   const startDate = dayjs().subtract(TOTAL_MONTHS, "month").format("YYYY-MM-DD");
 
@@ -45,6 +137,7 @@ async function main() {
   console.log(`分析期間: ${startDate} → ${endDate} (${TOTAL_MONTHS}ヶ月)`);
   console.log(`IS: ${IS_MONTHS}ヶ月 / OOS: ${OOS_MONTHS}ヶ月 / スライド: ${SLIDE_MONTHS}ヶ月`);
   console.log(`ウィンドウ数: ${NUM_WINDOWS}`);
+  console.log(`選択方式: ${useRobust ? "ロバスト（近傍中央値PF）" : "最大PF"}`);
 
   // パラメータグリッド
   const paramCombos = generateParameterCombinations();
@@ -60,9 +153,19 @@ async function main() {
   const tickerCodes = stocks.map((s) => s.tickerCode);
   console.log(`[data] ${tickerCodes.length}銘柄のデータ取得中...`);
 
-  const allData = await fetchHistoricalFromDB(tickerCodes, startDate, endDate);
+  const rawData = await fetchHistoricalFromDB(tickerCodes, startDate, endDate);
   const vixData = await fetchVixFromDB(startDate, endDate);
-  console.log(`[data] ${allData.size}銘柄, VIX ${vixData.size}日`);
+  console.log(`[data] ${rawData.size}銘柄（raw）, VIX ${vixData.size}日`);
+
+  // 事前フィルタ: maxPrice以下のバーが1つ以上ある銘柄のみ残す（高速化）
+  const maxPrice = BREAKOUT_BACKTEST_DEFAULTS.maxPrice;
+  const allData = new Map<string, Awaited<ReturnType<typeof fetchHistoricalFromDB>> extends Map<string, infer V> ? V : never>();
+  for (const [ticker, bars] of rawData) {
+    if (bars.some((b) => b.close <= maxPrice && b.close > 0)) {
+      allData.set(ticker, bars);
+    }
+  }
+  console.log(`[data] ${allData.size}銘柄（フィルタ後）`);
   console.log("");
 
   // ウィンドウ生成
@@ -77,10 +180,8 @@ async function main() {
     console.log(`  IS:  ${isStart} → ${isEnd}`);
     console.log(`  OOS: ${oosStart} → ${oosEnd}`);
 
-    // IS: 全パラメータ組み合わせをテスト
-    let bestPF = -Infinity;
-    let bestParams: Partial<BreakoutBacktestConfig> = {};
-    let bestIsMetrics: PerformanceMetrics | null = null;
+    // IS: 全パラメータ組み合わせをテスト → 結果を蓄積
+    const comboResults = new Map<string, ComboResult>();
 
     for (const params of paramCombos) {
       const config: BreakoutBacktestConfig = {
@@ -96,17 +197,19 @@ async function main() {
       // トレード数が少なすぎる場合はスキップ
       if (result.metrics.totalTrades < 5) continue;
 
-      if (result.metrics.profitFactor > bestPF) {
-        bestPF = result.metrics.profitFactor;
-        bestParams = params;
-        bestIsMetrics = result.metrics;
-      }
+      comboResults.set(paramComboKey(params), { params, metrics: result.metrics });
     }
 
-    if (!bestIsMetrics) {
+    // パラメータ選択（ロバスト or 最大PF）
+    const selected = useRobust ? selectByRobustness(comboResults) : selectByMaxPF(comboResults);
+
+    if (!selected) {
       console.log("  ⚠ IS期間でトレードが発生しなかったためスキップ");
       continue;
     }
+
+    const bestParams = selected.params;
+    const bestIsMetrics = selected.metrics;
 
     // OOS: ISで最適なパラメータで実行
     const oosConfig: BreakoutBacktestConfig = {
