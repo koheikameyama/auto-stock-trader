@@ -15,7 +15,7 @@ import { prisma } from "../../lib/prisma";
 import { getTodayForDB } from "../../lib/date-utils";
 import { getCashBalance, getEffectiveCapital } from "../position-manager";
 import { canOpenPosition } from "../risk-manager";
-import { submitOrder as submitBrokerOrder } from "../broker-orders";
+import { submitOrder as submitBrokerOrder, modifyOrder } from "../broker-orders";
 import { notifyOrderPlaced, notifySlack } from "../../lib/slack";
 import { STOP_LOSS, POSITION_SIZING, UNIT_SHARES } from "../../lib/constants";
 import { BREAKOUT } from "../../lib/constants/breakout";
@@ -209,4 +209,93 @@ export async function executeEntry(
   });
 
   return { success: true, orderId: newOrder.id };
+}
+
+/**
+ * 既存pending買い注文の株数を現在の資金状況で再計算し、過大な場合は減株する
+ *
+ * 先着順（createdAt ASC）で残高を割り当て、後発の注文から優先的に減株される。
+ */
+export async function resizePendingOrders(brokerMode: string): Promise<void> {
+  const pendingOrders = await prisma.tradingOrder.findMany({
+    where: { side: "buy", status: "pending" },
+    include: { stock: { select: { tickerCode: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+
+  if (pendingOrders.length === 0) return;
+
+  const [effectiveCapital, openPositions] = await Promise.all([
+    getEffectiveCapital(),
+    prisma.tradingPosition.findMany({ where: { status: "open" } }),
+  ]);
+
+  const investedAmount = openPositions.reduce(
+    (sum, pos) => sum + Number(pos.entryPrice) * pos.quantity,
+    0,
+  );
+
+  // 先着順で残高を割り当て
+  let remainingCash = effectiveCapital - investedAmount;
+
+  for (const order of pendingOrders) {
+    const limitPrice = Number(order.limitPrice);
+    const stopLossPrice = Number(order.stopLossPrice);
+
+    if (!limitPrice || !stopLossPrice || limitPrice <= stopLossPrice) {
+      remainingCash -= limitPrice * order.quantity;
+      continue;
+    }
+
+    // リスクベース株数
+    const riskPerShare = limitPrice - stopLossPrice;
+    const riskAmount = effectiveCapital * (POSITION_SIZING.RISK_PER_TRADE_PCT / 100);
+    const riskBasedQty =
+      Math.floor(Math.floor(riskAmount / riskPerShare) / UNIT_SHARES) * UNIT_SHARES;
+
+    // 残高ベース株数
+    const cashBasedQty =
+      remainingCash > 0
+        ? Math.floor(Math.floor(remainingCash / limitPrice) / UNIT_SHARES) * UNIT_SHARES
+        : 0;
+
+    const newQuantity = Math.min(riskBasedQty, cashBasedQty);
+
+    if (newQuantity <= 0 || newQuantity >= order.quantity) {
+      remainingCash -= limitPrice * order.quantity;
+      continue;
+    }
+
+    // ブローカー訂正（simulation以外）
+    if (order.brokerOrderId && order.brokerBusinessDay && brokerMode !== "simulation") {
+      const result = await modifyOrder(order.brokerOrderId, order.brokerBusinessDay, {
+        quantity: newQuantity,
+      });
+      if (!result.success) {
+        console.warn(
+          `[pending-resize] ${order.stock.tickerCode} ブローカー訂正失敗: ${result.error}`,
+        );
+        remainingCash -= limitPrice * order.quantity;
+        continue;
+      }
+    }
+
+    // DB更新
+    await prisma.tradingOrder.update({
+      where: { id: order.id },
+      data: { quantity: newQuantity },
+    });
+
+    console.log(
+      `[pending-resize] ${order.stock.tickerCode} 株数訂正: ${order.quantity} → ${newQuantity}株`,
+    );
+
+    await notifySlack({
+      title: `株数訂正: ${order.stock.tickerCode}`,
+      message: `${order.quantity}株 → ${newQuantity}株（資金変動による再計算）`,
+      color: "warning",
+    });
+
+    remainingCash -= limitPrice * newQuantity;
+  }
 }
