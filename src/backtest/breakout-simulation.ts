@@ -17,6 +17,7 @@ import { DEFENSIVE_MODE } from "../lib/constants";
 import { TECHNICAL_MIN_DATA } from "../lib/constants";
 import { calculateMetrics } from "./metrics";
 import { RISK_PER_TRADE_PCT } from "./breakout-config";
+import { computeScoreFilter } from "./scoring-filter";
 import type {
   BreakoutBacktestConfig,
   BreakoutBacktestResult,
@@ -378,6 +379,18 @@ function detectBreakoutEntries(
     const quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
     if (quantity <= 0) continue;
     if (entryPrice * quantity > cash) continue;
+
+    // --- Score filter (optional) ---
+    if (config.scoreFilter) {
+      const score = computeScoreFilter(newestFirst);
+      const { category, minScore } = config.scoreFilter;
+      const scoreValue =
+        category === "total" ? score.total :
+        category === "trend" ? score.trend :
+        category === "timing" ? score.timing :
+        score.risk;
+      if (scoreValue < minScore) continue;
+    }
 
     entries.push({
       ticker,
