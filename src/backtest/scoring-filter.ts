@@ -6,7 +6,11 @@
  *   Trend Quality (40) + Entry Timing (35) + Risk Quality (25) = 100
  */
 
+import { ATR } from "technicalindicators";
 import type { OHLCVData } from "../core/technical-analysis";
+import { calculateSMA, aggregateDailyToWeekly } from "../lib/technical-indicators";
+import { calculateBBWidthPercentile } from "../lib/technical-indicators/bb-width-history";
+import type { ScoreFilterResult } from "./types";
 
 // ============================================================
 // Constants
@@ -325,4 +329,139 @@ export function calculateVolumeCv(volumes: number[]): number | null {
   if (mean === 0) return 0;
   const variance = window.reduce((s, v) => s + (v - mean) ** 2, 0) / window.length;
   return Math.sqrt(variance) / mean;
+}
+
+// ============================================================
+// Intermediates Computation
+// ============================================================
+
+interface ScoringIntermediates {
+  weeklyClose: number | null;
+  weeklySma13: number | null;
+  prevWeeklySma13: number | null;
+  daysAboveSma25: number;
+  atrCv: number | null;
+  volumeCv: number | null;
+  volumeMA5: number | null;
+  volumeMA25: number | null;
+  bbWidthPercentile: number | null;
+  atr14: number | null;
+  sma5: number | null;
+  sma25: number | null;
+  sma75: number | null;
+  deviationRate25: number | null;
+}
+
+/** ATR14系列を計算（newest-first入力） */
+function computeAtr14Series(data: OHLCVData[]): number[] {
+  if (data.length < 34) return [];
+  const oldestFirst = [...data].reverse();
+  const result = ATR.calculate({
+    high: oldestFirst.map((d) => d.high),
+    low: oldestFirst.map((d) => d.low),
+    close: oldestFirst.map((d) => d.close),
+    period: 14,
+  });
+  return result.reverse();
+}
+
+/** 全中間指標を一括計算 */
+function computeIntermediates(data: OHLCVData[]): ScoringIntermediates {
+  const result: ScoringIntermediates = {
+    weeklyClose: null, weeklySma13: null, prevWeeklySma13: null,
+    daysAboveSma25: 0, atrCv: null, volumeCv: null,
+    volumeMA5: null, volumeMA25: null, bbWidthPercentile: null,
+    atr14: null, sma5: null, sma25: null, sma75: null, deviationRate25: null,
+  };
+
+  if (data.length < 25) return result;
+
+  const closes = data.map((d) => d.close);
+  const volumes = data.map((d) => d.volume);
+
+  // SMAs
+  const closePrices = data.map((d) => ({ close: d.close }));
+  result.sma5 = calculateSMA(closePrices, 5);
+  result.sma25 = calculateSMA(closePrices, 25);
+  result.sma75 = data.length >= 75 ? calculateSMA(closePrices, 75) : null;
+
+  // Deviation rate
+  if (result.sma25 != null) {
+    result.deviationRate25 = ((closes[0] - result.sma25) / result.sma25) * 100;
+  }
+
+  // ATR14
+  const atr14Series = computeAtr14Series(data);
+  if (atr14Series.length > 0) {
+    result.atr14 = atr14Series[0];
+    result.atrCv = calculateAtrCv(atr14Series);
+  }
+
+  // Volume MAs & CV
+  const volumePrices = volumes.map((v) => ({ close: v }));
+  result.volumeMA5 = calculateSMA(volumePrices, 5);
+  result.volumeMA25 = calculateSMA(volumePrices, 25);
+  result.volumeCv = calculateVolumeCv(volumes);
+
+  // BB width percentile
+  result.bbWidthPercentile = calculateBBWidthPercentile(closes, 20, 60);
+
+  // Weekly trend
+  const oldestFirst = [...data].reverse();
+  const weeklyBars = aggregateDailyToWeekly(oldestFirst);
+  if (weeklyBars.length >= 14) {
+    const weeklyNewest = [...weeklyBars].reverse();
+    result.weeklyClose = weeklyNewest[0].close;
+    const weeklyCloses = weeklyNewest.map((w) => ({ close: w.close }));
+    result.weeklySma13 = calculateSMA(weeklyCloses, 13);
+    if (weeklyNewest.length >= 14) {
+      const prevCloses = weeklyNewest.slice(1).map((w) => ({ close: w.close }));
+      result.prevWeeklySma13 = calculateSMA(prevCloses, 13);
+    }
+  }
+
+  // Days above SMA25
+  result.daysAboveSma25 = countDaysAboveSma25(data);
+
+  return result;
+}
+
+// ============================================================
+// Main Entry Point
+// ============================================================
+
+/**
+ * OHLCVデータからスコアを計算（newest-first配列を入力）
+ * バックテスト専用。全指標をOHLCVから算出する。
+ */
+export function computeScoreFilter(data: OHLCVData[]): ScoreFilterResult {
+  if (data.length < 25) {
+    return { total: 0, trend: 0, timing: 0, risk: 0 };
+  }
+
+  const im = computeIntermediates(data);
+  const close = data[0].close;
+  const avgVolume25 = im.volumeMA25;
+
+  // Trend Quality
+  const maAlignment = scoreMaAlignment(close, im.sma5, im.sma25, im.sma75);
+  const weeklyTrend = scoreWeeklyTrend(im.weeklyClose, im.weeklySma13, im.prevWeeklySma13);
+  const trendContinuity = scoreTrendContinuity(im.daysAboveSma25);
+  const trend = maAlignment + weeklyTrend + trendContinuity;
+
+  // Entry Timing
+  const pullback = scorePullbackDepth(close, im.sma5, im.sma25, im.deviationRate25, data);
+  const priorBreakout = scorePriorBreakout(data, avgVolume25, pullback);
+  const candlestick = scoreCandlestickSignal(data, avgVolume25);
+  const timing = pullback + priorBreakout + candlestick;
+
+  // Risk Quality
+  const atrStab = scoreAtrStability(im.atrCv);
+  const rangeContr = scoreRangeContraction(im.bbWidthPercentile);
+  const volStab = scoreVolumeStability(im.volumeMA5, im.volumeMA25, im.volumeCv);
+  const risk = atrStab + rangeContr + volStab;
+
+  const total = Math.min(100, Math.max(0, trend + timing + risk));
+
+  return { total, trend, timing, risk };
 }

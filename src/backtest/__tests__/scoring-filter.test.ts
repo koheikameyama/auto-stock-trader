@@ -11,6 +11,7 @@ import {
   scorePullbackDepth,
   scorePriorBreakout,
   scoreCandlestickSignal,
+  computeScoreFilter,
 } from "../scoring-filter";
 
 import type { OHLCVData } from "../../core/technical-analysis";
@@ -266,5 +267,41 @@ describe("Entry Timing sub-scores", () => {
       ];
       expect(scoreCandlestickSignal(bars, 50000)).toBe(0);
     });
+  });
+});
+
+describe("computeScoreFilter", () => {
+  function makeTestBars(count: number): OHLCVData[] {
+    const bars: OHLCVData[] = [];
+    for (let i = 0; i < count; i++) {
+      const price = 500 + i * 2;
+      bars.push({
+        date: `2025-${String(Math.floor(i / 28) + 1).padStart(2, "0")}-${String((i % 28) + 1).padStart(2, "0")}`,
+        open: price - 3,
+        high: price + 5,
+        low: price - 5,
+        close: price,
+        volume: 100000 + i * 100,
+      });
+    }
+    return bars.reverse(); // newest-first
+  }
+
+  it("returns a valid ScoreFilterResult with total, trend, timing, risk", () => {
+    const bars = makeTestBars(120);
+    const result = computeScoreFilter(bars);
+    expect(result).toHaveProperty("total");
+    expect(result).toHaveProperty("trend");
+    expect(result).toHaveProperty("timing");
+    expect(result).toHaveProperty("risk");
+    expect(result.total).toBeGreaterThanOrEqual(0);
+    expect(result.total).toBeLessThanOrEqual(100);
+    expect(result.total).toBe(result.trend + result.timing + result.risk);
+  });
+
+  it("returns zeros for insufficient data", () => {
+    const bars = makeTestBars(10);
+    const result = computeScoreFilter(bars);
+    expect(result.total).toBe(0);
   });
 });
