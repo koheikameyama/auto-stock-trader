@@ -44,8 +44,10 @@ export function getScannerState() {
  * ブレイクアウトモニターのメイン処理（1分間隔で呼ばれる）
  */
 export async function main(): Promise<void> {
+  const tag = "[breakout-monitor]";
   const watchlist = await getWatchlist();
   if (!watchlist.length) {
+    console.log(`${tag} スキップ: ウォッチリスト空`);
     return;
   }
 
@@ -78,7 +80,12 @@ export async function main(): Promise<void> {
     }),
   ]);
 
-  if (!todayAssessment || !todayAssessment.shouldTrade) {
+  if (!todayAssessment) {
+    console.log(`${tag} スキップ: MarketAssessment未作成`);
+    return;
+  }
+  if (!todayAssessment.shouldTrade) {
+    console.log(`${tag} スキップ: shouldTrade=false（sentiment: ${todayAssessment.sentiment}）`);
     return;
   }
 
@@ -101,12 +108,17 @@ export async function main(): Promise<void> {
     }));
 
   if (quotes.length === 0) {
+    console.log(`${tag} スキップ: 時価取得0件（対象: ${tickers.length}銘柄）`);
     return;
   }
 
   // 5. スキャン実行
   const now = dayjs().tz(TIMEZONE).toDate();
   const triggers = scanner.scan(quotes, now, dailyEntryCount, holdingTickers);
+
+  console.log(
+    `${tag} スキャン完了: WL=${watchlist.length} 時価=${quotes.length} 保有=${holdingTickers.size} 本日エントリー=${dailyEntryCount} トリガー=${triggers.length}`,
+  );
 
   if (triggers.length === 0) {
     return;
