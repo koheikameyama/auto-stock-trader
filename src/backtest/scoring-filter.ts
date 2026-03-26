@@ -102,6 +102,174 @@ export function countDaysAboveSma25(data: OHLCVData[]): number {
   return count;
 }
 
+// Entry Timing thresholds
+const PULLBACK_NEAR_MIN = -1;
+const PULLBACK_NEAR_MAX = 2;
+const PULLBACK_DEEP_THRESHOLD = -3;
+const PRIOR_BREAKOUT_VOLUME_RATIO = 1.5;
+const PRIOR_BREAKOUT_LOOKBACK_20 = 20;
+const PRIOR_BREAKOUT_RECENCY_20 = 7;
+const PRIOR_BREAKOUT_LOOKBACK_10 = 10;
+const PRIOR_BREAKOUT_RECENCY_10 = 5;
+const PRIOR_BREAKOUT_NEAR_HIGH_PCT = 0.95;
+
+// ============================================================
+// Entry Timing (max 35)
+// ============================================================
+
+/** リバーサルサインの判定 */
+function hasReversalSign(bars: OHLCVData[]): boolean {
+  if (bars.length < 2) return false;
+  const [today, yesterday] = bars;
+  // 下ヒゲが実体以上
+  for (const bar of [today, yesterday]) {
+    const lowerShadow = Math.min(bar.open, bar.close) - bar.low;
+    const realBody = Math.abs(bar.close - bar.open);
+    if (lowerShadow >= realBody && realBody > 0) return true;
+  }
+  // 陰線→陽線の転換
+  if (yesterday.close < yesterday.open && today.close > today.open) return true;
+  return false;
+}
+
+/** プルバック深度スコア (0-15) */
+export function scorePullbackDepth(
+  close: number,
+  sma5: number | null,
+  sma25: number | null,
+  deviationRate25: number | null,
+  recentBars: OHLCVData[],
+): number {
+  if (sma25 == null || deviationRate25 == null) return 0;
+  if (deviationRate25 < PULLBACK_DEEP_THRESHOLD) return 0;
+
+  const nearSma = deviationRate25 >= PULLBACK_NEAR_MIN && deviationRate25 <= PULLBACK_NEAR_MAX;
+  if (nearSma && hasReversalSign(recentBars)) return 15;
+  if (nearSma) return 10;
+
+  // SMA25を一時的に割って回復
+  if (close > sma25 && recentBars.length >= 4) {
+    for (let i = 1; i <= Math.min(3, recentBars.length - 1); i++) {
+      if (recentBars[i].close < sma25) return 8;
+    }
+  }
+
+  if (deviationRate25 > PULLBACK_NEAR_MAX && deviationRate25 <= 5) return 6;
+  if (sma5 != null && close >= sma5) return 4;
+  return 0;
+}
+
+/** 直近ブレイクアウトスコア (0-12) */
+export function scorePriorBreakout(
+  bars: OHLCVData[],
+  avgVolume25: number | null,
+  pullbackScore: number,
+): number {
+  if (pullbackScore === 0 || bars.length < 2) return 0;
+  const currentClose = bars[0].close;
+
+  // 20日チェック
+  const lookback20 = bars.slice(0, PRIOR_BREAKOUT_LOOKBACK_20 + 1);
+  if (lookback20.length > 1) {
+    let maxClose = -Infinity;
+    let maxIdx = 0;
+    for (let i = 0; i < lookback20.length; i++) {
+      if (lookback20[i].close > maxClose) {
+        maxClose = lookback20[i].close;
+        maxIdx = i;
+      }
+    }
+    if (maxIdx >= 1 && maxIdx <= PRIOR_BREAKOUT_RECENCY_20) {
+      const breakoutBar = lookback20[maxIdx];
+      const volumeRatio = avgVolume25 && avgVolume25 > 0
+        ? breakoutBar.volume / avgVolume25
+        : 1;
+      if (volumeRatio > PRIOR_BREAKOUT_VOLUME_RATIO) return 12;
+      if (volumeRatio > 1.2) return 9;
+      return 7;
+    }
+  }
+
+  // 10日チェック
+  const lookback10 = bars.slice(0, PRIOR_BREAKOUT_LOOKBACK_10 + 1);
+  if (lookback10.length > 1) {
+    let maxClose = -Infinity;
+    let maxIdx = 0;
+    for (let i = 0; i < lookback10.length; i++) {
+      if (lookback10[i].close > maxClose) {
+        maxClose = lookback10[i].close;
+        maxIdx = i;
+      }
+    }
+    if (maxIdx >= 1 && maxIdx <= PRIOR_BREAKOUT_RECENCY_10) return 5;
+    if (maxIdx >= 1 && currentClose >= maxClose * PRIOR_BREAKOUT_NEAR_HIGH_PCT) return 2;
+  }
+
+  return 0;
+}
+
+/** ローソク足シグナルスコア (0-8) */
+export function scoreCandlestickSignal(
+  bars: OHLCVData[],
+  avgVolume25: number | null,
+): number {
+  if (bars.length < 2) return 0;
+  const [today, yesterday] = bars;
+  let maxScore = 0;
+
+  const volumeRatio = avgVolume25 && avgVolume25 > 0
+    ? today.volume / avgVolume25
+    : 0;
+
+  // Bullish engulfing + volume
+  const todayBullish = today.close > today.open;
+  const yesterdayBearish = yesterday.close < yesterday.open;
+  if (
+    todayBullish && yesterdayBearish &&
+    today.close > yesterday.open &&
+    today.open < yesterday.close &&
+    volumeRatio > 1.0
+  ) {
+    maxScore = Math.max(maxScore, 8);
+  }
+
+  // Hammer
+  const realBody = Math.abs(today.close - today.open);
+  const totalRange = today.high - today.low;
+  const lowerShadow = Math.min(today.open, today.close) - today.low;
+  const upperShadow = today.high - Math.max(today.open, today.close);
+  if (totalRange > 0 && realBody > 0 && lowerShadow > realBody * 2 && upperShadow <= lowerShadow / 3) {
+    maxScore = Math.max(maxScore, 6);
+  }
+
+  // 3 consecutive bullish + increasing volume
+  if (bars.length >= 3) {
+    const [b0, b1, b2] = bars;
+    if (
+      b0.close > b0.open && b1.close > b1.open && b2.close > b2.open &&
+      b0.volume > b1.volume && b1.volume > b2.volume
+    ) {
+      maxScore = Math.max(maxScore, 5);
+    }
+  }
+
+  // Strong bullish bar
+  if (totalRange > 0) {
+    const closeToHigh = (today.high - today.close) / totalRange;
+    const bodyRatio = realBody / totalRange;
+    if (closeToHigh < 0.15 && bodyRatio > 0.6) {
+      maxScore = Math.max(maxScore, 4);
+    }
+  }
+
+  // Doji
+  if (totalRange > 0 && realBody / totalRange < 0.1) {
+    maxScore = Math.max(maxScore, 3);
+  }
+
+  return maxScore;
+}
+
 // ============================================================
 // Risk Quality (max 25)
 // ============================================================

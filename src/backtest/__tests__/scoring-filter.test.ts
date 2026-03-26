@@ -8,9 +8,16 @@ import {
   scoreWeeklyTrend,
   scoreTrendContinuity,
   countDaysAboveSma25,
+  scorePullbackDepth,
+  scorePriorBreakout,
+  scoreCandlestickSignal,
 } from "../scoring-filter";
 
 import type { OHLCVData } from "../../core/technical-analysis";
+
+function makeBar(overrides: Partial<OHLCVData> = {}): OHLCVData {
+  return { date: "2025-06-01", open: 100, high: 105, low: 95, close: 102, volume: 50000, ...overrides };
+}
 
 describe("Risk Quality sub-scores", () => {
   describe("scoreAtrStability", () => {
@@ -178,6 +185,86 @@ describe("Trend Quality sub-scores", () => {
       const data = [...highBars, ...lowBars]; // newest-first
       const result = countDaysAboveSma25(data);
       expect(result).toBeGreaterThan(0);
+    });
+  });
+});
+
+describe("Entry Timing sub-scores", () => {
+  describe("scorePullbackDepth", () => {
+    it("returns 0 if SMA25 is null", () => {
+      expect(scorePullbackDepth(100, 110, null, null, [])).toBe(0);
+    });
+    it("returns 0 for deep pullback (deviation < -3%)", () => {
+      expect(scorePullbackDepth(95, 110, 100, -5, [makeBar()])).toBe(0);
+    });
+    it("returns 15 for near SMA25 with reversal sign", () => {
+      // reversal: yesterday bearish, today bullish
+      const bars = [
+        makeBar({ open: 99, close: 101, high: 102, low: 98 }),   // today: bullish
+        makeBar({ open: 101, close: 99, high: 102, low: 98 }),   // yesterday: bearish
+      ];
+      expect(scorePullbackDepth(101, 110, 100, 1.0, bars)).toBe(15);
+    });
+    it("returns 10 for near SMA25 without reversal", () => {
+      const bars = [
+        makeBar({ open: 100, close: 101, high: 102, low: 100 }),
+        makeBar({ open: 100, close: 101, high: 102, low: 100 }),
+      ];
+      expect(scorePullbackDepth(101, 110, 100, 1.0, bars)).toBe(10);
+    });
+    it("returns 6 for moderate deviation (2-5%)", () => {
+      expect(scorePullbackDepth(103, 110, 100, 3.0, [makeBar()])).toBe(6);
+    });
+    it("returns 4 for close >= SMA5", () => {
+      expect(scorePullbackDepth(115, 110, 100, 6.0, [makeBar()])).toBe(4);
+    });
+  });
+
+  describe("scorePriorBreakout", () => {
+    it("returns 0 if pullbackScore is 0", () => {
+      const bars = Array.from({ length: 25 }, (_, i) =>
+        makeBar({ close: 100 + i, volume: 100000 }),
+      );
+      expect(scorePriorBreakout(bars, 50000, 0)).toBe(0);
+    });
+    it("returns 12 for 20-day high within 7 days + high volume", () => {
+      // bar[3] = 20-day high with 2x volume
+      const bars = Array.from({ length: 25 }, () =>
+        makeBar({ close: 100, volume: 50000 }),
+      );
+      bars[3] = makeBar({ close: 150, volume: 100000 });
+      expect(scorePriorBreakout(bars, 50000, 10)).toBe(12);
+    });
+    it("returns 0 for no recent breakout", () => {
+      const bars = Array.from({ length: 25 }, () =>
+        makeBar({ close: 100, volume: 50000 }),
+      );
+      expect(scorePriorBreakout(bars, 50000, 10)).toBe(0);
+    });
+  });
+
+  describe("scoreCandlestickSignal", () => {
+    it("returns 8 for bullish engulfing with volume", () => {
+      const bars = [
+        makeBar({ open: 98, close: 105, high: 106, low: 97, volume: 60000 }),  // today: bullish engulfing
+        makeBar({ open: 104, close: 99, high: 105, low: 98, volume: 50000 }),   // yesterday: bearish
+      ];
+      expect(scoreCandlestickSignal(bars, 50000)).toBe(8);
+    });
+    it("returns 6 for hammer pattern", () => {
+      // hammer: small body near top, long lower shadow
+      const bars = [
+        makeBar({ open: 100, close: 101, high: 102, low: 90, volume: 50000 }),
+        makeBar({ close: 100, volume: 50000 }),
+      ];
+      expect(scoreCandlestickSignal(bars, 50000)).toBe(6);
+    });
+    it("returns 0 for no pattern", () => {
+      const bars = [
+        makeBar({ open: 100, close: 100.5, high: 101, low: 99.5, volume: 50000 }),
+        makeBar({ open: 100, close: 100.5, high: 101, low: 99.5, volume: 50000 }),
+      ];
+      expect(scoreCandlestickSignal(bars, 50000)).toBe(0);
     });
   });
 });
