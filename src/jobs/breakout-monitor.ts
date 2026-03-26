@@ -10,7 +10,7 @@ import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone.js";
 import utc from "dayjs/plugin/utc.js";
 import { BreakoutScanner } from "../core/breakout/breakout-scanner";
-import { executeEntry, resizePendingOrders } from "../core/breakout/entry-executor";
+import { executeEntry, resizePendingOrders, invalidateStalePendingOrders } from "../core/breakout/entry-executor";
 import { getWatchlist } from "./watchlist-builder";
 import { tachibanaFetchQuotesBatch } from "../lib/tachibana-price-client";
 import { prisma } from "../lib/prisma";
@@ -129,6 +129,13 @@ export async function main(): Promise<void> {
 
   // 6.5 既存pending注文の株数チェック（資金変動対応）
   await resizePendingOrders(brokerMode);
+
+  // 6.6 ブレイクアウト前提崩壊チェック（出来高萎縮・高値割り込み）
+  await invalidateStalePendingOrders(
+    quotes,
+    scanner.getState().lastSurgeRatios,
+    brokerMode,
+  );
 
   // 7. 各トリガーに対してエントリー実行（優先順位順に直列）
   // scanner が volumeSurgeRatio 降順でソート済み。
