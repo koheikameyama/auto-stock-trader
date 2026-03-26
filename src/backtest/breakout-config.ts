@@ -15,6 +15,7 @@ export const BREAKOUT_BACKTEST_DEFAULTS: Omit<BreakoutBacktestConfig, "startDate
   // エントリー
   triggerThreshold: BREAKOUT.VOLUME_SURGE.TRIGGER_THRESHOLD, // 2.0
   highLookbackDays: BREAKOUT.PRICE.HIGH_LOOKBACK_DAYS,       // 20
+  maxChaseAtr: BREAKOUT.PRICE.MAX_CHASE_ATR,                  // 1.0
 
   // ストップロス
   atrMultiplier: BREAKOUT.STOP_LOSS.ATR_MULTIPLIER,          // 1.0
@@ -55,6 +56,7 @@ export const PARAMETER_GRID = {
   beActivationMultiplier: [0.8, 1.0, 1.5],
   trailMultiplier: [0.8, 1.0, 1.5],
   tsActivationMultiplier: [1.5, 2.0, 2.5],
+  maxChaseAtr: [0.5, 1.0, 1.5, 2.0],
 } as const;
 
 export type ParameterKey = keyof typeof PARAMETER_GRID;
@@ -69,14 +71,17 @@ export function generateParameterCombinations(): Array<Partial<BreakoutBacktestC
         for (const beActivationMultiplier of PARAMETER_GRID.beActivationMultiplier) {
           for (const trailMultiplier of PARAMETER_GRID.trailMultiplier) {
             for (const tsActivationMultiplier of PARAMETER_GRID.tsActivationMultiplier) {
-              combos.push({
-                triggerThreshold,
-                highLookbackDays,
-                atrMultiplier,
-                beActivationMultiplier,
-                trailMultiplier,
-                tsActivationMultiplier,
-              });
+              for (const maxChaseAtr of PARAMETER_GRID.maxChaseAtr) {
+                combos.push({
+                  triggerThreshold,
+                  highLookbackDays,
+                  atrMultiplier,
+                  beActivationMultiplier,
+                  trailMultiplier,
+                  tsActivationMultiplier,
+                  maxChaseAtr,
+                });
+              }
             }
           }
         }

@@ -351,9 +351,15 @@ function detectBreakoutEntries(
     const highN = Math.max(...lookbackBars.map((b) => b.high));
     if (latest.close <= highN) continue;
 
+    // 高値追いフィルター: highNからATR×maxChaseAtr以上乖離していたらスキップ
+    const atr14 = summary.atr14;
+    if (config.maxChaseAtr != null && atr14 > 0) {
+      const chaseAmount = latest.close - highN;
+      if (chaseAmount > atr14 * config.maxChaseAtr) continue;
+    }
+
     // ── エントリー条件算出 ──
     const entryPrice = latest.close;
-    const atr14 = summary.atr14;
 
     // SL: ATRベース、ハードキャップ適用
     const rawSL = entryPrice - atr14 * config.atrMultiplier;

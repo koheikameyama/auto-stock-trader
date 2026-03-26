@@ -18,6 +18,7 @@ breakout戦略（出来高サージ + 高値ブレイク）のパラメータ妥
 | 価格上限 | 株価 ≤ maxPrice（5,000円） | スプレッドリスク回避 |
 | 流動性 | 25日平均出来高 ≥ minAvgVolume25（50,000株） | 流動性確保 |
 | ボラティリティ | ATR% ≥ minAtrPct（1.5%） | 十分な値幅確保 |
+| 高値追い制限 | 終値 - highN ≤ ATR × maxChaseAtr（1.0） | 高値追いエントリー防止 |
 | クールダウン | 同一銘柄の直近エントリーからcooldownDays（3日）以上 | 往復売買防止 |
 
 ## 出口ロジック
@@ -57,6 +58,7 @@ quantity = floor(riskAmount / riskPerShare / 100) × 100  // 100株単位
 | costModelEnabled | true | 取引コストモデル |
 | priceLimitEnabled | true | 値幅制限モデル |
 | cooldownDays | 3 | 同一銘柄クールダウン |
+| maxChaseAtr | 1.0 | 高値追い制限（ATR倍率）。high20からATR×N以上乖離でスキップ |
 
 ## パフォーマンス指標
 

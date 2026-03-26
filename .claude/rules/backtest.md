@@ -19,14 +19,14 @@ npm run backtest:breakout
 npm run walk-forward:breakout
 ```
 
-実行時間の目安: 15〜30分（720パラメータ × 6ウィンドウ × IS+OOS）
+実行時間の目安: 60〜120分（2,880パラメータ × 6ウィンドウ × IS+OOS）
 
 #### ウィンドウ構成
 
 - IS（In-Sample）: 6ヶ月 / OOS（Out-of-Sample）: 3ヶ月
 - スライド: 3ヶ月 × 6ウィンドウ = 24ヶ月
 
-#### パラメータグリッド（720通り）
+#### パラメータグリッド（2,880通り）
 
 | パラメータ | 値 |
 |-----------|-----|
@@ -35,6 +35,7 @@ npm run walk-forward:breakout
 | atrMultiplier | 0.8, 1.0, 1.2, 1.5 |
 | trailMultiplier | 0.8, 1.0, 1.5 |
 | tsActivationMultiplier | 1.5, 2.0, 2.5 |
+| maxChaseAtr | 0.5, 1.0, 1.5, 2.0 |
 
 ### 実行タイミング
 

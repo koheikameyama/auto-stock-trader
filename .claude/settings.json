@@ -11,7 +11,8 @@
       "Bash(npm test:*)",
       "Bash(npx husky init)",
       "Bash(npx jest:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(set:*)"
     ]
   },
   "hooks": {

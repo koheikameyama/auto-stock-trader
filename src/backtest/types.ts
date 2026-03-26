@@ -17,6 +17,8 @@ export interface BreakoutBacktestConfig {
   triggerThreshold: number;
   /** 高値ルックバック日数 */
   highLookbackDays: number;
+  /** high20からの最大許容乖離（ATR倍率）。これ以上離れていたら高値追いとしてスキップ */
+  maxChaseAtr: number;
 
   // ストップロス
   /** SL = entry - ATR × this */

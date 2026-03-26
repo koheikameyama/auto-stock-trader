@@ -25,6 +25,8 @@ export const BREAKOUT = {
   PRICE: {
     /** 高値の検索期間（営業日） */
     HIGH_LOOKBACK_DAYS: 20,
+    /** high20からの最大許容乖離（ATR倍率）。これ以上離れていたら高値追いとしてスキップ */
+    MAX_CHASE_ATR: 1.0,
   },
 
   /** ポーリング間隔 */

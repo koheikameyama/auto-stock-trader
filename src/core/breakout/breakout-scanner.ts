@@ -84,9 +84,14 @@ export class BreakoutScanner {
       );
       this.state.lastSurgeRatios.set(ticker, surgeRatio);
 
+      // 高値追いチェック: high20からATR×MAX_CHASE_ATR以上乖離していたらスキップ
+      const chaseAmount = quote.price - watchEntry.high20;
+      const maxChase = watchEntry.atr14 * BREAKOUT.PRICE.MAX_CHASE_ATR;
+
       if (
         surgeRatio >= BREAKOUT.VOLUME_SURGE.TRIGGER_THRESHOLD &&
         quote.price > watchEntry.high20 &&
+        chaseAmount <= maxChase &&
         this.canFireTrigger(ticker, hour, minute, dailyEntryCount, holdingTickers)
       ) {
         // Trigger 発火
