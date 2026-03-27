@@ -35,6 +35,7 @@ export function runBreakoutBacktest(
   config: BreakoutBacktestConfig,
   allData: Map<string, OHLCVData[]>,
   vixData?: Map<string, number>,
+  indexData?: Map<string, number>,
 ): BreakoutBacktestResult {
   const openPositions: SimulatedPosition[] = [];
   const closedTrades: SimulatedPosition[] = [];
@@ -94,6 +95,30 @@ export function runBreakoutBacktest(
         if (data.closes[idx] > sma) above++;
       }
       dailyBreadth.set(day, total > 0 ? above / total : 0);
+    }
+  }
+
+  // 指数トレンドフィルター事前計算（indexTrendFilter用）
+  // indexData は date→close のMap（startDate前のlookback期間を含む）
+  const dailyIndexAboveSma = new Map<string, boolean>();
+  if (config.indexTrendFilter && indexData && indexData.size > 0) {
+    const smaPeriod = config.indexTrendSmaPeriod ?? 50;
+    // date昇順で配列化
+    const indexDates = [...indexData.keys()].sort();
+    const indexCloses = indexDates.map((d) => indexData.get(d)!);
+    const indexDateIdx = new Map<string, number>();
+    for (let i = 0; i < indexDates.length; i++) indexDateIdx.set(indexDates[i], i);
+
+    for (const day of tradingDays) {
+      const idx = indexDateIdx.get(day);
+      if (idx == null || idx < smaPeriod - 1) {
+        dailyIndexAboveSma.set(day, false);
+        continue;
+      }
+      let sum = 0;
+      for (let j = idx - smaPeriod + 1; j <= idx; j++) sum += indexCloses[j];
+      const sma = sum / smaPeriod;
+      dailyIndexAboveSma.set(day, indexCloses[idx] > sma);
     }
   }
 
@@ -232,10 +257,17 @@ export function runBreakoutBacktest(
       // A. 市場トレンドフィルター: breadth < 閾値 ならエントリースキップ
       const breadthThreshold = config.marketTrendThreshold ?? 0.5;
       const skipByBreadth = config.marketTrendFilter && (dailyBreadth.get(today) ?? 0) < breadthThreshold;
+      // C. 指数トレンドフィルター: 日経225などの指数がSMA以下ならエントリースキップ
+      const skipByIndex = config.indexTrendFilter && !dailyIndexAboveSma.get(today);
       if (skipByBreadth) {
         if (config.verbose) {
           const breadth = dailyBreadth.get(today) ?? 0;
           console.log(`  [${today}] 市場breadth ${(breadth * 100).toFixed(0)}% < ${(breadthThreshold * 100).toFixed(0)}%: エントリースキップ`);
+        }
+      } else if (skipByIndex) {
+        if (config.verbose) {
+          const smaPeriod = config.indexTrendSmaPeriod ?? 50;
+          console.log(`  [${today}] 日経225 SMA${smaPeriod}以下: エントリースキップ`);
         }
       } else {
         const entries = detectBreakoutEntries(config, allData, today, cash, openPositions, lastExitDayIdx, dayIdx, tradingDays, dateIndexMap);

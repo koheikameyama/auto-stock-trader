@@ -65,6 +65,10 @@ export interface BreakoutBacktestConfig {
   confirmationEntry?: boolean;
   /** 確認足＋出来高継続: 確認日の出来高が avgVolume25 以上の場合のみエントリー */
   confirmationVolumeFilter?: boolean;
+  /** 指数トレンドフィルター: 日経225などの指数がSMA以上の時のみエントリー */
+  indexTrendFilter?: boolean;
+  /** 指数SMA期間（デフォルト: 50） */
+  indexTrendSmaPeriod?: number;
 
   verbose: boolean;
 }

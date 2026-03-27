@@ -87,3 +87,41 @@ export async function fetchVixFromDB(
   }
   return vixMap;
 }
+
+/**
+ * 市場指数データ取得（SMA計算用にlookbackDays分を含めて取得）
+ *
+ * @param tickerCode 指数コード（例: "^N225"）
+ * @param startDate シミュレーション開始日
+ * @param endDate シミュレーション終了日
+ * @param lookbackDays SMA計算用の追加日数（デフォルト: 120）
+ * @returns Map<date, close>
+ */
+export async function fetchIndexFromDB(
+  tickerCode: string,
+  startDate: string,
+  endDate: string,
+  lookbackDays = 120,
+): Promise<Map<string, number>> {
+  const adjustedStart = dayjs(startDate)
+    .subtract(lookbackDays, "day")
+    .format("YYYY-MM-DD");
+
+  const rows = await prisma.stockDailyBar.findMany({
+    where: {
+      tickerCode,
+      date: {
+        gte: new Date(`${adjustedStart}T00:00:00Z`),
+        lte: new Date(`${endDate}T00:00:00Z`),
+      },
+    },
+    orderBy: { date: "asc" },
+    select: { date: true, close: true },
+  });
+
+  const indexMap = new Map<string, number>();
+  for (const row of rows) {
+    indexMap.set(dayjs(row.date).format("YYYY-MM-DD"), row.close);
+  }
+  return indexMap;
+}
