@@ -16,9 +16,6 @@ export const TRADING_DEFAULTS = {
   MAX_DAILY_LOSS_PCT: 3, // 日次最大損失率(%)
 } as const;
 
-export const GAPUP_DEFAULTS = {
-  MAX_POSITIONS: 2, // gapup戦略の最大同時保有数
-} as const;
 
 // ========================================
 // OpenAI設定

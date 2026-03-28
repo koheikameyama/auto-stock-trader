@@ -197,7 +197,7 @@ export async function main(): Promise<void> {
     // quotesRawは既に取得済み（上のbreakoutスキャンで使った全銘柄OHLCVデータ）
     // YfQuoteResult には open, high, low, price, volume が全て含まれている
     const gapupQuotes: GapUpQuoteData[] = quotesRaw
-      .filter((q): q is NonNullable<typeof q> => q !== null)
+      .filter((q): q is NonNullable<typeof q> => q !== null && q.open > 0 && q.volume > 0)
       .map((q) => ({
         ticker: q.tickerCode,
         open: q.open,

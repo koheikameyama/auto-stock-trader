@@ -28,6 +28,7 @@ import { TACHIBANA_ORDER } from "../../lib/constants/broker";
 import { ORDER_EXPIRY } from "../../lib/constants/jobs";
 import type { BreakoutTrigger } from "./types";
 import type { QuoteData } from "./breakout-scanner";
+import type { GapUpTrigger } from "../gapup/gapup-scanner";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -38,17 +39,6 @@ export interface ExecutionResult {
   reason?: string;
   /** true の場合、同じ銘柄の再トリガーを許可する（一時的な理由での却下） */
   retryable?: boolean;
-}
-
-/** ギャップアップトリガー（gapup-scanner.tsから渡される） */
-export interface GapUpTrigger {
-  ticker: string;
-  currentPrice: number;
-  volume: number;
-  volumeSurgeRatio: number;
-  atr14: number;
-  prevClose: number;
-  triggeredAt: Date;
 }
 
 /**
@@ -172,7 +162,7 @@ export async function executeEntry(
       side: "buy",
       orderType: isGapUp ? "market" : "limit",
       strategy,
-      limitPrice: currentPrice,
+      limitPrice: currentPrice, // gapup: スナップショット価格（実約定は引け値）
       takeProfitPrice,
       stopLossPrice,
       quantity,

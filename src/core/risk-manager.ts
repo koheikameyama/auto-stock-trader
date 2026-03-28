@@ -12,8 +12,8 @@ import {
   POSITION_SIZING,
   GAP_RISK,
   TRADING_DEFAULTS,
-  GAPUP_DEFAULTS,
 } from "../lib/constants";
+import { GAPUP } from "../lib/constants/gapup";
 import { canAddToSector, canAddToMacroFactor } from "./sector-analyzer";
 import { calculateDrawdownStatus } from "./drawdown-manager";
 import { fetchStockQuotesBatch } from "./market-data";
@@ -77,7 +77,7 @@ export async function canOpenPosition(
     const gapupPositionCount = openPositions.filter(
       (pos) => pos.strategy === "gapup",
     ).length;
-    const gapupMax = GAPUP_DEFAULTS.MAX_POSITIONS;
+    const gapupMax = GAPUP.POSITION.MAX_POSITIONS;
     if (gapupPositionCount >= gapupMax) {
       return {
         allowed: false,
