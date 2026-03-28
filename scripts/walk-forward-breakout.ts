@@ -4,7 +4,7 @@
  * IS（In-Sample）6ヶ月 / OOS（Out-of-Sample）3ヶ月
  * 3ヶ月スライド × 6ウィンドウ = 24ヶ月
  *
- * パラメータグリッド（288通り）を IS で最適化し、
+ * パラメータグリッド（81通り）を IS で最適化し、
  * OOS で汎化性能を検証する。
  *
  * 選択方式:
@@ -29,6 +29,9 @@ const SLIDE_MONTHS = 3;
 const NUM_WINDOWS = 6;
 const TOTAL_MONTHS = IS_MONTHS + OOS_MONTHS + SLIDE_MONTHS * (NUM_WINDOWS - 1);
 
+/** IS最低PFゲート: IS最適PFがこの値未満ならOOS期間はトレードしない（休止） */
+const MIN_IS_PF = 0.5;
+
 interface WindowResult {
   windowIdx: number;
   isStart: string;
@@ -37,7 +40,7 @@ interface WindowResult {
   oosEnd: string;
   bestIsParams: Partial<BreakoutBacktestConfig>;
   isMetrics: PerformanceMetrics;
-  oosMetrics: PerformanceMetrics;
+  oosMetrics: PerformanceMetrics | null; // null = IS PFゲートで休止
 }
 
 // --- パラメータ選択ヘルパー ---
@@ -48,7 +51,7 @@ interface ComboResult {
 }
 
 function paramComboKey(params: Partial<BreakoutBacktestConfig>): string {
-  return `${params.atrMultiplier}_${params.beActivationMultiplier}_${params.trailMultiplier}_${params.tsActivationMultiplier}_${params.minBreakoutAtr ?? 0}_${params.volumeTrendThreshold ?? 1.0}`;
+  return `${params.atrMultiplier}_${params.beActivationMultiplier}_${params.trailMultiplier}_${params.tsActivationMultiplier}`;
 }
 
 function calcMedian(values: number[]): number {
@@ -78,8 +81,6 @@ function selectByRobustness(comboResults: Map<string, ComboResult>): ComboResult
     [...PARAMETER_GRID.beActivationMultiplier],
     [...PARAMETER_GRID.trailMultiplier],
     [...PARAMETER_GRID.tsActivationMultiplier],
-    [...PARAMETER_GRID.minBreakoutAtr],
-    [...PARAMETER_GRID.volumeTrendThreshold],
   ];
   const gridSizes = gridArrays.map((a) => a.length);
 
@@ -93,8 +94,6 @@ function selectByRobustness(comboResults: Map<string, ComboResult>): ComboResult
       gridArrays[1].indexOf(p.beActivationMultiplier!),
       gridArrays[2].indexOf(p.trailMultiplier!),
       gridArrays[3].indexOf(p.tsActivationMultiplier!),
-      gridArrays[4].indexOf(p.minBreakoutAtr ?? 0),
-      gridArrays[5].indexOf(p.volumeTrendThreshold ?? 1.0),
     ];
 
     // 近傍 (±1 grid step in each dimension) のPFを収集
@@ -107,7 +106,7 @@ function selectByRobustness(comboResults: Map<string, ComboResult>): ComboResult
       return vals;
     });
 
-    // 6次元の近傍を再帰的に列挙
+    // 4次元の近傍を再帰的に列挙
     function collectNeighbors(dim: number, current: number[]): void {
       if (dim === ranges.length) {
         const nKey = current.map((i, d) => gridArrays[d][i]).join("_");
@@ -236,6 +235,25 @@ async function main() {
     const bestParams = selected.params;
     const bestIsMetrics = selected.metrics;
 
+    // IS最低PFゲート: ISで全パラメータが負ける環境はOOSもトレードしない
+    if (bestIsMetrics.profitFactor < MIN_IS_PF) {
+      console.log(`  IS  最適PF: ${formatPF(bestIsMetrics.profitFactor)} (${bestIsMetrics.totalTrades}トレード, 勝率${bestIsMetrics.winRate}%)`);
+      console.log(`  ⏸ IS最適PF < ${MIN_IS_PF} → OOS期間は休止（トレードしない）`);
+      console.log(`  最適パラメータ: atr=${bestParams.atrMultiplier}, be=${bestParams.beActivationMultiplier}, trail=${bestParams.trailMultiplier}, ts=${bestParams.tsActivationMultiplier}`);
+      console.log("");
+      results.push({
+        windowIdx: w,
+        isStart,
+        isEnd,
+        oosStart,
+        oosEnd,
+        bestIsParams: bestParams,
+        isMetrics: bestIsMetrics,
+        oosMetrics: null, // 休止
+      });
+      continue;
+    }
+
     // OOS期間の共有データとシグナルを1回だけ事前計算
     const oosPrecomputed = precomputeSimData(
       oosStart, oosEnd, allData,
@@ -272,7 +290,7 @@ async function main() {
 
     console.log(`  IS  最適PF: ${formatPF(bestIsMetrics.profitFactor)} (${bestIsMetrics.totalTrades}トレード, 勝率${bestIsMetrics.winRate}%)`);
     console.log(`  OOS PF:     ${formatPF(oosResult.metrics.profitFactor)} (${oosResult.metrics.totalTrades}トレード, 勝率${oosResult.metrics.winRate}%)`);
-    console.log(`  最適パラメータ: atr=${bestParams.atrMultiplier}, be=${bestParams.beActivationMultiplier}, trail=${bestParams.trailMultiplier}, ts=${bestParams.tsActivationMultiplier}, ba=${bestParams.minBreakoutAtr ?? 0}, vt=${bestParams.volumeTrendThreshold ?? 1.0}`);
+    console.log(`  最適パラメータ: atr=${bestParams.atrMultiplier}, be=${bestParams.beActivationMultiplier}, trail=${bestParams.trailMultiplier}, ts=${bestParams.tsActivationMultiplier}`);
     console.log("");
   }
 
@@ -309,31 +327,35 @@ function printSummary(results: WindowResult[]): void {
     return;
   }
 
-  // OOS集計
+  // OOS集計（休止ウィンドウは除外）
+  const activeResults = results.filter((r) => r.oosMetrics !== null);
+  const skippedCount = results.length - activeResults.length;
+
   let oosGrossProfit = 0;
   let oosGrossLoss = 0;
   let oosTotalTrades = 0;
   let oosWins = 0;
 
-  for (const r of results) {
-    oosTotalTrades += r.oosMetrics.totalTrades;
-    oosWins += r.oosMetrics.wins;
-    // PFから逆算
-    const wins = r.oosMetrics.wins;
-    const losses = r.oosMetrics.losses;
-    if (wins > 0) oosGrossProfit += r.oosMetrics.avgWinPct * wins;
-    if (losses > 0) oosGrossLoss += Math.abs(r.oosMetrics.avgLossPct) * losses;
+  for (const r of activeResults) {
+    const oos = r.oosMetrics!;
+    oosTotalTrades += oos.totalTrades;
+    oosWins += oos.wins;
+    if (oos.wins > 0) oosGrossProfit += oos.avgWinPct * oos.wins;
+    if (oos.losses > 0) oosGrossLoss += Math.abs(oos.avgLossPct) * oos.losses;
   }
 
   const oosAggregatePF = oosGrossLoss > 0 ? oosGrossProfit / oosGrossLoss : oosGrossProfit > 0 ? Infinity : 0;
   const oosWinRate = oosTotalTrades > 0 ? (oosWins / oosTotalTrades) * 100 : 0;
 
-  // IS平均PF
+  // IS平均PF（全ウィンドウ）, OOS平均PF（アクティブのみ）
   const isAvgPF = results.reduce((s, r) => s + r.isMetrics.profitFactor, 0) / results.length;
-  const oosAvgPF = results.reduce((s, r) => s + r.oosMetrics.profitFactor, 0) / results.length;
+  const oosAvgPF = activeResults.length > 0
+    ? activeResults.reduce((s, r) => s + r.oosMetrics!.profitFactor, 0) / activeResults.length
+    : 0;
   const isOosRatio = oosAvgPF > 0 ? isAvgPF / oosAvgPF : Infinity;
 
   console.log(`\nOOS集計:`);
+  console.log(`  アクティブウィンドウ: ${activeResults.length}/${results.length}（休止: ${skippedCount}）`);
   console.log(`  総トレード: ${oosTotalTrades}`);
   console.log(`  勝率: ${oosWinRate.toFixed(1)}%`);
   console.log(`  集計PF: ${formatPF(oosAggregatePF)}`);
@@ -353,18 +375,24 @@ function printSummary(results: WindowResult[]): void {
   console.log("-".repeat(90));
   for (const r of results) {
     const p = r.bestIsParams;
-    const paramStr = `atr=${p.atrMultiplier} be=${p.beActivationMultiplier} trail=${p.trailMultiplier} ts=${p.tsActivationMultiplier} ba=${p.minBreakoutAtr ?? 0} vt=${p.volumeTrendThreshold ?? 1.0}`;
-    console.log(
-      `  ${r.windowIdx + 1}    | ${padPF(r.isMetrics.profitFactor)} | ${padPF(r.oosMetrics.profitFactor)} | ` +
-      `${r.oosMetrics.winRate.toFixed(1).padStart(5)}%  | ${String(r.oosMetrics.totalTrades).padStart(11)} | ${paramStr}`,
-    );
+    const paramStr = `atr=${p.atrMultiplier} be=${p.beActivationMultiplier} trail=${p.trailMultiplier} ts=${p.tsActivationMultiplier}`;
+    if (r.oosMetrics === null) {
+      console.log(
+        `  ${r.windowIdx + 1}    | ${padPF(r.isMetrics.profitFactor)} |    休止 |      -  |           - | ${paramStr}`,
+      );
+    } else {
+      console.log(
+        `  ${r.windowIdx + 1}    | ${padPF(r.isMetrics.profitFactor)} | ${padPF(r.oosMetrics.profitFactor)} | ` +
+        `${r.oosMetrics.winRate.toFixed(1).padStart(5)}%  | ${String(r.oosMetrics.totalTrades).padStart(11)} | ${paramStr}`,
+      );
+    }
   }
 
-  // パラメータ安定性分析
+  // パラメータ安定性分析（アクティブウィンドウのみ）
   console.log("\n[パラメータ安定性]");
-  const paramKeys = ["atrMultiplier", "beActivationMultiplier", "trailMultiplier", "tsActivationMultiplier", "minBreakoutAtr", "volumeTrendThreshold"] as const;
+  const paramKeys = ["atrMultiplier", "beActivationMultiplier", "trailMultiplier", "tsActivationMultiplier"] as const;
   for (const key of paramKeys) {
-    const values = results.map((r) => r.bestIsParams[key] ?? (key === "volumeTrendThreshold" ? 1.0 : 0));
+    const values = activeResults.map((r) => r.bestIsParams[key]);
     const uniqueValues = [...new Set(values)];
     const stability = uniqueValues.length === 1 ? "安定" : uniqueValues.length <= 2 ? "やや安定" : "不安定";
     console.log(`  ${key}: ${uniqueValues.join(", ")} → ${stability}`);

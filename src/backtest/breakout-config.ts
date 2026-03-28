@@ -32,7 +32,7 @@ export const BREAKOUT_BACKTEST_DEFAULTS: Omit<BreakoutBacktestConfig, "startDate
 
   // ユニバースフィルター
   maxPrice: 5000,
-  minAvgVolume25: 200_000,
+  minAvgVolume25: 100_000,
   minAtrPct: 1.5,
 
   // コスト・リスク
@@ -59,16 +59,12 @@ export const BREAKOUT_BACKTEST_DEFAULTS: Omit<BreakoutBacktestConfig, "startDate
 /** 1トレードあたりリスク（%） */
 export const RISK_PER_TRADE_PCT = POSITION_SIZING.RISK_PER_TRADE_PCT; // 2
 
-/** walk-forward パラメータグリッド（エグジット+エントリー） */
+/** walk-forward パラメータグリッド（エグジット系のみ、81通り） */
 export const PARAMETER_GRID = {
-  // エグジット系（安定領域に縮小）
   atrMultiplier: [0.8, 1.0, 1.2],
-  beActivationMultiplier: [0.3, 0.5],
-  trailMultiplier: [0.3, 0.5],
-  tsActivationMultiplier: [1.0, 1.5],
-  // エントリー系（新規）
-  minBreakoutAtr: [0.0, 0.2, 0.3, 0.5],
-  volumeTrendThreshold: [1.0, 1.2, 1.5],
+  beActivationMultiplier: [0.3, 0.5, 0.8],
+  trailMultiplier: [0.3, 0.5, 0.8],
+  tsActivationMultiplier: [1.0, 1.5, 2.0],
 } as const;
 
 export type ParameterKey = keyof typeof PARAMETER_GRID;
@@ -81,18 +77,12 @@ export function generateParameterCombinations(): Array<Partial<BreakoutBacktestC
     for (const beActivationMultiplier of PARAMETER_GRID.beActivationMultiplier) {
       for (const trailMultiplier of PARAMETER_GRID.trailMultiplier) {
         for (const tsActivationMultiplier of PARAMETER_GRID.tsActivationMultiplier) {
-          for (const minBreakoutAtr of PARAMETER_GRID.minBreakoutAtr) {
-            for (const volumeTrendThreshold of PARAMETER_GRID.volumeTrendThreshold) {
-              combos.push({
-                atrMultiplier,
-                beActivationMultiplier,
-                trailMultiplier,
-                tsActivationMultiplier,
-                minBreakoutAtr,
-                volumeTrendThreshold,
-              });
-            }
-          }
+          combos.push({
+            atrMultiplier,
+            beActivationMultiplier,
+            trailMultiplier,
+            tsActivationMultiplier,
+          });
         }
       }
     }

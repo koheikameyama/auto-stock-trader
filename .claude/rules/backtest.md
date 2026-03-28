@@ -19,26 +19,28 @@ npm run backtest:breakout
 npm run walk-forward:breakout
 ```
 
-実行時間の目安: 数分〜十数分（288パラメータ × 6ウィンドウ × IS+OOS）
+実行時間の目安: 数分（81パラメータ × 6ウィンドウ × IS+OOS）
 
 #### ウィンドウ構成
 
 - IS（In-Sample）: 6ヶ月 / OOS（Out-of-Sample）: 3ヶ月
 - スライド: 3ヶ月 × 6ウィンドウ = 24ヶ月
 
-#### パラメータグリッド（288通り、エグジット+エントリー）
+#### パラメータグリッド（81通り、エグジット系のみ）
 
-エントリー系の基本パラメータ（triggerThreshold, highLookbackDays, maxChaseAtr）はデフォルト固定。
-エントリーフィルター（minBreakoutAtr, volumeTrendThreshold）はグリッド探索対象。
+エントリー系パラメータはデフォルト固定（グリッド探索しない）。
 
 | パラメータ | 値 |
 |-----------|-----|
 | atrMultiplier | 0.8, 1.0, 1.2 |
-| beActivationMultiplier | 0.3, 0.5 |
-| trailMultiplier | 0.3, 0.5 |
-| tsActivationMultiplier | 1.0, 1.5 |
-| minBreakoutAtr | 0.0, 0.2, 0.3, 0.5 |
-| volumeTrendThreshold | 1.0, 1.2, 1.5 |
+| beActivationMultiplier | 0.3, 0.5, 0.8 |
+| trailMultiplier | 0.3, 0.5, 0.8 |
+| tsActivationMultiplier | 1.0, 1.5, 2.0 |
+
+#### IS最低PFゲート
+
+IS最適PF < 0.5 のウィンドウはOOS期間を「休止」（トレードしない）として扱う。
+全パラメータがIS期間で負ける環境では、パラメータ選択に意味がないため。
 
 ### 実行タイミング
 
