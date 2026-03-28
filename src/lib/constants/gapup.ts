@@ -12,4 +12,17 @@ export const GAPUP = {
   STOP_LOSS: {
     ATR_MULTIPLIER: 1.0,
   },
+  /** エントリーガード条件（ライブ用） */
+  GUARD: {
+    /** gapupスキャン実行時刻（JST、14:50） */
+    SCAN_HOUR: 14,
+    SCAN_MINUTE: 50,
+    /** 1日の最大エントリー件数 */
+    MAX_DAILY_ENTRIES: 2,
+  },
+  /** ポジション管理 */
+  POSITION: {
+    /** 最大同時保有数（breakoutとは独立） */
+    MAX_POSITIONS: 2,
+  },
 } as const;
