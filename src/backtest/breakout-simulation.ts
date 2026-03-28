@@ -157,6 +157,10 @@ export interface PrecomputedSignal {
   /** SL計算用: SL = entryPrice - atr14 * config.atrMultiplier */
   atr14: number;
   volumeSurgeRatio: number;
+  /** ブレイクアウト強度: (signalClose - highN) / atr14 */
+  breakoutStrength: number;
+  /** 出来高トレンド: avgVolume5 / avgVolume25 */
+  volumeTrendRatio: number;
 }
 
 /** entryDate → signals (volumeSurgeRatio 降順) */
@@ -226,6 +230,12 @@ export function precomputeDailySignals(
       const avgVolume25 = summary.volumeAnalysis.avgVolume20;
       if (avgVolume25 == null || avgVolume25 < config.minAvgVolume25) continue;
 
+      // 出来高トレンド: avgVolume5 / avgVolume25
+      const vol5Start = Math.max(0, signalIdx - 4);
+      const vol5Bars = bars.slice(vol5Start, signalIdx + 1);
+      const avgVolume5 = vol5Bars.reduce((s, b) => s + b.volume, 0) / vol5Bars.length;
+      const volumeTrendRatio = avgVolume25 > 0 ? avgVolume5 / avgVolume25 : 0;
+
       const volumeSurgeRatio = signalBar.volume / avgVolume25;
       if (volumeSurgeRatio < config.triggerThreshold) continue;
 
@@ -239,6 +249,9 @@ export function precomputeDailySignals(
       // 高値追いフィルター
       const atr14 = summary.atr14;
       if (config.maxChaseAtr != null && atr14 > 0 && signalBar.close - highN > atr14 * config.maxChaseAtr) continue;
+
+      // ブレイクアウト強度: (close - highN) / atr14
+      const breakoutStrength = atr14 > 0 ? (signalBar.close - highN) / atr14 : 0;
 
       // 確認足
       if (config.confirmationEntry) {
@@ -257,6 +270,8 @@ export function precomputeDailySignals(
         entryPrice,
         atr14,
         volumeSurgeRatio: Math.round(volumeSurgeRatio * 100) / 100,
+        breakoutStrength: Math.round(breakoutStrength * 100) / 100,
+        volumeTrendRatio: Math.round(volumeTrendRatio * 100) / 100,
       });
     }
 
@@ -563,6 +578,12 @@ export function runBreakoutBacktest(
               const lastExit = lastExitDayIdx.get(signal.ticker);
               if (lastExit != null && dayIdx - lastExit < config.cooldownDays) continue;
             }
+            // エントリーフィルター（コンボ別）
+            const minBA = config.minBreakoutAtr ?? 0;
+            if (minBA > 0 && signal.breakoutStrength < minBA) continue;
+            const vtt = config.volumeTrendThreshold ?? 1.0;
+            if (signal.volumeTrendRatio < vtt) continue;
+
             const rawSL = signal.entryPrice - signal.atr14 * config.atrMultiplier;
             const maxSL = signal.entryPrice * (1 - config.maxLossPct);
             const stopLossPrice = Math.round(Math.max(rawSL, maxSL));
@@ -768,6 +789,22 @@ function detectBreakoutEntries(
     if (config.maxChaseAtr != null && atr14 > 0) {
       const chaseAmount = signalBar.close - highN;
       if (chaseAmount > atr14 * config.maxChaseAtr) continue;
+    }
+
+    // ブレイクアウト強度フィルター
+    const minBA = config.minBreakoutAtr ?? 0;
+    if (minBA > 0 && atr14 > 0) {
+      const breakoutStrength = (signalBar.close - highN) / atr14;
+      if (breakoutStrength < minBA) continue;
+    }
+
+    // 出来高トレンドフィルター
+    const vtt = config.volumeTrendThreshold ?? 1.0;
+    if (avgVolume25 > 0) {
+      const vol5Start = Math.max(0, signalIdx - 4);
+      const vol5Bars = bars.slice(vol5Start, signalIdx + 1);
+      const avgVolume5 = vol5Bars.reduce((s, b) => s + b.volume, 0) / vol5Bars.length;
+      if (avgVolume5 / avgVolume25 < vtt) continue;
     }
 
     // B. 確認足: 今日のcloseがブレイクアウトレベル(highN)を上回っているか確認

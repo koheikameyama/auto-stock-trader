@@ -73,6 +73,10 @@ export interface BreakoutBacktestConfig {
   indexMomentumFilter?: boolean;
   /** N225モメンタム比較日数（デフォルト: 60） */
   indexMomentumDays?: number;
+  /** ブレイクアウト強度フィルター: (close - highN) / atr14 >= this でのみエントリー。0=無効 */
+  minBreakoutAtr?: number;
+  /** 出来高トレンドフィルター: avgVolume5 / avgVolume25 >= this でのみエントリー。1.0=最も緩い */
+  volumeTrendThreshold?: number;
 
   verbose: boolean;
 }
