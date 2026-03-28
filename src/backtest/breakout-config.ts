@@ -44,7 +44,7 @@ export const BREAKOUT_BACKTEST_DEFAULTS: Omit<BreakoutBacktestConfig, "startDate
 
   // エントリーフィルター
   marketTrendFilter: true,
-  marketTrendThreshold: 0.75, // breadth 75%以上の強い上昇相場のみエントリー
+  marketTrendThreshold: 0.73, // breadth 73%以上の強い上昇相場のみエントリー
   confirmationEntry: true,
   indexTrendFilter: true,
   indexTrendSmaPeriod: 50, // N225がSMA50以上の時のみエントリー
