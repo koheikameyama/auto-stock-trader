@@ -42,10 +42,6 @@ export async function tachibanaFetchQuote(
   symbol: string,
 ): Promise<YfQuoteResult> {
   const client = getTachibanaClient();
-  if (!client.isLoggedIn()) {
-    throw new Error("[tachibana-price] Not logged in");
-  }
-
   const brokerCode = tickerToBrokerCode(symbol);
 
   const res = await client.requestPrice({

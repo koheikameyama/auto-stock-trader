@@ -217,7 +217,6 @@ export async function getOrders(filter?: {
   if (mode === "simulation") return null;
 
   const client = getTachibanaClient();
-  if (!client.isLoggedIn()) return null;
 
   return client.request({
     sCLMID: TACHIBANA_CLMID.ORDER_LIST,
@@ -238,7 +237,6 @@ export async function getOrderDetail(
   if (mode === "simulation") return null;
 
   const client = getTachibanaClient();
-  if (!client.isLoggedIn()) return null;
 
   return client.request({
     sCLMID: TACHIBANA_CLMID.ORDER_DETAIL,
@@ -255,7 +253,6 @@ export async function getHoldings(): Promise<BrokerHolding[]> {
   if (mode === "simulation") return [];
 
   const client = getTachibanaClient();
-  if (!client.isLoggedIn()) return [];
 
   const res = await client.request({
     sCLMID: TACHIBANA_CLMID.HOLDINGS,
@@ -282,7 +279,6 @@ export async function getHoldings(): Promise<BrokerHolding[]> {
 export async function getBuyingPower(): Promise<number | null> {
   // 照会系APIのため brokerMode チェックは行わない（読み取り専用）
   const client = getTachibanaClient();
-  if (!client.isLoggedIn()) return null;
 
   const res = await client.request({
     sCLMID: TACHIBANA_CLMID.BUYING_POWER,
@@ -305,7 +301,6 @@ export async function syncBrokerOrderStatuses(): Promise<void> {
   if (mode === "simulation") return;
 
   const client = getTachibanaClient();
-  if (!client.isLoggedIn()) return;
 
   // brokerOrderIdが設定されている未完了注文を取得
   const orders = await prisma.tradingOrder.findMany({
@@ -414,9 +409,6 @@ async function executeLiveOrder(
   params: Record<string, string>,
 ): Promise<BrokerOrderResult> {
   const client = getTachibanaClient();
-  if (!client.isLoggedIn()) {
-    return { success: false, error: "Not logged in", isDryRun: false };
-  }
 
   try {
     const res = await client.request(params);
@@ -449,9 +441,6 @@ async function executeLiveRequest(
   params: Record<string, string>,
 ): Promise<BrokerOrderResult> {
   const client = getTachibanaClient();
-  if (!client.isLoggedIn()) {
-    return { success: false, error: "Not logged in", isDryRun: false };
-  }
 
   try {
     const res = await client.request(params);

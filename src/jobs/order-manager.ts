@@ -46,8 +46,7 @@ import { getCashBalance } from "../core/position-manager";
 import { analyzeOpeningSession } from "../core/opening-session";
 import { notifyOrderPlaced, notifyRiskAlert, notifySlack, notifyBrokerError } from "../lib/slack";
 import { getSectorGroup } from "../lib/constants";
-import { submitOrder as submitBrokerOrder, getEffectiveBrokerMode } from "../core/broker-orders";
-import { getTachibanaClient, initBrokerForBatch } from "../core/broker-client";
+import { submitOrder as submitBrokerOrder } from "../core/broker-orders";
 import type { EntrySnapshot } from "../types/snapshots";
 import type { TradingStrategy } from "../core/market-regime";
 import dayjs from "dayjs";
@@ -73,14 +72,6 @@ interface AnalysisResult {
 
 export async function main() {
   console.log("=== Order Manager 開始 ===");
-
-  // ブローカーセッション初期化（スタンドアロン実行時）
-  let brokerCleanup: (() => Promise<void>) | null = null;
-  if (!getTachibanaClient().isLoggedIn()) {
-    const mode = getEffectiveBrokerMode();
-    const broker = await initBrokerForBatch(mode);
-    brokerCleanup = broker.cleanup;
-  }
 
   try {
 
@@ -745,7 +736,7 @@ export async function main() {
   console.log("=== Order Manager 終了 ===");
 
   } finally {
-    if (brokerCleanup) await brokerCleanup();
+    // ensureSession による自動ログインに任せるため cleanup 不要
   }
 }
 
