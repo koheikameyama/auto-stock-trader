@@ -54,6 +54,24 @@ export function checkTimeWindow(
     };
   }
 
+  // gapup: 14:50-15:00のみエントリー可能
+  if (strategy === "gapup") {
+    const gapupStart = 14 * 60 + 50; // 14:50
+    const gapupEnd = 15 * 60;        // 15:00
+    if (timeMinutes < gapupStart || timeMinutes >= gapupEnd) {
+      return {
+        canTrade: false,
+        reason: "gapup戦略は14:50-15:00のみエントリー可能",
+        isOpeningVolatility: false,
+      };
+    }
+    return {
+      canTrade: true,
+      reason: "OK",
+      isOpeningVolatility: false,
+    };
+  }
+
   // デイトレ: 14:30以降は新規エントリー不可
   if (strategy === "day_trade") {
     const cutoff =
