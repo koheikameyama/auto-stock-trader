@@ -28,6 +28,7 @@ export interface PositionForExit {
   activationMultiplierOverride?: number;
   trailMultiplierOverride?: number;
   maxHoldingDaysOverride?: number;
+  baseLimitHoldingDaysOverride?: number; // 含み損時の早期カット日数（gapup: 3日）
 }
 
 export interface BarForExit {
@@ -103,10 +104,11 @@ export function checkPositionExit(
   //    含み益がある場合は延長し、ハードキャップ（MAX_EXTENDED_HOLDING_DAYS）まで待つ
   if (exitPrice === null && position.strategy !== "day_trade" && !trailingResult.isActivated) {
     const hardCap = position.maxHoldingDaysOverride ?? TIME_STOP.MAX_EXTENDED_HOLDING_DAYS;
+    const baseLimit = position.baseLimitHoldingDaysOverride ?? TIME_STOP.MAX_HOLDING_DAYS;
     const inProfit = bar.close > position.entryPrice;
     const hitHardCap = position.holdingBusinessDays >= hardCap;
     const hitBaseLimitWithNoProfit =
-      position.holdingBusinessDays >= TIME_STOP.MAX_HOLDING_DAYS && !inProfit;
+      position.holdingBusinessDays >= baseLimit && !inProfit;
 
     if (hitHardCap || hitBaseLimitWithNoProfit) {
       exitPrice = bar.close;

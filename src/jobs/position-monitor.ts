@@ -16,6 +16,7 @@ import {
   DEFENSIVE_MODE,
   WEEKEND_RISK,
   TRAILING_STOP,
+  TIME_STOP,
   SCORING,
   TIMEZONE,
 } from "../lib/constants";
@@ -379,10 +380,12 @@ export async function main() {
       );
     }
 
-    // swing/breakoutポジションの連休前引き締め（デイトレは当日決済のため不要）
+    // swing/breakout/gapupポジションの連休前引き締め（デイトレは当日決済のため不要）
     let trailOverride: number | undefined;
-    if (position.strategy === "swing" || position.strategy === "breakout") {
-      const normalTrail = TRAILING_STOP.TRAIL_ATR_MULTIPLIER.swing;
+    if (position.strategy === "swing" || position.strategy === "breakout" || position.strategy === "gapup") {
+      const normalTrail = position.strategy === "gapup"
+        ? TRAILING_STOP.TRAIL_ATR_MULTIPLIER.gapup
+        : TRAILING_STOP.TRAIL_ATR_MULTIPLIER.swing;
       if (isPreLongHoliday) {
         trailOverride = normalTrail * WEEKEND_RISK.TRAILING_TIGHTEN_MULTIPLIER;
       }
@@ -394,6 +397,14 @@ export async function main() {
       trailOverride = trailOverride
         ? Math.min(trailOverride, holdingOverride)
         : holdingOverride;
+    }
+
+    // gapup戦略のタイムストップoverride
+    let maxHoldingDaysOverride: number | undefined;
+    let baseLimitHoldingDaysOverride: number | undefined;
+    if (position.strategy === "gapup") {
+      maxHoldingDaysOverride = TIME_STOP.GAPUP_MAX_EXTENDED_HOLDING_DAYS; // 5
+      baseLimitHoldingDaysOverride = TIME_STOP.GAPUP_MAX_HOLDING_DAYS;    // 3
     }
 
     // 共通出口判定（バックテストと同一ロジック）
@@ -412,6 +423,8 @@ export async function main() {
         strategy: position.strategy as TradingStrategy,
         holdingBusinessDays,
         trailMultiplierOverride: trailOverride,
+        maxHoldingDaysOverride,
+        baseLimitHoldingDaysOverride,
       },
       { open: quote.open, high: quote.high, low: quote.low, close: quote.price },
     );
