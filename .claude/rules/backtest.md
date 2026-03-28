@@ -19,23 +19,26 @@ npm run backtest:breakout
 npm run walk-forward:breakout
 ```
 
-実行時間の目安: 数分〜十数分（81パラメータ × 6ウィンドウ × IS+OOS）
+実行時間の目安: 数分〜十数分（288パラメータ × 6ウィンドウ × IS+OOS）
 
 #### ウィンドウ構成
 
 - IS（In-Sample）: 6ヶ月 / OOS（Out-of-Sample）: 3ヶ月
 - スライド: 3ヶ月 × 6ウィンドウ = 24ヶ月
 
-#### パラメータグリッド（81通り、エグジット系のみ）
+#### パラメータグリッド（288通り、エグジット+エントリー）
 
-エントリー系パラメータ（triggerThreshold, highLookbackDays, maxChaseAtr）はデフォルト固定。
+エントリー系の基本パラメータ（triggerThreshold, highLookbackDays, maxChaseAtr）はデフォルト固定。
+エントリーフィルター（minBreakoutAtr, volumeTrendThreshold）はグリッド探索対象。
 
 | パラメータ | 値 |
 |-----------|-----|
 | atrMultiplier | 0.8, 1.0, 1.2 |
-| beActivationMultiplier | 0.8, 1.0, 1.5 |
-| trailMultiplier | 0.8, 1.0, 1.5 |
-| tsActivationMultiplier | 1.5, 2.0, 2.5 |
+| beActivationMultiplier | 0.3, 0.5 |
+| trailMultiplier | 0.3, 0.5 |
+| tsActivationMultiplier | 1.0, 1.5 |
+| minBreakoutAtr | 0.0, 0.2, 0.3, 0.5 |
+| volumeTrendThreshold | 1.0, 1.2, 1.5 |
 
 ### 実行タイミング
 
