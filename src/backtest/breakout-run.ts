@@ -17,7 +17,7 @@ import { calculateCapitalUtilization } from "./metrics";
 import type { BreakoutBacktestConfig, BreakoutBacktestResult, PerformanceMetrics, ScoreFilterConfig } from "./types";
 import { saveBacktestResult } from "./db-saver";
 import type { OHLCVData } from "../core/technical-analysis";
-import { runMonteCarloSimulation, printMonteCarloReport } from "./monte-carlo";
+import { runMonteCarloSimulation, printMonteCarloReport, runCompoundGrowthSimulation, printCompoundGrowthReport } from "./monte-carlo";
 
 function getArg(args: string[], flag: string): string | undefined {
   const idx = args.indexOf(flag);
@@ -249,7 +249,9 @@ async function main() {
   const exitCompare = args.includes("--exit-compare");
   const noCost = args.includes("--no-cost");
   const monteCarlo = args.includes("--monte-carlo");
+  const compound = args.includes("--compound");
   const mcIterationsStr = getArg(args, "--mc-iterations");
+  const compoundYearsStr = getArg(args, "--years");
 
   const config: BreakoutBacktestConfig = {
     ...BREAKOUT_BACKTEST_DEFAULTS,
@@ -351,6 +353,20 @@ async function main() {
       ruinThresholdPct: 50,
     });
     printMonteCarloReport(mcResult);
+  }
+
+  // 5c. Compound growth simulation
+  if (compound) {
+    const mcIterations = mcIterationsStr ? Number(mcIterationsStr) : 10_000;
+    const years = compoundYearsStr ? Number(compoundYearsStr) : 5;
+    console.log(`\n[compound] Compound growth simulation (${years} years, ${mcIterations.toLocaleString()} iterations)...`);
+    const cgResult = runCompoundGrowthSimulation(result.trades, {
+      iterations: mcIterations,
+      years,
+      maxPositions: config.maxPositions,
+      initialCapital: config.initialBudget,
+    });
+    printCompoundGrowthReport(cgResult);
   }
 
   // DBに保存

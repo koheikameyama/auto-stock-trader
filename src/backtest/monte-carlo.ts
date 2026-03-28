@@ -243,6 +243,116 @@ export function printMonteCarloReport(result: MonteCarloResult): void {
   console.log(SEP);
 }
 
+// ── Compound Growth Simulation ─────────────────────
+
+export interface CompoundGrowthConfig {
+  iterations: number;
+  years: number; // projection horizon (default 5)
+  maxPositions: number;
+  initialCapital: number;
+}
+
+export interface CompoundGrowthResult {
+  iterations: number;
+  years: number;
+  initialCapital: number;
+  tradesPerYear: number;
+  /** equityByYear[y] = Percentiles of equity at end of year y (1-indexed) */
+  equityByYear: Percentiles[];
+  /** maxDDByYear[y] = Percentiles of max drawdown experienced up to year y */
+  maxDDByYear: Percentiles[];
+}
+
+export function runCompoundGrowthSimulation(
+  trades: SimulatedPosition[],
+  config: CompoundGrowthConfig,
+): CompoundGrowthResult {
+  const closedTrades = trades.filter(
+    (t) => t.exitReason && t.exitReason !== "still_open" && t.pnlPct !== null,
+  );
+  const pnlPcts = closedTrades.map((t) => t.pnlPct!);
+  const tradesPerYear = pnlPcts.length;
+  const positionFraction = 1 / config.maxPositions;
+
+  // Per-year equity and maxDD collectors
+  const equityCollectors: number[][] = Array.from({ length: config.years }, () => []);
+  const ddCollectors: number[][] = Array.from({ length: config.years }, () => []);
+
+  for (let i = 0; i < config.iterations; i++) {
+    let equity = config.initialCapital;
+    let peak = equity;
+    let maxDD = 0;
+
+    for (let y = 0; y < config.years; y++) {
+      // Sample one year's worth of trades
+      for (let t = 0; t < tradesPerYear; t++) {
+        const pnl = pnlPcts[Math.floor(Math.random() * tradesPerYear)];
+        equity += equity * positionFraction * (pnl / 100);
+        if (equity > peak) peak = equity;
+        const dd = ((peak - equity) / peak) * 100;
+        if (dd > maxDD) maxDD = dd;
+      }
+      equityCollectors[y].push(equity);
+      ddCollectors[y].push(maxDD);
+    }
+  }
+
+  return {
+    iterations: config.iterations,
+    years: config.years,
+    initialCapital: config.initialCapital,
+    tradesPerYear,
+    equityByYear: equityCollectors.map((v) => percentiles(v)),
+    maxDDByYear: ddCollectors.map((v) => percentiles(v)),
+  };
+}
+
+export function printCompoundGrowthReport(result: CompoundGrowthResult): void {
+  const SEP = "=".repeat(78);
+  const fmtYen = (v: number) => `¥${Math.round(v).toLocaleString()}`;
+
+  console.log(`\n${SEP}`);
+  console.log(`  Compound Growth Simulation (${result.iterations.toLocaleString()} iterations, ${result.years} years)`);
+  console.log(`  Initial: ${fmtYen(result.initialCapital)} | ${result.tradesPerYear} trades/year | compound reinvestment`);
+  console.log(SEP);
+
+  // Equity table
+  const hdr = `${"Year".padEnd(6)}| ${"5%(worst)".padStart(12)} | ${"25%".padStart(12)} | ${"50%(median)".padStart(12)} | ${"75%".padStart(12)} | ${"95%(best)".padStart(12)}`;
+  console.log(`\n${hdr}`);
+  console.log("-".repeat(hdr.length));
+
+  // Year 0 row
+  const initStr = fmtYen(result.initialCapital);
+  console.log(
+    `${"0".padEnd(6)}| ${initStr.padStart(12)} | ${initStr.padStart(12)} | ${initStr.padStart(12)} | ${initStr.padStart(12)} | ${initStr.padStart(12)}`,
+  );
+
+  for (let y = 0; y < result.years; y++) {
+    const eq = result.equityByYear[y];
+    console.log(
+      `${String(y + 1).padEnd(6)}| ${fmtYen(eq.p5).padStart(12)} | ${fmtYen(eq.p25).padStart(12)} | ${fmtYen(eq.p50).padStart(12)} | ${fmtYen(eq.p75).padStart(12)} | ${fmtYen(eq.p95).padStart(12)}`,
+    );
+  }
+
+  // CAGR from median
+  const medianFinal = result.equityByYear[result.years - 1].p50;
+  const cagr = (Math.pow(medianFinal / result.initialCapital, 1 / result.years) - 1) * 100;
+
+  // Max DD table
+  console.log(`\n${"Year".padEnd(6)}| ${"MaxDD 50%".padStart(10)} | ${"MaxDD 95%".padStart(10)}`);
+  console.log("-".repeat(30));
+  for (let y = 0; y < result.years; y++) {
+    const dd = result.maxDDByYear[y];
+    console.log(
+      `${String(y + 1).padEnd(6)}| ${(dd.p50.toFixed(1) + "%").padStart(10)} | ${(dd.p95.toFixed(1) + "%").padStart(10)}`,
+    );
+  }
+
+  console.log(`\n  Median CAGR: ${cagr >= 0 ? "+" : ""}${cagr.toFixed(1)}%`);
+  console.log(`  Median ${result.years}Y equity: ${fmtYen(medianFinal)} (${((medianFinal / result.initialCapital - 1) * 100).toFixed(0)}% total)`);
+  console.log(SEP);
+}
+
 /** Approximate percentile rank of a value in a distribution (0-1) */
 function findPercentileRank(dist: { p5: number; p25: number; p50: number; p75: number; p95: number }, value: number): number {
   const points = [
