@@ -15,7 +15,7 @@ export const BREAKOUT_BACKTEST_DEFAULTS: Omit<BreakoutBacktestConfig, "startDate
   // エントリー
   triggerThreshold: BREAKOUT.VOLUME_SURGE.TRIGGER_THRESHOLD, // 2.0
   highLookbackDays: BREAKOUT.PRICE.HIGH_LOOKBACK_DAYS,       // 20
-  maxChaseAtr: BREAKOUT.PRICE.MAX_CHASE_ATR,                  // 1.0
+  maxChaseAtr: 0.5,                                            // 高値追い抑制（元: 1.0）
 
   // ストップロス
   atrMultiplier: BREAKOUT.STOP_LOSS.ATR_MULTIPLIER,          // 1.0
@@ -27,7 +27,7 @@ export const BREAKOUT_BACKTEST_DEFAULTS: Omit<BreakoutBacktestConfig, "startDate
   trailMultiplier: TRAILING_STOP.TRAIL_ATR_MULTIPLIER.swing,               // 1.5
 
   // タイムストップ
-  maxHoldingDays: TIME_STOP.MAX_HOLDING_DAYS,                  // 5
+  maxHoldingDays: 7,                                            // 利益伸長（元: 5）
   maxExtendedHoldingDays: TIME_STOP.MAX_EXTENDED_HOLDING_DAYS, // 10
 
   // ユニバースフィルター
@@ -44,7 +44,7 @@ export const BREAKOUT_BACKTEST_DEFAULTS: Omit<BreakoutBacktestConfig, "startDate
 
   // エントリーフィルター
   marketTrendFilter: true,
-  marketTrendThreshold: 0.7, // breadth 70%以上の強い上昇相場のみエントリー
+  marketTrendThreshold: 0.75, // breadth 75%以上の強い上昇相場のみエントリー
   confirmationEntry: true,
   indexTrendFilter: true,
   indexTrendSmaPeriod: 50, // N225がSMA50以上の時のみエントリー
