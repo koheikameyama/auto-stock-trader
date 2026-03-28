@@ -26,6 +26,8 @@
     "delisting-sync": "tsx src/jobs/jpx-delisting-sync.ts",
     "backtest:breakout": "tsx src/backtest/breakout-run.ts",
     "walk-forward:breakout": "tsx scripts/walk-forward-breakout.ts",
+    "backtest:gapup": "tsx src/backtest/gapup-run.ts",
+    "walk-forward:gapup": "tsx scripts/walk-forward-gapup.ts",
     "data-cleanup": "tsx src/jobs/data-cleanup.ts",
     "midday": "tsx src/jobs/midday-reassessment.ts",
     "db:generate": "prisma generate",

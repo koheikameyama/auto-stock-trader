@@ -414,7 +414,7 @@ function closePosition(
   const exitValue = exitPrice * pos.quantity;
   const exitCommission = config.costModelEnabled ? calculateCommission(exitValue) : 0;
   const totalCost = (pos.entryCommission ?? 0) + exitCommission;
-  const tax = grossPnl > 0 && config.costModelEnabled ? calculateTax(grossPnl) : 0;
+  const tax = grossPnl > 0 && config.costModelEnabled ? calculateTax(grossPnl, totalCost) : 0;
   const netPnl = grossPnl - totalCost - tax;
 
   pos.exitDate = tradingDays[dayIdx];
