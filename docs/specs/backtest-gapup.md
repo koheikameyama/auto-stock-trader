@@ -89,3 +89,26 @@ npm run backtest:gapup -- --compare-entry
 npm run walk-forward:gapup
 npm run walk-forward:gapup -- --max-pf  # 最大PF選択モード
 ```
+
+## 本番統合
+
+### エントリーフロー
+
+1. 8:00: watchlist-builder → breakoutと共通のウォッチリスト
+2. 14:50: breakout-monitorの毎分ループ内でGapUpScanner.scan()を1回実行
+3. isGapUpSignal()でシグナル判定（14:50時点のcurrentPriceをcloseとして代替）
+4. 引け条件付き成行注文（sCondition="4"）で発注
+5. 15:00: 引け注文約定 → position-monitorがポジションをopen
+
+### エグジット
+
+breakoutと同じcheckPositionExit()を使用。gapup用overrideで以下を適用:
+- BE発動: ATR×0.3
+- TS発動: ATR×0.5
+- トレール幅: ATR×0.3
+- タイムストップ: 3日（延長5日）
+
+### ポジション管理
+
+- breakoutとは独立: gapup max 2ポジション
+- セクター・マクロ・日次損失制限はbreakoutと合算
