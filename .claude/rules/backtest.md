@@ -2,7 +2,7 @@
 
 ## バックテスト実行
 
-**breakout戦略のバックテストとwalk-forward検証が利用可能です。**
+**breakout戦略とgapup戦略のバックテスト・walk-forward検証が利�����能です。**
 
 ### 単体バックテスト
 
@@ -63,11 +63,46 @@ IS最適PF < 0.5 のウィンドウはOOS期間を「休止」（トレードし
 
 「堅牢」以外のパラメータは本番適用を慎重に判断すること。
 
+### ギャップアップ戦略バックテスト
+
+```bash
+npm run backtest:gapup
+# オプション: --start 2025-01-01 --end 2025-12-31 --budget 500000 --verbose --compare-entry
+```
+
+当日始値が前日終値から3%以上ギャップアップ＋出来高サージ1.5倍以上の銘柄を、当日終値でエントリーする短期戦略。
+
+### ギャップアップ walk-forward 分析
+
+```bash
+npm run walk-forward:gapup
+```
+
+ブレイクアウトと同じウィンドウ構成（IS 6ヶ月 / OOS 3ヶ月 × 6ウィンドウ）。
+
+#### パラメータグリッド（81通り、エグジット系のみ）
+
+| パラメータ | 値 |
+|-----------|-----|
+| atrMultiplier | 0.8, 1.0, 1.2 |
+| beActivationMultiplier | 0.3, 0.5, 0.8 |
+| trailMultiplier | 0.3, 0.5, 0.8 |
+| tsActivationMultiplier | 0.5, 1.0, 1.5 |
+
+#### 最新WF結果（2026-03-29実施）
+
+- **OOS集計PF=2.44、判定「堅牢 ✓」（IS/OOS比=0.90）**
+- 全6ウィンドウでOOS PF > 1.5（休止なし）
+- trail=0.3・ts=0.5 が全ウィンドウで安定
+- 平均保有日数: 1.2日
+
 ## ファイル構成
+
+### breakout
 
 | ファイル | 役割 |
 |---------|------|
-| `src/backtest/types.ts` | 型定義（BreakoutBacktestConfig, PerformanceMetrics等） |
+| `src/backtest/types.ts` | 型定義（BreakoutBacktestConfig, GapUpBacktestConfig, PerformanceMetrics等） |
 | `src/backtest/metrics.ts` | パフォーマンス指標計算 |
 | `src/backtest/data-fetcher.ts` | StockDailyBarからのDB一括取得 |
 | `src/backtest/breakout-config.ts` | デフォルト設定 + パラメータグリッド |
@@ -75,3 +110,14 @@ IS最適PF < 0.5 のウィンドウはOOS期間を「休止」（トレードし
 | `src/backtest/breakout-run.ts` | CLI実行エントリーポイント（`--score-compare` オプションあり） |
 | `src/backtest/scoring-filter.ts` | スコアフィルター（100点満点、OHLCV計算のみ） |
 | `scripts/walk-forward-breakout.ts` | walk-forward検証スクリプト |
+
+### gapup
+
+| ファイル | 役割 |
+|---------|------|
+| `src/lib/constants/gapup.ts` | ギャップアップ戦略の定数 |
+| `src/core/gapup/entry-conditions.ts` | `isGapUpSignal()` エントリー判定 |
+| `src/backtest/gapup-config.ts` | デフォルト設定 + WFパラメータグリッド |
+| `src/backtest/gapup-simulation.ts` | シミュレーションエンジン（precompute対応） |
+| `src/backtest/gapup-run.ts` | CLI実行エントリーポイント（`--compare-entry` オプションあり） |
+| `scripts/walk-forward-gapup.ts` | walk-forward検証スクリプト |
