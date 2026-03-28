@@ -56,6 +56,22 @@ export const BREAKOUT = {
   /** 1営業日の取引分数（前場150分 + 後場180分） */
   TRADING_MINUTES_PER_DAY: 330,
 
+  /** エントリー判定（バックテスト・ライブ共通、single source of truth） */
+  ENTRY: {
+    /** 出来高サージ閾値 */
+    TRIGGER_THRESHOLD: 2.0,
+    /** high20からの最大許容乖離（ATR倍率）。BT検証済み */
+    MAX_CHASE_ATR: 0.5,
+    /** 高値の検索期間（営業日） */
+    HIGH_LOOKBACK_DAYS: 20,
+    /** 最大株価 */
+    MAX_PRICE: 5000,
+    /** 最小平均出来高25日。BT検証済み */
+    MIN_AVG_VOLUME_25: 100_000,
+    /** 最小ATR%（ボラティリティ下限） */
+    MIN_ATR_PCT: 1.5,
+  },
+
   /** ウォッチリストDBキャッシュの有効期間（ms） */
   WATCHLIST_CACHE_TTL_MS: 5 * 60 * 1000,
 } as const;

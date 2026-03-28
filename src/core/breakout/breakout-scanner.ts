@@ -7,6 +7,7 @@ import { TIMEZONE } from "../../lib/constants";
 dayjs.extend(utc);
 dayjs.extend(timezone);
 import { calculateVolumeSurgeRatio } from "./volume-surge";
+import { isBreakoutSignal } from "./entry-conditions";
 import type {
   WatchlistEntry,
   HotListEntry,
@@ -84,14 +85,15 @@ export class BreakoutScanner {
       );
       this.state.lastSurgeRatios.set(ticker, surgeRatio);
 
-      // 高値追いチェック: high20からATR×MAX_CHASE_ATR以上乖離していたらスキップ
-      const chaseAmount = quote.price - watchEntry.high20;
-      const maxChase = watchEntry.atr14 * BREAKOUT.PRICE.MAX_CHASE_ATR;
-
       if (
-        surgeRatio >= BREAKOUT.VOLUME_SURGE.TRIGGER_THRESHOLD &&
-        quote.price > watchEntry.high20 &&
-        chaseAmount <= maxChase &&
+        isBreakoutSignal({
+          price: quote.price,
+          high20: watchEntry.high20,
+          volumeSurgeRatio: surgeRatio,
+          atr14: watchEntry.atr14,
+          triggerThreshold: BREAKOUT.ENTRY.TRIGGER_THRESHOLD,
+          maxChaseAtr: BREAKOUT.ENTRY.MAX_CHASE_ATR,
+        }) &&
         this.canFireTrigger(ticker, hour, minute, dailyEntryCount, holdingTickers)
       ) {
         // Trigger 発火

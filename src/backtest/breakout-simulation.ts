@@ -18,6 +18,7 @@ import { TECHNICAL_MIN_DATA } from "../lib/constants";
 import { calculateMetrics } from "./metrics";
 import { RISK_PER_TRADE_PCT } from "./breakout-config";
 import { computeScoreFilter } from "./scoring-filter";
+import { isBreakoutSignal, passesUniverseGates } from "../core/breakout/entry-conditions";
 import type {
   BreakoutBacktestConfig,
   BreakoutBacktestResult,
@@ -219,16 +220,18 @@ export function precomputeDailySignals(
       if (window.length < TECHNICAL_MIN_DATA.SCANNER_MIN_BARS) continue;
 
       const signalBar = bars[signalIdx];
-      if (signalBar.close > config.maxPrice || signalBar.close <= 0) continue;
 
       const summary = analyzeTechnicals([...window].reverse());
       if (summary.atr14 == null) continue;
 
       const atrPct = (summary.atr14 / signalBar.close) * 100;
-      if (atrPct < config.minAtrPct) continue;
-
       const avgVolume25 = summary.volumeAnalysis.avgVolume20;
-      if (avgVolume25 == null || avgVolume25 < config.minAvgVolume25) continue;
+      if (avgVolume25 == null) continue;
+
+      if (!passesUniverseGates({
+        price: signalBar.close, avgVolume25, atrPct,
+        maxPrice: config.maxPrice, minAvgVolume25: config.minAvgVolume25, minAtrPct: config.minAtrPct,
+      })) continue;
 
       // 出来高トレンド: avgVolume5 / avgVolume25
       const vol5Start = Math.max(0, signalIdx - 4);
@@ -237,18 +240,19 @@ export function precomputeDailySignals(
       const volumeTrendRatio = avgVolume25 > 0 ? avgVolume5 / avgVolume25 : 0;
 
       const volumeSurgeRatio = signalBar.volume / avgVolume25;
-      if (volumeSurgeRatio < config.triggerThreshold) continue;
 
-      // 高値ブレイク
+      // 高値ブレイク用: 過去N日の高値
       const lookbackStart = Math.max(0, signalIdx - config.highLookbackDays);
       const lookbackBars = bars.slice(lookbackStart, signalIdx);
       if (!lookbackBars.length) continue;
       const highN = Math.max(...lookbackBars.map((b) => b.high));
-      if (signalBar.close <= highN) continue;
 
-      // 高値追いフィルター
       const atr14 = summary.atr14;
-      if (config.maxChaseAtr != null && atr14 > 0 && signalBar.close - highN > atr14 * config.maxChaseAtr) continue;
+      if (!isBreakoutSignal({
+        price: signalBar.close, high20: highN, volumeSurgeRatio, atr14,
+        triggerThreshold: config.triggerThreshold,
+        maxChaseAtr: config.maxChaseAtr ?? Infinity,
+      })) continue;
 
       // ブレイクアウト強度: (close - highN) / atr14
       const breakoutStrength = atr14 > 0 ? (signalBar.close - highN) / atr14 : 0;
@@ -754,42 +758,35 @@ function detectBreakoutEntries(
 
     const signalBar = bars[signalIdx];
 
-    // ゲートフィルター（シグナル日ベース）
-    if (signalBar.close > config.maxPrice) continue;
-    if (signalBar.close <= 0) continue;
-
     // テクニカル分析（newest-first を期待）
     const newestFirst = [...window].reverse();
     const summary = analyzeTechnicals(newestFirst);
 
-    // ATR% フィルター
     if (summary.atr14 == null) continue;
     const atrPct = (summary.atr14 / signalBar.close) * 100;
-    if (atrPct < config.minAtrPct) continue;
-
-    // 平均出来高フィルター
     const avgVolume25 = summary.volumeAnalysis.avgVolume20;
-    if (avgVolume25 == null || avgVolume25 < config.minAvgVolume25) continue;
+    if (avgVolume25 == null) continue;
 
-    // ── ブレイクアウト条件チェック（シグナル日） ──
+    // ユニバースゲート（共通関数）
+    if (!passesUniverseGates({
+      price: signalBar.close, avgVolume25, atrPct,
+      maxPrice: config.maxPrice, minAvgVolume25: config.minAvgVolume25, minAtrPct: config.minAtrPct,
+    })) continue;
 
-    // 出来高サージ: dailyVolume / avgVolume25
+    // ── ブレイクアウト条件チェック（共通関数） ──
     const volumeSurgeRatio = signalBar.volume / avgVolume25;
-    if (volumeSurgeRatio < config.triggerThreshold) continue;
 
-    // 高値ブレイク: close > 過去N日の高値
     const lookbackStart = Math.max(0, signalIdx - config.highLookbackDays);
     const lookbackBars = bars.slice(lookbackStart, signalIdx); // シグナル日を含まない
     if (!lookbackBars.length) continue;
     const highN = Math.max(...lookbackBars.map((b) => b.high));
-    if (signalBar.close <= highN) continue;
 
-    // 高値追いフィルター: highNからATR×maxChaseAtr以上乖離していたらスキップ
     const atr14 = summary.atr14;
-    if (config.maxChaseAtr != null && atr14 > 0) {
-      const chaseAmount = signalBar.close - highN;
-      if (chaseAmount > atr14 * config.maxChaseAtr) continue;
-    }
+    if (!isBreakoutSignal({
+      price: signalBar.close, high20: highN, volumeSurgeRatio, atr14,
+      triggerThreshold: config.triggerThreshold,
+      maxChaseAtr: config.maxChaseAtr ?? Infinity,
+    })) continue;
 
     // ブレイクアウト強度フィルター
     const minBA = config.minBreakoutAtr ?? 0;

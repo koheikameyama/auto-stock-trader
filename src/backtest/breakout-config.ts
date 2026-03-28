@@ -12,10 +12,10 @@ export const BREAKOUT_BACKTEST_DEFAULTS: Omit<BreakoutBacktestConfig, "startDate
   initialBudget: 500_000,
   maxPositions: 5,
 
-  // エントリー
-  triggerThreshold: BREAKOUT.VOLUME_SURGE.TRIGGER_THRESHOLD, // 2.0
-  highLookbackDays: BREAKOUT.PRICE.HIGH_LOOKBACK_DAYS,       // 20
-  maxChaseAtr: 0.5,                                            // 高値追い抑制（元: 1.0）
+  // エントリー（BREAKOUT.ENTRY = single source of truth）
+  triggerThreshold: BREAKOUT.ENTRY.TRIGGER_THRESHOLD,         // 2.0
+  highLookbackDays: BREAKOUT.ENTRY.HIGH_LOOKBACK_DAYS,        // 20
+  maxChaseAtr: BREAKOUT.ENTRY.MAX_CHASE_ATR,                  // 0.5
 
   // ストップロス
   atrMultiplier: BREAKOUT.STOP_LOSS.ATR_MULTIPLIER,          // 1.0
@@ -30,10 +30,10 @@ export const BREAKOUT_BACKTEST_DEFAULTS: Omit<BreakoutBacktestConfig, "startDate
   maxHoldingDays: 7,                                            // 利益伸長（元: 5）
   maxExtendedHoldingDays: TIME_STOP.MAX_EXTENDED_HOLDING_DAYS, // 10
 
-  // ユニバースフィルター
-  maxPrice: 5000,
-  minAvgVolume25: 100_000,
-  minAtrPct: 1.5,
+  // ユニバースフィルター（BREAKOUT.ENTRY = single source of truth）
+  maxPrice: BREAKOUT.ENTRY.MAX_PRICE,                         // 5000
+  minAvgVolume25: BREAKOUT.ENTRY.MIN_AVG_VOLUME_25,           // 100_000
+  minAtrPct: BREAKOUT.ENTRY.MIN_ATR_PCT,                      // 1.5
 
   // コスト・リスク
   costModelEnabled: true,
