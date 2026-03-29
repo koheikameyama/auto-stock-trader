@@ -840,7 +840,7 @@ export async function notifyBrokerError(
   });
 }
 
-export async function notifyBreakoutBacktest(data: {
+interface BacktestNotifyData {
   period: string;
   profitFactor: number;
   winRate: number;
@@ -848,17 +848,30 @@ export async function notifyBreakoutBacktest(data: {
   netReturnPct: number;
   maxDrawdown: number;
   totalTrades: number;
-}): Promise<void> {
+}
+
+function formatBacktestNotification(
+  strategyLabel: string,
+  data: BacktestNotifyData,
+): { title: string; message: string; color: string } {
   const pf = data.profitFactor >= 9999 ? "∞" : data.profitFactor.toFixed(2);
   const expSign = data.expectancy >= 0 ? "+" : "";
   const retSign = data.netReturnPct >= 0 ? "+" : "";
 
-  await notifySlack({
-    title: "📊 バックテスト完了",
+  return {
+    title: `📊 ${strategyLabel}バックテスト完了`,
     message: [
       `期間: ${data.period}`,
       `PF:${pf} | 勝率:${data.winRate}% | 期待値:${expSign}${data.expectancy.toFixed(2)}% | 純リターン:${retSign}${data.netReturnPct.toFixed(2)}% | DD:-${data.maxDrawdown}% | ${data.totalTrades}件`,
     ].join("\n"),
     color: data.profitFactor >= 1.3 ? "good" : data.profitFactor >= 1.0 ? "warning" : "danger",
-  });
+  };
+}
+
+export async function notifyBreakoutBacktest(data: BacktestNotifyData): Promise<void> {
+  await notifySlack(formatBacktestNotification("ブレイクアウト", data));
+}
+
+export async function notifyGapUpBacktest(data: BacktestNotifyData): Promise<void> {
+  await notifySlack(formatBacktestNotification("ギャップアップ", data));
 }

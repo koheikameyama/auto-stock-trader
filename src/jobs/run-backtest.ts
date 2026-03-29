@@ -48,7 +48,7 @@ export async function main(): Promise<void> {
   // DB保存
   let savedId: string | null = null;
   try {
-    savedId = await saveBacktestResult(result);
+    savedId = await saveBacktestResult(result, "breakout");
     console.log(`[run-backtest] 保存完了: ${savedId}`);
   } catch (err) {
     console.error("[run-backtest] DB保存失敗:", err);

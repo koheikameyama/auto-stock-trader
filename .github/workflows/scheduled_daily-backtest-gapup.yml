@@ -1,0 +1,46 @@
+name: "[Scheduled] Daily Backtest GapUp"
+
+on:
+  schedule:
+    # 平日 17:00 JST = 08:00 UTC
+    - cron: "0 8 * * 1-5"
+  workflow_dispatch:
+
+concurrency:
+  group: daily-backtest-gapup
+  cancel-in-progress: false
+
+env:
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+jobs:
+  run-backtest-gapup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - name: Run GapUp backtest and save to DB
+        run: npx tsx -e "import { main } from './src/jobs/run-backtest-gapup'; main()"
+
+  notify-failure:
+    needs: run-backtest-gapup
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on failure
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "❌ Daily Backtest GapUp 失敗"
+          SLACK_MESSAGE: |
+            ギャップアップバックテストが失敗しました。
+            詳細はGitHub Actionsログを確認してください。
+          SLACK_COLOR: danger
+          SLACK_FOOTER: "Stock Buddy"

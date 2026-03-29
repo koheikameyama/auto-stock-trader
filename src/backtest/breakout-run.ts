@@ -371,7 +371,7 @@ async function main() {
 
   // DBに保存
   try {
-    const id = await saveBacktestResult(result);
+    const id = await saveBacktestResult(result, "breakout");
     console.log(`[db] BacktestRun 保存完了: ${id}`);
   } catch (err) {
     console.error("[db] BacktestRun 保存失敗:", err);

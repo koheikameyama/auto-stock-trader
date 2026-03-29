@@ -2,7 +2,8 @@
  * バックテスト結果ページ（GET /backtest）
  *
  * クエリパラメータ:
- *   ?id=xxx  特定の実行を表示（省略時は最新）
+ *   ?strategy=breakout|gapup  戦略フィルタ（デフォルト: breakout）
+ *   ?id=xxx                   特定の実行を表示（省略時は最新）
  */
 
 import { Hono } from "hono";
@@ -24,13 +25,20 @@ import type { PerformanceMetrics, SimulatedPosition, DailyEquity } from "../../b
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
+const STRATEGIES = [
+  { key: "breakout", label: "ブレイクアウト" },
+  { key: "gapup", label: "ギャップアップ" },
+] as const;
+
 const app = new Hono();
 
 app.get("/", async (c) => {
+  const strategy = c.req.query("strategy") === "gapup" ? "gapup" : "breakout";
   const selectedId = c.req.query("id");
 
-  // 直近10件の履歴一覧
+  // 直近10件の履歴一覧（戦略フィルタ）
   const history = await prisma.backtestRun.findMany({
+    where: { strategy },
     orderBy: { runAt: "desc" },
     take: 10,
     select: {
@@ -78,6 +86,18 @@ app.get("/", async (c) => {
   const fmtPf = (pf: number) => (pf >= 9999 ? "∞" : pf.toFixed(2));
 
   const content = html`
+    <!-- 戦略タブ -->
+    <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid #334155">
+      ${STRATEGIES.map(
+        (s) => html`
+          <a
+            href="/backtest?strategy=${s.key}"
+            style="padding:10px 20px;font-size:14px;font-weight:600;text-decoration:none;border-bottom:2px solid ${s.key === strategy ? "#3b82f6" : "transparent"};margin-bottom:-2px;color:${s.key === strategy ? "#3b82f6" : "#94a3b8"};transition:color 0.2s"
+          >${s.label}</a>
+        `,
+      )}
+    </div>
+
     <!-- 履歴リスト -->
     <p class="section-title">実行履歴</p>
     ${history.length === 0
@@ -86,7 +106,7 @@ app.get("/", async (c) => {
           ${history.map(
             (h) => html`
               <a
-                href="/backtest?id=${h.id}"
+                href="/backtest?strategy=${strategy}&id=${h.id}"
                 style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1e293b;text-decoration:none;color:inherit;${h.id === targetId ? "font-weight:bold;" : ""}"
               >
                 <span style="font-size:13px">${dayjs(h.runAt).tz(TIMEZONE).format("MM/DD HH:mm")}</span>

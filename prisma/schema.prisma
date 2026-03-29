@@ -540,9 +540,10 @@ model BreakoutWatchlistEntry {
   @@index([date(sort: Desc)])
 }
 
-// バックテスト実行結果（ブレイクアウト戦略）
+// バックテスト実行結果（戦略共通）
 model BacktestRun {
   id              String   @id @default(cuid())
+  strategy        String   @default("breakout") // "breakout" | "gapup"
   runAt           DateTime
   startDate       String   // YYYY-MM-DD
   endDate         String   // YYYY-MM-DD
@@ -565,9 +566,9 @@ model BacktestRun {
   metricsJson     Json     // PerformanceMetrics 全体（byRegime含む）
   equityCurveJson Json     // DailyEquity[]
   tradesJson      Json     // SimulatedPosition[]
-  configJson      Json     // BreakoutBacktestConfig
+  configJson      Json     // BreakoutBacktestConfig | GapUpBacktestConfig
 
   createdAt       DateTime @default(now())
 
-  @@index([runAt(sort: Desc)])
+  @@index([strategy, runAt(sort: Desc)])
 }
