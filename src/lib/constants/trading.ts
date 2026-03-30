@@ -18,16 +18,6 @@ export const TRADING_DEFAULTS = {
 
 
 // ========================================
-// OpenAI設定
-// ========================================
-
-export const OPENAI_CONFIG = {
-  MODEL: "gpt-4o",
-  TEMPERATURE: 0.3, // 取引判断は低めの温度で安定性重視
-  MAX_TOKENS: 2000,
-} as const;
-
-// ========================================
 // テクニカル指標の閾値
 // ========================================
 
@@ -276,8 +266,8 @@ export const DRAWDOWN = {
 export const MARKET_REGIME = {
   CRISIS: {
     // VIX > 30
-    maxPositions: 0, // 取引停止
-    minScore: null as null, // N/A
+    maxPositions: 1, // 1ポジション制限（暴落時にブレイクアウトする銘柄は本物の強さ）
+    minScore: 75, // 旧Sランク相当
   },
   HIGH: {
     // VIX 25-30

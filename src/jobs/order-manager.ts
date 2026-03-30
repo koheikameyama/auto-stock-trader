@@ -1,19 +1,16 @@
 /**
  * 注文マネージャー（9:30 JST / 平日）
  *
- * 「ロジックが主役、AIが最終審判」フロー:
+ * ルールベースフロー:
  * 1. 今日のMarketAssessmentを確認（shouldTrade = true のみ）
  * 2. 各銘柄のテクニカル分析 + スコアリング
  * 3. ロジックでエントリー条件算出（指値・利確・損切り・数量）
- * 4. AIレビュー（承認/修正/却下）
- * 5. 損切り検証（AIが修正した場合も再検証）
- * 6. リスクチェック
- * 7. TradingOrder作成（pending状態）
- * 8. Slackに注文内容を通知
+ * 4. リスクチェック
+ * 5. TradingOrder作成（pending状態）
+ * 6. Slackに注文内容を通知
  */
 
 import { prisma } from "../lib/prisma";
-import { flushLangfuse } from "../lib/langfuse";
 import { getTodayForDB } from "../lib/date-utils";
 import {
   TRADING_SCHEDULE,
@@ -33,19 +30,12 @@ import type { TechnicalSummary } from "../core/technical-analysis";
  
 const scoreStock = (_params: unknown): { totalScore: number } => ({ totalScore: 0 });
  
-const formatScoreForAI = (_score: unknown, _summary: unknown): string => "";
 import { calculateEntryCondition } from "../core/entry-calculator";
 import type { EntryCondition } from "../core/entry-calculator";
-import { reviewTrade } from "../core/ai-decision";
-import type {
-  MarketAssessmentResult,
-  TradeReviewResult,
-} from "../core/ai-decision";
-import { canOpenPosition, validateStopLoss } from "../core/risk-manager";
+import { canOpenPosition } from "../core/risk-manager";
 import { getCashBalance } from "../core/position-manager";
 import { analyzeOpeningSession } from "../core/opening-session";
 import { notifyOrderPlaced, notifyRiskAlert, notifySlack, notifyBrokerError } from "../lib/slack";
-import { getSectorGroup } from "../lib/constants";
 import { submitOrder as submitBrokerOrder } from "../core/broker-orders";
 import type { EntrySnapshot } from "../types/snapshots";
 import type { TradingStrategy } from "../core/market-regime";
@@ -64,8 +54,6 @@ interface AnalysisResult {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   score: any;
   entryCondition: EntryCondition;
-  review: TradeReviewResult;
-  newsContext: string | undefined;
   strategy: TradingStrategy;
   pendingBuyOrderId: string | null;
 }
@@ -141,22 +129,13 @@ export async function main() {
   // 2. 残高を取得（ループ内で注文作成ごとに減算する）
   let cashBalance = await getCashBalance();
 
-  const assessment: MarketAssessmentResult = {
+  const assessment = {
     shouldTrade: todayAssessment.shouldTrade,
-    sentiment:
-      todayAssessment.sentiment as MarketAssessmentResult["sentiment"],
+    sentiment: todayAssessment.sentiment as string,
     reasoning: todayAssessment.reasoning,
   };
 
   const maxPositionPct = TRADING_DEFAULTS.MAX_POSITION_PCT;
-
-  // ニュース分析データ取得
-  const newsAnalysis = await prisma.newsAnalysis.findUnique({
-    where: { date: getTodayForDB() },
-  });
-  const stockCatalysts = newsAnalysis?.stockCatalysts as
-    | Array<{ tickerCode: string; type: string; summary: string }>
-    | undefined;
 
   console.log(
     `  選定銘柄数: ${selectedStocks.length}, 現金残高: ¥${cashBalance.toLocaleString()}`,
@@ -270,15 +249,6 @@ export async function main() {
           adjustedEntryCondition = { ...entryCondition, quantity: quote.askSize };
         }
 
-        // 銘柄別ニュースコンテキスト
-        const catalysts = stockCatalysts?.filter(
-          (c) => c.tickerCode === tickerCode,
-        );
-        const newsContext =
-          catalysts && catalysts.length > 0
-            ? catalysts.map((c) => `[${c.type}] ${c.summary}`).join("\n")
-            : undefined;
-
         // 寄り付きセッション分析
         const openingAnalysis = analyzeOpeningSession(
           quote,
@@ -286,27 +256,6 @@ export async function main() {
         );
         if (openingAnalysis.summary) {
           console.log(`    [${tickerCode}] 寄り付き: ${openingAnalysis.summary.replace(/\n/g, " / ")}`);
-        }
-
-        // AIレビュー
-        const scoreFormatted = formatScoreForAI(score, techSummary);
-        const review = await reviewTrade(
-          {
-            tickerCode,
-            name: stock.name,
-            price: quote.price,
-            sector: getSectorGroup(stock.sector) ?? stock.sector ?? "不明",
-            scoreFormatted,
-            newsContext,
-            openingContext: openingAnalysis.summary ?? undefined,
-          },
-          adjustedEntryCondition,
-          assessment,
-        );
-
-        if (review.decision === "reject") {
-          console.log(`    [${tickerCode}] AI却下: ${review.reasoning}`);
-          return null;
         }
 
         return {
@@ -319,8 +268,6 @@ export async function main() {
           techSummary,
           score,
           entryCondition: adjustedEntryCondition,
-          review,
-          newsContext,
           strategy,
           pendingBuyOrderId: pendingBuyOrder?.id ?? null,
         };
@@ -482,8 +429,6 @@ export async function main() {
       techSummary,
       score,
       entryCondition,
-      review,
-      newsContext,
       pendingBuyOrderId,
     } = result;
 
@@ -493,56 +438,7 @@ export async function main() {
     console.log(
       `    → ロジック算出: 指値¥${entryCondition.limitPrice} / 利確¥${entryCondition.takeProfitPrice} / 損切¥${entryCondition.stopLossPrice} / ${entryCondition.quantity}株 / RR 1:${entryCondition.riskRewardRatio}`,
     );
-    console.log(`    → AIレビュー: ${review.decision}`);
-
-    // AIの修正を適用
     const finalCondition = { ...entryCondition };
-    if (
-      review.decision === "approve_with_modification" &&
-      review.modification
-    ) {
-      if (review.modification.adjustLimitPrice != null) {
-        finalCondition.limitPrice = review.modification.adjustLimitPrice;
-        console.log(
-          `    → 指値修正: ¥${entryCondition.limitPrice} → ¥${finalCondition.limitPrice}`,
-        );
-      }
-      if (review.modification.adjustTakeProfitPrice != null) {
-        finalCondition.takeProfitPrice =
-          review.modification.adjustTakeProfitPrice;
-        console.log(
-          `    → 利確修正: ¥${entryCondition.takeProfitPrice} → ¥${finalCondition.takeProfitPrice}`,
-        );
-      }
-      if (review.modification.adjustQuantity != null) {
-        finalCondition.quantity = review.modification.adjustQuantity;
-        console.log(
-          `    → 数量修正: ${entryCondition.quantity} → ${finalCondition.quantity}株`,
-        );
-      }
-
-      // 損切り: AIが修正した場合でもロジックで再検証
-      if (review.modification.adjustStopLossPrice != null) {
-        const reValidation = validateStopLoss(
-          finalCondition.limitPrice,
-          review.modification.adjustStopLossPrice,
-          techSummary.atr14,
-          techSummary.supports,
-        );
-        finalCondition.stopLossPrice = Math.round(
-          reValidation.validatedPrice,
-        );
-        if (reValidation.wasOverridden) {
-          console.log(
-            `    → 損切り修正（AI→ロジック再検証）: ¥${review.modification.adjustStopLossPrice} → ¥${finalCondition.stopLossPrice}（${reValidation.reason}）`,
-          );
-        } else {
-          console.log(
-            `    → 損切り修正: ¥${entryCondition.stopLossPrice} → ¥${finalCondition.stopLossPrice}`,
-          );
-        }
-      }
-    }
 
     // リスクチェック（DB最新状態を参照）
     const riskCheck = await canOpenPosition(
@@ -614,17 +510,12 @@ export async function main() {
         resistances: techSummary.resistances,
       },
       logicEntryCondition: entryCondition,
-      aiReview: {
-        decision: review.decision,
-        reasoning: review.reasoning,
-        modification: review.modification,
-        riskFlags: review.riskFlags,
-      },
+      aiReview: null,
       marketContext: {
         sentiment: assessment.sentiment,
         reasoning: assessment.reasoning.slice(0, 500),
       },
-      newsContext: newsContext ?? null,
+      newsContext: null,
     };
 
     // TradingOrder作成 or 既存pending注文を更新
@@ -636,7 +527,7 @@ export async function main() {
           takeProfitPrice: finalCondition.takeProfitPrice,
           stopLossPrice: finalCondition.stopLossPrice,
           quantity: finalCondition.quantity,
-          reasoning: review.reasoning,
+          reasoning: `${result.strategy}戦略エントリー`,
           expiresAt,
           entrySnapshot: entrySnapshot as object,
         },
@@ -655,7 +546,7 @@ export async function main() {
           stopLossPrice: finalCondition.stopLossPrice,
           quantity: finalCondition.quantity,
           status: "pending",
-          reasoning: review.reasoning,
+          reasoning: `${result.strategy}戦略エントリー`,
           expiresAt,
           entrySnapshot: entrySnapshot as object,
         },
@@ -708,7 +599,7 @@ export async function main() {
       takeProfitPrice: finalCondition.takeProfitPrice,
       stopLossPrice: finalCondition.stopLossPrice,
       quantity: finalCondition.quantity,
-      reasoning: review.reasoning,
+      reasoning: `${result.strategy}戦略エントリー`,
     });
   }
 
@@ -748,7 +639,6 @@ if (isDirectRun) {
       process.exit(1);
     })
     .finally(async () => {
-      await flushLangfuse();
       await prisma.$disconnect();
     });
 }

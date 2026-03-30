@@ -59,9 +59,6 @@ model Stock {
   tradingHaltFlag Boolean  @default(false) // 売買停止
   statusUpdatedAt DateTime?                // ステータス最終更新
 
-  // ニュース検知
-  delistingNewsDetected Boolean @default(false)
-
   // リレーション
   orders    TradingOrder[]
   positions TradingPosition[]
@@ -86,7 +83,7 @@ model TradingConfig {
   updatedAt DateTime @updatedAt
 }
 
-// 市場状況評価（毎朝AI判断）
+// 市場状況評価（毎朝VIXベース機械判定）
 model MarketAssessment {
   id              String   @id @default(cuid())
   date            DateTime @db.Date
@@ -100,23 +97,14 @@ model MarketAssessment {
   nikkeiVi        Decimal? @db.Decimal(8, 2)
   usdjpy          Decimal? @db.Decimal(8, 4)
   cmeFuturesPrice Decimal? @db.Decimal(10, 2)
-  sentiment       String // bullish / neutral / cautious / bearish / crisis
+  sentiment       String // bullish / crisis（キルスイッチ時のみcrisis）
   shouldTrade     Boolean // 今日取引すべきか
   reasoning       String  @db.Text // 判断理由
 
   tradingStrategy String? // day_trade / swing
 
-  // AI選定銘柄（JSON配列）
+  // 選定銘柄（JSON配列）
   selectedStocks Json? // [{ tickerCode, strategy, score, reasoning }]
-
-  // 昼休み再評価（12:15 JST）
-  middaySentiment    String?   // 昼AIの生の評価: bullish / neutral / bearish / crisis
-  middayReasoning    String?   @db.Text // 昼AIの判断理由
-  middayReassessedAt DateTime? // 再評価実行タイムスタンプ
-  middayNikkeiPrice  Decimal?  @db.Decimal(10, 2)
-  middayNikkeiChange Decimal?  @db.Decimal(8, 4)
-  middayVix          Decimal?  @db.Decimal(8, 2)
-  middayNikkeiVi     Decimal?  @db.Decimal(8, 2)
 
   createdAt DateTime @default(now())
 
@@ -148,11 +136,6 @@ model ScoringRecord {
   isDisqualified    Boolean @default(false)
   disqualifyReason  String? // price_too_high / spread_too_wide / volatility_extreme
 
-  // AIレビュー結果
-  aiDecision   String?  // go / no_go
-  aiReasoning  String?  @db.Text
-  newsContext  String?  @db.Text  // AIに渡したニュースコンテキスト（ハルシネーション検証用）
-
   // トレード結果（後から紐づけ）
   tradingOrderId String?  @unique
   tradeResult    String?  // win / loss / no_trade
@@ -167,7 +150,7 @@ model ScoringRecord {
   entryPrice      Decimal? @db.Decimal(10, 2) // スコアリング時の株価
   closingPrice        Decimal? @db.Decimal(10, 2) // 大引け後の終値
   ghostProfitPct      Decimal? @db.Decimal(8, 4)  // 仮想損益 %
-  ghostAnalysis       String?  @db.Text           // AI後悔分析
+  ghostAnalysis       String?  @db.Text           // ゴースト分析
   nextDayClosingPrice Decimal? @db.Decimal(10, 2) // 翌営業日の終値
   nextDayProfitPct    Decimal? @db.Decimal(8, 4)  // 翌日騰落率（前日終値比）
   ghost5DayProfitPct  Decimal? @db.Decimal(8, 4)  // 5営業日後リターン %
@@ -198,7 +181,7 @@ model TradingOrder {
   filledPrice Decimal? @db.Decimal(10, 2)
   filledAt    DateTime?
   reasoning   String @db.Text // 注文理由
-  entrySnapshot Json? // 注文作成時のスコア・テクニカル・AI判断
+  entrySnapshot Json? // 注文作成時のスコア・テクニカル情報
 
   positionId String?
   position   TradingPosition? @relation(fields: [positionId], references: [id])
@@ -237,13 +220,13 @@ model TradingPosition {
   realizedPnl     Decimal? @db.Decimal(12, 2) // 確定損益
 
   // スナップショット
-  entrySnapshot     Json?                       // 購入時のテクニカル・AI理由・市場環境
+  entrySnapshot     Json?                       // 購入時のテクニカル情報・市場環境
   exitSnapshot      Json?                       // 売却時の理由・値動き・市場状況
   maxHighDuringHold Decimal? @db.Decimal(10, 2) // 保有中の最高値
   minLowDuringHold  Decimal? @db.Decimal(10, 2) // 保有中の最安値
   trailingStopPrice Decimal? @db.Decimal(10, 2) // 現在のトレーリングストップ価格
   entryAtr          Decimal? @db.Decimal(10, 2) // エントリー時のATR(14)
-  reviewComments    String?  @db.Text           // AIによる振り返り分析
+  reviewComments    String?  @db.Text           // レビューコメント
 
   // 保有継続スコアリングによるTS倍率オーバーライド
   holdingScoreTrailOverride Decimal? @db.Decimal(5, 2)
@@ -299,43 +282,6 @@ model HoldingScoreRecord {
   @@index([positionId])
 }
 
-// ニュース記事（生データ）
-model NewsArticle {
-  id          String   @id @default(cuid())
-  source      String   // "newsapi" | "google_rss" | "yahoo_finance"
-  title       String
-  url         String
-  publishedAt DateTime
-  category    String   // "geopolitical" | "sector" | "stock"
-  tickerCode  String?
-  sector      String?
-  contentHash String   @unique // SHA-256(title|url)
-
-  createdAt DateTime @default(now())
-
-  @@index([publishedAt(sort: Desc)])
-  @@index([category])
-  @@index([tickerCode])
-}
-
-// ニュース分析（AI処理済みサマリー、日次1レコード）
-model NewsAnalysis {
-  id                    String   @id @default(cuid())
-  date                  DateTime @db.Date @unique
-  geopoliticalRiskLevel Int      // 1-5
-  geopoliticalSummary   String   @db.Text
-  marketImpact          String   // "positive" | "neutral" | "negative"
-  marketImpactSummary   String   @db.Text
-  sectorImpacts         Json     // [{ sector, impact, summary }]
-  stockCatalysts        Json     // [{ tickerCode, type, summary }]
-  keyEvents             String   @db.Text
-  articleCount          Int
-
-  createdAt DateTime @default(now())
-
-  @@index([date(sort: Desc)])
-}
-
 // 日次取引サマリー
 model TradingDailySummary {
   id             String   @id @default(cuid())
@@ -346,8 +292,7 @@ model TradingDailySummary {
   totalPnl       Decimal  @default(0) @db.Decimal(12, 2)
   portfolioValue Decimal  @db.Decimal(12, 0) // 時価評価額
   cashBalance    Decimal  @db.Decimal(12, 0) // 残り現金
-  aiReview       String?  @db.Text // AIによる振り返り
-  decisionAudit  Json?              // 意思決定整合性評価（ghost-review が書き込む）
+  aiReview       String?  @db.Text // 日次サマリー
 
   createdAt DateTime @default(now())
 
@@ -366,7 +311,7 @@ model TradingWeeklySummary {
   totalPnl       Decimal  @default(0) @db.Decimal(12, 2)
   portfolioValue Decimal  @db.Decimal(12, 0)
   cashBalance    Decimal  @db.Decimal(12, 0)
-  aiReview       Json                        // 構造化AIレビュー
+  aiReview       Json                        // 構造化週次レビュー
 
   createdAt DateTime @default(now())
 

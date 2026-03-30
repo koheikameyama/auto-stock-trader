@@ -1,7 +1,7 @@
 /**
  * 銘柄スキャンジョブ
  *
- * テクニカル分析 → スコアリング → AIレビュー → 結果保存。
+ * テクニカル分析 → スコアリング → 結果保存。
  * market-scanner オーケストレーターからコンテキスト付きで呼ばれるほか、
  * 単独実行時は MarketAssessment DB から復元して動作する。
  */
@@ -15,9 +15,9 @@ import {
   SCORING_ACCURACY,
   UNIT_SHARES,
   TRADING_DEFAULTS,
-  SECTOR_RISK,
   getSectorGroup,
   WEEKEND_RISK,
+  MARKET_REGIME,
 } from "../lib/constants";
 import { countNonTradingDaysAhead } from "../lib/market-calendar";
 import { SECTOR_MOMENTUM_SCORING } from "../lib/constants/scoring";
@@ -31,14 +31,11 @@ import type { TechnicalSummary } from "../core/technical-analysis";
  
 const scoreStock = (_params: unknown): { totalScore: number } => ({ totalScore: 0 });
  
-const formatScoreForAI = (_score: unknown, _summary: unknown): string => "";
 const getScoreRank = (_score: number): "S" | "A" | "B" => "B";
 import {
   getContrarianHistoryBatch,
   calculateContrarianBonus,
 } from "../core/contrarian-analyzer";
-import { reviewStocks } from "../core/ai-decision";
-import type { StockReviewCandidateInput } from "../core/ai-decision";
 import {
   notifyStockCandidates,
 } from "../lib/slack";
@@ -54,7 +51,6 @@ import { calculateDrawdownStatus } from "../core/drawdown-manager";
 import { getEffectiveCapital } from "../core/position-manager";
 import {
   calculateSectorMomentum,
-  getNewsSectorSentiment,
 } from "../core/sector-analyzer";
 import type { MarketAssessmentContext } from "./market-assessment";
 
@@ -65,7 +61,6 @@ interface ScoredCandidate {
   summary: TechnicalSummary;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   score: any;
-  newsContext?: string;
 }
 
 /** 単独実行時: MarketAssessment DB から stock-scanner 用コンテキストを復元 */
@@ -100,7 +95,7 @@ async function restoreContextFromDB(): Promise<MarketAssessmentContext> {
       const levelOrder: Record<string, number> = { normal: 0, elevated: 1, high: 2, crisis: 3 };
       if (levelOrder[preMarket.minLevel] > levelOrder[regime.level]) {
         if (preMarket.minLevel === "crisis") {
-          regime = { ...regime, level: "crisis", maxPositions: 0, minScore: null, shouldHaltTrading: true, reason: `${regime.reason} + ${preMarket.reason}` };
+          regime = { ...regime, level: "crisis", maxPositions: MARKET_REGIME.CRISIS.maxPositions, minScore: MARKET_REGIME.CRISIS.minScore, shouldHaltTrading: false, reason: `${regime.reason} + ${preMarket.reason}` };
         } else if (preMarket.minLevel === "elevated" && regime.level === "normal") {
           regime = { ...regime, level: "elevated", maxPositions: 2, minScore: 60, reason: `${regime.reason} + ${preMarket.reason}` };
         }
@@ -111,32 +106,10 @@ async function restoreContextFromDB(): Promise<MarketAssessmentContext> {
   // drawdown 再計算
   const drawdown = await calculateDrawdownStatus();
 
-  // newsSummary 再取得
-  const newsAnalysis = await prisma.newsAnalysis.findUnique({
-    where: { date: today },
-  });
-  let newsSummary: string | undefined;
-  if (newsAnalysis) {
-    const sectorText = (
-      newsAnalysis.sectorImpacts as Array<{ sector: string; impact: string; summary: string }>
-    )
-      .map((s) => `  - ${s.sector}: ${s.impact} — ${s.summary}`)
-      .join("\n");
-    newsSummary = `【ニュース分析】
-- 地政学リスクレベル: ${newsAnalysis.geopoliticalRiskLevel}/5
-- ${newsAnalysis.geopoliticalSummary}
-- 市場インパクト: ${newsAnalysis.marketImpact}
-- ${newsAnalysis.marketImpactSummary}
-- 主要イベント: ${newsAnalysis.keyEvents}
-【セクター別影響】
-${sectorText || "  特になし"}`;
-  }
-
   return {
     regime,
     isShadowMode: !record.shouldTrade,
     marketData: null as unknown as MarketAssessmentContext["marketData"], // 単独実行時は不使用
-    newsSummary,
     drawdown,
     strategyDecision: { strategy: (record.tradingStrategy ?? "swing") as TradingStrategy, reason: "DB復元" },
     cmeDivergencePct,
@@ -367,7 +340,7 @@ export async function main(context?: MarketAssessmentContext) {
   const disqualified = scoredCandidates.filter((c) => c.score.isDisqualified);
   const qualified = scoredCandidates.filter((c) => !c.score.isDisqualified);
 
-  // スコア上位からAI審査候補を選出
+  // スコア上位から候補を選出
   let filtered = qualified.slice(0, SCORING.MAX_CANDIDATES_FOR_AI);
 
   // レジームによるスコア制限
@@ -381,7 +354,7 @@ export async function main(context?: MarketAssessmentContext) {
     }
   }
 
-  // swing銘柄をAI審査に強制追加
+  // swing銘柄を強制追加
   if (swingTickerSet.size > 0) {
     const filteredSwingSet = new Set(filtered.map((c) => c.tickerCode));
     const missingSwing = scoredCandidates.filter(
@@ -389,7 +362,7 @@ export async function main(context?: MarketAssessmentContext) {
     );
     if (missingSwing.length > 0) {
       filtered = [...filtered, ...missingSwing];
-      console.log(`  swing銘柄をAI審査に追加: ${missingSwing.length}銘柄`);
+      console.log(`  swing銘柄を追加: ${missingSwing.length}銘柄`);
     }
   }
 
@@ -413,27 +386,6 @@ export async function main(context?: MarketAssessmentContext) {
   console.log(
     `  スコア分布: S=${scoreDist.S} A=${scoreDist.A} B=${scoreDist.B}`,
   );
-
-  // 銘柄別ニュースコンテキストを添付
-  const newsAnalysis = await prisma.newsAnalysis.findUnique({
-    where: { date: getTodayForDB() },
-  });
-  const stockCatalysts = newsAnalysis?.stockCatalysts as
-    | Array<{ tickerCode: string; type: string; summary: string }>
-    | undefined;
-
-  if (stockCatalysts && stockCatalysts.length > 0) {
-    for (const candidate of filtered) {
-      const catalysts = stockCatalysts.filter(
-        (c) => c.tickerCode === candidate.tickerCode,
-      );
-      if (catalysts.length > 0) {
-        candidate.newsContext = catalysts
-          .map((c) => `[${c.type}] ${c.summary}`)
-          .join("\n");
-      }
-    }
-  }
 
   const today = getTodayForDB();
 
@@ -474,7 +426,7 @@ export async function main(context?: MarketAssessmentContext) {
 
   if (isShadowMode) {
     // === シャドウモード ===
-    console.log("[2/3] AIレビュー: スキップ（シャドウモード）");
+    console.log("[2/3] スキップ（シャドウモード）");
     console.log("[3/3] シャドウスコアリング結果保存中...");
 
     const shadowCandidates = [
@@ -501,7 +453,7 @@ export async function main(context?: MarketAssessmentContext) {
   } else {
     // === 通常モード ===
     if (!filtered.length) {
-      console.log("[2/3] AIレビュー: スキップ（候補0銘柄）");
+      console.log("[2/3] スキップ（候補0銘柄）");
       console.log("[3/3] 結果保存中...");
 
       const scoringRecords = accuracyTrackingCandidates.map((c) => ({
@@ -520,85 +472,36 @@ export async function main(context?: MarketAssessmentContext) {
       return;
     }
 
-    console.log("[2/3] AIレビュー中...");
-    const newsSentiment = await getNewsSectorSentiment();
+    console.log("[2/3] テクニカル条件通過銘柄を自動承認...");
 
-    const reviewCandidates: StockReviewCandidateInput[] = filtered.map((c) => {
-      const stock = candidates.find((s) => s.tickerCode === c.tickerCode);
-      const sectorGroup = getSectorGroup(stock?.jpxSectorName ?? null);
-      const sectorInfo = sectorGroup
-        ? sectorMomentum.find((s) => s.sectorGroup === sectorGroup)
-        : null;
-
-      const riskParts: string[] = [];
-      riskParts.push(`レジーム: ${regime.level}（VIX ${regime.vix.toFixed(1)}）`);
-      if (sectorInfo) {
-        riskParts.push(
-          `セクター(${sectorGroup}): 相対強度 ${sectorInfo.relativeStrength >= 0 ? "+" : ""}${sectorInfo.relativeStrength.toFixed(1)}%`,
-        );
-      }
-      const newsInfo = sectorGroup
-        ? newsSentiment.find((s) => s.sectorGroup === sectorGroup)
-        : null;
-      if (newsInfo && newsInfo.score !== 0) {
-        riskParts.push(
-          `ニュース傾向(${sectorGroup}): ${newsInfo.score > 0 ? "ポジティブ" : "ネガティブ"}（直近${SECTOR_RISK.NEWS_SENTIMENT_DAYS}日: +${newsInfo.positiveCount}/-${newsInfo.negativeCount}）`,
-        );
-      }
-      const contrarianInfo = contrarianBonusMap.get(c.tickerCode);
-      if (contrarianInfo) {
-        riskParts.push(
-          `逆行実績: ${contrarianInfo.wins}回/90日（+${contrarianInfo.bonus}点ボーナス）`,
-        );
-      }
-
-      return {
-        tickerCode: c.tickerCode,
-        name: c.name,
-        scoreFormatted: formatScoreForAI(c.score, c.summary),
-        newsContext: c.newsContext,
-        riskContext: riskParts.join(" / "),
-      };
-    });
-
-    const reviews = await reviewStocks(ctx.assessment!, reviewCandidates, strategyDecision.strategy);
-    const goStocks = reviews.filter((r) => r.decision === "go");
-    console.log(
-      `  → AIレビュー: ${reviews.length}銘柄中 ${goStocks.length}銘柄承認`,
-    );
+    // 全候補を自動承認（AI審査なし）
+    const goStocks = filtered.map((c) => ({
+      tickerCode: c.tickerCode,
+      strategy: strategyDecision.strategy,
+      reasoning: `テクニカルスコア${c.score.totalScore}点 自動承認`,
+      riskFlags: [] as string[],
+      technicalScore: c.score.totalScore,
+    }));
+    console.log(`  → ${filtered.length}銘柄承認`);
 
     // MarketAssessment + ScoringRecord に結果を保存
     console.log("[3/3] 結果保存中...");
-    const selectedStocksData = goStocks.map((g) => {
-      const scored = scoredCandidates.find((c) => c.tickerCode === g.tickerCode);
-      return {
-        tickerCode: g.tickerCode,
-        strategy: g.strategy,
-        reasoning: g.reasoning,
-        riskFlags: g.riskFlags,
-        technicalScore: scored?.score.totalScore ?? 0,
-      };
-    });
-
     await prisma.marketAssessment.update({
       where: { date: today },
       data: {
-        selectedStocks: JSON.parse(JSON.stringify(selectedStocksData)),
+        selectedStocks: JSON.parse(JSON.stringify(goStocks)),
       },
     });
 
     // ScoringRecord 保存
     const scoringRecords = [
-      ...filtered.map((c) => {
-        const review = reviews.find((r) => r.tickerCode === c.tickerCode);
-        return {
-          ...buildScoringFields(c),
-          aiDecision: review?.decision ?? null,
-          aiReasoning: review?.reasoning ?? null,
-          rejectionReason: review?.decision === "no_go" ? "ai_no_go" : null,
-          newsContext: c.newsContext ?? null,
-        };
-      }),
+      ...filtered.map((c) => ({
+        ...buildScoringFields(c),
+        aiDecision: null,
+        aiReasoning: null,
+        rejectionReason: null,
+        newsContext: null,
+      })),
       ...accuracyTrackingCandidates.map((c) => ({
         ...buildScoringFields(c),
         aiDecision: null,
@@ -619,12 +522,11 @@ export async function main(context?: MarketAssessmentContext) {
     if (goStocks.length > 0) {
       await notifyStockCandidates(
         goStocks.map((g) => {
-          const scored = scoredCandidates.find((c) => c.tickerCode === g.tickerCode);
           return {
             tickerCode: g.tickerCode,
             name: candidates.find((c) => c.tickerCode === g.tickerCode)?.name,
             strategy: g.strategy,
-            score: scored?.score.totalScore ?? 0,
+            score: g.technicalScore,
             reasoning: g.reasoning,
           };
         }),

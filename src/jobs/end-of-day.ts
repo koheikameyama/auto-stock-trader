@@ -5,15 +5,13 @@
  * 1b. VIX高騰時（≥30）のスイングポジション強制決済（オーバーナイトリスク回避）
  * 2. 期限切れ注文のキャンセル
  * 3. TradingDailySummary 作成
- * 4. AIによる日次レビュー
+ * 4. 日次サマリー生成
  * 5. Slackに日次レポート送信
  */
 
 import { prisma } from "../lib/prisma";
 import { getTodayForDB, getStartOfDayJST, getEndOfDayJST } from "../lib/date-utils";
-import { OPENAI_CONFIG, STRATEGY_SWITCHING } from "../lib/constants";
-import { getTracedOpenAIClient } from "../lib/openai";
-import { flushLangfuse } from "../lib/langfuse";
+import { STRATEGY_SWITCHING } from "../lib/constants";
 import { fetchStockQuote } from "../core/market-data";
 import { closePosition, getCashBalance, getTotalPortfolioValue } from "../core/position-manager";
 import type { ExitSnapshot } from "../types/snapshots";
@@ -115,10 +113,10 @@ export async function main() {
     console.log(`[1b/5] VIX ${todayVix?.toFixed(1) ?? "N/A"}: swing/breakoutポジション保持`);
   }
 
-  // 1c. cautious/bearish/crisis時のbreakoutポジション強制決済
+  // 1c. crisis時のbreakoutポジション強制決済
   // swingはday_tradeに変換済みで1aで決済されるが、breakoutはstrategyを変えないためここで決済
   const todaySentiment = todayAssessmentForStrategy?.sentiment as string | null;
-  if (todaySentiment && ["cautious", "bearish", "crisis"].includes(todaySentiment)) {
+  if (todaySentiment === "crisis") {
     console.log(`[1c/5] センチメント「${todaySentiment}」: breakoutポジション強制決済...`);
     const breakoutPositions = await prisma.tradingPosition.findMany({
       where: { status: "open", strategy: "breakout" },
@@ -200,107 +198,16 @@ export async function main() {
     `  決済数: ${totalTrades}, 勝: ${wins}, 負: ${losses}, 損益: ¥${totalPnl.toLocaleString()}, エントリー: ${filledBuyOrders.length}件`,
   );
 
-  // 4. AIレビュー
-  console.log("[4/5] AI日次レビュー生成...");
+  // 4. 日次サマリー生成
+  console.log("[4/5] 日次サマリー生成...");
   let aiReview = "";
-
-  // エントリー情報
-  let entryContext = "";
-  if (filledBuyOrders.length > 0) {
-    entryContext += `\n【本日のエントリー】\n`;
-    entryContext += `- 新規買い約定: ${filledBuyOrders.length}件\n`;
-    for (const order of filledBuyOrders) {
-      entryContext += `  - ${order.stock.tickerCode} ${order.stock.name}: ¥${Number(order.filledPrice).toLocaleString()} × ${order.quantity}株\n`;
-    }
-  }
-
-  // 決済0件かつエントリー0件の場合、見送り理由のコンテキストを収集
-  let noTradeContext = "";
-  if (totalTrades === 0 && filledBuyOrders.length === 0) {
-    const todayAssessment = await prisma.marketAssessment.findUnique({
-      where: { date: getTodayForDB() },
-    });
-
-    if (todayAssessment) {
-      noTradeContext += `\n【市場判断】\n`;
-      noTradeContext += `- 判定: ${todayAssessment.shouldTrade ? "取引可" : "取引見送り"}\n`;
-      noTradeContext += `- センチメント: ${todayAssessment.sentiment}\n`;
-      noTradeContext += `- 判断理由: ${todayAssessment.reasoning}\n`;
-      if (todayAssessment.nikkeiChange) {
-        noTradeContext += `- 日経変化率: ${Number(todayAssessment.nikkeiChange).toFixed(2)}%\n`;
-      }
-      if (todayAssessment.vix) {
-        noTradeContext += `- VIX: ${Number(todayAssessment.vix).toFixed(1)}\n`;
-      }
-    }
-
-    // ブレイクアウト戦略の当日状況
-    const watchlistEntries = await prisma.breakoutWatchlistEntry.findMany({
-      where: { date: getTodayForDB() },
-    });
-
-    const breakoutOrders = await prisma.tradingOrder.findMany({
-      where: {
-        strategy: "breakout",
-        side: "buy",
-        createdAt: { gte: startOfDay, lte: endOfDay },
-      },
-      include: { stock: true },
-    });
-
-    if (watchlistEntries.length > 0 || breakoutOrders.length > 0) {
-      noTradeContext += `\n【ブレイクアウト戦略】\n`;
-      noTradeContext += `- ウォッチリスト銘柄数: ${watchlistEntries.length}件\n`;
-
-      if (breakoutOrders.length > 0) {
-        const filled = breakoutOrders.filter((o) => o.status === "filled").length;
-        const cancelled = breakoutOrders.filter((o) => o.status === "cancelled").length;
-        const expired = breakoutOrders.filter((o) => o.status === "expired").length;
-        noTradeContext += `- 注文発生: ${breakoutOrders.length}件（約定${filled}, キャンセル${cancelled}, 失効${expired}）\n`;
-      } else {
-        noTradeContext += `- トリガー発火なし（出来高サージ+高値ブレイク条件未達）\n`;
-      }
-    }
-  }
-
-  try {
-    const openai = getTracedOpenAIClient({
-      generationName: "eod-review",
-      tags: ["review", "daily"],
-    });
-    let reviewInstruction: string;
-    if (totalTrades === 0 && filledBuyOrders.length === 0) {
-      reviewInstruction = "取引が行われなかった理由を具体的に説明し、明日への改善ポイントを述べてください。";
-    } else if (totalTrades === 0 && filledBuyOrders.length > 0) {
-      reviewInstruction = "新規エントリーがあったがまだ決済はない状況です。エントリーの評価と今後の見通しを述べてください。";
-    } else {
-      reviewInstruction = "今日の結果の要約と明日への改善ポイントを述べてください。";
-    }
-
-    const reviewPrompt = `本日の日本株自動売買シミュレーションの日次レビューを簡潔に生成してください。
-
-【本日の結果】
-- 決済数: ${totalTrades}件
-- 勝敗: ${wins}勝 ${losses}敗
-- 確定損益: ¥${totalPnl.toLocaleString()}
-- 新規エントリー: ${filledBuyOrders.length}件
-- ポートフォリオ時価: ¥${portfolioValue.toLocaleString()}
-- 現金残高: ¥${cashBalance.toLocaleString()}
-- 残ポジション数: ${openPositions.length}件
-${entryContext}${noTradeContext}
-${reviewInstruction}
-150文字以内で回答してください。`;
-
-    const response = await openai.chat.completions.create({
-      model: OPENAI_CONFIG.MODEL,
-      temperature: 0.5,
-      messages: [{ role: "user", content: reviewPrompt }],
-      max_tokens: 200,
-    });
-
-    aiReview = response.choices[0].message.content ?? "";
-  } catch (error) {
-    console.error("  AIレビュー生成エラー:", error);
+  if (totalTrades > 0) {
+    const winRate = ((wins / totalTrades) * 100).toFixed(0);
+    aiReview = `${totalTrades}件決済(${wins}勝${losses}敗, 勝率${winRate}%), 損益¥${totalPnl.toLocaleString()}, PF時価¥${portfolioValue.toLocaleString()}`;
+  } else if (filledBuyOrders.length > 0) {
+    aiReview = `新規${filledBuyOrders.length}件エントリー, 未決済, PF時価¥${portfolioValue.toLocaleString()}`;
+  } else {
+    aiReview = `取引なし, PF時価¥${portfolioValue.toLocaleString()}, 現金¥${cashBalance.toLocaleString()}`;
   }
 
   // 5. TradingDailySummary 作成
@@ -355,7 +262,6 @@ if (isDirectRun) {
       process.exit(1);
     })
     .finally(async () => {
-      await flushLangfuse();
       await prisma.$disconnect();
     });
 }

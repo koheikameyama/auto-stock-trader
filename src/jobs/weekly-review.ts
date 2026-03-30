@@ -2,15 +2,13 @@
  * 週次レビュー（土曜 10:00 JST）
  *
  * 1. 週間パフォーマンス集計
- * 2. AIによる戦略レビュー（構造化出力）
+ * 2. 機械的サマリー生成
  * 3. DB保存
  * 4. Slackにレポート送信
  */
 
 import { prisma } from "../lib/prisma";
-import { OPENAI_CONFIG, WEEKLY_REVIEW } from "../lib/constants";
-import { getTracedOpenAIClient } from "../lib/openai";
-import { flushLangfuse } from "../lib/langfuse";
+import { WEEKLY_REVIEW } from "../lib/constants";
 import { notifySlack } from "../lib/slack";
 import { jstDateAsUTC } from "../lib/date-utils";
 import dayjs from "dayjs";
@@ -23,31 +21,13 @@ dayjs.extend(timezone);
 
 const JST = TIMEZONE;
 
-const WEEKLY_REVIEW_SCHEMA = {
-  type: "json_schema" as const,
-  json_schema: {
-    name: "weekly_review",
-    strict: true,
-    schema: {
-      type: "object",
-      properties: {
-        performance: { type: "string", description: "今週のパフォーマンス評価（50文字以内）" },
-        strengths: { type: "string", description: "良かった点（50文字以内）" },
-        improvements: { type: "string", description: "改善すべき点（50文字以内）" },
-        nextWeekStrategy: { type: "string", description: "来週の戦略提案（50文字以内）" },
-      },
-      required: ["performance", "strengths", "improvements", "nextWeekStrategy"],
-      additionalProperties: false,
-    },
-  },
-};
-
-type WeeklyAIReview = {
+interface WeeklyReview {
+  [key: string]: string;
   performance: string;
   strengths: string;
   improvements: string;
   nextWeekStrategy: string;
-};
+}
 
 export async function main() {
   console.log("=== Weekly Review 開始 ===");
@@ -73,7 +53,7 @@ export async function main() {
   if (dailySummaries.length === 0) {
     console.log("今週の取引データがありません。");
     await notifySlack({
-      title: "📊 週次レビュー",
+      title: "週次レビュー",
       message: "今週は取引がありませんでした。",
       color: "#808080",
     });
@@ -94,73 +74,26 @@ export async function main() {
   const portfolioValue = Number(latestSummary.portfolioValue);
   const cashBalance = Number(latestSummary.cashBalance);
 
-  // 直近の注文履歴
-  const _recentOrders = await prisma.tradingOrder.findMany({
-    where: {
-      createdAt: { gte: weekAgo },
-      status: "filled",
-    },
-    include: { stock: true },
-    orderBy: { filledAt: "asc" },
-  });
-
-  // 直近のクローズポジション
-  const closedPositions = await prisma.tradingPosition.findMany({
-    where: {
-      status: "closed",
-      exitedAt: { gte: weekAgo },
-    },
-    include: { stock: true },
-    orderBy: { exitedAt: "asc" },
-  });
-
   console.log(`  取引日数: ${tradingDays}, 取引数: ${totalTrades}, PnL: ¥${totalPnl.toLocaleString()}`);
 
-  // AIレビュー生成
-  console.log("AI週次レビュー生成中...");
+  // 機械的レビュー生成
+  console.log("週次サマリー生成中...");
 
-  const positionSummary = closedPositions
-    .map((p) => {
-      const pnl = p.realizedPnl ? Number(p.realizedPnl) : 0;
-      return `${p.stock.tickerCode} ${p.stock.name}: ${p.strategy}, 損益 ¥${pnl.toLocaleString()}`;
-    })
-    .join("\n");
+  const winRate = totalTrades > 0 ? ((totalWins / totalTrades) * 100).toFixed(0) : "0";
+  const avgPnlPerTrade = totalTrades > 0 ? Math.round(totalPnl / totalTrades) : 0;
 
-  let aiReview: WeeklyAIReview | null = null;
-  try {
-    const openai = getTracedOpenAIClient({
-      generationName: "weekly-review",
-      tags: ["review", "weekly"],
-    });
-    const response = await openai.chat.completions.create({
-      model: OPENAI_CONFIG.MODEL,
-      temperature: 0.5,
-      response_format: WEEKLY_REVIEW_SCHEMA,
-      messages: [
-        {
-          role: "user",
-          content: `週次の自動売買シミュレーション結果をレビューしてください。
-
-【週間サマリー】
-- 取引日数: ${tradingDays}日
-- 取引数: ${totalTrades}件（${totalWins}勝 ${totalLosses}敗）
-- 確定損益: ¥${totalPnl.toLocaleString()}
-- ポートフォリオ時価: ¥${portfolioValue.toLocaleString()}
-- 現金残高: ¥${cashBalance.toLocaleString()}
-
-【クローズポジション詳細】
-${positionSummary || "なし"}
-
-各項目を50文字以内で簡潔に述べてください。`,
-        },
-      ],
-      max_tokens: 500,
-    });
-
-    aiReview = JSON.parse(response.choices[0].message.content ?? "{}");
-  } catch (error) {
-    console.error("AIレビュー生成エラー:", error);
-  }
+  const review: WeeklyReview = {
+    performance: totalTrades > 0
+      ? `${totalTrades}件取引, ${totalWins}勝${totalLosses}敗(勝率${winRate}%), 損益¥${totalPnl.toLocaleString()}`
+      : `取引なし, PF時価¥${portfolioValue.toLocaleString()}`,
+    strengths: totalWins > 0
+      ? `${totalWins}件の勝ちトレード, 平均損益¥${avgPnlPerTrade.toLocaleString()}/件`
+      : "該当なし",
+    improvements: totalLosses > 0
+      ? `${totalLosses}件の負けトレードを分析し損切り精度を改善`
+      : "特になし",
+    nextWeekStrategy: "ルールベースのbreakout/gapup戦略を継続運用",
+  };
 
   // DB保存
   try {
@@ -176,7 +109,7 @@ ${positionSummary || "なし"}
         totalPnl,
         portfolioValue,
         cashBalance,
-        aiReview: aiReview ?? {},
+        aiReview: review,
       },
       update: {
         weekStart,
@@ -187,7 +120,7 @@ ${positionSummary || "なし"}
         totalPnl,
         portfolioValue,
         cashBalance,
-        aiReview: aiReview ?? {},
+        aiReview: review,
       },
     });
     console.log("  週次サマリーをDBに保存しました");
@@ -196,24 +129,21 @@ ${positionSummary || "なし"}
   }
 
   // Slack通知
-  const pnlEmoji = totalPnl >= 0 ? "📈" : "📉";
-  const slackMessage = aiReview
-    ? [
-        `📊 ${aiReview.performance}`,
-        `💪 ${aiReview.strengths}`,
-        `🔧 ${aiReview.improvements}`,
-        `🎯 ${aiReview.nextWeekStrategy}`,
-      ].join("\n")
-    : "AIレビューの生成に失敗しました";
+  const pnlEmoji = totalPnl >= 0 ? "+" : "";
+  const slackMessage = [
+    review.performance,
+    review.strengths !== "該当なし" ? `勝ちトレード: ${review.strengths}` : null,
+    review.improvements !== "特になし" ? `改善: ${review.improvements}` : null,
+  ].filter(Boolean).join("\n");
 
   await notifySlack({
-    title: `📊 週次レビュー（${monday.format("MM/DD")}〜${friday.format("MM/DD")}）`,
+    title: `週次レビュー（${monday.format("MM/DD")}〜${friday.format("MM/DD")}）`,
     message: slackMessage,
     color: totalPnl >= 0 ? "good" : "danger",
     fields: [
       {
         title: "週間損益",
-        value: `${pnlEmoji} ¥${totalPnl.toLocaleString()}`,
+        value: `${pnlEmoji}¥${totalPnl.toLocaleString()}`,
         short: true,
       },
       {
@@ -245,7 +175,6 @@ if (isDirectRun) {
       process.exit(1);
     })
     .finally(async () => {
-      await flushLangfuse();
       await prisma.$disconnect();
     });
 }

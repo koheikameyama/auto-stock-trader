@@ -229,7 +229,7 @@ app.get("/", async (c) => {
             ${latestSummary.aiReview
               ? html`
                   <details>
-                    <summary>AIレビュー</summary>
+                    <summary>サマリー</summary>
                     <div class="review-text">${latestSummary.aiReview}</div>
                   </details>
                 `

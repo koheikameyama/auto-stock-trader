@@ -2,7 +2,7 @@
  * マーケットレジーム判定モジュール
  *
  * VIXベースの機械的レジーム判定。
- * AIの前段で動作し、VIX > 30 の暴落局面ではAI判断を待たず取引停止する。
+ * VIX > 30 でも完全停止せず1ポジション制限に留める（ブレイクアウト信号は自然に減少する）。
  *
  * 日経VI（^JNV）はYahoo Financeで取得不可となったため廃止。
  * VIXをプライマリ指標として使用する（日経VIとの相関が高く、実用上問題なし）。
@@ -27,7 +27,7 @@ export interface MarketRegime {
 /**
  * VIX水準からマーケットレジームを機械的に判定する
  *
- * - VIX > 30: crisis → 取引停止（AI判断不要）
+ * - VIX > 30: crisis → 1ポジション制限（暴落時のブレイクアウトは本物の強さ）
  * - VIX 25-30: high → 最大1ポジション、Sランクのみ
  * - VIX 20-25: elevated → 最大2ポジション、S/Aランク
  * - VIX < 20: normal → 制限なし
@@ -39,8 +39,8 @@ export function determineMarketRegime(vix: number): MarketRegime {
       vix,
       maxPositions: MARKET_REGIME.CRISIS.maxPositions,
       minScore: MARKET_REGIME.CRISIS.minScore,
-      shouldHaltTrading: true,
-      reason: `VIX ${vix.toFixed(1)} > ${VIX_THRESHOLDS.HIGH}: 市場パニック状態。全取引停止`,
+      shouldHaltTrading: false,
+      reason: `VIX ${vix.toFixed(1)} > ${VIX_THRESHOLDS.HIGH}: 市場パニック状態。最大${MARKET_REGIME.CRISIS.maxPositions}ポジション`,
     };
   }
 

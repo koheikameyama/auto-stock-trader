@@ -16,7 +16,6 @@ import { prisma } from "../../lib/prisma";
 import { TIMEZONE } from "../../lib/constants";
 
 
-import { main as runMiddayReassessment } from "../../jobs/midday-reassessment";
 import { main as runEod } from "../../jobs/end-of-day";
 import { main as runDelistingSync } from "../../jobs/jpx-delisting-sync";
 import { main as runMarketAssessment } from "../../jobs/market-assessment";
@@ -41,7 +40,6 @@ interface JobDef {
 }
 
 const JOBS: Record<string, JobDef> = {
-  "midday-reassessment": { fn: runMiddayReassessment, requiresMarketDay: true },
   "end-of-day": { fn: runEod, requiresMarketDay: true },
   "market-assessment": { fn: async () => { await runMarketAssessment(); }, requiresMarketDay: true },
   "watchlist-builder": { fn: runWatchlistBuilder, requiresMarketDay: true },

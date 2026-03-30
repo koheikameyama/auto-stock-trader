@@ -11,7 +11,6 @@ import ordersRoute from "./routes/orders";
 import watchlistRoute from "./routes/watchlist";
 import historyRoute from "./routes/history";
 import riskRoute from "./routes/risk";
-import newsRoute from "./routes/news";
 import weeklyRoute from "./routes/weekly";
 import backtestRoute from "./routes/backtest";
 import apiRoute from "./routes/api";
@@ -130,7 +129,6 @@ app.route("/orders", ordersRoute);
 app.route("/watchlist", watchlistRoute);
 app.route("/history", historyRoute);
 app.route("/risk", riskRoute);
-app.route("/news", newsRoute);
 app.route("/weekly", weeklyRoute);
 app.route("/backtest", backtestRoute);
 

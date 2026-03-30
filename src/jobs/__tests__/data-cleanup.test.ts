@@ -4,15 +4,13 @@ import "../../lib/constants/retention";
 // vi.hoisted で mock 関数を定義（vi.mock のホイスティングに対応）
 const {
   mockScoringDelete, mockBacktestDelete, mockMarketDelete,
-  mockArticleDelete, mockAnalysisDelete, mockSummaryDelete,
+  mockSummaryDelete,
   mockStatusLogDelete, mockEventLogDelete, mockDefensiveDelete, mockUnfilledDelete,
   mockWatchlistDelete,
 } = vi.hoisted(() => ({
   mockScoringDelete: vi.fn().mockResolvedValue({ count: 0 }),
   mockBacktestDelete: vi.fn().mockResolvedValue({ count: 0 }),
   mockMarketDelete: vi.fn().mockResolvedValue({ count: 0 }),
-  mockArticleDelete: vi.fn().mockResolvedValue({ count: 0 }),
-  mockAnalysisDelete: vi.fn().mockResolvedValue({ count: 0 }),
   mockSummaryDelete: vi.fn().mockResolvedValue({ count: 0 }),
   mockStatusLogDelete: vi.fn().mockResolvedValue({ count: 0 }),
   mockEventLogDelete: vi.fn().mockResolvedValue({ count: 0 }),
@@ -26,8 +24,6 @@ vi.mock("../../lib/prisma", () => ({
     scoringRecord: { deleteMany: mockScoringDelete },
     backtestDailyResult: { deleteMany: mockBacktestDelete },
     marketAssessment: { deleteMany: mockMarketDelete },
-    newsArticle: { deleteMany: mockArticleDelete },
-    newsAnalysis: { deleteMany: mockAnalysisDelete },
     tradingDailySummary: { deleteMany: mockSummaryDelete },
     stockStatusLog: { deleteMany: mockStatusLogDelete },
     corporateEventLog: { deleteMany: mockEventLogDelete },
@@ -39,7 +35,7 @@ vi.mock("../../lib/prisma", () => ({
 
 const allMocks = [
   mockScoringDelete, mockBacktestDelete, mockMarketDelete,
-  mockArticleDelete, mockAnalysisDelete, mockSummaryDelete,
+  mockSummaryDelete,
   mockStatusLogDelete, mockEventLogDelete, mockDefensiveDelete, mockUnfilledDelete,
   mockWatchlistDelete,
 ];
@@ -63,7 +59,7 @@ describe("runDataCleanup", () => {
       expect(mock).toHaveBeenCalledTimes(1);
     }
     expect(result.totalDeleted).toBe(0);
-    expect(Object.keys(result.deletedCounts)).toHaveLength(11);
+    expect(Object.keys(result.deletedCounts)).toHaveLength(9);
   });
 
   it("各テーブルで正しい日付カラムと lt を使う", async () => {
@@ -73,11 +69,7 @@ describe("runDataCleanup", () => {
     expect(mockScoringDelete).toHaveBeenCalledWith({ where: { date: { lt: expect.any(Date) } } });
     expect(mockBacktestDelete).toHaveBeenCalledWith({ where: { date: { lt: expect.any(Date) } } });
     expect(mockMarketDelete).toHaveBeenCalledWith({ where: { date: { lt: expect.any(Date) } } });
-    expect(mockAnalysisDelete).toHaveBeenCalledWith({ where: { date: { lt: expect.any(Date) } } });
     expect(mockSummaryDelete).toHaveBeenCalledWith({ where: { date: { lt: expect.any(Date) } } });
-
-    // publishedAt カラム
-    expect(mockArticleDelete).toHaveBeenCalledWith({ where: { publishedAt: { lt: expect.any(Date) } } });
 
     // createdAt カラム
     expect(mockStatusLogDelete).toHaveBeenCalledWith({ where: { createdAt: { lt: expect.any(Date) } } });
@@ -112,8 +104,6 @@ describe("runDataCleanup", () => {
     mockScoringDelete.mockResolvedValueOnce({ count: 100 });
     mockBacktestDelete.mockResolvedValueOnce({ count: 50 });
     mockMarketDelete.mockResolvedValueOnce({ count: 10 });
-    mockArticleDelete.mockResolvedValueOnce({ count: 200 });
-    mockAnalysisDelete.mockResolvedValueOnce({ count: 5 });
     mockSummaryDelete.mockResolvedValueOnce({ count: 0 });
     mockStatusLogDelete.mockResolvedValueOnce({ count: 3 });
     mockEventLogDelete.mockResolvedValueOnce({ count: 1 });
@@ -123,8 +113,7 @@ describe("runDataCleanup", () => {
 
     const result = await runDataCleanup();
 
-    expect(result.totalDeleted).toBe(371);
+    expect(result.totalDeleted).toBe(166);
     expect(result.deletedCounts.scoringRecord).toBe(100);
-    expect(result.deletedCounts.newsArticle).toBe(200);
   });
 });

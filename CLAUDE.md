@@ -85,7 +85,6 @@
 - GitHub Actionsを編集する前 → `github-actions.md`
 - 日付を扱うコードを書く前 → `date-handling.md`
 - フロントエンドのUI実装前 → `frontend.md`
-- LLM API連携を実装する前 → `llm-api.md`
 - コード全般を書く前 → `coding-standards.md`
 - Claude Code の設定を変更する前 → `claude-code-settings.md`
 - バックテスト・パラメータを変更する前 → `backtest.md`
@@ -111,14 +110,12 @@
 | [daily-highlights.md](docs/specs/daily-highlights.md) | 今日の注目データ |
 | [stock-report.md](docs/specs/stock-report.md) | 銘柄分析レポート |
 | [market-movers.md](docs/specs/market-movers.md) | 市場ランキング |
-| [news.md](docs/specs/news.md) | ニュース・セクタートレンド |
 | [screening.md](docs/specs/screening.md) | スクリーニング |
 | [stock-comparison.md](docs/specs/stock-comparison.md) | 銘柄比較 |
-| [ai-chat.md](docs/specs/ai-chat.md) | AIチャット |
 | [notifications.md](docs/specs/notifications.md) | 通知 |
 | [settings.md](docs/specs/settings.md) | 設定・認証 |
 | [batch-processing.md](docs/specs/batch-processing.md) | バッチ処理 |
-| [trading-architecture.md](docs/specs/trading-architecture.md) | トレーディングアーキテクチャ改善（ロジック主導+AI最終審判） |
+| [trading-architecture.md](docs/specs/trading-architecture.md) | トレーディングアーキテクチャ（ルールベース売買・リスク管理） |
 | [admin.md](docs/specs/admin.md) | 管理画面 |
 | [backtest-breakout.md](docs/specs/backtest-breakout.md) | ブレイクアウトバックテスト（日足シミュレーション・walk-forward検証） |
 | [backtest-gapup.md](docs/specs/backtest-gapup.md) | ギャップアップバックテスト（当日終値エントリー・短期決戦） |
@@ -141,7 +138,6 @@
 | [database.md](.claude/rules/database.md) | データベース接続情報 |
 | [date-handling.md](.claude/rules/date-handling.md) | 日付・時刻の扱い（JST基準、dayjs） |
 | [frontend.md](.claude/rules/frontend.md) | データ取得・スケルトン表示パターン |
-| [llm-api.md](.claude/rules/llm-api.md) | LLM API連携（構造化出力） |
 | [coding-standards.md](.claude/rules/coding-standards.md) | マジックナンバー、後方互換性、並列化、設計ファイル |
 | [claude-code-settings.md](.claude/rules/claude-code-settings.md) | Claude Code 設定管理（permissions はローカルファイル） |
 | [backtest.md](.claude/rules/backtest.md) | バックテスト運用（walk-forward の実行タイミング・判定基準） |

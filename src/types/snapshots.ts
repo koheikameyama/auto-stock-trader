@@ -77,7 +77,7 @@ export interface EntrySnapshot {
       adjustQuantity: number | null;
     } | null;
     riskFlags: string[];
-  };
+  } | null;
   marketContext: {
     sentiment: string;
     reasoning: string;

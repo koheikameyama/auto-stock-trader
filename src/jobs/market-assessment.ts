@@ -1,16 +1,14 @@
 /**
  * マーケット評価ジョブ
  *
- * 市場指標データ取得 → メカニカルレジーム判定 → AI市場評価 → MarketAssessment DB保存。
+ * 市場指標データ取得 → メカニカルレジーム判定 → VIXベース機械的市場評価 → MarketAssessment DB保存。
  * market-scanner オーケストレーターから呼ばれるほか、単独実行も可能。
  */
 
 import { prisma } from "../lib/prisma";
 import { getTodayForDB } from "../lib/date-utils";
-import { MARKET_INDEX, STRATEGY_SWITCHING } from "../lib/constants";
+import { MARKET_INDEX, MARKET_REGIME, STRATEGY_SWITCHING } from "../lib/constants";
 import { fetchMarketData } from "../core/market-data";
-import { assessMarket } from "../core/ai-decision";
-import type { MarketDataInput } from "../core/ai-decision";
 import { notifyMarketAssessment, notifyRiskAlert } from "../lib/slack";
 import {
   determineMarketRegime,
@@ -27,7 +25,6 @@ export interface MarketAssessmentContext {
   regime: MarketRegime;
   isShadowMode: boolean;
   marketData: Awaited<ReturnType<typeof fetchMarketData>>;
-  newsSummary?: string;
   drawdown: DrawdownStatus;
   strategyDecision: StrategyDecision;
   cmeDivergencePct: number | null;
@@ -86,40 +83,6 @@ export async function main(): Promise<MarketAssessmentContext> {
     console.log(`  米国市場（前日）: ${usLog.join(", ")}`);
   }
 
-  // 1.5. ニュース分析データ取得
-  console.log("[1.5/2] ニュース分析データ取得中...");
-  const newsAnalysis = await prisma.newsAnalysis.findUnique({
-    where: { date: getTodayForDB() },
-  });
-
-  let newsSummary: string | undefined;
-  if (newsAnalysis) {
-    const sectorText = (
-      newsAnalysis.sectorImpacts as Array<{
-        sector: string;
-        impact: string;
-        summary: string;
-      }>
-    )
-      .map((s) => `  - ${s.sector}: ${s.impact} — ${s.summary}`)
-      .join("\n");
-
-    newsSummary = `【ニュース分析】
-- 地政学リスクレベル: ${newsAnalysis.geopoliticalRiskLevel}/5
-- ${newsAnalysis.geopoliticalSummary}
-- 市場インパクト: ${newsAnalysis.marketImpact}
-- ${newsAnalysis.marketImpactSummary}
-- 主要イベント: ${newsAnalysis.keyEvents}
-【セクター別影響】
-${sectorText || "  特になし"}`;
-
-    console.log(
-      `  ニュース分析あり（地政学リスク: ${newsAnalysis.geopoliticalRiskLevel}/5, 市場: ${newsAnalysis.marketImpact}）`,
-    );
-  } else {
-    console.log("  ニュース分析なし（news-collector未実行）");
-  }
-
   // 1.7. CME先物ナイトセッション乖離率チェック
   let cmeDivergencePct: number | null = null;
   if (marketData.cmeFutures && marketData.usdjpy && marketData.nikkei.previousClose > 0) {
@@ -170,7 +133,7 @@ ${sectorText || "  特になし"}`;
       if (levelOrder[preMarket.minLevel] > levelOrder[regime.level]) {
         console.log(`  → CME乖離率によりレジームを ${regime.level} → ${preMarket.minLevel} に引き上げ`);
         if (preMarket.minLevel === "crisis") {
-          regime = { ...regime, level: "crisis", maxPositions: 0, minScore: null, shouldHaltTrading: true, reason: `${regime.reason} + ${preMarket.reason}` };
+          regime = { ...regime, level: "crisis", maxPositions: MARKET_REGIME.CRISIS.maxPositions, minScore: MARKET_REGIME.CRISIS.minScore, shouldHaltTrading: false, reason: `${regime.reason} + ${preMarket.reason}` };
         } else if (preMarket.minLevel === "elevated" && regime.level === "normal") {
           regime = { ...regime, level: "elevated", maxPositions: 2, minScore: 60, reason: `${regime.reason} + ${preMarket.reason}` };
         }
@@ -181,7 +144,7 @@ ${sectorText || "  特になし"}`;
   console.log(`  → レジーム: ${regime.level}（${regime.reason}）`);
 
   // 1.8.1. 戦略決定
-  let strategyDecision: StrategyDecision = determineTradingStrategy(
+  const strategyDecision: StrategyDecision = determineTradingStrategy(
     marketData.vix.price,
     cmeDivergencePct,
   );
@@ -197,28 +160,6 @@ ${sectorText || "  特になし"}`;
     if (updated.count > 0) {
       console.log(`  → VIX ${marketData.vix.price.toFixed(1)} ≥ ${STRATEGY_SWITCHING.VIX_SWING_FORCE_CLOSE_THRESHOLD}: ${updated.count}件のswingポジションをday_tradeに切替`);
     }
-  }
-
-  if (regime.shouldHaltTrading && !isShadowMode) {
-    console.log("レジームにより取引停止。MarketAssessment を保存してシャドウスコアリングへ");
-    await notifyRiskAlert({
-      type: "VIXレジーム停止",
-      message: regime.reason,
-    });
-    const assessmentData = {
-      ...buildMarketFields(marketData),
-      sentiment: "crisis" as const,
-      shouldTrade: false,
-      reasoning: `[VIXレジーム自動停止] ${regime.reason}`,
-      selectedStocks: [],
-      tradingStrategy: strategyDecision.strategy,
-    };
-    await prisma.marketAssessment.upsert({
-      where: { date: getTodayForDB() },
-      update: assessmentData,
-      create: { date: getTodayForDB(), ...assessmentData },
-    });
-    isShadowMode = true;
   }
 
   // 1.8.5. 日経平均キルスイッチ
@@ -248,49 +189,6 @@ ${sectorText || "  特になし"}`;
     isShadowMode = true;
   }
 
-  // 1.8.6. N225 SMA50フィルター
-  // N225終値がSMA50以下の場合はエントリー停止（中期下降トレンド）
-  if (!isShadowMode) {
-    console.log("[1.8.6/2] N225 SMA50チェック...");
-    const SMA_PERIOD = 50;
-    const n225Bars = await prisma.stockDailyBar.findMany({
-      where: { tickerCode: "^N225" },
-      orderBy: { date: "desc" },
-      take: SMA_PERIOD + 5, // 余裕を持って取得
-      select: { date: true, close: true },
-    });
-
-    if (n225Bars.length >= SMA_PERIOD) {
-      const recentClose = n225Bars[0].close;
-      const sma50 = n225Bars.slice(0, SMA_PERIOD).reduce((s, b) => s + b.close, 0) / SMA_PERIOD;
-      console.log(`  N225: ¥${recentClose.toLocaleString()} / SMA50: ¥${Math.round(sma50).toLocaleString()}`);
-
-      if (recentClose < sma50) {
-        const reason = `N225 ¥${recentClose.toLocaleString()} < SMA50 ¥${Math.round(sma50).toLocaleString()}: 中期下降トレンドのためエントリー停止`;
-        console.log(`  → ${reason}`);
-        await notifyRiskAlert({ type: "N225 SMA50フィルター", message: reason });
-        const assessmentData = {
-          ...buildMarketFields(marketData),
-          sentiment: "bearish" as const,
-          shouldTrade: false,
-          reasoning: `[N225 SMA50フィルター] ${reason}`,
-          selectedStocks: [],
-          tradingStrategy: strategyDecision.strategy,
-        };
-        await prisma.marketAssessment.upsert({
-          where: { date: getTodayForDB() },
-          update: assessmentData,
-          create: { date: getTodayForDB(), ...assessmentData },
-        });
-        isShadowMode = true;
-      } else {
-        console.log(`  → N225 SMA50以上: エントリー継続`);
-      }
-    } else {
-      console.log(`  N225データ不足（${n225Bars.length}件）: SMA50チェックをスキップ`);
-    }
-  }
-
   // 1.9. ドローダウンチェック
   console.log("[1.9/2] ドローダウンチェック...");
   const drawdown = await calculateDrawdownStatus();
@@ -315,13 +213,13 @@ ${sectorText || "  特になし"}`;
       | "bearish"
       | "crisis";
     console.log(
-      `  → ドローダウン停止時のsentiment: ${drawdownSentiment}（AI市場評価を維持）`,
+      `  → ドローダウン停止時のsentiment: ${drawdownSentiment}（市場評価を維持）`,
     );
     const drawdownAssessmentData = {
       ...buildMarketFields(marketData),
       sentiment: drawdownSentiment,
       shouldTrade: false,
-      reasoning: `[ドローダウン自動停止] ${drawdown.reason}（sentiment=${drawdownSentiment}はAI市場評価を維持）`,
+      reasoning: `[ドローダウン自動停止] ${drawdown.reason}（sentiment=${drawdownSentiment}は市場評価を維持）`,
       selectedStocks: [],
       tradingStrategy: strategyDecision.strategy,
     };
@@ -333,26 +231,16 @@ ${sectorText || "  特になし"}`;
     isShadowMode = true;
   }
 
-  // 2. AI市場評価
+  // 2. VIXベース機械的市場評価
   let assessment: MarketAssessmentContext["assessment"] = null;
 
   if (!isShadowMode) {
-    console.log("[2/2] AI市場評価中...");
-    const marketInput: MarketDataInput = {
-      nikkeiPrice: marketData.nikkei.price,
-      nikkeiChange: marketData.nikkei.changePercent,
-      sp500Change: marketData.sp500?.changePercent ?? 0,
-      nasdaqChange: marketData.nasdaq?.changePercent ?? 0,
-      dowChange: marketData.dow?.changePercent ?? 0,
-      soxChange: marketData.sox?.changePercent ?? 0,
-      vix: marketData.vix.price,
-      usdJpy: marketData.usdjpy?.price ?? 0,
-      cmeFuturesPrice: marketData.cmeFutures?.price ?? 0,
-      cmeFuturesChange: marketData.cmeFutures?.changePercent ?? 0,
-      newsSummary,
+    console.log("[2/2] VIXベース市場評価...");
+    assessment = {
+      shouldTrade: true,
+      sentiment: "bullish" as Sentiment,
+      reasoning: `機械判定: VIX ${marketData.vix.price.toFixed(1)} — レジーム・キルスイッチで制御`,
     };
-
-    assessment = await assessMarket(marketInput);
     console.log(
       `  → shouldTrade: ${assessment.shouldTrade}, sentiment: ${assessment.sentiment}`,
     );
@@ -365,26 +253,6 @@ ${sectorText || "  特になし"}`;
       nikkeiChange: marketData.nikkei.changePercent,
       vix: marketData.vix.price,
     });
-
-    // cautious環境: 戦略をday_tradeに強制切替（保有期間短縮でオーバーナイトリスク回避）
-    if (assessment.sentiment === "cautious" && strategyDecision.strategy !== "day_trade") {
-      const originalStrategy = strategyDecision.strategy;
-      strategyDecision = {
-        strategy: "day_trade",
-        reason: `cautious環境のためデイトレに切替（元の戦略: ${originalStrategy}）`,
-      };
-      console.log(`  → cautious: 戦略を${originalStrategy} → day_tradeに切替`);
-
-      // 既存swingポジションをday_tradeに変換（VIX≥30パターンと同じ）
-      // breakoutはstrategyを変えず、EODで強制決済
-      const updated = await prisma.tradingPosition.updateMany({
-        where: { status: "open", strategy: "swing" },
-        data: { strategy: "day_trade" },
-      });
-      if (updated.count > 0) {
-        console.log(`  → cautious: ${updated.count}件のswingポジションをday_tradeに切替`);
-      }
-    }
 
     const assessmentData = {
       ...buildMarketFields(marketData),
@@ -405,7 +273,7 @@ ${sectorText || "  特になし"}`;
       isShadowMode = true;
     }
   } else {
-    console.log("[2/2] AI市場評価: スキップ（シャドウモード）");
+    console.log("[2/2] VIXベース市場評価: スキップ（シャドウモード）");
   }
 
   console.log("=== Market Assessment 完了 ===");
@@ -414,7 +282,6 @@ ${sectorText || "  特になし"}`;
     regime,
     isShadowMode,
     marketData,
-    newsSummary,
     drawdown,
     strategyDecision,
     cmeDivergencePct,

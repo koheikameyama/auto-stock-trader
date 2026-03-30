@@ -5,7 +5,6 @@
  */
 
 import { prisma } from "../lib/prisma";
-import { getDaysAgoForDB } from "../lib/date-utils";
 import { getSectorGroup, getMacroFactor, SECTOR_RISK } from "../lib/constants";
 
 /** 事前取得データ（重複クエリ削減用） */
@@ -240,67 +239,6 @@ export async function calculateSectorMomentum(
       stockCount: changes.length,
       isStrong: relativeStrength > Math.abs(SECTOR_RISK.WEAK_SECTOR_THRESHOLD),
       isWeak: relativeStrength < SECTOR_RISK.WEAK_SECTOR_THRESHOLD,
-    };
-  });
-}
-
-// ========================================
-// ニュースセクターセンチメント（複数日集約）
-// ========================================
-
-export interface NewsSectorSentiment {
-  sectorGroup: string;
-  positiveCount: number;
-  negativeCount: number;
-  neutralCount: number;
-  score: number; // positive(+1) - negative(-1) の合計
-  isNewsNegative: boolean;
-}
-
-/**
- * 直近N日分のNewsAnalysis.sectorImpactsを集約し、
- * セクターごとのニュースセンチメントを返す。
- */
-export async function getNewsSectorSentiment(
-  days: number = SECTOR_RISK.NEWS_SENTIMENT_DAYS,
-): Promise<NewsSectorSentiment[]> {
-  const analyses = await prisma.newsAnalysis.findMany({
-    where: { date: { gte: getDaysAgoForDB(days) } },
-    select: { sectorImpacts: true },
-  });
-
-  const sectorMap = new Map<
-    string,
-    { positive: number; negative: number; neutral: number }
-  >();
-
-  for (const analysis of analyses) {
-    const impacts = analysis.sectorImpacts as Array<{
-      sector: string;
-      impact: "positive" | "neutral" | "negative";
-    }> | null;
-    if (!impacts) continue;
-
-    for (const { sector, impact } of impacts) {
-      const entry = sectorMap.get(sector) ?? {
-        positive: 0,
-        negative: 0,
-        neutral: 0,
-      };
-      entry[impact]++;
-      sectorMap.set(sector, entry);
-    }
-  }
-
-  return Array.from(sectorMap.entries()).map(([sectorGroup, counts]) => {
-    const score = counts.positive - counts.negative;
-    return {
-      sectorGroup,
-      positiveCount: counts.positive,
-      negativeCount: counts.negative,
-      neutralCount: counts.neutral,
-      score,
-      isNewsNegative: score < 0,
     };
   });
 }

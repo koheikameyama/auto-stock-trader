@@ -69,7 +69,7 @@ app.get("/", async (c) => {
             } | null;
             if (!review) return "";
             return html`
-              <p class="section-title">AIレビュー</p>
+              <p class="section-title">レビュー</p>
               ${review.performance
                 ? html`<div class="card">
                     <p style="font-size:12px;color:#94a3b8;margin-bottom:4px">📊 パフォーマンス評価</p>

@@ -37,18 +37,6 @@ export async function runDataCleanup(): Promise<DataCleanupResult> {
   });
   deletedCounts.marketAssessment = marketResult.count;
 
-  // NewsArticle (90日)
-  const articleResult = await prisma.newsArticle.deleteMany({
-    where: { publishedAt: { lt: getDaysAgoForDB(DATA_RETENTION.NEWS_ARTICLE_DAYS) } },
-  });
-  deletedCounts.newsArticle = articleResult.count;
-
-  // NewsAnalysis (90日)
-  const analysisResult = await prisma.newsAnalysis.deleteMany({
-    where: { date: { lt: getDaysAgoForDB(DATA_RETENTION.NEWS_ANALYSIS_DAYS) } },
-  });
-  deletedCounts.newsAnalysis = analysisResult.count;
-
   // TradingDailySummary (365日)
   const summaryResult = await prisma.tradingDailySummary.deleteMany({
     where: { date: { lt: getDaysAgoForDB(DATA_RETENTION.TRADING_DAILY_SUMMARY_DAYS) } },
