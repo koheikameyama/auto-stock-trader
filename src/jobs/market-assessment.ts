@@ -189,6 +189,48 @@ export async function main(): Promise<MarketAssessmentContext> {
     isShadowMode = true;
   }
 
+  // 1.8.6. N225 SMA50フィルター（バックテストの indexTrendFilter と同等）
+  // N225終値がSMA50以下の場合はエントリー停止（中期下降トレンド）
+  if (!isShadowMode) {
+    console.log("[1.8.6/2] N225 SMA50チェック...");
+    const SMA_PERIOD = 50;
+    const n225Bars = await prisma.stockDailyBar.findMany({
+      where: { tickerCode: "^N225" },
+      orderBy: { date: "desc" },
+      take: SMA_PERIOD + 5,
+      select: { date: true, close: true },
+    });
+
+    if (n225Bars.length >= SMA_PERIOD) {
+      const recentClose = n225Bars[0].close;
+      const sma50 = n225Bars.slice(0, SMA_PERIOD).reduce((s, b) => s + b.close, 0) / SMA_PERIOD;
+      console.log(`  N225: ¥${recentClose.toLocaleString()} / SMA50: ¥${Math.round(sma50).toLocaleString()}`);
+
+      if (recentClose < sma50) {
+        const reason = `N225 ¥${recentClose.toLocaleString()} < SMA50 ¥${Math.round(sma50).toLocaleString()}: 中期下降トレンドのためエントリー停止`;
+        console.log(`  → ${reason}`);
+        const assessmentData = {
+          ...buildMarketFields(marketData),
+          sentiment: "bullish" as const,
+          shouldTrade: false,
+          reasoning: `[N225 SMA50フィルター] ${reason}`,
+          selectedStocks: [],
+          tradingStrategy: strategyDecision.strategy,
+        };
+        await prisma.marketAssessment.upsert({
+          where: { date: getTodayForDB() },
+          update: assessmentData,
+          create: { date: getTodayForDB(), ...assessmentData },
+        });
+        isShadowMode = true;
+      } else {
+        console.log(`  → N225 SMA50以上: エントリー継続`);
+      }
+    } else {
+      console.log(`  N225データ不足（${n225Bars.length}件）: SMA50チェックをスキップ`);
+    }
+  }
+
   // 1.9. ドローダウンチェック
   console.log("[1.9/2] ドローダウンチェック...");
   const drawdown = await calculateDrawdownStatus();
