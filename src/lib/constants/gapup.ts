@@ -17,8 +17,6 @@ export const GAPUP = {
     /** gapupスキャン実行時刻（JST、14:50） */
     SCAN_HOUR: 14,
     SCAN_MINUTE: 50,
-    /** 1日の最大エントリー件数 */
-    MAX_DAILY_ENTRIES: 2,
   },
   /** ポジション管理 */
   POSITION: {

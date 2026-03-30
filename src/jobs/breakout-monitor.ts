@@ -74,21 +74,14 @@ export async function main(): Promise<void> {
     gapupScanner = new GapUpScanner(watchlist);
   }
 
-  // 0-2. MarketAssessment・保有ポジション・エントリー件数を並列取得
-  const todayStart = dayjs().tz(TIMEZONE).startOf("day").toDate();
-  const [todayAssessment, openPositions, dailyEntryCount] = await Promise.all([
+  // 0-2. MarketAssessment・保有ポジションを並列取得
+  const [todayAssessment, openPositions] = await Promise.all([
     prisma.marketAssessment.findUnique({
       where: { date: getTodayForDB() },
     }),
     prisma.tradingPosition.findMany({
       where: { status: "open" },
       include: { stock: { select: { tickerCode: true } } },
-    }),
-    prisma.tradingOrder.count({
-      where: {
-        side: "buy",
-        createdAt: { gte: todayStart },
-      },
     }),
   ]);
 
@@ -126,10 +119,10 @@ export async function main(): Promise<void> {
 
   // 5. スキャン実行
   const now = dayjs().tz(TIMEZONE).toDate();
-  const triggers = scanner.scan(quotes, now, dailyEntryCount, holdingTickers);
+  const triggers = scanner.scan(quotes, now, holdingTickers);
 
   console.log(
-    `${tag} スキャン完了: WL=${watchlist.length} 時価=${quotes.length} 保有=${holdingTickers.size} 本日エントリー=${dailyEntryCount} トリガー=${triggers.length}`,
+    `${tag} スキャン完了: WL=${watchlist.length} 時価=${quotes.length} 保有=${holdingTickers.size} トリガー=${triggers.length}`,
   );
 
   // 6. ブローカーモード取得
@@ -213,20 +206,7 @@ export async function main(): Promise<void> {
         `${tag} [gapup] スキャン完了: 時価=${gapupQuotes.length} トリガー=${gapupTriggers.length}`,
       );
 
-      // gapupエントリー件数カウント（当日のgapup注文数）
-      const gapupDailyCount = await prisma.tradingOrder.count({
-        where: {
-          side: "buy",
-          strategy: "gapup",
-          createdAt: { gte: todayStart },
-        },
-      });
-
-      // MAX_DAILY_ENTRIES制限
-      const remainingSlots = GAPUP.GUARD.MAX_DAILY_ENTRIES - gapupDailyCount;
-      const gapupTriggersLimited = gapupTriggers.slice(0, Math.max(0, remainingSlots));
-
-      for (const trigger of gapupTriggersLimited) {
+      for (const trigger of gapupTriggers) {
         console.log(
           `${tag} [gapup] トリガー発火: ${trigger.ticker} 価格=¥${trigger.currentPrice} 出来高サージ=${trigger.volumeSurgeRatio.toFixed(2)}x`,
         );

@@ -42,14 +42,12 @@ export class BreakoutScanner {
    *
    * @param quotes       ティッカーごとのリアルタイム気配値
    * @param now          現在時刻（JST）
-   * @param dailyEntryCount  本日のエントリー済み件数
    * @param holdingTickers   現在保有中のティッカーセット
    * @returns 発火したブレイクアウトトリガーのリスト
    */
   scan(
     quotes: QuoteData[],
     now: Date,
-    dailyEntryCount: number,
     holdingTickers: Set<string>,
   ): BreakoutTrigger[] {
     const jst = dayjs(now).tz(TIMEZONE);
@@ -94,7 +92,7 @@ export class BreakoutScanner {
           triggerThreshold: BREAKOUT.ENTRY.TRIGGER_THRESHOLD,
           maxChaseAtr: BREAKOUT.ENTRY.MAX_CHASE_ATR,
         }) &&
-        this.canFireTrigger(ticker, hour, minute, dailyEntryCount, holdingTickers)
+        this.canFireTrigger(ticker, hour, minute, holdingTickers)
       ) {
         // Trigger 発火
         this.state.triggeredToday.add(ticker);
@@ -220,11 +218,9 @@ export class BreakoutScanner {
     ticker: string,
     hour: number,
     minute: number,
-    dailyEntryCount: number,
     holdingTickers: Set<string>,
   ): boolean {
     if (!this.isBeforeLatestEntry(hour, minute)) return false;
-    if (dailyEntryCount >= BREAKOUT.GUARD.MAX_DAILY_ENTRIES) return false;
     if (this.state.triggeredToday.has(ticker)) return false;
     if (holdingTickers.has(ticker)) return false;
     return true;

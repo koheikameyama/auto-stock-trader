@@ -114,7 +114,7 @@ app.get("/", async (c) => {
   // グローバル条件 + 当日注文ティッカーを並列取得
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
-  const [todayOrders, todayAssessment, dailyEntryCount] = await Promise.all([
+  const [todayOrders, todayAssessment] = await Promise.all([
     triggeredToday.size
       ? prisma.tradingOrder.findMany({
           where: {
@@ -128,12 +128,6 @@ app.get("/", async (c) => {
     prisma.marketAssessment.findUnique({
       where: { date: getTodayForDB() },
       select: { shouldTrade: true },
-    }),
-    prisma.tradingOrder.count({
-      where: {
-        side: "buy",
-        createdAt: { gte: todayStart },
-      },
     }),
   ]);
   const orderedTickers = new Set(todayOrders.map((o) => o.stock.tickerCode));
@@ -182,8 +176,6 @@ app.get("/", async (c) => {
   // グローバル条件
   const inTimeWindow = isInEntryTimeWindow();
   const shouldTrade = todayAssessment?.shouldTrade ?? false;
-  const maxEntries = BREAKOUT.GUARD.MAX_DAILY_ENTRIES;
-  const entrySlotOk = dailyEntryCount < maxEntries;
 
   const coldCount = watchlistWithStatus.filter((w) => w.status === "cold").length;
 
@@ -209,7 +201,6 @@ app.get("/", async (c) => {
               ${filterBadge("cold", "監視中", coldCount, "badge-cold")}
             </div>
             <div style="display: flex; gap: 12px; flex-wrap: wrap; color: #94a3b8; font-size: 11px; border-top: 1px solid #334155; padding-top: 6px;">
-              <span>${raw(`${tt("エントリー枠", `当日注文数/${maxEntries}。上限で新規停止`)}: <span data-global-entry style="color: ${entrySlotOk ? "#22c55e" : "#ef4444"};">${dailyEntryCount}/${maxEntries}</span>`)}</span>
               <span>${raw(`${tt("時間帯", `${BREAKOUT.GUARD.EARLIEST_ENTRY_TIME}〜${BREAKOUT.GUARD.LATEST_ENTRY_TIME}`)}: <span data-global-time style="color: ${inTimeWindow ? "#22c55e" : "#ef4444"};">${inTimeWindow ? "○" : "×"}</span>`)}</span>
               <span>${raw(`${tt("市場評価", "MarketAssessment.shouldTrade")}: <span data-global-market style="color: ${shouldTrade ? "#22c55e" : "#ef4444"};">${shouldTrade ? "取引可" : "見送り"}</span>`)}</span>
             </div>
@@ -363,11 +354,6 @@ app.get("/", async (c) => {
               // グローバル条件
               var g = data.global;
               if (g) {
-                var entryEl = document.querySelector('[data-global-entry]');
-                if (entryEl) {
-                  entryEl.textContent = g.dailyEntryCount + '/' + g.maxEntries;
-                  entryEl.style.color = g.dailyEntryCount < g.maxEntries ? '#22c55e' : '#ef4444';
-                }
                 var timeEl = document.querySelector('[data-global-time]');
                 if (timeEl) {
                   timeEl.textContent = g.inTimeWindow ? '\u25cb' : '\u00d7';

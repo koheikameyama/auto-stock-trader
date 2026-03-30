@@ -295,7 +295,7 @@ app.get("/watchlist/state", async (c) => {
   // DB + 時価を並列取得
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
-  const [todayOrders, todayAssessment, dailyEntryCount, quotes] = await Promise.all([
+  const [todayOrders, todayAssessment, quotes] = await Promise.all([
     triggeredToday.size
       ? prisma.tradingOrder.findMany({
           where: { side: "buy", strategy: "breakout", createdAt: { gte: todayStart } },
@@ -305,9 +305,6 @@ app.get("/watchlist/state", async (c) => {
     prisma.marketAssessment.findUnique({
       where: { date: getTodayForDB() },
       select: { shouldTrade: true },
-    }),
-    prisma.tradingOrder.count({
-      where: { side: "buy", createdAt: { gte: todayStart } },
     }),
     fetchStockQuotesBatch(tickers),
   ]);
@@ -351,8 +348,6 @@ app.get("/watchlist/state", async (c) => {
     tickers: tickerData,
     summary,
     global: {
-      dailyEntryCount,
-      maxEntries: BREAKOUT.GUARD.MAX_DAILY_ENTRIES,
       inTimeWindow,
       shouldTrade: todayAssessment?.shouldTrade ?? false,
     },
