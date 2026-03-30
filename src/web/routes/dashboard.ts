@@ -196,12 +196,12 @@ app.get("/", async (c) => {
               <tbody>
                 ${openPositions.map(
                   (p) => {
-                    const tickerCode = (p as any).stock?.tickerCode ?? p.stockId;
+                    const tickerCode = p.stock?.tickerCode ?? p.stockId;
                     const entryPrice = Number(p.entryPrice);
 
                     return html`
                     <tr data-quote-row data-ticker="${tickerCode}" data-entry-price="${entryPrice}" data-quantity="${p.quantity}">
-                      <td>${tickerLink(tickerCode, (p as any).stock?.name ?? p.stockId)}</td>
+                      <td>${tickerLink(tickerCode, p.stock?.name ?? p.stockId)}</td>
                       <td>${strategyBadge(p.strategy)}</td>
                       <td>¥${formatYen(entryPrice)}</td>
                       <td>${p.quantity}</td>
