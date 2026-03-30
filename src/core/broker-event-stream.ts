@@ -15,10 +15,7 @@ import utc from "dayjs/plugin/utc.js";
 import tz from "dayjs/plugin/timezone.js";
 import { isMarketDay } from "../lib/market-calendar";
 import { TIMEZONE } from "../lib/constants";
-import {
-  BROKER_WS_HOURS,
-  SERVER_ERROR_RECONNECT_MS,
-} from "../lib/constants/broker";
+import { BROKER_WS_HOURS } from "../lib/constants/broker";
 
 dayjs.extend(utc);
 dayjs.extend(tz);
@@ -239,12 +236,8 @@ export class BrokerEventStream extends EventEmitter {
     });
 
     this.ws.on("error", (err: Error) => {
-      // 503等サーバーエラーは再接続間隔を拡大
       if (err.message.includes("503")) {
-        console.warn(
-          `[BrokerEventStream] Server unavailable (503) — next retry in ${SERVER_ERROR_RECONNECT_MS / 1000}s`,
-        );
-        this.reconnectDelay = SERVER_ERROR_RECONNECT_MS;
+        console.warn("[BrokerEventStream] Server unavailable (503)");
       } else {
         console.error("[BrokerEventStream] WebSocket error:", err.message);
       }
