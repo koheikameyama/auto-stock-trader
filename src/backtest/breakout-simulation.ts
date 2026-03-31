@@ -60,6 +60,8 @@ export function precomputeSimData(
   indexData?: Map<string, number>,
   indexMomentumFilter?: boolean,
   indexMomentumDays?: number,
+  indexTrendOffBufferPct?: number,
+  indexTrendOnBufferPct?: number,
 ): PrecomputedSimData {
   // dateIndexMap
   const dateIndexMap = new Map<string, Map<string, number>>();
@@ -106,13 +108,31 @@ export function precomputeSimData(
     }
   }
 
-  // dailyIndexAboveSma
+  // dailyIndexAboveSma（ヒステリシス付き）
   const dailyIndexAboveSma = new Map<string, boolean>();
   if (indexTrendFilter && indexData && indexData.size > 0) {
+    const offBuffer = indexTrendOffBufferPct ?? 0;
+    const onBuffer = indexTrendOnBufferPct ?? 0;
     const indexDates = [...indexData.keys()].sort();
     const indexCloses = indexDates.map((d) => indexData.get(d)!);
     const indexDateIdx = new Map<string, number>();
     for (let i = 0; i < indexDates.length; i++) indexDateIdx.set(indexDates[i], i);
+
+    // ウォームアップ: startDate以前のデータでヒステリシス状態を確立
+    let filterOn = true;
+    for (let i = indexTrendSmaPeriod - 1; i < indexDates.length; i++) {
+      if (indexDates[i] >= startDate) break;
+      let sum = 0;
+      for (let j = i - indexTrendSmaPeriod + 1; j <= i; j++) sum += indexCloses[j];
+      const sma = sum / indexTrendSmaPeriod;
+      if (filterOn) {
+        if (indexCloses[i] < sma * (1 - offBuffer)) filterOn = false;
+      } else {
+        if (indexCloses[i] > sma * (1 + onBuffer)) filterOn = true;
+      }
+    }
+
+    // tradingDays ループ（ヒステリシス状態を継続）
     for (const day of tradingDays) {
       const idx = indexDateIdx.get(day);
       if (idx == null || idx < indexTrendSmaPeriod - 1) {
@@ -122,7 +142,12 @@ export function precomputeSimData(
       let sum = 0;
       for (let j = idx - indexTrendSmaPeriod + 1; j <= idx; j++) sum += indexCloses[j];
       const sma = sum / indexTrendSmaPeriod;
-      dailyIndexAboveSma.set(day, indexCloses[idx] > sma);
+      if (filterOn) {
+        if (indexCloses[idx] < sma * (1 - offBuffer)) filterOn = false;
+      } else {
+        if (indexCloses[idx] > sma * (1 + onBuffer)) filterOn = true;
+      }
+      dailyIndexAboveSma.set(day, filterOn);
     }
   }
 
@@ -373,16 +398,32 @@ export function runBreakoutBacktest(
       }
     }
 
-    // 指数トレンドフィルター事前計算（indexTrendFilter用）
+    // 指数トレンドフィルター事前計算（indexTrendFilter用、ヒステリシス付き）
     // indexData は date→close のMap（startDate前のlookback期間を含む）
     dailyIndexAboveSma = new Map<string, boolean>();
     if (config.indexTrendFilter && indexData && indexData.size > 0) {
       const smaPeriod = config.indexTrendSmaPeriod ?? 50;
+      const offBuffer = config.indexTrendOffBufferPct ?? 0;
+      const onBuffer = config.indexTrendOnBufferPct ?? 0;
       // date昇順で配列化
       const indexDates = [...indexData.keys()].sort();
       const indexCloses = indexDates.map((d) => indexData.get(d)!);
       const indexDateIdx = new Map<string, number>();
       for (let i = 0; i < indexDates.length; i++) indexDateIdx.set(indexDates[i], i);
+
+      // ウォームアップ: startDate以前のデータでヒステリシス状態を確立
+      let filterOn = true;
+      for (let i = smaPeriod - 1; i < indexDates.length; i++) {
+        if (indexDates[i] >= config.startDate) break;
+        let sum = 0;
+        for (let j = i - smaPeriod + 1; j <= i; j++) sum += indexCloses[j];
+        const sma = sum / smaPeriod;
+        if (filterOn) {
+          if (indexCloses[i] < sma * (1 - offBuffer)) filterOn = false;
+        } else {
+          if (indexCloses[i] > sma * (1 + onBuffer)) filterOn = true;
+        }
+      }
 
       for (const day of tradingDays) {
         const idx = indexDateIdx.get(day);
@@ -393,7 +434,12 @@ export function runBreakoutBacktest(
         let sum = 0;
         for (let j = idx - smaPeriod + 1; j <= idx; j++) sum += indexCloses[j];
         const sma = sum / smaPeriod;
-        dailyIndexAboveSma.set(day, indexCloses[idx] > sma);
+        if (filterOn) {
+          if (indexCloses[idx] < sma * (1 - offBuffer)) filterOn = false;
+        } else {
+          if (indexCloses[idx] > sma * (1 + onBuffer)) filterOn = true;
+        }
+        dailyIndexAboveSma.set(day, filterOn);
       }
     }
 

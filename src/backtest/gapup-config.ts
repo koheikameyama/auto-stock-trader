@@ -45,6 +45,8 @@ export const GAPUP_BACKTEST_DEFAULTS: Omit<GapUpBacktestConfig, "startDate" | "e
   marketTrendThreshold: 0.6,
   indexTrendFilter: true,
   indexTrendSmaPeriod: 50,
+  indexTrendOffBufferPct: 0,
+  indexTrendOnBufferPct: 0,
 
   verbose: false,
 };

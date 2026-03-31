@@ -169,6 +169,10 @@ export function runGapUpBacktest(
       config.indexTrendFilter ?? false,
       config.indexTrendSmaPeriod ?? 50,
       indexData,
+      undefined,
+      undefined,
+      config.indexTrendOffBufferPct,
+      config.indexTrendOnBufferPct,
     ) as PrecomputedSimData;
     dateIndexMap = computed.dateIndexMap;
     tradingDays = computed.tradingDays;

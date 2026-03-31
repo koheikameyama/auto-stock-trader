@@ -210,6 +210,10 @@ async function main() {
       filterCfg.indexTrendFilter ?? false,
       filterCfg.indexTrendSmaPeriod ?? 50,
       indexArg,
+      undefined,
+      undefined,
+      filterCfg.indexTrendOffBufferPct ?? 0,
+      filterCfg.indexTrendOnBufferPct ?? 0,
     );
     const isSignals = precomputeGapUpDailySignals(filterCfg, allData, isPrecomputed);
 
@@ -259,6 +263,10 @@ async function main() {
       filterCfg.indexTrendFilter ?? false,
       filterCfg.indexTrendSmaPeriod ?? 50,
       indexArg,
+      undefined,
+      undefined,
+      filterCfg.indexTrendOffBufferPct ?? 0,
+      filterCfg.indexTrendOnBufferPct ?? 0,
     );
     const oosSignals = precomputeGapUpDailySignals(filterCfg, allData, oosPrecomputed);
 

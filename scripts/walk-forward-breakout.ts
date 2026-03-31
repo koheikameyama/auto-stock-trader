@@ -171,6 +171,8 @@ async function runScoreFilterComparison(
       indexArg,
       filterCfg.indexMomentumFilter ?? false,
       filterCfg.indexMomentumDays ?? 60,
+      filterCfg.indexTrendOffBufferPct ?? 0,
+      filterCfg.indexTrendOnBufferPct ?? 0,
     );
     const isSignals = precomputeDailySignals(filterCfg, allData, isPrecomputed);
 
@@ -216,6 +218,8 @@ async function runScoreFilterComparison(
         indexArg,
         filterCfg.indexMomentumFilter ?? false,
         filterCfg.indexMomentumDays ?? 60,
+        filterCfg.indexTrendOffBufferPct ?? 0,
+        filterCfg.indexTrendOnBufferPct ?? 0,
       );
       oosSignals = precomputeDailySignals(filterCfg, allData, oosPrecomputed);
     }
@@ -364,6 +368,8 @@ async function runPositionComparison(
       indexArg,
       filterCfg.indexMomentumFilter ?? false,
       filterCfg.indexMomentumDays ?? 60,
+      filterCfg.indexTrendOffBufferPct ?? 0,
+      filterCfg.indexTrendOnBufferPct ?? 0,
     );
     const isSignals = precomputeDailySignals(filterCfg, allData, isPrecomputed);
 
@@ -407,6 +413,8 @@ async function runPositionComparison(
         indexArg,
         filterCfg.indexMomentumFilter ?? false,
         filterCfg.indexMomentumDays ?? 60,
+        filterCfg.indexTrendOffBufferPct ?? 0,
+        filterCfg.indexTrendOnBufferPct ?? 0,
       );
       oosSignals = precomputeDailySignals(filterCfg, allData, oosPrecomputed);
     }
@@ -573,6 +581,8 @@ async function main() {
       indexArg,
       filterCfg.indexMomentumFilter ?? false,
       filterCfg.indexMomentumDays ?? 60,
+      filterCfg.indexTrendOffBufferPct ?? 0,
+      filterCfg.indexTrendOnBufferPct ?? 0,
     );
     // IS期間のエントリーシグナルも1回だけ計算（analyzeTechnicals を240→1回に削減）
     const isSignals = precomputeDailySignals(filterCfg, allData, isPrecomputed);
@@ -636,6 +646,8 @@ async function main() {
       indexArg,
       filterCfg.indexMomentumFilter ?? false,
       filterCfg.indexMomentumDays ?? 60,
+      filterCfg.indexTrendOffBufferPct ?? 0,
+      filterCfg.indexTrendOnBufferPct ?? 0,
     );
     const oosSignals = precomputeDailySignals(filterCfg, allData, oosPrecomputed);
 

@@ -71,6 +71,18 @@ export const VIX_THRESHOLDS = {
   NORMAL: 20, // Elevated: 20-25（最大2ポジション、S/Aランク）
 } as const;
 
+// 指数SMAヒステリシスフィルター（本番用定数）
+export const INDEX_TREND_HYSTERESIS = {
+  /** SMA期間 */
+  SMA_PERIOD: 50,
+  /** OFFバッファ（%）: SMA*(1-this)以下でフィルターOFF。0=バッファなし */
+  OFF_BUFFER_PCT: 0,
+  /** ONバッファ（%）: SMA*(1+this)以上でフィルターON。0=バッファなし */
+  ON_BUFFER_PCT: 0,
+  /** ヒステリシス状態ウォームアップ日数 */
+  WARMUP_DAYS: 30,
+} as const;
+
 // 日経225トレンドフィルター（SMAベース）
 export const NIKKEI_TREND_FILTER = {
   /** SMA期間（25日 ≈ 5週間） */

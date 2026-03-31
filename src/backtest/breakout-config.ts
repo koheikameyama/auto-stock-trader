@@ -48,6 +48,8 @@ export const BREAKOUT_BACKTEST_DEFAULTS: Omit<BreakoutBacktestConfig, "startDate
   confirmationEntry: true,
   indexTrendFilter: true,
   indexTrendSmaPeriod: 50, // N225がSMA50以上の時のみエントリー
+  indexTrendOffBufferPct: 0, // ヒステリシスOFFバッファ（デフォルト: バッファなし）
+  indexTrendOnBufferPct: 0,  // ヒステリシスONバッファ（デフォルト: バッファなし）
   indexMomentumFilter: false,
   indexMomentumDays: 60,
   minBreakoutAtr: 0,

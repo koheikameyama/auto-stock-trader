@@ -69,6 +69,10 @@ export interface BreakoutBacktestConfig {
   indexTrendFilter?: boolean;
   /** 指数SMA期間（デフォルト: 50） */
   indexTrendSmaPeriod?: number;
+  /** 指数SMAフィルターOFF転換バッファ（%）: 0.01=1%。SMA*(1-this)以下でOFF。デフォルト: 0 */
+  indexTrendOffBufferPct?: number;
+  /** 指数SMAフィルターON転換バッファ（%）: 0.005=0.5%。SMA*(1+this)以上でON。デフォルト: 0 */
+  indexTrendOnBufferPct?: number;
   /** N225モメンタムフィルター: N225の現在値がN日前より高い場合のみエントリー */
   indexMomentumFilter?: boolean;
   /** N225モメンタム比較日数（デフォルト: 60） */
@@ -233,6 +237,8 @@ export interface GapUpBacktestConfig {
   marketTrendThreshold?: number;
   indexTrendFilter?: boolean;
   indexTrendSmaPeriod?: number;
+  indexTrendOffBufferPct?: number;
+  indexTrendOnBufferPct?: number;
 
   verbose: boolean;
 }
