@@ -1,13 +1,15 @@
 /**
  * マーケットデータプロバイダー
  *
- * - リアルタイムクォート: 立花証券API
+ * - リアルタイムクォート: 立花証券API（20並列、高速）
  * - ヒストリカル・市場指標・ニュース等: yfinance
  */
 
 import {
-  yfFetchQuote,
-  yfFetchQuotesBatch,
+  tachibanaFetchQuote,
+  tachibanaFetchQuotesBatch,
+} from "./tachibana-price-client";
+import {
   yfFetchHistorical,
   yfFetchHistoricalRange,
   yfFetchHistoricalBatch,
@@ -26,19 +28,19 @@ import {
 // ========================================
 
 /**
- * 個別銘柄のクォートを取得（yfinance）
+ * 個別銘柄のクォートを取得（立花証券API）
  */
 export async function providerFetchQuote(symbol: string): Promise<YfQuoteResult> {
-  return yfFetchQuote(symbol);
+  return tachibanaFetchQuote(symbol);
 }
 
 /**
- * 複数銘柄のクォートをバッチ取得（yfinance）
+ * 複数銘柄のクォートをバッチ取得（立花証券API、20並列）
  */
 export async function providerFetchQuotesBatch(
   symbols: string[],
 ): Promise<(YfQuoteResult | null)[]> {
-  return yfFetchQuotesBatch(symbols);
+  return tachibanaFetchQuotesBatch(symbols);
 }
 
 /**
