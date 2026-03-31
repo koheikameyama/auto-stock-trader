@@ -7,7 +7,7 @@
 
 import { prisma } from "../lib/prisma";
 import { getTodayForDB } from "../lib/date-utils";
-import { MARKET_INDEX, MARKET_REGIME, STRATEGY_SWITCHING } from "../lib/constants";
+import { MARKET_INDEX, MARKET_REGIME, STRATEGY_SWITCHING, INDEX_TREND_HYSTERESIS } from "../lib/constants";
 import { fetchMarketData } from "../core/market-data";
 import { notifyMarketAssessment, notifyRiskAlert } from "../lib/slack";
 import {
@@ -189,26 +189,49 @@ export async function main(): Promise<MarketAssessmentContext> {
     isShadowMode = true;
   }
 
-  // 1.8.6. N225 SMA50フィルター（バックテストの indexTrendFilter と同等）
-  // N225終値がSMA50以下の場合はエントリー停止（中期下降トレンド）
+  // 1.8.6. N225 SMA50フィルター（ヒステリシス付き）
+  // バックテストの indexTrendFilter と同等。バッファ帯でウィップソーを抑制。
   if (!isShadowMode) {
-    console.log("[1.8.6/2] N225 SMA50チェック...");
-    const SMA_PERIOD = 50;
-    const n225Bars = await prisma.stockDailyBar.findMany({
+    console.log("[1.8.6/2] N225 SMA50チェック（ヒステリシス付き）...");
+    const { SMA_PERIOD, OFF_BUFFER_PCT, ON_BUFFER_PCT, WARMUP_DAYS } = INDEX_TREND_HYSTERESIS;
+
+    const n225BarsDesc = await prisma.stockDailyBar.findMany({
       where: { tickerCode: "^N225" },
       orderBy: { date: "desc" },
-      take: SMA_PERIOD + 5,
+      take: SMA_PERIOD + WARMUP_DAYS,
       select: { date: true, close: true },
     });
+    const n225Bars = n225BarsDesc.reverse(); // oldest-first
 
     if (n225Bars.length >= SMA_PERIOD) {
-      const recentClose = n225Bars[0].close;
-      const sma50 = n225Bars.slice(0, SMA_PERIOD).reduce((s, b) => s + b.close, 0) / SMA_PERIOD;
-      console.log(`  N225: ¥${recentClose.toLocaleString()} / SMA50: ¥${Math.round(sma50).toLocaleString()}`);
+      // ヒステリシスをリプレイして現在の状態を決定
+      let filterOn = true;
+      let currentSma = 0;
 
-      if (recentClose < sma50) {
-        const reason = `N225 ¥${recentClose.toLocaleString()} < SMA50 ¥${Math.round(sma50).toLocaleString()}: 中期下降トレンドのためエントリー停止`;
+      for (let i = SMA_PERIOD - 1; i < n225Bars.length; i++) {
+        const close = n225Bars[i].close;
+        let sum = 0;
+        for (let j = i - SMA_PERIOD + 1; j <= i; j++) sum += n225Bars[j].close;
+        const sma = sum / SMA_PERIOD;
+        currentSma = sma;
+
+        if (filterOn) {
+          if (close < sma * (1 - OFF_BUFFER_PCT)) filterOn = false;
+        } else {
+          if (close > sma * (1 + ON_BUFFER_PCT)) filterOn = true;
+        }
+      }
+
+      const recentClose = n225Bars[n225Bars.length - 1].close;
+      console.log(`  N225: ¥${recentClose.toLocaleString()} / SMA50: ¥${Math.round(currentSma).toLocaleString()} / フィルター: ${filterOn ? "ON" : "OFF"}`);
+
+      if (!filterOn) {
+        const reason = `N225 SMAヒステリシスフィルター OFF: ¥${recentClose.toLocaleString()} (SMA50 ¥${Math.round(currentSma).toLocaleString()}, OFF閾値 -${(OFF_BUFFER_PCT * 100).toFixed(1)}%, ON閾値 +${(ON_BUFFER_PCT * 100).toFixed(1)}%)`;
         console.log(`  → ${reason}`);
+        await notifyRiskAlert({
+          type: "N225 SMA50フィルター OFF",
+          message: reason,
+        });
         const assessmentData = {
           ...buildMarketFields(marketData),
           sentiment: "bullish" as const,
@@ -224,7 +247,7 @@ export async function main(): Promise<MarketAssessmentContext> {
         });
         isShadowMode = true;
       } else {
-        console.log(`  → N225 SMA50以上: エントリー継続`);
+        console.log(`  → N225 SMAフィルター ON: エントリー継続`);
       }
     } else {
       console.log(`  N225データ不足（${n225Bars.length}件）: SMA50チェックをスキップ`);
