@@ -180,6 +180,21 @@ export async function main(): Promise<void> {
 
   if (!gapupScannedToday && currentMinutes >= gapupScanTime && gapupScanner) {
     gapupScannedToday = true;
+
+    // breadthフィルター（バックテストの marketTrendFilter と同等）
+    const livePriceMap = new Map(
+      quotesRaw.filter((q): q is NonNullable<typeof q> => q !== null).map((q) => [q.tickerCode, q.price]),
+    );
+    const breadth = await calculateLiveBreadth(tickers, livePriceMap);
+    console.log(`${tag} [gapup] breadth=${(breadth * 100).toFixed(1)}%`);
+
+    if (breadth < GAPUP.MARKET_FILTER.BREADTH_THRESHOLD) {
+      console.log(
+        `${tag} [gapup] スキップ: breadth=${(breadth * 100).toFixed(1)}% < ${GAPUP.MARKET_FILTER.BREADTH_THRESHOLD * 100}%`,
+      );
+      return;
+    }
+
     console.log(`${tag} [gapup] 14:50 gapupスキャン開始`);
 
     // quotesRawは既に取得済み（上のbreakoutスキャンで使った全銘柄OHLCVデータ）
@@ -227,6 +242,47 @@ export async function main(): Promise<void> {
       console.log(`${tag} [gapup] スキップ: OHLCV取得0件`);
     }
   }
+}
+
+/**
+ * ウォッチリスト銘柄のSMA25上回り比率（breadth）を計算する。
+ * バックテストの marketTrendFilter と同等のロジック。
+ */
+async function calculateLiveBreadth(
+  tickers: string[],
+  livePrices: Map<string, number>,
+): Promise<number> {
+  const SMA_LEN = 25;
+  const cutoff = dayjs().tz(TIMEZONE).subtract(45, "day").toDate();
+  const bars = await prisma.stockDailyBar.findMany({
+    where: { tickerCode: { in: tickers }, date: { gte: cutoff } },
+    select: { tickerCode: true, close: true },
+    orderBy: [{ tickerCode: "asc" }, { date: "asc" }],
+  });
+
+  const tickerCloses = new Map<string, number[]>();
+  for (const bar of bars) {
+    let arr = tickerCloses.get(bar.tickerCode);
+    if (!arr) {
+      arr = [];
+      tickerCloses.set(bar.tickerCode, arr);
+    }
+    arr.push(bar.close);
+  }
+
+  let above = 0;
+  let total = 0;
+  for (const ticker of tickers) {
+    const historical = tickerCloses.get(ticker);
+    const livePrice = livePrices.get(ticker);
+    if (!historical || !livePrice || historical.length < SMA_LEN - 1) continue;
+
+    const closes = [...historical.slice(-(SMA_LEN - 1)), livePrice];
+    const sma = closes.reduce((s, c) => s + c, 0) / closes.length;
+    total++;
+    if (livePrice > sma) above++;
+  }
+  return total > 0 ? above / total : 0;
 }
 
 /**
