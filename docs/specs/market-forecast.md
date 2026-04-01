@@ -22,7 +22,7 @@
 fetchMarketData() → 市場指標（VIX, N225, 米国指標, CME先物, USDJPY）
 prisma.marketAssessment → 当日のレジーム・センチメント
 fetchMarketNews(15) → Google News RSSヘッドライン
-StockDailyBar → N225 SMA50（ヒステリシスフィルター付き）
+StockDailyBar → N225 SMA50（参考情報として表示）
     ↓
 OpenAI gpt-4o-mini（JSON mode）
     ↓
@@ -48,7 +48,8 @@ notifyMarketForecast() → Slack通知
 
 ### N225 SMA50
 
-`market-assessment.ts` と同じヒステリシスフィルター（ON/OFFバッファ付き）で算出。
+SMA50と現値の位置関係を参考情報として表示（「現値はSMA50の上/下」）。トレード可否の判断には使用しない。
+※ SMA50フィルターは2026-04-01に廃止。WF検証でbreadth73%+他ゲートで十分と判定。
 
 ### ニュースヘッドライン
 
