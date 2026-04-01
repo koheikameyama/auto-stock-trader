@@ -106,8 +106,7 @@ async function buildMarketSnapshot(): Promise<MarketSnapshot> {
 
 function loadStrategySpecs(): string {
   const specFiles = [
-    "docs/specs/backtest-breakout.md",
-    "docs/specs/backtest-gapup.md",
+    "docs/prompts/strategy-rules.md",
   ];
 
   const specs: string[] = [];
