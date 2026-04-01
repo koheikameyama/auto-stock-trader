@@ -16,22 +16,8 @@ import pLimit from "p-limit";
 
 const FOLLOW_UP_DAYS = [1, 3, 5] as const;
 
-function classifyCancelReason(
-  status: string,
-  createdAt: Date,
-  updatedAt: Date,
-): string {
+function classifyCancelReason(status: string): string {
   if (status === "expired") return "expired";
-
-  // cancelledの場合、更新時刻から昼キャンセルかEODキャンセルか推定
-  const updatedHourJST = updatedAt.getUTCHours() + 9; // UTC→JST
-  const normalizedHour = updatedHourJST >= 24 ? updatedHourJST - 24 : updatedHourJST;
-
-  // 12:15頃のキャンセル = midday reassessment
-  if (normalizedHour >= 12 && normalizedHour < 14) {
-    return "cancelled_midday";
-  }
-  // それ以外（15:50頃）= EODキャンセル
   return "cancelled_eod";
 }
 
@@ -101,11 +87,7 @@ export async function main() {
           limitPrice,
           marketPrice,
           gapPct,
-          cancelReason: classifyCancelReason(
-            order.status,
-            order.createdAt,
-            order.updatedAt,
-          ),
+          cancelReason: classifyCancelReason(order.status),
         },
       });
       console.log(

@@ -429,7 +429,7 @@ model UnfilledOrderFollowUp {
   limitPrice  Decimal  @db.Decimal(10, 2)
   marketPrice Decimal  @db.Decimal(10, 2) // 注文時の市場価格
   gapPct      Decimal  @db.Decimal(8, 4)  // (limitPrice - marketPrice) / marketPrice * 100
-  cancelReason String  // expired / cancelled_midday / cancelled_eod
+  cancelReason String  // expired / cancelled_eod
 
   // N営業日後の終値
   day1Price  Decimal? @db.Decimal(10, 2)

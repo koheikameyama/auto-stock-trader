@@ -63,14 +63,6 @@
 - **注文**: 引け条件付き成行注文（market-on-close）→ 約定後に逆指値SLを別途発注
 - **ポジション上限**: 最大2（breakoutとは独立カウント）
 
-### 昼休み（12:15 JST）
-
-| 時刻 | ジョブ | 内容 |
-|------|--------|------|
-| 12:15 | midday-reassessment | ニュース再取得 + セクター再分析 + センチメント再評価。悪化時のみ更新 + 未約定注文キャンセル |
-
-トリガー: cron-job.org → GitHub Actions
-
 ### 大引け後（15:50 JST）
 
 | 時刻 | ジョブ | 内容 |
@@ -114,7 +106,7 @@
 | 基盤 | 用途 |
 |------|------|
 | Railway Worker (node-cron) | 毎分実行が必要なジョブ（position-monitor, breakout-monitor） |
-| cron-job.org → GitHub Actions | 時間の正確性が重要な日次バッチ（morning, midday, eod） |
+| cron-job.org → GitHub Actions | 時間の正確性が重要な日次バッチ（morning, eod） |
 | GitHub Actions cron | 数分のズレが許容される処理（followup, weekly, cleanup） |
 
 ## 技術スタック

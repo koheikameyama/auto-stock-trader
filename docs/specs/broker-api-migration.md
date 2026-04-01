@@ -225,7 +225,6 @@ interface MarketDataProvider {
 | order-manager | 9:50 | 9:30 | cron-job.org |
 | デイトレ締切 | 14:50 | 14:30 | `TIME_WINDOW.DAY_TRADE_ENTRY_CUTOFF` |
 | デイトレ強制決済 | 15:10 | 14:50 | `TRADING_SCHEDULE.DAY_TRADE_FORCE_EXIT` |
-| midday-reassessment | 12:15 | 12:15（変更なし） | cron-job.org |
 | end-of-day | 15:50 | 15:50（変更なし、余裕を持たせる） | cron-job.org |
 
 ---

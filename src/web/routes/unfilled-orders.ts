@@ -29,7 +29,6 @@ const app = new Hono();
 function cancelReasonBadge(reason: string): HtmlContent {
   const labels: Record<string, string> = {
     expired: "期限切れ",
-    cancelled_midday: "昼キャンセル",
     cancelled_eod: "EODキャンセル",
   };
   return html`<span class="badge badge-neutral">${labels[reason] ?? reason}</span>`;
