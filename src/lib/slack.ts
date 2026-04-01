@@ -874,6 +874,10 @@ export async function notifyGapUpBacktest(data: BacktestNotifyData): Promise<voi
   await notifySlack(formatBacktestNotification("ギャップアップ", data));
 }
 
+export async function notifyCombinedBacktest(data: BacktestNotifyData): Promise<void> {
+  await notifySlack(formatBacktestNotification("統合(BO+GU)", data));
+}
+
 /** 市場予想通知 */
 export async function notifyMarketForecast(data: {
   targetDate: string;

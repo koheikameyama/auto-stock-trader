@@ -1,4 +1,4 @@
-name: "[Scheduled] Weekly Backtest"
+name: "[Scheduled] Weekly Backtest (Combined)"
 
 on:
   schedule:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: daily-backtest
+  group: weekly-backtest
   cancel-in-progress: false
 
 env:
@@ -15,7 +15,7 @@ env:
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
 jobs:
-  run-backtest:
+  run-backtest-combined:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -26,10 +26,10 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npx prisma generate
-      - run: npm run backtest:breakout
+      - run: npm run backtest:combined
 
   notify-failure:
-    needs: run-backtest
+    needs: run-backtest-combined
     if: failure()
     runs-on: ubuntu-latest
     steps:
@@ -37,9 +37,9 @@ jobs:
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_TITLE: "❌ Daily Backtest 失敗"
+          SLACK_TITLE: "❌ Weekly Backtest (Combined) 失敗"
           SLACK_MESSAGE: |
-            バックテストが失敗しました。
+            統合バックテストが失敗しました。
             詳細はGitHub Actionsログを確認してください。
           SLACK_COLOR: danger
           SLACK_FOOTER: "Stock Buddy"

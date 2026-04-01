@@ -9,7 +9,7 @@ import type { GapUpBacktestConfig } from "./types";
 /** デフォルト設定 */
 export const GAPUP_BACKTEST_DEFAULTS: Omit<GapUpBacktestConfig, "startDate" | "endDate"> = {
   initialBudget: 500_000,
-  maxPositions: 2,
+  maxPositions: 3,
 
   // エントリー
   gapMinPct: GAPUP.ENTRY.GAP_MIN_PCT,           // 0.03 (3%)

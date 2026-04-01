@@ -23,8 +23,7 @@ import { main as runWatchlistBuilder } from "../../jobs/watchlist-builder";
 import { main as runDefensiveExitFollowup } from "../../jobs/defensive-exit-followup";
 import { main as runUnfilledOrderFollowup } from "../../jobs/unfilled-order-followup";
 import { main as runDataCleanup } from "../../jobs/data-cleanup";
-import { main as runBacktest } from "../../jobs/run-backtest";
-import { main as runBacktestGapup } from "../../jobs/run-backtest-gapup";
+import { main as runBacktestCombined } from "../../jobs/run-backtest-combined";
 import { main as runMarketForecast } from "../../jobs/market-forecast";
 
 dayjs.extend(utc);
@@ -48,8 +47,7 @@ const JOBS: Record<string, JobDef> = {
   "unfilled-order-followup": { fn: runUnfilledOrderFollowup, requiresMarketDay: true },
   "jpx-delisting-sync": { fn: runDelistingSync, requiresMarketDay: false },
   "data-cleanup": { fn: runDataCleanup, requiresMarketDay: false },
-  "run-backtest": { fn: runBacktest, requiresMarketDay: false },
-  "run-backtest-gapup": { fn: runBacktestGapup, requiresMarketDay: false },
+  "run-backtest-combined": { fn: runBacktestCombined, requiresMarketDay: false },
   "market-forecast": { fn: runMarketForecast, requiresMarketDay: true },
 };
 

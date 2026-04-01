@@ -6,7 +6,7 @@ import { prisma } from "../lib/prisma";
 import { BACKTEST_RUN_MAX_COUNT } from "../lib/constants";
 import type { BreakoutBacktestResult, GapUpBacktestResult } from "./types";
 
-type BacktestStrategy = "breakout" | "gapup";
+type BacktestStrategy = "breakout" | "gapup" | "combined";
 
 interface BacktestResultCommon {
   config: { startDate: string; endDate: string };
