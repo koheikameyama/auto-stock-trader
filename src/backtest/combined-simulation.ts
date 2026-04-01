@@ -2,7 +2,7 @@
  * 統合バックテスト シミュレーションエンジン
  *
  * Breakout + GapUp を共有資金プールで同時運用するシミュレーション。
- * CLI (combined-run.ts) と ジョブ (run-backtest-combined.ts) から共用。
+ * CLI (combined-run.ts) と ジョブ (run-backtest.ts) から共用。
  */
 
 import { RISK_PER_TRADE_PCT } from "./breakout-config";

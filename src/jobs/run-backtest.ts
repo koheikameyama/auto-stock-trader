@@ -1,7 +1,7 @@
 /**
  * 統合バックテスト実行ジョブ
  *
- * cron-job.org から POST /api/cron/run-backtest-combined で呼び出される。
+ * cron-job.org から POST /api/cron/run-backtest で呼び出される。
  * 直近12ヶ月の統合バックテスト（Breakout + GapUp 共有資金プール）を実行し、結果をDBに保存する。
  */
 
@@ -28,7 +28,7 @@ export async function main(): Promise<void> {
   const boConfig: BreakoutBacktestConfig = { ...BREAKOUT_BACKTEST_DEFAULTS, startDate, endDate, verbose: false };
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, verbose: false };
 
-  console.log(`[run-backtest-combined] 実行開始 ${startDate} → ${endDate}`);
+  console.log(`[run-backtest] 実行開始 ${startDate} → ${endDate}`);
 
   // 銘柄一覧取得
   const stocks = await prisma.stock.findMany({
@@ -36,7 +36,7 @@ export async function main(): Promise<void> {
     select: { tickerCode: true },
   });
   const tickerCodes = stocks.map((s) => s.tickerCode);
-  console.log(`[run-backtest-combined] ${tickerCodes.length}銘柄`);
+  console.log(`[run-backtest] ${tickerCodes.length}銘柄`);
 
   // データ取得
   const [rawData, vixData, indexData] = await Promise.all([
@@ -52,7 +52,7 @@ export async function main(): Promise<void> {
       allData.set(ticker, bars);
     }
   }
-  console.log(`[run-backtest-combined] ${allData.size}銘柄（フィルタ後）`);
+  console.log(`[run-backtest] ${allData.size}銘柄（フィルタ後）`);
 
   // 事前計算
   const precomputed = precomputeSimData(
@@ -87,9 +87,9 @@ export async function main(): Promise<void> {
       } as Parameters<typeof saveBacktestResult>[0],
       "combined",
     );
-    console.log(`[run-backtest-combined] 保存完了: ${savedId}`);
+    console.log(`[run-backtest] 保存完了: ${savedId}`);
   } catch (err) {
-    console.error("[run-backtest-combined] DB保存失敗:", err);
+    console.error("[run-backtest] DB保存失敗:", err);
     throw err;
   }
 
@@ -106,6 +106,6 @@ export async function main(): Promise<void> {
       totalTrades: m.totalTrades,
     });
   } catch (err) {
-    console.error("[run-backtest-combined] Slack通知失敗:", err);
+    console.error("[run-backtest] Slack通知失敗:", err);
   }
 }
