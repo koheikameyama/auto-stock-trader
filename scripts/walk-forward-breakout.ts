@@ -330,6 +330,188 @@ function printScoreFilterSummary(variants: ScoreFilterVariant[], variantResults:
   }
 }
 
+// ── SMA Filter 比較 ──
+
+interface SmaVariant {
+  label: string;
+  indexTrendFilter: boolean;
+  indexTrendSmaPeriod: number;
+  indexTrendOffBufferPct: number;
+  indexTrendOnBufferPct: number;
+}
+
+const SMA_VARIANTS: SmaVariant[] = [
+  { label: "SMA50", indexTrendFilter: true, indexTrendSmaPeriod: 50, indexTrendOffBufferPct: 0, indexTrendOnBufferPct: 0 },
+  { label: "SMA20", indexTrendFilter: true, indexTrendSmaPeriod: 20, indexTrendOffBufferPct: 0, indexTrendOnBufferPct: 0 },
+  { label: "SMA50+5%buf", indexTrendFilter: true, indexTrendSmaPeriod: 50, indexTrendOffBufferPct: 0.05, indexTrendOnBufferPct: 0 },
+  { label: "No filter", indexTrendFilter: false, indexTrendSmaPeriod: 50, indexTrendOffBufferPct: 0, indexTrendOnBufferPct: 0 },
+];
+
+async function runSmaComparison(
+  windows: WindowDef[],
+  paramCombos: Partial<BreakoutBacktestConfig>[],
+  filterCfg: typeof BREAKOUT_BACKTEST_DEFAULTS,
+  allData: Map<string, import("../src/core/technical-analysis").OHLCVData[]>,
+  vixArg: Map<string, number> | undefined,
+  indexArg: Map<string, number> | undefined,
+  useRobust: boolean,
+): Promise<void> {
+  const variants = SMA_VARIANTS;
+  const variantResults: WindowResult[][] = variants.map(() => []);
+
+  for (let w = 0; w < windows.length; w++) {
+    const { isStart, isEnd, oosStart, oosEnd } = windows[w];
+    console.log(`━━━ Window ${w + 1}/${NUM_WINDOWS} ━━━`);
+    console.log(`  IS:  ${isStart} → ${isEnd}`);
+    console.log(`  OOS: ${oosStart} → ${oosEnd}`);
+
+    // 各バリアントの IS 最適化（バリアントごとに precompute が異なる）
+    const bestPerVariant: (ComboResult | null)[] = [];
+
+    for (let v = 0; v < variants.length; v++) {
+      const variant = variants[v];
+
+      const isPrecomputed = precomputeSimData(
+        isStart, isEnd, allData,
+        filterCfg.marketTrendFilter ?? false,
+        variant.indexTrendFilter,
+        variant.indexTrendSmaPeriod,
+        indexArg,
+        filterCfg.indexMomentumFilter ?? false,
+        filterCfg.indexMomentumDays ?? 60,
+        variant.indexTrendOffBufferPct,
+        variant.indexTrendOnBufferPct,
+      );
+      const variantFilterCfg = {
+        ...filterCfg,
+        indexTrendFilter: variant.indexTrendFilter,
+        indexTrendSmaPeriod: variant.indexTrendSmaPeriod,
+        indexTrendOffBufferPct: variant.indexTrendOffBufferPct,
+        indexTrendOnBufferPct: variant.indexTrendOnBufferPct,
+      };
+      const isSignals = precomputeDailySignals(variantFilterCfg, allData, isPrecomputed);
+
+      const comboResults = new Map<string, ComboResult>();
+      for (const params of paramCombos) {
+        const config: BreakoutBacktestConfig = {
+          ...BREAKOUT_BACKTEST_DEFAULTS,
+          ...params,
+          startDate: isStart,
+          endDate: isEnd,
+          verbose: false,
+          indexTrendFilter: variant.indexTrendFilter,
+          indexTrendSmaPeriod: variant.indexTrendSmaPeriod,
+          indexTrendOffBufferPct: variant.indexTrendOffBufferPct,
+          indexTrendOnBufferPct: variant.indexTrendOnBufferPct,
+        };
+        const result = runBreakoutBacktest(config, allData, vixArg, indexArg, isPrecomputed, isSignals);
+        if (result.metrics.totalTrades < 5) continue;
+        comboResults.set(paramComboKey(params), { params, metrics: result.metrics });
+      }
+
+      const selected = useRobust ? selectByRobustness(comboResults) : selectByMaxPF(comboResults);
+      bestPerVariant.push(selected);
+
+    }
+
+    // OOS 評価（バリアントごとに precompute）
+    for (let v = 0; v < variants.length; v++) {
+      const variant = variants[v];
+      const selected = bestPerVariant[v];
+
+      if (!selected) {
+        console.log(`  [${variant.label}] IS: トレードなし → スキップ`);
+        continue;
+      }
+
+      const bestParams = selected.params;
+      const bestIsMetrics = selected.metrics;
+
+      if (bestIsMetrics.profitFactor < MIN_IS_PF) {
+        console.log(`  [${variant.label}] IS PF: ${formatPF(bestIsMetrics.profitFactor)} < ${MIN_IS_PF} → 休止`);
+        variantResults[v].push({
+          windowIdx: w, isStart, isEnd, oosStart, oosEnd,
+          bestIsParams: bestParams, isMetrics: bestIsMetrics, oosMetrics: null,
+        });
+        continue;
+      }
+
+      const oosPrecomputed = precomputeSimData(
+        oosStart, oosEnd, allData,
+        filterCfg.marketTrendFilter ?? false,
+        variant.indexTrendFilter,
+        variant.indexTrendSmaPeriod,
+        indexArg,
+        filterCfg.indexMomentumFilter ?? false,
+        filterCfg.indexMomentumDays ?? 60,
+        variant.indexTrendOffBufferPct,
+        variant.indexTrendOnBufferPct,
+      );
+      const variantFilterCfg = {
+        ...filterCfg,
+        indexTrendFilter: variant.indexTrendFilter,
+        indexTrendSmaPeriod: variant.indexTrendSmaPeriod,
+        indexTrendOffBufferPct: variant.indexTrendOffBufferPct,
+        indexTrendOnBufferPct: variant.indexTrendOnBufferPct,
+      };
+      const oosSignals = precomputeDailySignals(variantFilterCfg, allData, oosPrecomputed);
+
+      const oosConfig: BreakoutBacktestConfig = {
+        ...BREAKOUT_BACKTEST_DEFAULTS,
+        ...bestParams,
+        startDate: oosStart,
+        endDate: oosEnd,
+        verbose: false,
+        indexTrendFilter: variant.indexTrendFilter,
+        indexTrendSmaPeriod: variant.indexTrendSmaPeriod,
+        indexTrendOffBufferPct: variant.indexTrendOffBufferPct,
+        indexTrendOnBufferPct: variant.indexTrendOnBufferPct,
+      };
+      const oosResult = runBreakoutBacktest(oosConfig, allData, vixArg, indexArg, oosPrecomputed, oosSignals);
+
+      variantResults[v].push({
+        windowIdx: w, isStart, isEnd, oosStart, oosEnd,
+        bestIsParams: bestParams, isMetrics: bestIsMetrics, oosMetrics: oosResult.metrics,
+      });
+
+      const p = bestParams;
+      console.log(
+        `  [${variant.label}] IS PF: ${formatPF(bestIsMetrics.profitFactor)} → OOS PF: ${formatPF(oosResult.metrics.profitFactor)} ` +
+        `(${oosResult.metrics.totalTrades}tr) [atr=${p.atrMultiplier} be=${p.beActivationMultiplier} trail=${p.trailMultiplier} ts=${p.tsActivationMultiplier}]`,
+      );
+    }
+    console.log("");
+  }
+
+  printSmaComparisonSummary(variants, variantResults);
+}
+
+function printSmaComparisonSummary(variants: SmaVariant[], variantResults: WindowResult[][]): void {
+  console.log("=".repeat(70));
+  console.log("N225 SMA Filter Walk-Forward 比較");
+  console.log("=".repeat(70));
+
+  console.log(
+    `\n${"Variant".padEnd(14)}| ${"OOS PF".padStart(7)} | ${"Trades".padStart(6)} | ${"WinRate".padStart(7)} | ${"IS/OOS".padStart(6)} | ${"Active".padStart(6)} | 判定`,
+  );
+  console.log("-".repeat(68));
+
+  for (let v = 0; v < variants.length; v++) {
+    const agg = calcOosAggregate(variantResults[v]);
+    const j = judge(agg.pf, agg.isOosRatio);
+    console.log(
+      `${variants[v].label.padEnd(14)}| ${formatPF(agg.pf).padStart(7)} | ${String(agg.trades).padStart(6)} | ${agg.winRate.toFixed(1).padStart(6)}% | ${agg.isOosRatio.toFixed(2).padStart(6)} | ${`${agg.active}/${agg.active + agg.skipped}`.padStart(6)} | ${j}`,
+    );
+  }
+
+  for (let v = 0; v < variants.length; v++) {
+    console.log(`\n${"━".repeat(30)} ${variants[v].label} ${"━".repeat(30)}`);
+    printSummary(variantResults[v]);
+  }
+}
+
+// ── Position 比較 ──
+
 interface PositionVariant {
   label: string;
   maxPositions: number;
@@ -496,6 +678,7 @@ async function main() {
   const useRobust = !args.includes("--max-pf"); // デフォルトはロバスト方式
   const scoreFilterCompare = args.includes("--score-filter");
   const positionCompare = args.includes("--positions");
+  const smaCompare = args.includes("--sma-compare");
   const endDate = dayjs().format("YYYY-MM-DD");
   const startDate = dayjs().subtract(TOTAL_MONTHS, "month").format("YYYY-MM-DD");
 
@@ -544,6 +727,15 @@ async function main() {
   const filterCfg = BREAKOUT_BACKTEST_DEFAULTS;
   const vixArg = vixData.size > 0 ? vixData : undefined;
   const indexArg = indexData.size > 0 ? indexData : undefined;
+
+  // SMA Filter 比較モード
+  if (smaCompare) {
+    await runSmaComparison(
+      windows, paramCombos, filterCfg, allData, vixArg, indexArg, useRobust,
+    );
+    await prisma.$disconnect();
+    return;
+  }
 
   // Score Filter 比較モード
   if (scoreFilterCompare) {
