@@ -1,9 +1,9 @@
-name: "[Scheduled] Daily Backtest"
+name: "[Scheduled] Weekly Backtest"
 
 on:
   schedule:
-    # 平日 16:30 JST = 07:30 UTC
-    - cron: "30 7 * * 1-5"
+    # 毎週土曜 10:00 JST = 01:00 UTC
+    - cron: "0 1 * * 6"
   workflow_dispatch:
 
 concurrency:
