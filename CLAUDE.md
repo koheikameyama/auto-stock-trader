@@ -121,6 +121,7 @@
 | [backtest-gapup.md](docs/specs/backtest-gapup.md) | ギャップアップバックテスト（当日終値エントリー・短期決戦） |
 | [market-forecast.md](docs/specs/market-forecast.md) | 市場予想（AI翌営業日予想・ニュース） |
 | [broker-api-migration.md](docs/specs/broker-api-migration.md) | 立花証券API移行ガイド（シミュレーション → リアル取引） |
+| [tachibana-api-reference.md](docs/specs/tachibana-api-reference.md) | 立花証券 e支店 API リファレンス（v4r8） |
 
 詳細は `.claude/rules/` 配下を参照してください。
 
