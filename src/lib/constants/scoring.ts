@@ -200,6 +200,12 @@ export const POSITION_SIZING = {
     { minScore: 60, riskPct: 2.0 }, // 中スコア
     { minScore: 0, riskPct: 1.5 }, // 低スコア
   ],
+  /** RR別リスク%テーブル（降順で最初にマッチしたものを採用） */
+  RR_RISK_TABLE: [
+    { minRR: 2.5, riskPct: 2.5 }, // 高RR → 期待値が高いトレードに厚く張る
+    { minRR: 2.0, riskPct: 2.0 }, // 標準
+    { minRR: 0, riskPct: 1.5 },   // ゲートギリギリは控えめに
+  ],
 } as const;
 
 /** 保有継続スコアリング（Holding Score） */

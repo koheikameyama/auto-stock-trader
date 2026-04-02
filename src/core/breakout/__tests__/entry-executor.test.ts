@@ -33,6 +33,7 @@ vi.mock("../../position-manager", () => ({
 
 vi.mock("../../risk-manager", () => ({
   canOpenPosition: vi.fn(),
+  getRiskPctByRR: vi.fn().mockReturnValue(2),
 }));
 
 vi.mock("../../broker-orders", () => ({

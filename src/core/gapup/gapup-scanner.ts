@@ -7,6 +7,7 @@
 
 import { isGapUpSignal } from "./entry-conditions";
 import { GAPUP } from "../../lib/constants/gapup";
+import { STOP_LOSS } from "../../lib/constants";
 import type { WatchlistEntry } from "../breakout/types";
 
 /** 立花APIから取得する当日のOHLCVデータ */
@@ -42,7 +43,7 @@ export class GapUpScanner {
    *
    * @param quotes 当日OHLCVデータ（立花APIから取得）
    * @param holdingTickers 保有中のティッカーセット（除外用）
-   * @returns GapUpTrigger[]（volumeSurgeRatio降順）
+   * @returns GapUpTrigger[]（RR降順 → SL%昇順 → volumeSurgeRatio降順）
    */
   scan(quotes: GapUpQuoteData[], holdingTickers: Set<string>): GapUpTrigger[] {
     const triggers: GapUpTrigger[] = [];
@@ -84,8 +85,25 @@ export class GapUpScanner {
       });
     }
 
-    // volumeSurgeRatio降順でソート
-    triggers.sort((a, b) => b.volumeSurgeRatio - a.volumeSurgeRatio);
+    // 優先順位ソート: RR降順 → SL%昇順 → 出来高サージ降順
+    const slAtrMul = GAPUP.STOP_LOSS.ATR_MULTIPLIER;
+    triggers.sort((a, b) => {
+      const aRawSL = a.currentPrice - a.atr14 * slAtrMul;
+      const aMaxSL = a.currentPrice * (1 - STOP_LOSS.MAX_LOSS_PCT);
+      const aRisk = a.currentPrice - Math.max(aRawSL, aMaxSL);
+      const aRR = aRisk > 0 ? (a.atr14 * 5.0) / aRisk : 0;
+      const aSlPct = aRisk / a.currentPrice;
+
+      const bRawSL = b.currentPrice - b.atr14 * slAtrMul;
+      const bMaxSL = b.currentPrice * (1 - STOP_LOSS.MAX_LOSS_PCT);
+      const bRisk = b.currentPrice - Math.max(bRawSL, bMaxSL);
+      const bRR = bRisk > 0 ? (b.atr14 * 5.0) / bRisk : 0;
+      const bSlPct = bRisk / b.currentPrice;
+
+      if (Math.abs(bRR - aRR) >= 0.1) return bRR - aRR;
+      if (Math.abs(aSlPct - bSlPct) >= 0.001) return aSlPct - bSlPct;
+      return b.volumeSurgeRatio - a.volumeSurgeRatio;
+    });
 
     return triggers;
   }

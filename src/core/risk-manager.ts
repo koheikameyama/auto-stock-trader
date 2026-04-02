@@ -317,6 +317,17 @@ export function getRiskPctByScore(score?: number): number {
 }
 
 /**
+ * リスクリワード比に応じたリスク%を返す
+ * RRが高いトレードほど期待値が高いため、ポジションを厚くする
+ */
+export function getRiskPctByRR(rr: number): number {
+  for (const tier of POSITION_SIZING.RR_RISK_TABLE) {
+    if (rr >= tier.minRR) return tier.riskPct;
+  }
+  return POSITION_SIZING.RISK_PER_TRADE_PCT;
+}
+
+/**
  * ポジションサイズを計算する
  *
  * リスクベースと予算ベースの両方で算出し、厳しい方を採用する。

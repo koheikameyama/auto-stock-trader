@@ -19,6 +19,7 @@ import { getTodayForDB } from "../lib/date-utils";
 import { notifySlack } from "../lib/slack";
 import { TIMEZONE } from "../lib/constants";
 import { BREAKOUT } from "../lib/constants/breakout";
+import { STOP_LOSS } from "../lib/constants";
 import type { QuoteData } from "../core/breakout/breakout-scanner";
 import { GapUpScanner } from "../core/gapup/gapup-scanner";
 import type { GapUpQuoteData } from "../core/gapup/gapup-scanner";
@@ -128,7 +129,22 @@ export async function main(): Promise<void> {
   );
 
   if (triggers.length > 0) {
-    // 5.5 逆行ボーナスによるトリガー優先順位調整
+    // 5.5 RR・SL%を事前計算し、優先順位ソート
+    const slAtrMul = BREAKOUT.STOP_LOSS.ATR_MULTIPLIER;
+    const priorityMap = new Map<string, { rr: number; slPct: number }>();
+    for (const t of triggers) {
+      const rawSL = t.currentPrice - t.atr14 * slAtrMul;
+      const maxSL = t.currentPrice * (1 - STOP_LOSS.MAX_LOSS_PCT);
+      const sl = Math.max(rawSL, maxSL);
+      const risk = t.currentPrice - sl;
+      const reward = t.atr14 * 5.0;
+      priorityMap.set(t.ticker, {
+        rr: risk > 0 ? reward / risk : 0,
+        slPct: risk / t.currentPrice,
+      });
+    }
+
+    // 逆行ボーナス取得（第3キーのタイブレーカーとして使用）
     const triggerTickers = triggers.map((t) => t.ticker);
     const contrarianMap = await getContrarianHistoryBatch(triggerTickers);
     const bonusMap = new Map<string, number>();
@@ -137,19 +153,33 @@ export async function main(): Promise<void> {
       if (bonus !== 0) bonusMap.set(ticker, bonus);
     }
 
-    if (bonusMap.size > 0) {
-      triggers.sort((a, b) => {
-        const aBonus = bonusMap.get(a.ticker) ?? 0;
-        const bBonus = bonusMap.get(b.ticker) ?? 0;
-        // 出来高サージが近い場合（差0.5未満）、逆行ボーナスで優先
-        if (Math.abs(a.volumeSurgeRatio - b.volumeSurgeRatio) < 0.5) {
-          if (aBonus !== bBonus) return bBonus - aBonus;
-        }
-        return b.volumeSurgeRatio - a.volumeSurgeRatio;
-      });
-      for (const [ticker, bonus] of bonusMap) {
-        console.log(`${tag} 逆行ボーナス: ${ticker} ${bonus > 0 ? "+" : ""}${bonus}`);
+    // 優先順位ソート: RR降順 → SL%昇順 → 出来高サージ降順（逆行ボーナス付き）
+    triggers.sort((a, b) => {
+      const pa = priorityMap.get(a.ticker)!;
+      const pb = priorityMap.get(b.ticker)!;
+
+      // 第1キー: RR降順（差0.1未満は同等とみなす）
+      if (Math.abs(pb.rr - pa.rr) >= 0.1) return pb.rr - pa.rr;
+
+      // 第2キー: SL%昇順 — ストップが浅い方がリスク効率が良い
+      if (Math.abs(pa.slPct - pb.slPct) >= 0.001) return pa.slPct - pb.slPct;
+
+      // 第3キー: 出来高サージ降順（近い場合は逆行ボーナスで調整）
+      const aBonus = bonusMap.get(a.ticker) ?? 0;
+      const bBonus = bonusMap.get(b.ticker) ?? 0;
+      if (Math.abs(a.volumeSurgeRatio - b.volumeSurgeRatio) < 0.5) {
+        if (aBonus !== bBonus) return bBonus - aBonus;
       }
+      return b.volumeSurgeRatio - a.volumeSurgeRatio;
+    });
+
+    for (const t of triggers) {
+      const p = priorityMap.get(t.ticker)!;
+      const bonus = bonusMap.get(t.ticker);
+      const bonusStr = bonus ? ` 逆行${bonus > 0 ? "+" : ""}${bonus}` : "";
+      console.log(
+        `${tag} 優先順位: ${t.ticker} RR=${p.rr.toFixed(1)} SL%=${(p.slPct * 100).toFixed(1)}% サージ=${t.volumeSurgeRatio.toFixed(2)}x${bonusStr}`,
+      );
     }
 
     // 6. 既存pending注文の株数チェック（資金変動対応）
@@ -171,7 +201,7 @@ export async function main(): Promise<void> {
     }
 
     // 7. 各トリガーに対してエントリー実行（優先順位順に直列）
-    // volumeSurgeRatio 降順 + 逆行ボーナスによる優先度調整済み。
+    // RR降順 → SL%昇順 → 出来高サージ降順（逆行ボーナス付き）でソート済み。
     // 直列実行により各 executeEntry が最新の残高を参照し、レースコンディションを防ぐ。
     for (const trigger of triggers) {
       console.log(

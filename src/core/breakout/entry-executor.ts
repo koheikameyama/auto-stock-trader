@@ -20,7 +20,8 @@ import { getCashBalance, getEffectiveCapital } from "../position-manager";
 import { canOpenPosition } from "../risk-manager";
 import { submitOrder as submitBrokerOrder, modifyOrder, cancelOrder } from "../broker-orders";
 import { notifyOrderPlaced, notifySlack } from "../../lib/slack";
-import { STOP_LOSS, POSITION_SIZING, UNIT_SHARES } from "../../lib/constants";
+import { STOP_LOSS, UNIT_SHARES } from "../../lib/constants";
+import { getRiskPctByRR } from "../risk-manager";
 import { TIMEZONE } from "../../lib/constants/timezone";
 import { BREAKOUT } from "../../lib/constants/breakout";
 import { GAPUP } from "../../lib/constants/gapup";
@@ -98,8 +99,7 @@ export async function executeEntry(
     );
   }
 
-  // 4. ポジションサイズ計算
-  const riskAmount = effectiveCapital * (POSITION_SIZING.RISK_PER_TRADE_PCT / 100);
+  // 4. ポジションサイズ計算（RRに応じたリスク%傾斜）
   const riskPerShare = currentPrice - stopLossPrice;
 
   if (riskPerShare <= 0) {
@@ -108,11 +108,19 @@ export async function executeEntry(
     return { success: false, reason, retryable: false };
   }
 
+  // 利確参考値: ATR × 5.0（トレーリングストップが実際の利確を担う）
+  const takeProfitPrice = Math.round(currentPrice + atr14 * 5.0);
+
+  // RRに応じたリスク%傾斜: 高RR → 厚いポジション、低RR → 控えめ
+  const riskRewardRatio = (takeProfitPrice - currentPrice) / riskPerShare;
+  const riskPct = getRiskPctByRR(riskRewardRatio);
+  const riskAmount = effectiveCapital * (riskPct / 100);
+
   const rawQuantity = Math.floor(riskAmount / riskPerShare);
   const quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
 
   if (quantity === 0) {
-    const reason = `予算不足でポジションサイズが0（余力: ¥${cashBalance.toLocaleString()}, 必要リスク額: ¥${riskAmount.toLocaleString()}）`;
+    const reason = `予算不足でポジションサイズが0（余力: ¥${cashBalance.toLocaleString()}, リスク額: ¥${riskAmount.toLocaleString()}, RR: ${riskRewardRatio.toFixed(1)}, リスク%: ${riskPct}%）`;
     console.log(`[entry-executor] ${ticker} スキップ: ${reason}`);
     return { success: false, reason, retryable: true };
   }
@@ -141,9 +149,6 @@ export async function executeEntry(
     console.log(`[entry-executor] ${ticker} リスクチェック不可: ${riskCheck.reason}`);
     return { success: false, reason: riskCheck.reason, retryable: riskCheck.retryable ?? false };
   }
-
-  // 利確参考値: ATR × 5.0（トレーリングストップが実際の利確を担う）
-  const takeProfitPrice = Math.round(currentPrice + atr14 * 5.0);
 
   // 6. TradingOrderをDBに作成
   const isGapUp = strategy === "gapup";
@@ -177,13 +182,14 @@ export async function executeEntry(
           triggeredAt: trigger.triggeredAt.toISOString(),
         },
         slClamped: isSLClamped,
-        riskPct: POSITION_SIZING.RISK_PER_TRADE_PCT,
+        riskRewardRatio: Math.round(riskRewardRatio * 100) / 100,
+        riskPct,
       },
     },
   });
 
   console.log(
-    `[entry-executor] ${ticker} 注文作成: id=${newOrder.id}, 指値=¥${currentPrice}, SL=¥${stopLossPrice}, TP=¥${takeProfitPrice}, 数量=${quantity}株`,
+    `[entry-executor] ${ticker} 注文作成: id=${newOrder.id}, 指値=¥${currentPrice}, SL=¥${stopLossPrice}, TP=¥${takeProfitPrice}, 数量=${quantity}株, RR=${riskRewardRatio.toFixed(1)}, リスク%=${riskPct}%`,
   );
 
   // 6.5 注文作成後のキャッシュ残高再検証（レースコンディション防御）
@@ -295,9 +301,12 @@ export async function resizePendingOrders(): Promise<void> {
       continue;
     }
 
-    // リスクベース株数
+    // リスクベース株数（entrySnapshotのRRに応じたリスク%を使用）
     const riskPerShare = limitPrice - stopLossPrice;
-    const riskAmount = effectiveCapital * (POSITION_SIZING.RISK_PER_TRADE_PCT / 100);
+    const snapshot = order.entrySnapshot as Record<string, unknown> | null;
+    const savedRR = (snapshot?.riskRewardRatio as number) ?? 0;
+    const riskPctForResize = getRiskPctByRR(savedRR);
+    const riskAmount = effectiveCapital * (riskPctForResize / 100);
     const riskBasedQty =
       Math.floor(Math.floor(riskAmount / riskPerShare) / UNIT_SHARES) * UNIT_SHARES;
 
