@@ -13,6 +13,8 @@
 | 値の型 | **全て文字列**（数値も `"100"` で送受信） |
 | 銘柄コード | 4桁数字（`.T` サフィックスなし） |
 | 市場コード | `"00"` = 東証 |
+| レスポンスキー | **デフォルトは数値キー**（例: `"287"` = `sResultCode`）。名前付きキーへのマッピングが必要 |
+| リクエストタイムアウト | 30秒 |
 
 ### バージョン管理
 
@@ -37,9 +39,11 @@
 
 | パラメータ | 説明 | 形式 |
 |-----------|------|------|
-| `p_no` | リクエスト番号（連番） | 文字列 |
-| `p_sd_date` | 送信日時 | `"YYYY.MM.DD-HH:MM:SS.mmm"` |
+| `p_no` | リクエスト番号（連番） | 文字列（セッション内で厳密に昇順） |
+| `p_sd_date` | 送信日時（JST） | `"YYYY.MM.DD-HH:mm:ss.SSS"` |
 | `sCLMID` | 機能ID | 文字列 |
+
+> **注意**: `p_no` はセッション内で厳密に昇順でなければならない。並列リクエストを行うと順序が崩れてエラーになるため、リクエストは直列化が必要。
 
 ---
 
@@ -102,6 +106,14 @@
 | `sUpdateInformAPISpecFunction` | e支店・APIリリース予定日 |
 
 > **注意**: `sKinsyouhouMidokuFlg` が `"1"` の場合、仮想URLは発行されずAPIは利用不可。標準Webで書面確認が必要。
+
+#### セッション管理
+
+- ログイン成功時にセッション固有の仮想URLが5つ発行される（REQUEST, MASTER, PRICE, EVENT, EVENT-WebSocket）
+- 以降のAPI呼び出しは全てこの仮想URLを使用
+- **セッション切れ**: `sResultCode` が `"2"` で検出。自動再ログインが必要
+- **自動リフレッシュ**: 30分ごとに再ログインしてセッションを更新（本システムの実装）
+- 再ログイン時はWebSocket接続のURLも更新が必要
 
 ### 1.2 ログアウト（CLMAuthLogoutRequest）
 
@@ -175,19 +187,23 @@
 
 #### レスポンス
 
-| フィールド | 説明 |
-|-----------|------|
-| `sResultCode` | 結果コード（`"0"` = 正常） |
-| `sResultText` | 結果テキスト |
-| `sWarningCode` | 警告コード（`"0"` = 正常） |
-| `sWarningText` | 警告テキスト |
-| `sOrderNumber` | 注文番号（注文番号+営業日でユニーク） |
-| `sEigyouDay` | 営業日 `YYYYMMDD` |
-| `sOrderUkewatasiKingaku` | 注文受渡金額 |
-| `sOrderTesuryou` | 手数料 |
-| `sOrderSyouhizei` | 消費税 |
-| `sKinri` | 金利（現物の場合 `"-"`） |
-| `sOrderDate` | 注文日時 `YYYYMMDDHHMMSS` |
+| フィールド | 数値キー | 説明 |
+|-----------|---------|------|
+| `sResultCode` | 287 | 結果コード（`"0"` = 正常） |
+| `sResultText` | 286 | 結果テキスト |
+| `sWarningCode` | — | 警告コード（`"0"` = 正常） |
+| `sWarningText` | — | 警告テキスト |
+| `sOrderNumber` | 643 | 注文番号（注文番号+営業日でユニーク） |
+| `sEigyouDay` | 370 | 営業日 `YYYYMMDD` |
+| `sOrderResultCode` | 688 | サブ結果コード（メインが `"0"` でもこちらがエラーの場合あり） |
+| `sOrderResultText` | 689 | サブ結果テキスト |
+| `sOrderUkewatasiKingaku` | — | 注文受渡金額 |
+| `sOrderTesuryou` | 660 | 手数料 |
+| `sOrderSyouhizei` | 669 | 消費税 |
+| `sKinri` | — | 金利（現物の場合 `"-"`） |
+| `sOrderDate` | — | 注文日時 `YYYYMMDDHHMMSS` |
+
+> **注意**: `sResultCode` が `"0"` でも `sOrderResultCode` が `"0"` でない場合はエラー。両方チェックが必要。
 
 #### 注文パターン例
 
@@ -353,6 +369,8 @@
 | `sSecondPassword` | 第二パスワード | 必須 |
 
 > **注意**: 増株訂正は不可。逆指値条件発火後は逆指値の訂正不可（通常の値段訂正を使用）。
+>
+> **実装上の注意**: 逆指値（SL）注文のトリガー価格変更は訂正注文では信頼性が低い。本システムでは**取消＋再発注**方式を採用している。
 
 #### レスポンス
 
@@ -900,7 +918,10 @@
 }
 ```
 
-> **注意**: レスポンスは数値キー形式で返る場合がある（例: `"115": "3325"` = `pDPP`）。ファンダメンタルズ（PER, PBR, EPS, 時価総額）は取得不可。
+> **注意**:
+> - レスポンスは数値キー形式で返る（例: `"71"` = `aMarketPriceList`、`"115"` = `pDPP`、`"473"` = `sTargetIssueCode`）
+> - ファンダメンタルズ（PER, PBR, EPS, 時価総額）は取得不可
+> - **1リクエスト1銘柄**。複数銘柄の取得はループが必要だが、`p_no` の順序制約により**並列リクエスト不可**（直列化が必須）
 
 ### 6.2 蓄積情報問合取得（CLMMfdsGetMarketPriceHistory）
 
@@ -940,39 +961,186 @@
 | 方式 | URL | 特徴 |
 |------|-----|------|
 | HTTP Long Polling | `sUrlEvent` | シンプル、ファイアウォール制約が少ない |
-| WebSocket | `sUrlEventWebSocket` (`wss://`) | 低レイテンシ、双方向通信 |
+| WebSocket | `sUrlEventWebSocket` (`wss://`) | 低レイテンシ、双方向通信（本システムで採用） |
 
-### 8.2 通知内容
+### 8.2 WebSocket接続
 
-- 注文約定通知（EC: Execution Confirmation）
-- マスタ情報のリアルタイム更新
-- 時価配信
+**接続URL**: `{sUrlEventWebSocket}?{クエリパラメータ}`
+
+| パラメータ | 説明 | 値 |
+|-----------|------|-----|
+| `p_rid` | リクエストID | `"22"` |
+| `p_board_no` | ボード番号 | `"1000"` |
+| `p_eno` | イベント番号 | `"0"` |
+| `p_evt_cmd` | 購読イベント種別 | カンマ区切り（例: `"ST,KP,EC,SS,US"`） |
+
+### 8.3 メッセージフォーマット
+
+メッセージはキーバリューペアを `\x01`（SOH文字）で区切った文字列:
+
+```
+p_no\x011\x01p_cmd\x01KP
+```
+
+### 8.4 イベント種別
+
+| コード | 名称 | 説明 |
+|--------|------|------|
+| `KP` | Keep-alive | 15秒間隔で送信。15秒以上受信なしで再接続が必要 |
+| `EC` | Execution Confirmation | 約定通知。`p_order_number` + `p_eigyou_day` で注文特定 |
+| `ST` | Status | ステータス通知 |
+| `SS` | System Status | システムステータス通知 |
+| `US` | User Status | ユーザーステータス通知 |
+
+### 8.5 約定通知（EC）の処理
+
+1. ECイベント受信 → `p_order_number` と `p_eigyou_day` を取得
+2. `CLMOrderListDetail` APIで約定詳細を取得
+3. `aYakuzyouSikkouList` から約定情報を解析
+4. 複数部分約定がある場合は加重平均価格を算出
+
+### 8.6 接続管理
+
+- **接続時間帯**: JST 07:00〜18:00（営業日のみ）
+- **キープアライブタイムアウト**: 15秒（KPメッセージが途切れたら再接続）
+- **再接続戦略**: 指数バックオフ（1秒→2秒→4秒→...→最大30秒）
+- **時間外**: 次の接続可能時刻まで待機
+- **セッションリフレッシュ**: 再ログイン時に新しいWebSocket URLで再接続
 
 ---
 
-## 9. 実装上の注意事項
+## 9. 数値キーマッピング
+
+レスポンスはデフォルトで数値キーが使用される。主要なマッピング:
+
+### 共通
+
+| 数値キー | 名前付きキー | 説明 |
+|---------|-------------|------|
+| 287 | sResultCode | 結果コード |
+| 286 | sResultText | 結果テキスト |
+| 334 | sCLMID | 機能ID |
+
+### ログイン応答
+
+| 数値キー | 名前付きキー | 説明 |
+|---------|-------------|------|
+| 872 | sUrlRequest | 仮想URL（REQUEST） |
+| 870 | sUrlMaster | 仮想URL（MASTER） |
+| 871 | sUrlPrice | 仮想URL（PRICE） |
+| 868 | sUrlEvent | 仮想URL（EVENT） |
+| 869 | sUrlEventWebSocket | 仮想URL（EVENT-WebSocket） |
+| 552 | sKinsyouhouMidokuFlg | 金商法交付書面未読フラグ |
+| 744 | sSummaryGenkabuKaituke | 株式現物買付可能額 |
+
+### 注文応答
+
+| 数値キー | 名前付きキー | 説明 |
+|---------|-------------|------|
+| 643 | sOrderNumber | 注文番号 |
+| 370 | sEigyouDay | 営業日 |
+| 660 | sOrderTesuryou | 手数料 |
+| 669 | sOrderSyouhizei | 消費税 |
+| 688 | sOrderResultCode | サブ結果コード |
+| 689 | sOrderResultText | サブ結果テキスト |
+
+### 現物保有
+
+| 数値キー | 名前付きキー | 説明 |
+|---------|-------------|------|
+| 859 | sUriOrderIssueCode | 銘柄コード |
+| 863 | sUriOrderZanKabuSuryou | 残高株数 |
+| 860 | sUriOrderUritukeKanouSuryou | 売付可能株数 |
+| 854 | sUriOrderGaisanBokaTanka | 概算簿価単価 |
+| 858 | sUriOrderHyoukaTanka | 評価単価 |
+| 857 | sUriOrderGaisanHyoukagaku | 評価金額 |
+| 855 | sUriOrderGaisanHyoukaSoneki | 評価損益 |
+
+### 時価情報
+
+| 数値キー | 名前付きキー | 説明 |
+|---------|-------------|------|
+| 71 | aMarketPriceList | 時価リスト（配列） |
+| 473 | sTargetIssueCode | 銘柄コード |
+| 115 | pDPP | 現在値 |
+| 112 | pDOP | 始値 |
+| 106 | pDHP | 高値 |
+| 110 | pDLP | 安値 |
+| 181 | pPRP | 前日終値 |
+| 117 | pDV | 出来高 |
+| 120 | pDYWP | 前日比（円） |
+| 119 | pDYRP | 前日比率(%) |
+
+---
+
+## 10. 実装上の注意事項
 
 ### 全般
 
-1. **数値キーのマッピング**: レスポンスキーが数値の場合がある。名前付きキーとの双方向マッピングが必要
+1. **数値キーのマッピング**: レスポンスキーはデフォルトで数値。名前付きキーへの双方向マッピングが必要（`src/lib/tachibana-key-map.ts`）
 2. **URLエンコード**: JSONをURLエンコードして送信
-3. **Shift_JIS**: レスポンスの文字列値のデコードが必要
+3. **Shift_JIS**: レスポンスの文字列値のデコードが必要（`TextDecoder("shift_jis")`）
 4. **全値が文字列**: 数値も `"100"` のように文字列で送受信
+5. **p_no順序制約**: リクエスト番号はセッション内で厳密に昇順。並列リクエスト不可、直列化が必須
 
 ### 認証・セッション
 
-5. **仮想URL**: ログイン成功時にセッション固有の仮想URLが発行される。以降のAPIは全てこの仮想URLを使用
-6. **金商法書面未読**: `sKinsyouhouMidokuFlg` が `"1"` の場合、仮想URLは発行されずAPI利用不可
+6. **仮想URL**: ログイン成功時にセッション固有の仮想URLが発行される。以降のAPIは全てこの仮想URLを使用
+7. **金商法書面未読**: `sKinsyouhouMidokuFlg` が `"1"` の場合、仮想URLは発行されずAPI利用不可
+8. **セッション切れ検出**: `sResultCode` が `"2"` でセッション切れ。自動再ログインが必要
+9. **自動リフレッシュ**: 30分ごとに再ログインしてセッションを維持
 
 ### 注文
 
-7. **第二パスワード**: 全ての注文操作で必須
-8. **注文番号+営業日**: 注文の一意特定にはペアが必要
-9. **逆指値**: SL注文に利用可能（`sGyakusasiOrderType="1"`）
-10. **通常+逆指値**: OCO的な注文（`sGyakusasiOrderType="2"`）
-11. **増株訂正不可**: 訂正注文は減株のみ
-12. **逆指値条件発火後**: 逆指値条件・値段の訂正は不可。通常の値段訂正を使用
+10. **第二パスワード**: 全ての注文操作で必須
+11. **注文番号+営業日**: 注文の一意特定にはペアが必要
+12. **逆指値**: SL注文に利用可能（`sGyakusasiOrderType="1"`）
+13. **通常+逆指値**: OCO的な注文（`sGyakusasiOrderType="2"`）
+14. **増株訂正不可**: 訂正注文は減株のみ
+15. **逆指値条件発火後**: 逆指値条件・値段の訂正は不可。通常の値段訂正を使用
+16. **SL更新**: 訂正注文ではなく**取消＋再発注**方式が信頼性が高い
+17. **サブ結果コード**: `sResultCode` が `"0"` でも `sOrderResultCode`（数値キー688）がエラーの場合がある。両方チェックが必要
 
 ### JSONの項目順
 
-13. **項目順不問**: リクエスト・レスポンスともにJSON項目の順番は保証されない（JSON仕様準拠）
+18. **項目順不問**: リクエスト・レスポンスともにJSON項目の順番は保証されない（JSON仕様準拠）
+
+---
+
+## 11. 本システムでの実装状況
+
+| API | 実装ファイル | 状態 |
+|-----|------------|------|
+| CLMAuthLoginRequest / LogoutRequest | `src/core/broker-client.ts` | 実装済み |
+| CLMKabuNewOrder | `src/core/broker-orders.ts` | 実装済み |
+| CLMKabuCorrectOrder | `src/core/broker-orders.ts` | 実装済み |
+| CLMKabuCancelOrder | `src/core/broker-orders.ts` | 実装済み |
+| CLMKabuCancelOrderAll | `src/core/broker-orders.ts` | 実装済み |
+| CLMGenbutuKabuList | `src/core/broker-orders.ts` | 実装済み |
+| CLMZanKaiKanougaku | `src/core/broker-orders.ts` | 実装済み |
+| CLMOrderList | `src/core/broker-orders.ts` | 実装済み |
+| CLMOrderListDetail | `src/core/broker-fill-handler.ts` | 実装済み |
+| CLMMfdsGetMarketPrice | `src/lib/tachibana-price-client.ts` | 実装済み |
+| EVENT I/F（WebSocket） | `src/core/broker-event-stream.ts` | 実装済み |
+| CLMShinyouTategyokuList | — | 未実装 |
+| CLMZanShinkiKanoIjiritu | — | 未実装 |
+| CLMZanUriKanousuu | — | 未実装 |
+| CLMZanKaiSummary | — | 未実装 |
+| CLMZanKaiKanougakuSuii | — | 未実装 |
+| CLMEventDownload | — | 未実装 |
+| CLMUnyouStatus | — | 未実装 |
+| CLMMfdsGetMarketPriceHistory | — | 未実装 |
+| EVENT I/F（Long Polling） | — | 未実装（WebSocketを採用） |
+
+### 関連ファイル
+
+| ファイル | 役割 |
+|---------|------|
+| `src/core/broker-client.ts` | 認証・セッション管理（30分自動リフレッシュ） |
+| `src/core/broker-orders.ts` | 注文・口座・保有情報API |
+| `src/core/broker-event-stream.ts` | WebSocket接続・約定通知受信 |
+| `src/core/broker-fill-handler.ts` | 約定処理（CLMOrderListDetailで詳細取得、加重平均価格算出） |
+| `src/core/broker-sl-manager.ts` | SL注文管理（取消＋再発注方式） |
+| `src/lib/tachibana-price-client.ts` | 時価取得（p-limit(1)で直列化） |
+| `src/lib/tachibana-key-map.ts` | 数値キー↔名前付きキー双方向マッピング |
+| `src/lib/constants/broker.ts` | URL・CLMID・カラムコード・ステータスコード定数 |
