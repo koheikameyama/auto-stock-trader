@@ -33,6 +33,7 @@ export class BreakoutScanner {
       triggeredToday: new Set<string>(),
       lastColdScanTime: new Map<string, number>(),
       lastSurgeRatios: new Map<string, number>(),
+      retryCooldownUntil: new Map<string, number>(),
     };
     this.watchlistMap = new Map(watchlist.map((e) => [e.ticker, e]));
   }
@@ -171,6 +172,7 @@ export class BreakoutScanner {
       triggeredToday: new Set<string>(),
       lastColdScanTime: new Map<string, number>(),
       lastSurgeRatios: new Map<string, number>(),
+      retryCooldownUntil: new Map<string, number>(),
     };
     this.watchlistMap = new Map(newWatchlist.map((e) => [e.ticker, e]));
   }
@@ -185,6 +187,32 @@ export class BreakoutScanner {
    */
   removeFromTriggeredToday(ticker: string): void {
     this.state.triggeredToday.delete(ticker);
+  }
+
+  /**
+   * クールダウンを設定する（retryable失敗時に呼ばれる）
+   * triggeredTodayから削除し、クールダウン期限を設定する。
+   * クールダウン中はcanFireTriggerがfalseを返すので再トリガーされない。
+   */
+  setRetryCooldown(ticker: string): void {
+    this.state.triggeredToday.delete(ticker);
+    this.state.retryCooldownUntil.set(
+      ticker,
+      Date.now() + BREAKOUT.GUARD.RETRY_COOLDOWN_MS,
+    );
+  }
+
+  /**
+   * クールダウン中かどうか判定する
+   */
+  isInCooldown(ticker: string): boolean {
+    const until = this.state.retryCooldownUntil.get(ticker);
+    if (until === undefined) return false;
+    if (Date.now() >= until) {
+      this.state.retryCooldownUntil.delete(ticker);
+      return false;
+    }
+    return true;
   }
 
   // ----------------------------------------------------------------
@@ -223,6 +251,7 @@ export class BreakoutScanner {
     if (!this.isBeforeLatestEntry(hour, minute)) return false;
     if (this.state.triggeredToday.has(ticker)) return false;
     if (holdingTickers.has(ticker)) return false;
+    if (this.isInCooldown(ticker)) return false;
     return true;
   }
 }

@@ -38,6 +38,8 @@ export interface ScannerState {
   lastColdScanTime: Map<string, number>;
   /** 直近スキャン時の出来高サージ比率（ティッカー → 比率） */
   lastSurgeRatios: Map<string, number>;
+  /** retryable失敗時のクールダウン解除時刻（ティッカー → epoch ms） */
+  retryCooldownUntil: Map<string, number>;
 }
 
 /** ウォッチリスト構築のフィルター統計 */
