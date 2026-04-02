@@ -150,7 +150,7 @@ export async function executeEntry(
     return { success: false, reason: riskCheck.reason, retryable: riskCheck.retryable ?? false };
   }
 
-  // 6. TradingOrderをDBに作成
+  // 6. 変数の準備
   const isGapUp = strategy === "gapup";
   const expiresAt = isGapUp
     ? dayjs().tz(TIMEZONE).hour(15).minute(30).second(0).toDate()
@@ -159,6 +159,47 @@ export async function executeEntry(
     ? `ギャップアップトリガー: 出来高サージ比率 ${trigger.volumeSurgeRatio.toFixed(2)}x, ギャップ3%以上`
     : `ブレイクアウトトリガー: 出来高サージ比率 ${trigger.volumeSurgeRatio.toFixed(2)}x, 20日高値 ¥${'high20' in trigger ? trigger.high20 : ''} 突破`;
 
+  // 7. ブローカー発注（DB保存前に実行）
+  let brokerResult;
+  try {
+    brokerResult = await submitBrokerOrder({
+      ticker,
+      side: "buy",
+      quantity,
+      limitPrice: isGapUp ? null : currentPrice,
+      stopTriggerPrice: stopLossPrice,
+      condition: isGapUp ? TACHIBANA_ORDER.CONDITION.CLOSE : undefined,
+      expireDay: isGapUp ? undefined : dayjs(expiresAt).tz(TIMEZONE).format("YYYYMMDD"),
+    });
+  } catch (brokerErr) {
+    console.error(`[entry-executor] ブローカーエラー ${ticker}:`, brokerErr);
+    const errorMsg = brokerErr instanceof Error ? brokerErr.message : String(brokerErr);
+    await notifySlack({
+      title: `ブローカー発注失敗: ${ticker}`,
+      message: errorMsg,
+      color: "danger",
+    });
+    return { success: false, reason: errorMsg, retryable: false };
+  }
+
+  if (!brokerResult.success || !brokerResult.orderNumber) {
+    const errorMsg = brokerResult.success
+      ? "注文番号が取得できませんでした"
+      : (brokerResult.error ?? "Unknown error");
+    console.warn(`[entry-executor] ブローカー発注失敗: ${ticker}: ${errorMsg}`);
+    await notifySlack({
+      title: `ブローカー発注失敗: ${ticker}`,
+      message: errorMsg,
+      color: "danger",
+    });
+    return { success: false, reason: errorMsg, retryable: false };
+  }
+
+  console.log(
+    `[entry-executor] ${ticker} ブローカー発注成功: orderNumber=${brokerResult.orderNumber}`,
+  );
+
+  // 6. TradingOrderをDBに作成（発注成功後）
   const newOrder = await prisma.tradingOrder.create({
     data: {
       stockId: stock.id,
@@ -172,6 +213,8 @@ export async function executeEntry(
       status: "pending",
       expiresAt,
       reasoning,
+      brokerOrderId: brokerResult.orderNumber,
+      brokerBusinessDay: brokerResult.businessDay,
       entrySnapshot: {
         trigger: {
           ticker: trigger.ticker,
@@ -191,77 +234,6 @@ export async function executeEntry(
   console.log(
     `[entry-executor] ${ticker} 注文作成: id=${newOrder.id}, 指値=¥${currentPrice}, SL=¥${stopLossPrice}, TP=¥${takeProfitPrice}, 数量=${quantity}株, RR=${riskRewardRatio.toFixed(1)}, リスク%=${riskPct}%`,
   );
-
-  // 6.5 注文作成後のキャッシュ残高再検証（レースコンディション防御）
-  const postCash = await getCashBalance();
-  if (postCash < 0) {
-    await prisma.tradingOrder.update({
-      where: { id: newOrder.id },
-      data: { status: "cancelled" },
-    });
-    const reason = `注文作成後キャッシュ不足のためキャンセル（残高: ¥${postCash.toLocaleString()}）`;
-    console.log(`[entry-executor] ${ticker} ${reason}`);
-    await notifySlack({
-      title: `注文キャンセル: ${ticker}`,
-      message: reason,
-      color: "warning",
-    });
-    return { success: false, reason, retryable: true };
-  }
-
-  // 7. ブローカー発注
-  try {
-    const brokerResult = await submitBrokerOrder({
-      ticker,
-      side: "buy",
-      quantity,
-      limitPrice: isGapUp ? null : currentPrice,
-      stopTriggerPrice: stopLossPrice,
-      condition: isGapUp ? TACHIBANA_ORDER.CONDITION.CLOSE : undefined,
-      expireDay: isGapUp ? undefined : dayjs(expiresAt).tz(TIMEZONE).format("YYYYMMDD"),
-    });
-
-    if (brokerResult.success && brokerResult.orderNumber) {
-      await prisma.tradingOrder.update({
-        where: { id: newOrder.id },
-        data: {
-          brokerOrderId: brokerResult.orderNumber,
-          brokerBusinessDay: brokerResult.businessDay,
-        },
-      });
-      console.log(
-        `[entry-executor] ${ticker} ブローカー発注成功: orderNumber=${brokerResult.orderNumber}`,
-      );
-    } else {
-      const errorMsg = brokerResult.success
-        ? "注文番号が取得できませんでした"
-        : (brokerResult.error ?? "Unknown error");
-      console.warn(`[entry-executor] ブローカー発注失敗: ${ticker}: ${errorMsg}`);
-      await prisma.tradingOrder.update({
-        where: { id: newOrder.id },
-        data: { status: "cancelled" },
-      });
-      await notifySlack({
-        title: `ブローカー発注失敗: ${ticker}`,
-        message: errorMsg,
-        color: "danger",
-      });
-      return { success: false, reason: errorMsg, retryable: false };
-    }
-  } catch (brokerErr) {
-    console.error(`[entry-executor] ブローカーエラー ${ticker}:`, brokerErr);
-    const errorMsg = brokerErr instanceof Error ? brokerErr.message : String(brokerErr);
-    await prisma.tradingOrder.update({
-      where: { id: newOrder.id },
-      data: { status: "cancelled" },
-    });
-    await notifySlack({
-      title: `ブローカー発注失敗: ${ticker}`,
-      message: errorMsg,
-      color: "danger",
-    });
-    return { success: false, reason: errorMsg, retryable: false };
-  }
 
   // 8. Slack通知
   const slackReasoning = isGapUp
