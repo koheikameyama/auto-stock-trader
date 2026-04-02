@@ -181,15 +181,20 @@ export class TachibanaClient {
       p_sd_date: this.formatTimestamp(),
     };
 
-    const logParams = fullParams.sSecondPassword
-      ? { ...fullParams, sSecondPassword: "***" }
-      : fullParams;
-    console.log(`[TachibanaClient] request:`, JSON.stringify(logParams));
-
     const url = `${virtualUrl}?${this.encodeParams(fullParams)}`;
     const res = await this.fetchWithDecode(url);
 
-    console.log(`[TachibanaClient] response:`, JSON.stringify(res));
+    if (res.sResultCode !== "0") {
+      const logParams = fullParams.sSecondPassword
+        ? { ...fullParams, sSecondPassword: "***" }
+        : fullParams;
+      console.error(
+        `[TachibanaClient] error response:`,
+        JSON.stringify(res),
+        "request:",
+        JSON.stringify(logParams),
+      );
+    }
     return res;
   }
 
