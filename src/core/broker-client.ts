@@ -184,7 +184,7 @@ export class TachibanaClient {
     const url = `${virtualUrl}?${this.encodeParams(fullParams)}`;
     const res = await this.fetchWithDecode(url);
 
-    if (res.sResultCode !== "0") {
+    if (!["0", "2"].includes(res.sResultCode)) {
       const logParams = fullParams.sSecondPassword
         ? { ...fullParams, sSecondPassword: "***" }
         : fullParams;
