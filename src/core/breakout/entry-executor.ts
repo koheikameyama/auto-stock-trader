@@ -210,8 +210,6 @@ export async function executeEntry(
       side: "buy",
       quantity,
       limitPrice: isGapUp ? null : currentPrice,
-      stopTriggerPrice: isGapUp ? undefined : stopLossPrice,
-      stopOrderPrice: undefined,
       condition: isGapUp ? TACHIBANA_ORDER.CONDITION.CLOSE : undefined,
     });
 
