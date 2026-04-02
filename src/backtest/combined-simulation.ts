@@ -44,6 +44,10 @@ export interface SimContext {
   monthlyAddAmount: number;
   /** エクイティカーブSMAフィルター期間（0 = 無効） */
   equityCurveSmaPeriod: number;
+  /** VIXレジーム別戦略フィルター: このレベル以上でBreakoutエントリーを停止（undefined = crisisのみ停止） */
+  boVixSkipLevel?: RegimeLevel;
+  /** VIXレジーム別戦略フィルター: このレベル以上でGapUpエントリーを停止（undefined = crisisのみ停止） */
+  guVixSkipLevel?: RegimeLevel;
 }
 
 export interface SimResult {
@@ -56,6 +60,16 @@ export interface SimResult {
   totalCapitalAdded: number;
   /** ドローダウンハルトが発動した営業日数 */
   haltDays: number;
+}
+
+// ──────────────────────────────────────────
+// VIXレジーム別エントリーフィルター
+// ──────────────────────────────────────────
+const REGIME_ORDER: Record<RegimeLevel, number> = { normal: 0, elevated: 1, high: 2, crisis: 3 };
+
+function shouldSkipByVixRegime(currentRegime: RegimeLevel, skipLevel: RegimeLevel | undefined): boolean {
+  if (skipLevel == null) return currentRegime === "crisis";
+  return REGIME_ORDER[currentRegime] >= REGIME_ORDER[skipLevel];
 }
 
 // ──────────────────────────────────────────
@@ -350,7 +364,7 @@ export function runCombinedSimulation(
   boMaxPositions: number,
   guMaxPositions: number,
 ): SimResult {
-  const { boConfig, guConfig, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod } = ctx;
+  const { boConfig, guConfig, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel } = ctx;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
 
   const boConfigLocal = { ...boConfig, maxPositions: boMaxPositions };
@@ -437,7 +451,7 @@ export function runCombinedSimulation(
     ]);
 
     // ── 2a. Breakout エントリー ──
-    if (boShouldTrade && todayRegime !== "crisis" && boPositions.length < boConfigLocal.maxPositions && cash > 0) {
+    if (boShouldTrade && !shouldSkipByVixRegime(todayRegime, boVixSkipLevel) && boPositions.length < boConfigLocal.maxPositions && cash > 0) {
       const rawSignals = breakoutSignals.get(today) ?? [];
       for (const signal of rawSignals) {
         if (boPositions.length >= boConfigLocal.maxPositions) break;
@@ -477,7 +491,7 @@ export function runCombinedSimulation(
     }
 
     // ── 2b. GapUp エントリー ──
-    if (guShouldTrade && todayRegime !== "crisis" && guPositions.length < guConfigLocal.maxPositions && cash > 0) {
+    if (guShouldTrade && !shouldSkipByVixRegime(todayRegime, guVixSkipLevel) && guPositions.length < guConfigLocal.maxPositions && cash > 0) {
       const signals = gapupSignals.get(today) ?? [];
       for (const signal of signals) {
         if (guPositions.length >= guConfigLocal.maxPositions) break;

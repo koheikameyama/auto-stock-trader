@@ -112,8 +112,9 @@ async function main() {
   const verbose = args.includes("--verbose");
   const comparePositions = args.includes("--compare-positions");
   const compareEquityFilter = args.includes("--compare-equity-filter");
+  const compareVixFilter = args.includes("--compare-vix-filter");
 
-  const quietMode = comparePositions || compareEquityFilter;
+  const quietMode = comparePositions || compareEquityFilter || compareVixFilter;
   const boConfig: BreakoutBacktestConfig = { ...BREAKOUT_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, verbose: !quietMode && verbose };
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, verbose: !quietMode && verbose };
 
@@ -215,6 +216,53 @@ async function main() {
       const label = sma === 0 ? "なし" : `SMA${sma}`;
       console.log(
         `${label.padEnd(10)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(6)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(8)} | ${m.maxDrawdown.toFixed(1).padStart(6)}% | ${m.netReturnPct.toFixed(1).padStart(7)}% | ${String(result.haltDays).padStart(6)}`,
+      );
+    }
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // VIXレジーム別戦略フィルター比較モード
+  if (compareVixFilter) {
+    type RL = "normal" | "elevated" | "high" | "crisis";
+    const grid: { boSkip: RL | undefined; guSkip: RL | undefined; label: string }[] = [
+      { boSkip: undefined,  guSkip: undefined,  label: "現状（crisis停止）" },
+      { boSkip: "high",     guSkip: undefined,  label: "BO:high停止 / GU:現状" },
+      { boSkip: "high",     guSkip: "crisis",   label: "BO:high停止 / GU:crisis停止" },
+      { boSkip: "elevated", guSkip: undefined,  label: "BO:elevated停止 / GU:現状" },
+      { boSkip: "elevated", guSkip: "crisis",   label: "BO:elevated停止 / GU:crisis停止" },
+    ];
+
+    console.log("\n=== VIXレジーム別戦略フィルター比較 ===");
+    console.log(
+      `${"パターン".padEnd(30)}| ${"Trades".padStart(6)} | ${"WinRate".padStart(7)} | ${"PF".padStart(5)} | ${"Expect".padStart(8)} | ${"MaxDD".padStart(7)} | ${"NetRet".padStart(8)}`,
+    );
+    console.log("-".repeat(85));
+
+    for (const row of grid) {
+      const result = runCombinedSimulation(
+        { ...ctx, boVixSkipLevel: row.boSkip, guVixSkipLevel: row.guSkip },
+        boConfig.maxPositions,
+        guConfig.maxPositions,
+      );
+      const m = result.totalMetrics;
+      const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
+      const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
+      console.log(
+        `${row.label.padEnd(30)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(6)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(8)} | ${m.maxDrawdown.toFixed(1).padStart(6)}% | ${m.netReturnPct.toFixed(1).padStart(7)}%`,
+      );
+
+      // 戦略別の内訳
+      const bm = result.boMetrics;
+      const gm = result.guMetrics;
+      const bPf = bm.profitFactor === Infinity ? "∞" : bm.profitFactor.toFixed(2);
+      const gPf = gm.profitFactor === Infinity ? "∞" : gm.profitFactor.toFixed(2);
+      console.log(
+        `${"  BO".padEnd(30)}| ${String(bm.totalTrades).padStart(6)} | ${bm.winRate.toFixed(1).padStart(6)}% | ${bPf.padStart(5)} | ${((bm.expectancy >= 0 ? "+" : "") + bm.expectancy.toFixed(2) + "%").padStart(8)} |        |         `,
+      );
+      console.log(
+        `${"  GU".padEnd(30)}| ${String(gm.totalTrades).padStart(6)} | ${gm.winRate.toFixed(1).padStart(6)}% | ${gPf.padStart(5)} | ${((gm.expectancy >= 0 ? "+" : "") + gm.expectancy.toFixed(2) + "%").padStart(8)} |        |         `,
       );
     }
     console.log("");
