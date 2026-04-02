@@ -11,12 +11,14 @@ import timezone from "dayjs/plugin/timezone.js";
 import utc from "dayjs/plugin/utc.js";
 import { BreakoutScanner } from "../core/breakout/breakout-scanner";
 import { executeEntry, resizePendingOrders, invalidateStalePendingOrders } from "../core/breakout/entry-executor";
+import { getCashBalance } from "../core/position-manager";
 import { getWatchlist } from "./watchlist-builder";
 import { tachibanaFetchQuotesBatch } from "../lib/tachibana-price-client";
 import { prisma } from "../lib/prisma";
 import { getTodayForDB } from "../lib/date-utils";
 import { notifySlack } from "../lib/slack";
 import { TIMEZONE } from "../lib/constants";
+import { BREAKOUT } from "../lib/constants/breakout";
 import type { QuoteData } from "../core/breakout/breakout-scanner";
 import { GapUpScanner } from "../core/gapup/gapup-scanner";
 import type { GapUpQuoteData } from "../core/gapup/gapup-scanner";
@@ -159,6 +161,15 @@ export async function main(): Promise<void> {
       scanner.getState().lastSurgeRatios,
     );
 
+    // 6.7 残高プリチェック: 残高0以下なら全トリガーをスキップ（無駄なDB操作・通知を防止）
+    const preCash = await getCashBalance();
+    if (preCash <= 0) {
+      console.log(
+        `${tag} 全トリガースキップ: 残高なし（¥${preCash.toLocaleString()}）`,
+      );
+      return;
+    }
+
     // 7. 各トリガーに対してエントリー実行（優先順位順に直列）
     // volumeSurgeRatio 降順 + 逆行ボーナスによる優先度調整済み。
     // 直列実行により各 executeEntry が最新の残高を参照し、レースコンディションを防ぐ。
@@ -169,16 +180,23 @@ export async function main(): Promise<void> {
       try {
         const result = await executeEntry(trigger);
         if (!result.success) {
-          // 一時的な理由で却下 → 再トリガーを許可
+          // 一時的な理由で却下 → リトライ上限内なら再トリガーを許可
           if (result.retryable && scanner) {
-            scanner.removeFromTriggeredToday(trigger.ticker);
-            console.log(
-              `[breakout-monitor] ${trigger.ticker} 再トリガー許可（理由: ${result.reason}）`,
-            );
+            const retryCount = scanner.incrementRetryCount(trigger.ticker);
+            if (retryCount < BREAKOUT.GUARD.MAX_RETRIES) {
+              scanner.removeFromTriggeredToday(trigger.ticker);
+              console.log(
+                `[breakout-monitor] ${trigger.ticker} 再トリガー許可（${retryCount}/${BREAKOUT.GUARD.MAX_RETRIES}回目, 理由: ${result.reason}）`,
+              );
+            } else {
+              console.log(
+                `[breakout-monitor] ${trigger.ticker} リトライ上限到達（${retryCount}/${BREAKOUT.GUARD.MAX_RETRIES}回）— 本日の再トリガーを停止`,
+              );
+            }
           }
           await notifySlack({
             title: `エントリー失敗: ${trigger.ticker}`,
-            message: `理由: ${result.reason ?? "不明"}\n価格: ¥${trigger.currentPrice.toLocaleString()} / 出来高サージ: ${trigger.volumeSurgeRatio.toFixed(2)}x${result.retryable ? "\n※ 再トリガー対象" : ""}`,
+            message: `理由: ${result.reason ?? "不明"}\n価格: ¥${trigger.currentPrice.toLocaleString()} / 出来高サージ: ${trigger.volumeSurgeRatio.toFixed(2)}x${result.retryable ? `\n※ 再トリガー対象（${scanner?.getRetryCount(trigger.ticker) ?? 0}/${BREAKOUT.GUARD.MAX_RETRIES}回）` : ""}`,
             color: "warning",
           });
         }

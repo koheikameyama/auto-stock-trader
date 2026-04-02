@@ -49,6 +49,8 @@ export const BREAKOUT = {
     EARLIEST_ENTRY_TIME: "09:05",
     /** 最遅エントリー時刻（JST） */
     LATEST_ENTRY_TIME: "15:25",
+    /** retryable失敗時の最大リトライ回数（残高不足等の無限ループ防止） */
+    MAX_RETRIES: 3,
   },
 
   /** 1営業日の取引分数（前場150分 + 後場180分） */

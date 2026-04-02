@@ -33,6 +33,7 @@ export class BreakoutScanner {
       triggeredToday: new Set<string>(),
       lastColdScanTime: new Map<string, number>(),
       lastSurgeRatios: new Map<string, number>(),
+      retryCount: new Map<string, number>(),
     };
     this.watchlistMap = new Map(watchlist.map((e) => [e.ticker, e]));
   }
@@ -171,6 +172,7 @@ export class BreakoutScanner {
       triggeredToday: new Set<string>(),
       lastColdScanTime: new Map<string, number>(),
       lastSurgeRatios: new Map<string, number>(),
+      retryCount: new Map<string, number>(),
     };
     this.watchlistMap = new Map(newWatchlist.map((e) => [e.ticker, e]));
   }
@@ -185,6 +187,22 @@ export class BreakoutScanner {
    */
   removeFromTriggeredToday(ticker: string): void {
     this.state.triggeredToday.delete(ticker);
+  }
+
+  /**
+   * リトライ回数をインクリメントして新しい値を返す
+   */
+  incrementRetryCount(ticker: string): number {
+    const count = (this.state.retryCount.get(ticker) ?? 0) + 1;
+    this.state.retryCount.set(ticker, count);
+    return count;
+  }
+
+  /**
+   * リトライ回数を取得する
+   */
+  getRetryCount(ticker: string): number {
+    return this.state.retryCount.get(ticker) ?? 0;
   }
 
   // ----------------------------------------------------------------
