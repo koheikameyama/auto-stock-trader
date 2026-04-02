@@ -90,6 +90,9 @@ export const WEEKLY_REVIEW = {
   LOOKBACK_DAYS: 7,
 } as const;
 
+// 出口判定の猶予期間（ポジションOpen直後は日足OHLCに買い前の高値/安値が含まれるため）
+export const EXIT_GRACE_PERIOD_MS = 2 * 60 * 1000; // 2分
+
 // タイムストップ
 export const TIME_STOP = {
   MAX_HOLDING_DAYS: 5,           // 10 → 5（保有日数短縮でアルファを明確化）

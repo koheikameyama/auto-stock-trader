@@ -19,6 +19,7 @@ import {
   TIME_STOP,
   SCORING,
   TIMEZONE,
+  EXIT_GRACE_PERIOD_MS,
 } from "../lib/constants";
 import { validateStopLoss } from "../core/risk-manager";
 import { fetchStockQuote } from "../core/market-data";
@@ -320,6 +321,16 @@ export async function main() {
       console.log("  → システム停止中のため終了");
       return;
     }
+
+    // 猶予期間チェック: Open直後のポジションは日足OHLCに買い前の高値/安値が含まれるためスキップ
+    const positionAgeMs = Date.now() - new Date(position.createdAt).getTime();
+    if (positionAgeMs < EXIT_GRACE_PERIOD_MS) {
+      console.log(
+        `  → ${position.stock.tickerCode}: 猶予期間中（${Math.round(positionAgeMs / 1000)}秒経過、${EXIT_GRACE_PERIOD_MS / 1000}秒待機）、出口判定スキップ`,
+      );
+      continue;
+    }
+
     const quote = await fetchStockQuote(position.stock.tickerCode);
     if (!quote) continue;
 
@@ -572,6 +583,15 @@ export async function main() {
 
     if (diffDays < 0 || diffDays > SCORING.GATES.EARNINGS_DAYS_BEFORE) continue;
 
+    // 猶予期間チェック
+    const positionAgeMs = Date.now() - new Date(position.createdAt).getTime();
+    if (positionAgeMs < EXIT_GRACE_PERIOD_MS) {
+      console.log(
+        `  → ${position.stock.tickerCode}: 猶予期間中のため決算前強制決済スキップ`,
+      );
+      continue;
+    }
+
     const quote = await fetchStockQuote(position.stock.tickerCode);
     if (!quote) continue;
 
@@ -666,6 +686,17 @@ export async function main() {
     let defensiveCloseCount = 0;
 
     for (const position of remainingPositions) {
+      // 猶予期間チェック（crisis=資本防衛は猶予なしで即時決済）
+      if (!isCrisis) {
+        const positionAgeMs = Date.now() - new Date(position.createdAt).getTime();
+        if (positionAgeMs < EXIT_GRACE_PERIOD_MS) {
+          console.log(
+            `  → ${position.stock.tickerCode}: 猶予期間中のためディフェンシブ決済スキップ`,
+          );
+          continue;
+        }
+      }
+
       const quote = await fetchStockQuote(position.stock.tickerCode);
       if (!quote) continue;
 
