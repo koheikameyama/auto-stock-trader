@@ -378,7 +378,7 @@ export function resetTachibanaClient(): void {
  * 戻り値の cleanup() をジョブ終了時に呼ぶこと。
  */
 export async function initBrokerForBatch(
-  mode: "simulation" | "demo" | "live" | "dry_run",
+  mode: "demo" | "live" | "dry_run",
 ): Promise<{ cleanup: () => Promise<void> }> {
   console.log(`[broker] ${mode} mode, logging in...`);
   const client = getTachibanaClient();

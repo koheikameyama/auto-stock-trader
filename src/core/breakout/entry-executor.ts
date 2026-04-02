@@ -209,7 +209,7 @@ export async function executeEntry(
     return { success: false, reason, retryable: true };
   }
 
-  // 7. ブローカー発注（simulationモードではsubmitBrokerOrder内部でスキップ）
+  // 7. ブローカー発注
   try {
     const brokerResult = await submitBrokerOrder({
       ticker,

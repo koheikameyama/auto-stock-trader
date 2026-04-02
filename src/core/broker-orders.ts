@@ -1,7 +1,6 @@
 /**
  * ブローカー注文操作モジュール
  *
- * brokerMode に応じてブローカーAPIに送信 / 何もしない を切り替える。
  * デモ/本番の切替は TACHIBANA_ENV で行う。
  */
 
@@ -10,8 +9,6 @@ import { notifySlack } from "../lib/slack";
 import { getTachibanaClient, type TachibanaRequestParams, type TachibanaResponse } from "./broker-client";
 import { tickerToBrokerCode, brokerCodeToTicker } from "../lib/ticker-utils";
 import {
-  type BrokerMode,
-  DEFAULT_BROKER_MODE,
   TACHIBANA_CLMID,
   TACHIBANA_ORDER,
   TACHIBANA_ORDER_STATUS,
@@ -66,17 +63,6 @@ export interface BrokerHolding {
 }
 
 // ========================================
-// brokerMode 取得
-// ========================================
-
-/**
- * 有効なbrokerModeを取得（env → デフォルト）
- */
-export function getEffectiveBrokerMode(): BrokerMode {
-  return (process.env.BROKER_MODE as BrokerMode) || DEFAULT_BROKER_MODE;
-}
-
-// ========================================
 // 注文操作
 // ========================================
 
@@ -86,12 +72,6 @@ export function getEffectiveBrokerMode(): BrokerMode {
 export async function submitOrder(
   req: BrokerOrderRequest,
 ): Promise<BrokerOrderResult> {
-  const mode = getEffectiveBrokerMode();
-
-  if (mode === "simulation") {
-    return { success: true };
-  }
-
   const brokerCode = tickerToBrokerCode(req.ticker);
   const baibaiKubun =
     req.side === "buy" ? TACHIBANA_ORDER.SIDE.BUY : TACHIBANA_ORDER.SIDE.SELL;
@@ -140,12 +120,6 @@ export async function cancelOrder(
   orderId: string,
   businessDay: string,
 ): Promise<BrokerOrderResult> {
-  const mode = getEffectiveBrokerMode();
-
-  if (mode === "simulation") {
-    return { success: true };
-  }
-
   const params: TachibanaRequestParams = {
     sCLMID: TACHIBANA_CLMID.CANCEL_ORDER,
     sOrderNumber: orderId,
@@ -168,12 +142,6 @@ export async function modifyOrder(
     expireDay?: string;
   },
 ): Promise<BrokerOrderResult> {
-  const mode = getEffectiveBrokerMode();
-
-  if (mode === "simulation") {
-    return { success: true };
-  }
-
   const params: TachibanaRequestParams = {
     sCLMID: TACHIBANA_CLMID.CORRECT_ORDER,
     sOrderNumber: orderId,
@@ -198,9 +166,6 @@ export async function getOrders(filter?: {
   ticker?: string;
   statusFilter?: string;
 }): Promise<TachibanaResponse | null> {
-  const mode = getEffectiveBrokerMode();
-  if (mode === "simulation") return null;
-
   const client = getTachibanaClient();
 
   return client.request({
@@ -218,9 +183,6 @@ export async function getOrderDetail(
   orderId: string,
   businessDay: string,
 ): Promise<TachibanaResponse | null> {
-  const mode = getEffectiveBrokerMode();
-  if (mode === "simulation") return null;
-
   const client = getTachibanaClient();
 
   return client.request({
@@ -234,9 +196,6 @@ export async function getOrderDetail(
  * 現物保有銘柄一覧取得
  */
 export async function getHoldings(): Promise<BrokerHolding[]> {
-  const mode = getEffectiveBrokerMode();
-  if (mode === "simulation") return [];
-
   const client = getTachibanaClient();
 
   const res = await client.request({
@@ -282,9 +241,6 @@ export async function getBuyingPower(): Promise<number | null> {
  * ブローカー注文ステータスをDBに同期
  */
 export async function syncBrokerOrderStatuses(): Promise<void> {
-  const mode = getEffectiveBrokerMode();
-  if (mode === "simulation") return;
-
   // brokerOrderIdが未設定のpending買い注文（発注失敗の孤立注文）を自動キャンセル
   const orphanOrders = await prisma.tradingOrder.findMany({
     where: { brokerOrderId: null, status: "pending", side: "buy" },
