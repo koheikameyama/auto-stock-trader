@@ -212,8 +212,10 @@ describe("executeEntry", () => {
     expect(brokerCall.side).toBe("buy");
     expect(brokerCall.limitPrice).toBe(1000);
 
-    // brokerOrderId/businessDayのDB更新確認
-    expect(mockPrisma.tradingOrder.update).toHaveBeenCalledOnce();
+    // brokerOrderId/businessDayがcreate時に含まれることを確認
+    const createData = mockPrisma.tradingOrder.create.mock.calls[0][0].data;
+    expect(createData.brokerOrderId).toBe("999001");
+    expect(createData.brokerBusinessDay).toBe("20260324");
 
     // Slack通知確認
     expect(mockNotifyOrderPlaced).toHaveBeenCalledOnce();
