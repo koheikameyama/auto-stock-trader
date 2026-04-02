@@ -216,6 +216,7 @@ export async function executeEntry(
       side: "buy",
       quantity,
       limitPrice: isGapUp ? null : currentPrice,
+      stopTriggerPrice: stopLossPrice,
       condition: isGapUp ? TACHIBANA_ORDER.CONDITION.CLOSE : undefined,
       expireDay: isGapUp ? undefined : dayjs(expiresAt).tz(TIMEZONE).format("YYYYMMDD"),
     });
