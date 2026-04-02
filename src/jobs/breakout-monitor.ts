@@ -133,6 +133,9 @@ export async function main(): Promise<void> {
     return;
   }
 
+  // 4.5 キャンセル済み注文の triggeredToday を解除（再エントリー可能にする）
+  await reactivateCancelledTriggers(scanner);
+
   // 5. スキャン実行
   const now = dayjs().tz(TIMEZONE).toDate();
   const triggers = scanner.scan(quotes, now, holdingTickers);
@@ -370,6 +373,52 @@ async function calculateLiveBreadth(
     if (livePrice > sma) above++;
   }
   return total > 0 ? above / total : 0;
+}
+
+/**
+ * triggeredToday に残っている銘柄のうち、本日の buy 注文が全てキャンセル済みの場合に
+ * triggeredToday から除去して再エントリーを可能にする。
+ *
+ * ブローカー発注失敗・出来高萎縮・手動など、理由に関わらずキャンセルされた注文は
+ * 再度ブレイクアウト条件が整えば再エントリーできるようにする。
+ */
+export async function reactivateCancelledTriggers(
+  scanner: BreakoutScanner,
+): Promise<void> {
+  const triggeredTickers = [...scanner.getState().triggeredToday];
+  if (!triggeredTickers.length) return;
+
+  const orders = await prisma.tradingOrder.findMany({
+    where: {
+      side: "buy",
+      createdAt: { gte: getTodayForDB() },
+      stock: { tickerCode: { in: triggeredTickers } },
+    },
+    select: {
+      status: true,
+      stock: { select: { tickerCode: true } },
+    },
+  });
+
+  // ticker ごとに注文をグループ化
+  const ordersByTicker = new Map<string, string[]>();
+  for (const order of orders) {
+    const ticker = order.stock.tickerCode;
+    const statuses = ordersByTicker.get(ticker) ?? [];
+    statuses.push(order.status);
+    ordersByTicker.set(ticker, statuses);
+  }
+
+  for (const ticker of triggeredTickers) {
+    const statuses = ordersByTicker.get(ticker) ?? [];
+    // 本日注文が存在し、全てキャンセル済みなら再アクティベート
+    if (statuses.length > 0 && statuses.every((s) => s === "cancelled")) {
+      scanner.removeFromTriggeredToday(ticker);
+      console.log(
+        `[breakout-monitor] ${ticker} 本日注文が全キャンセル済みのため triggeredToday から除去（再エントリー可能）`,
+      );
+    }
+  }
 }
 
 /**
