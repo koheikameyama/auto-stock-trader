@@ -23,7 +23,7 @@ export const STOCK_FETCH = {
 // ジョブの同時実行数
 export const JOB_CONCURRENCY = {
   MARKET_SCANNER: 5,
-  ORDER_MANAGER: 3, // OpenAI API レート制限考慮
+  ORDER_MANAGER: 1, // 立花証券APIはp_no受信順を強制するため直列化
 } as const;
 
 // ブレイクイーブンストップ（トレーリングストップ発動前の建値撤退）
