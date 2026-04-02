@@ -89,6 +89,8 @@ jobs:
   trigger-market-forecast:
     needs: news-collect
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
     steps:
       - name: Trigger market-forecast workflow
         run: gh workflow run reusable_market-forecast.yml
