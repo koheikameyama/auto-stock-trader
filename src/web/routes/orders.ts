@@ -52,6 +52,7 @@ app.get("/", async (c) => {
                   <th>${tt("乖離", "指値と現在価格の差（%）")}</th>
                   <th>数量</th>
                   <th>期限</th>
+                  <th>${tt("証券注文ID", "立花証券 sOrderNumber")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -80,6 +81,7 @@ app.get("/", async (c) => {
                           ? dayjs(o.expiresAt).format("M/D H:mm")
                           : "-"}
                       </td>
+                      <td style="font-size:0.85em;color:var(--text-muted)">${o.brokerOrderId ?? "-"}</td>
                     </tr>
                   `;
                   },
