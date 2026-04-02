@@ -27,6 +27,7 @@ import {
 } from "../core/market-data";
 import { analyzeTechnicals } from "../core/technical-analysis";
 import type { TechnicalSummary } from "../core/technical-analysis";
+import { getDynamicMaxPositionPct } from "../core/risk-manager";
 // scoring は無効化済み（breakout 戦略に移行）
  
 const scoreStock = (_params: unknown): { totalScore: number } => ({ totalScore: 0 });
@@ -155,7 +156,7 @@ export async function main(context?: MarketAssessmentContext) {
   const effectiveCap = config
     ? await getEffectiveCapital(config)
     : TRADING_DEFAULTS.TOTAL_BUDGET;
-  const maxPositionPct = TRADING_DEFAULTS.MAX_POSITION_PCT;
+  const maxPositionPct = getDynamicMaxPositionPct(effectiveCap);
 
   const openPositions = await prisma.tradingPosition.findMany({
     where: { status: "open" },

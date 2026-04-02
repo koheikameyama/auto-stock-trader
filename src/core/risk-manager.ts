@@ -64,7 +64,7 @@ export async function canOpenPosition(
 
   const effectiveCap = prefetch?.effectiveCapital ?? await getEffectiveCapital(config);
   const maxPositions = TRADING_DEFAULTS.MAX_POSITIONS;
-  const maxPositionPct = TRADING_DEFAULTS.MAX_POSITION_PCT;
+  const maxPositionPct = getDynamicMaxPositionPct(effectiveCap);
   const requiredAmount = price * quantity;
 
   const openPositions = prefetch?.openPositions ?? await prisma.tradingPosition.findMany({
@@ -303,6 +303,22 @@ export function estimateGapRisk(
 
   // max(実績MAG, ATRフロア) を ATRキャップで上限
   return Math.min(Math.max(maxGapDownPct, atrFloorPct), atrCapPct);
+}
+
+/**
+ * 有効資本に応じた1銘柄あたり最大投資比率（%）を動的に計算する
+ *
+ * 「100株 × 3,000円 = 30万円の最低単元が常に買えること」を保証しつつ、
+ * 大きな資本では均等割り（100 / MAX_POSITIONS）を下限として適用する。
+ *
+ * 例: 50万円 → 60%, 75万円 → 40%, 100万円以上 → 33%
+ */
+export function getDynamicMaxPositionPct(effectiveCapital: number): number {
+  const REFERENCE_UNIT_COST = UNIT_SHARES * 3000; // 100株 × 3,000円 = 30万円
+  const MIN_PCT = Math.round(100 / TRADING_DEFAULTS.MAX_POSITIONS); // 33%
+  const MAX_PCT = 80;
+  const minRequired = Math.ceil((REFERENCE_UNIT_COST / effectiveCapital) * 100);
+  return Math.min(MAX_PCT, Math.max(MIN_PCT, minRequired));
 }
 
 /**

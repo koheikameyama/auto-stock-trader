@@ -4,6 +4,7 @@ import {
   getRiskPctByScore,
   calculatePositionSize,
   validateStopLoss,
+  getDynamicMaxPositionPct,
 } from "../risk-manager";
 import {
   STOP_LOSS,
@@ -230,6 +231,32 @@ describe("calculatePositionSize", () => {
     // score=0 → 1.5%, riskAmount=7,500, riskShares=250
     const lowScore = calculatePositionSize(1000, 500000, 100, 970, undefined, 0);
     expect(highScore).toBeGreaterThanOrEqual(lowScore);
+  });
+});
+
+// ========================================
+// getDynamicMaxPositionPct
+// ========================================
+
+describe("getDynamicMaxPositionPct", () => {
+  it("50万円 → 60%（100株×3,000円=30万円が50万の60%）", () => {
+    expect(getDynamicMaxPositionPct(500_000)).toBe(60);
+  });
+
+  it("75万円 → 40%（30万円が75万の40%）", () => {
+    expect(getDynamicMaxPositionPct(750_000)).toBe(40);
+  });
+
+  it("100万円 → 33%（均等割り下限: 100/3=33）", () => {
+    expect(getDynamicMaxPositionPct(1_000_000)).toBe(33);
+  });
+
+  it("300万円 → 33%（均等割り下限で頭打ち）", () => {
+    expect(getDynamicMaxPositionPct(3_000_000)).toBe(33);
+  });
+
+  it("20万円（極端に小さい資金）→ 80%上限でキャップ", () => {
+    expect(getDynamicMaxPositionPct(200_000)).toBe(80);
   });
 });
 

@@ -20,7 +20,6 @@ import {
   DEFENSIVE_MODE,
   WEEKEND_RISK,
   SPREAD_FILTER,
-  TRADING_DEFAULTS,
 } from "../lib/constants";
 import { countNonTradingDaysAhead } from "../lib/market-calendar";
 import { fetchStockQuote, fetchHistoricalData } from "../core/market-data";
@@ -32,8 +31,8 @@ const scoreStock = (_params: unknown): { totalScore: number } => ({ totalScore: 
  
 import { calculateEntryCondition } from "../core/entry-calculator";
 import type { EntryCondition } from "../core/entry-calculator";
-import { canOpenPosition } from "../core/risk-manager";
-import { getCashBalance } from "../core/position-manager";
+import { canOpenPosition, getDynamicMaxPositionPct } from "../core/risk-manager";
+import { getCashBalance, getEffectiveCapital } from "../core/position-manager";
 import { analyzeOpeningSession } from "../core/opening-session";
 import { notifyOrderPlaced, notifyRiskAlert, notifySlack, notifyBrokerError } from "../lib/slack";
 import { submitOrder as submitBrokerOrder } from "../core/broker-orders";
@@ -128,6 +127,7 @@ export async function main() {
 
   // 2. 残高を取得（ループ内で注文作成ごとに減算する）
   let cashBalance = await getCashBalance();
+  const effectiveCapital = await getEffectiveCapital();
 
   const assessment = {
     shouldTrade: todayAssessment.shouldTrade,
@@ -135,7 +135,7 @@ export async function main() {
     reasoning: todayAssessment.reasoning,
   };
 
-  const maxPositionPct = TRADING_DEFAULTS.MAX_POSITION_PCT;
+  const maxPositionPct = getDynamicMaxPositionPct(effectiveCapital);
 
   console.log(
     `  選定銘柄数: ${selectedStocks.length}, 現金残高: ¥${cashBalance.toLocaleString()}`,
