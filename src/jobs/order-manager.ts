@@ -298,6 +298,7 @@ export async function main() {
   interface BudgetCandidate {
     type: "existing" | "new";
     tickerCode: string;
+    stockName: string;
     score: number;
     requiredAmount: number;
     orderId?: string;
@@ -313,6 +314,7 @@ export async function main() {
     budgetCandidates.push({
       type: "existing",
       tickerCode: order.stock.tickerCode,
+      stockName: order.stock.name,
       score,
       requiredAmount: Number(order.limitPrice) * order.quantity,
       orderId: order.id,
@@ -328,6 +330,7 @@ export async function main() {
     budgetCandidates.push({
       type: "new",
       tickerCode: result.tickerCode,
+      stockName: result.stockName,
       score: result.score.totalScore,
       requiredAmount:
         result.entryCondition.limitPrice * result.entryCondition.quantity,
@@ -342,7 +345,7 @@ export async function main() {
   const keepOrderIds = new Set<string>();
   const keepNewTickers = new Set<string>();
   const cancelOrderIds: string[] = [];
-  const cancelledInfo: Array<{ tickerCode: string; score: number }> = [];
+  const cancelledInfo: Array<{ tickerCode: string; stockName: string; score: number }> = [];
 
   for (const c of budgetCandidates) {
     if (budgetUsed + c.requiredAmount <= totalOrderBudget) {
@@ -354,7 +357,7 @@ export async function main() {
     } else {
       if (c.type === "existing") {
         cancelOrderIds.push(c.orderId!);
-        cancelledInfo.push({ tickerCode: c.tickerCode, score: c.score });
+        cancelledInfo.push({ tickerCode: c.tickerCode, stockName: c.stockName, score: c.score });
       }
       // new は passed から除外される（keepNewTickers に入らない）
     }
@@ -374,7 +377,7 @@ export async function main() {
     await notifySlack({
       title: `余力超過: ${cancelOrderIds.length}件のpending注文をキャンセル`,
       message: cancelledInfo
-        .map((i) => `- ${i.tickerCode}（${i.score}点）`)
+        .map((i) => `- ${i.tickerCode} ${i.stockName}（${i.score}点）`)
         .join("\n"),
       color: "warning",
     });

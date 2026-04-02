@@ -71,6 +71,13 @@ app.get("/", async (c) => {
     }),
   ]);
 
+  const allTickers = [...new Set([...pending, ...completed].map((f) => f.tickerCode))];
+  const stockNames = await prisma.stock.findMany({
+    where: { tickerCode: { in: allTickers } },
+    select: { tickerCode: true, name: true },
+  });
+  const nameMap = new Map(stockNames.map((s) => [s.tickerCode, s.name]));
+
   // サマリー統計
   const totalCompleted = stats.length;
   const day5Reached = stats.filter((f) => f.day5ReachedLimit === true);
@@ -145,7 +152,7 @@ app.get("/", async (c) => {
                 ${pending.map(
                   (f) => html`
                     <tr>
-                      <td>${tickerLink(f.tickerCode)}</td>
+                      <td>${tickerLink(f.tickerCode, `${f.tickerCode} ${nameMap.get(f.tickerCode) ?? f.tickerCode}`)}</td>
                       <td>${strategyBadge(f.strategy)}</td>
                       <td style="white-space:nowrap">${dayjs(f.orderDate).format("M/D")}</td>
                       <td style="text-align:right">¥${formatYen(Number(f.limitPrice))}</td>
@@ -195,7 +202,7 @@ app.get("/", async (c) => {
                 ${completed.map(
                   (f) => html`
                     <tr>
-                      <td>${tickerLink(f.tickerCode)}</td>
+                      <td>${tickerLink(f.tickerCode, `${f.tickerCode} ${nameMap.get(f.tickerCode) ?? f.tickerCode}`)}</td>
                       <td>${strategyBadge(f.strategy)}</td>
                       <td style="white-space:nowrap">${dayjs(f.orderDate).format("M/D")}</td>
                       <td style="text-align:right">¥${formatYen(Number(f.limitPrice))}</td>

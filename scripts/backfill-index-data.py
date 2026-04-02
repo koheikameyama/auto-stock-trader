@@ -47,6 +47,7 @@ if "localhost" not in DATABASE_URL and "127.0.0.1" not in DATABASE_URL:
 # 対象指数
 INDEX_TICKERS = [
     ("^N225", "日経225"),
+    ("^VIX", "VIX恐怖指数"),
 ]
 PERIOD = "2y"
 

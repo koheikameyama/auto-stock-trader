@@ -62,7 +62,7 @@ app.get("/", async (c) => {
 
                     return html`
                     <tr data-quote-row data-ticker="${tickerCode}" data-order-price="${orderPrice ?? ""}">
-                      <td>${tickerLink(tickerCode, o.stock?.name ?? o.stockId)}</td>
+                      <td>${tickerLink(tickerCode, `${tickerCode} ${o.stock?.name ?? o.stockId}`)}</td>
                       <td>${o.side === "buy" ? "買" : "売"}</td>
                       <td>${strategyBadge(o.strategy)}</td>
                       <td>
@@ -110,7 +110,7 @@ app.get("/", async (c) => {
                   (o) => html`
                     <tr>
                       <td style="white-space:nowrap">${dayjs(o.updatedAt).format("M/D H:mm")}</td>
-                      <td>${tickerLink(o.stock?.tickerCode ?? o.stockId, o.stock?.name ?? o.stockId)}</td>
+                      <td>${tickerLink(o.stock?.tickerCode ?? o.stockId, `${o.stock?.tickerCode ?? o.stockId} ${o.stock?.name ?? o.stockId}`)}</td>
                       <td>${o.side === "buy" ? "買" : "売"}</td>
                       <td>${orderStatusBadge(o.status)}</td>
                       <td>

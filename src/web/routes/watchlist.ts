@@ -226,7 +226,7 @@ app.get("/", async (c) => {
                 ${pagedWatchlist.map(
                   (w) => html`
                     <tr data-quote-row data-ticker="${w.ticker}" data-order-price="${w.high20}">
-                      <td>${tickerLink(w.ticker, nameMap.get(w.ticker) ?? w.ticker)}</td>
+                      <td>${tickerLink(w.ticker, `${w.ticker} ${nameMap.get(w.ticker) ?? w.ticker}`)}</td>
                       <td data-status-badge>${statusBadgeHtml(w.status)}</td>
                       <td style="font-size: 11px; white-space: nowrap;"><span data-volume-check>${raw(volumeCheckHtml(w.surgeRatio))}</span> <span data-price-check style="color: #64748b;">価格-</span></td>
                       <td data-surge-ratio>${raw(`<span ${surgeRatioClass(w.surgeRatio)}>${formatSurgeRatio(w.surgeRatio)}</span>`)}</td>

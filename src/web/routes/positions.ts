@@ -67,7 +67,7 @@ app.get("/", async (c) => {
 
                     return html`
                     <tr data-quote-row data-ticker="${tickerCode}" data-entry-price="${entryPrice}" data-quantity="${p.quantity}">
-                      <td>${tickerLink(tickerCode, p.stock?.name ?? p.stockId)}</td>
+                      <td>${tickerLink(tickerCode, `${tickerCode} ${p.stock?.name ?? p.stockId}`)}</td>
                       <td>${strategyBadge(p.strategy)}</td>
                       <td>¥${formatYen(entryPrice)}</td>
                       <td>${p.quantity}</td>
