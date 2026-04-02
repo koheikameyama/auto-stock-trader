@@ -241,41 +241,9 @@ export async function getBuyingPower(): Promise<number | null> {
  * ブローカー注文ステータスをDBに同期
  */
 export async function syncBrokerOrderStatuses(): Promise<void> {
-  // brokerOrderIdが未設定のpending買い注文（発注失敗の孤立注文）を自動キャンセル
-  const orphanOrders = await prisma.tradingOrder.findMany({
-    where: { brokerOrderId: null, status: "pending", side: "buy" },
-    include: { stock: { select: { tickerCode: true } } },
-  });
-
-  for (const order of orphanOrders) {
-    await prisma.tradingOrder.update({
-      where: { id: order.id },
-      data: { status: "cancelled" },
-    });
-    console.warn(
-      `[broker-orders] ${order.stock.tickerCode}: 発注失敗のためキャンセル id=${order.id}`,
-    );
-    await notifySlack({
-      title: `発注漏れ検出: ${order.stock.tickerCode}`,
-      message: `ブローカー発注が失敗したpending注文を自動キャンセルしました (id: ${order.id})`,
-      color: "danger",
-    });
-  }
-
   const client = getTachibanaClient();
 
-  // brokerOrderIdが設定されている未完了注文を取得
-  const orders = await prisma.tradingOrder.findMany({
-    where: {
-      brokerOrderId: { not: null },
-      status: { in: ["pending", "filled"] },
-    },
-    include: { stock: true },
-  });
-
-  if (orders.length === 0) return;
-
-  // ブローカー側の注文一覧を取得
+  // ブローカー注文一覧を先に取得（孤立注文の回収にも使う）
   const res = await client.request({
     sCLMID: TACHIBANA_CLMID.ORDER_LIST,
     sIssueCode: "",
@@ -291,6 +259,77 @@ export async function syncBrokerOrderStatuses(): Promise<void> {
 
   const brokerOrders =
     (res.aOrderList as Record<string, unknown>[]) ?? [];
+
+  // brokerOrderIdが設定されている未完了注文を取得（使用済みID収集に使う）
+  const orders = await prisma.tradingOrder.findMany({
+    where: {
+      brokerOrderId: { not: null },
+      status: { in: ["pending", "filled"] },
+    },
+    include: { stock: true },
+  });
+
+  // 既にDB注文に紐づいているbrokerOrderIdのセット（重複マッチング防止）
+  const usedBrokerOrderIds = new Set(
+    orders.map((o) => o.brokerOrderId!).filter(Boolean),
+  );
+
+  // アクティブな注文状態（孤立注文マッチング対象）
+  const ACTIVE_STATUSES = new Set([
+    TACHIBANA_ORDER_STATUS.UNFILLED,
+    TACHIBANA_ORDER_STATUS.PARTIAL_FILLED,
+    TACHIBANA_ORDER_STATUS.WAITING_REVERSE,
+    TACHIBANA_ORDER_STATUS.SWITCHING,
+    TACHIBANA_ORDER_STATUS.SWITCHED_UNFILLED,
+    TACHIBANA_ORDER_STATUS.SUBMITTING,
+  ]);
+
+  // brokerOrderIdが未設定のpending買い注文（孤立注文）を処理
+  const orphanOrders = await prisma.tradingOrder.findMany({
+    where: { brokerOrderId: null, status: "pending", side: "buy" },
+    include: { stock: { select: { tickerCode: true } } },
+  });
+
+  for (const order of orphanOrders) {
+    const brokerCode = tickerToBrokerCode(order.stock.tickerCode);
+
+    // ブローカー注文一覧から同銘柄・買い・未使用のアクティブ注文を探す
+    const matched = brokerOrders.find(
+      (bo) =>
+        String(bo.sOrderIssueCode ?? "") === brokerCode &&
+        String(bo.sOrderBaibaiKubun ?? "") === TACHIBANA_ORDER.SIDE.BUY &&
+        ACTIVE_STATUSES.has(String(bo.sOrderStatus ?? "")) &&
+        !usedBrokerOrderIds.has(String(bo.sOrderNumber ?? "")),
+    );
+
+    if (matched) {
+      const orderNumber = String(matched.sOrderNumber ?? "");
+      const businessDay = String(matched.sEigyouDay ?? "");
+      await prisma.tradingOrder.update({
+        where: { id: order.id },
+        data: { brokerOrderId: orderNumber, brokerBusinessDay: businessDay },
+      });
+      usedBrokerOrderIds.add(orderNumber);
+      console.log(
+        `[broker-orders] ${order.stock.tickerCode}: 孤立注文からbrokerOrderId回収 orderNumber=${orderNumber}`,
+      );
+    } else {
+      await prisma.tradingOrder.update({
+        where: { id: order.id },
+        data: { status: "cancelled" },
+      });
+      console.warn(
+        `[broker-orders] ${order.stock.tickerCode}: 発注失敗のためキャンセル id=${order.id}`,
+      );
+      await notifySlack({
+        title: `発注漏れ検出: ${order.stock.tickerCode}`,
+        message: `ブローカー発注が失敗したpending注文を自動キャンセルしました (id: ${order.id})`,
+        color: "danger",
+      });
+    }
+  }
+
+  if (orders.length === 0) return;
 
   // ブローカー注文をMapに変換
   const brokerMap = new Map<string, Record<string, unknown>>();
