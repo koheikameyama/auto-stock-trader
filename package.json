@@ -27,7 +27,6 @@
     "walk-forward:gapup": "tsx scripts/walk-forward-gapup.ts",
     "data-cleanup": "tsx src/jobs/data-cleanup.ts",
     "forecast": "tsx src/jobs/market-forecast.ts",
-    "forecast:morning": "tsx src/jobs/market-forecast.ts --morning",
     "news-collect": "tsx src/jobs/news-collect.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
