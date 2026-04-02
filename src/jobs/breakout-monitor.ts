@@ -180,25 +180,20 @@ export async function main(): Promise<void> {
       try {
         const result = await executeEntry(trigger);
         if (!result.success) {
-          // 一時的な理由で却下 → リトライ上限内なら再トリガーを許可
           if (result.retryable && scanner) {
-            const retryCount = scanner.incrementRetryCount(trigger.ticker);
-            if (retryCount < BREAKOUT.GUARD.MAX_RETRIES) {
-              scanner.removeFromTriggeredToday(trigger.ticker);
-              console.log(
-                `[breakout-monitor] ${trigger.ticker} 再トリガー許可（${retryCount}/${BREAKOUT.GUARD.MAX_RETRIES}回目, 理由: ${result.reason}）`,
-              );
-            } else {
-              console.log(
-                `[breakout-monitor] ${trigger.ticker} リトライ上限到達（${retryCount}/${BREAKOUT.GUARD.MAX_RETRIES}回）— 本日の再トリガーを停止`,
-              );
-            }
+            // 一時的な理由（残高不足等）→ 30分クールダウン後に再トリガー可能
+            scanner.setRetryCooldown(trigger.ticker);
+            console.log(
+              `[breakout-monitor] ${trigger.ticker} クールダウン設定（${BREAKOUT.GUARD.RETRY_COOLDOWN_MS / 60000}分後に再トリガー可能, 理由: ${result.reason}）`,
+            );
+          } else {
+            // 恒久的な理由 → Slack通知
+            await notifySlack({
+              title: `エントリー失敗: ${trigger.ticker}`,
+              message: `理由: ${result.reason ?? "不明"}\n価格: ¥${trigger.currentPrice.toLocaleString()} / 出来高サージ: ${trigger.volumeSurgeRatio.toFixed(2)}x`,
+              color: "warning",
+            });
           }
-          await notifySlack({
-            title: `エントリー失敗: ${trigger.ticker}`,
-            message: `理由: ${result.reason ?? "不明"}\n価格: ¥${trigger.currentPrice.toLocaleString()} / 出来高サージ: ${trigger.volumeSurgeRatio.toFixed(2)}x${result.retryable ? `\n※ 再トリガー対象（${scanner?.getRetryCount(trigger.ticker) ?? 0}/${BREAKOUT.GUARD.MAX_RETRIES}回）` : ""}`,
-            color: "warning",
-          });
         }
       } catch (err) {
         console.error(

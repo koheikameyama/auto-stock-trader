@@ -33,7 +33,7 @@ export class BreakoutScanner {
       triggeredToday: new Set<string>(),
       lastColdScanTime: new Map<string, number>(),
       lastSurgeRatios: new Map<string, number>(),
-      retryCount: new Map<string, number>(),
+      retryCooldownUntil: new Map<string, number>(),
     };
     this.watchlistMap = new Map(watchlist.map((e) => [e.ticker, e]));
   }
@@ -172,7 +172,7 @@ export class BreakoutScanner {
       triggeredToday: new Set<string>(),
       lastColdScanTime: new Map<string, number>(),
       lastSurgeRatios: new Map<string, number>(),
-      retryCount: new Map<string, number>(),
+      retryCooldownUntil: new Map<string, number>(),
     };
     this.watchlistMap = new Map(newWatchlist.map((e) => [e.ticker, e]));
   }
@@ -190,19 +190,29 @@ export class BreakoutScanner {
   }
 
   /**
-   * リトライ回数をインクリメントして新しい値を返す
+   * クールダウンを設定する（retryable失敗時に呼ばれる）
+   * triggeredTodayから削除し、クールダウン期限を設定する。
+   * クールダウン中はcanFireTriggerがfalseを返すので再トリガーされない。
    */
-  incrementRetryCount(ticker: string): number {
-    const count = (this.state.retryCount.get(ticker) ?? 0) + 1;
-    this.state.retryCount.set(ticker, count);
-    return count;
+  setRetryCooldown(ticker: string): void {
+    this.state.triggeredToday.delete(ticker);
+    this.state.retryCooldownUntil.set(
+      ticker,
+      Date.now() + BREAKOUT.GUARD.RETRY_COOLDOWN_MS,
+    );
   }
 
   /**
-   * リトライ回数を取得する
+   * クールダウン中かどうか判定する
    */
-  getRetryCount(ticker: string): number {
-    return this.state.retryCount.get(ticker) ?? 0;
+  isInCooldown(ticker: string): boolean {
+    const until = this.state.retryCooldownUntil.get(ticker);
+    if (until === undefined) return false;
+    if (Date.now() >= until) {
+      this.state.retryCooldownUntil.delete(ticker);
+      return false;
+    }
+    return true;
   }
 
   // ----------------------------------------------------------------
@@ -241,6 +251,7 @@ export class BreakoutScanner {
     if (!this.isBeforeLatestEntry(hour, minute)) return false;
     if (this.state.triggeredToday.has(ticker)) return false;
     if (holdingTickers.has(ticker)) return false;
+    if (this.isInCooldown(ticker)) return false;
     return true;
   }
 }
