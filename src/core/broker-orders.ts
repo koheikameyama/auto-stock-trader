@@ -285,8 +285,10 @@ export async function syncBrokerOrderStatuses(): Promise<void> {
   ]);
 
   // brokerOrderIdが未設定のpending買い注文（孤立注文）を処理
+  // 2分以内に作成された注文はブローカーAPI呼び出し中の可能性があるためスキップ
+  const orphanCutoff = new Date(Date.now() - 2 * 60 * 1000);
   const orphanOrders = await prisma.tradingOrder.findMany({
-    where: { brokerOrderId: null, status: "pending", side: "buy" },
+    where: { brokerOrderId: null, status: "pending", side: "buy", createdAt: { lte: orphanCutoff } },
     include: { stock: { select: { tickerCode: true } } },
   });
 
@@ -298,7 +300,7 @@ export async function syncBrokerOrderStatuses(): Promise<void> {
       (bo) =>
         String(bo.sOrderIssueCode ?? "") === brokerCode &&
         String(bo.sOrderBaibaiKubun ?? "") === TACHIBANA_ORDER.SIDE.BUY &&
-        ACTIVE_STATUSES.has(String(bo.sOrderStatus ?? "")) &&
+        ACTIVE_STATUSES.has(String(bo.sOrderStatus ?? "") as never) &&
         !usedBrokerOrderIds.has(String(bo.sOrderNumber ?? "")),
     );
 

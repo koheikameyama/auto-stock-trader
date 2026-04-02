@@ -54,6 +54,7 @@ describe("syncBrokerOrderStatuses", () => {
       brokerStatus: null,
       status: "pending",
       side: "buy",
+      createdAt: new Date(Date.now() - 5 * 60 * 1000), // 5分前
       stock: { tickerCode: "7203.T" },
     };
 
