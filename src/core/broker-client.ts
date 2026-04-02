@@ -61,6 +61,8 @@ export class TachibanaClient {
   private requestCounter = 0;
   private env: TachibanaEnv;
   private baseUrl: string;
+  /** 再ログイン中の Promise（同時多発再ログインを防ぐ） */
+  private reLoginPromise: Promise<void> | null = null;
 
   constructor(env?: TachibanaEnv) {
     this.env = env ?? ((process.env.TACHIBANA_ENV as TachibanaEnv) || "demo");
@@ -273,6 +275,8 @@ export class TachibanaClient {
    *
    * 1回目のリクエストでセッション切断を検知した場合、
    * 再ログインして新しい仮想URLで1回だけリトライする。
+   * 複数リクエストが同時に切断を検知した場合、再ログインは1回だけ実行し
+   * 他のリクエストはその完了を待つ（競合状態を防ぐ）。
    */
   private async requestWithRetry(
     getUrl: () => string,
@@ -285,11 +289,28 @@ export class TachibanaClient {
       console.warn(
         `[TachibanaClient] Session disconnected (${res.sResultText ?? ""}), re-logging in...`,
       );
-      await this.login();
+      await this.reLoginOnce();
       return this.requestToVirtualUrl(getUrl(), params);
     }
 
     return res;
+  }
+
+  /**
+   * 再ログインを1回だけ実行する（同時多発呼び出し時は同一 Promise を共有）
+   */
+  private async reLoginOnce(): Promise<void> {
+    if (!this.reLoginPromise) {
+      this.reLoginPromise = this.login()
+        .then(() => {
+          this.reLoginPromise = null;
+        })
+        .catch((e) => {
+          this.reLoginPromise = null;
+          throw e;
+        });
+    }
+    await this.reLoginPromise;
   }
 
   private async ensureSession(): Promise<void> {
