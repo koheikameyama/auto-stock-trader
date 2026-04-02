@@ -20,4 +20,4 @@ RUN npm ci --omit=dev --ignore-scripts && \
 
 COPY . .
 
-CMD ["bash", "scripts/start.sh"]
+CMD ["bash", "start.sh"]
