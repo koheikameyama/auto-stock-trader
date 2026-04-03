@@ -229,7 +229,6 @@ export async function executeEntry(
   // 6. TradingOrderをDBに作成（発注成功後）
   const newOrder = await prisma.tradingOrder.create({
     data: {
-      id: crypto.randomUUID() as string,
       updatedAt: new Date(),
       stockId: stock.id,
       side: "buy",

@@ -850,7 +850,6 @@ async function applyCorporateEventAdjustments(
 
         await prisma.corporateEventLog.create({
           data: {
-            id: crypto.randomUUID(),
             tickerCode: stock.tickerCode,
             eventType: "ex_dividend",
             eventDate: stock.exDividendDate,
@@ -922,7 +921,6 @@ async function applyCorporateEventAdjustments(
 
           await prisma.corporateEventLog.create({
             data: {
-              id: crypto.randomUUID(),
               tickerCode: stock.tickerCode,
               eventType: "stock_split",
               eventDate: events.lastSplitDate,

@@ -76,7 +76,6 @@ export async function openPosition(
       minLowDuringHold: entryPrice,
       trailingStopPrice: null,
       entryAtr: entryAtr ?? null,
-      id: crypto.randomUUID() as string,
       updatedAt: new Date(),
     },
   });
@@ -115,7 +114,6 @@ export async function closePosition(
     // 売り注文を約定済みで作成（決済記録）
     await tx.tradingOrder.create({
       data: {
-        id: crypto.randomUUID() as string,
         stockId: position.stockId,
         side: "sell",
         orderType: "limit",
