@@ -18,6 +18,7 @@ dayjs.extend(timezone);
 
 import { main as runMonitor } from "./jobs/position-monitor";
 import { main as runBreakoutMonitor } from "./jobs/breakout-monitor";
+import { main as runBrokerReconciliation } from "./jobs/broker-reconciliation";
 import { app } from "./web/app";
 import { setJobState } from "./web/routes/dashboard";
 import { prisma } from "./lib/prisma";
@@ -116,18 +117,25 @@ function nowJST(): string {
   return dayjs().tz(TIMEZONE).format("YYYY-MM-DD HH:mm:ss");
 }
 
+// 市場時間の毎分tick: broker-reconciliation → position-monitor の順にシーケンシャル実行
+async function runMarketTick() {
+  await runJob("broker-reconciliation", runBrokerReconciliation, true);
+  await runJob("position-monitor", runMonitor, true);
+}
+
 // スケジュール定義（全て JST）
 // ※ position-monitor のみ Worker cron で実行
 // ※ バッチジョブ（end-of-day, jpx-delisting-sync）は cron-job.org → /api/cron/* に移行
 // ※ news-collector, weekly-review は GitHub Actions cron に移行済み
 const schedules = [
   // 9:00-11:30, 12:30-15:30 毎分 ポジション監視（平日・市場時間）
-  { cron: "0-59 9 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
-  { cron: "* 10 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
-  { cron: "0-30 11 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
-  { cron: "30-59 12 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
-  { cron: "* 13-14 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
-  { cron: "0-30 15 * * 1-5", job: runMonitor, name: "position-monitor", requiresMarketDay: true },
+  // broker-reconciliation → position-monitor の順に実行
+  { cron: "0-59 9 * * 1-5", job: runMarketTick, name: "market-tick", requiresMarketDay: false },
+  { cron: "* 10 * * 1-5", job: runMarketTick, name: "market-tick", requiresMarketDay: false },
+  { cron: "0-30 11 * * 1-5", job: runMarketTick, name: "market-tick", requiresMarketDay: false },
+  { cron: "30-59 12 * * 1-5", job: runMarketTick, name: "market-tick", requiresMarketDay: false },
+  { cron: "* 13-14 * * 1-5", job: runMarketTick, name: "market-tick", requiresMarketDay: false },
+  { cron: "0-30 15 * * 1-5", job: runMarketTick, name: "market-tick", requiresMarketDay: false },
   // 9:00-11:30, 12:30-15:25 毎分 ブレイクアウト監視（平日・市場時間、クロージングオークション前まで）
   { cron: "0-59 9 * * 1-5", job: runBreakoutMonitor, name: "breakout-monitor", requiresMarketDay: true },
   { cron: "* 10 * * 1-5", job: runBreakoutMonitor, name: "breakout-monitor", requiresMarketDay: true },
@@ -157,6 +165,7 @@ cronControl.register(
   () => {
     for (const task of cronTasks) task.start();
     holidaySkipLogged.delete("position-monitor:inactive");
+    holidaySkipLogged.delete("broker-reconciliation:inactive");
     holidaySkipLogged.delete("breakout-monitor:inactive");
     console.log(`[${nowJST()}] cron タスク再開（${cronTasks.length}件）`);
   },
