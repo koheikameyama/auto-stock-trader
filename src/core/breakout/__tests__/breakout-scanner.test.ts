@@ -248,7 +248,7 @@ describe("BreakoutScanner", () => {
     // Re-promote (simulate another cold→hot cycle for same ticker)
     // Manually inject back into hotSet to simulate re-entry attempt
     const state = scanner.getState() as unknown as {
-      hotSet: Map<string, { ticker: string; promotedAt: Date; coolDownCount: number }>;
+      hotSet: Map<string, { ticker: string; promotedAt: Date; coolDownCount: number; confirmCount: number }>;
     };
     state.hotSet.set(DEFAULT_TICKER, {
       ticker: DEFAULT_TICKER,
@@ -303,22 +303,21 @@ describe("BreakoutScanner", () => {
     expect(scanner.getState().hotSet.has(DEFAULT_TICKER)).toBe(false);
   });
 
-  // 11. Cold scan only runs every 5 min per ticker (lastColdScanTime)
-  it("11. Cold スキャンは各ティッカーで5分ごとにのみ実行される", () => {
+  // 11. Cold スキャンは COLD_INTERVAL_MS=0 のため毎回実行される
+  it("11. Cold スキャンは各ティッカーで毎回実行される（COLD_INTERVAL_MS=0）", () => {
     // First scan at 9:30 → cold scan fires, surgeRatio = 1.5 → promoted
     const quote = makeQuote(DEFAULT_TICKER, 1.5);
     scanner.scan([quote], SCAN_TIME, NO_HOLDINGS);
     expect(scanner.getState().hotSet.has(DEFAULT_TICKER)).toBe(true);
 
-    // Demote back to cold manually to test interval
+    // Demote back to cold manually
     const state = scanner.getState() as unknown as {
       hotSet: Map<string, unknown>;
     };
     state.hotSet.delete(DEFAULT_TICKER);
     expect(scanner.getState().hotSet.has(DEFAULT_TICKER)).toBe(false);
 
-    // Scan again immediately (< 5 min elapsed) — cold scan should NOT run
-    // We use time only 1 minute later (9:31) which is < COLD_INTERVAL_MS (5 min)
+    // Scan again immediately (1 minute later) — COLD_INTERVAL_MS=0 → cold scan runs every tick
     const time2 = makeTime(9, 31);
     const highSurgeQuote: QuoteData = {
       ticker: DEFAULT_TICKER,
@@ -327,13 +326,7 @@ describe("BreakoutScanner", () => {
     };
     scanner.scan([highSurgeQuote], time2, NO_HOLDINGS);
 
-    // Cold scan was skipped → not promoted again
-    expect(scanner.getState().hotSet.has(DEFAULT_TICKER)).toBe(false);
-
-    // Scan again after 5+ minutes (9:36) — cold scan should run
-    const time3 = makeTime(9, 36);
-    const promotingQuote = makeQuote(DEFAULT_TICKER, 1.5, 9, 36);
-    scanner.scan([promotingQuote], time3, NO_HOLDINGS);
+    // Cold scan ran → promoted again
     expect(scanner.getState().hotSet.has(DEFAULT_TICKER)).toBe(true);
   });
 
