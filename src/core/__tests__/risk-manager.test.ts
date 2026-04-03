@@ -239,24 +239,24 @@ describe("calculatePositionSize", () => {
 // ========================================
 
 describe("getDynamicMaxPositionPct", () => {
-  it("50万円 → 60%（100株×3,000円=30万円が50万の60%）", () => {
-    expect(getDynamicMaxPositionPct(500_000)).toBe(60);
+  it("50万円・¥630株 → 33%（最低単元¥63,000が50万の13% → MIN_PCT下限33%）", () => {
+    expect(getDynamicMaxPositionPct(500_000, 630)).toBe(33);
   });
 
-  it("75万円 → 40%（30万円が75万の40%）", () => {
-    expect(getDynamicMaxPositionPct(750_000)).toBe(40);
+  it("50万円・¥1,964株 → 40%（最低単元¥196,400が50万の40%）", () => {
+    expect(getDynamicMaxPositionPct(500_000, 1_964)).toBe(40);
   });
 
-  it("100万円 → 33%（均等割り下限: 100/3=33）", () => {
-    expect(getDynamicMaxPositionPct(1_000_000)).toBe(33);
+  it("50万円・¥3,000株 → 50%上限（最低単元¥300,000が50万の60% → MAX_PCT上限50%でキャップ）", () => {
+    expect(getDynamicMaxPositionPct(500_000, 3_000)).toBe(50);
   });
 
-  it("300万円 → 33%（均等割り下限で頭打ち）", () => {
-    expect(getDynamicMaxPositionPct(3_000_000)).toBe(33);
+  it("100万円・¥1,000株 → 33%（最低単元¥100,000が100万の10% → MIN_PCT下限33%）", () => {
+    expect(getDynamicMaxPositionPct(1_000_000, 1_000)).toBe(33);
   });
 
-  it("20万円（極端に小さい資金）→ 80%上限でキャップ", () => {
-    expect(getDynamicMaxPositionPct(200_000)).toBe(80);
+  it("20万円・¥5,000株 → 50%上限（最低単元¥500,000が20万の250% → MAX_PCT上限50%でキャップ）", () => {
+    expect(getDynamicMaxPositionPct(200_000, 5_000)).toBe(50);
   });
 });
 

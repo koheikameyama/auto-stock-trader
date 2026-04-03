@@ -137,7 +137,7 @@ export async function executeEntry(
   }
 
   // 集中率上限で切り下げ: maxPositionPct 以内に収まる最大100株単位に縮小
-  const maxPositionPct = getDynamicMaxPositionPct(effectiveCapital);
+  const maxPositionPct = getDynamicMaxPositionPct(effectiveCapital, currentPrice);
   const existingAmountForStock = openPositions
     .filter((pos) => pos.stockId === stock.id)
     .reduce((sum, pos) => sum + Number(pos.entryPrice) * pos.quantity, 0);
