@@ -669,7 +669,7 @@ export function runBreakoutBacktest(
           if (riskPerShare <= 0) continue;
           const riskAmount = cash * (RISK_PER_TRADE_PCT / 100);
           const riskBasedShares = Math.floor(riskAmount / riskPerShare);
-          const maxPositionPct = config.positionCapEnabled !== false ? getDynamicMaxPositionPct(cash) : 100;
+          const maxPositionPct = config.positionCapEnabled !== false ? getDynamicMaxPositionPct(cash, entry.entryPrice) : 100;
           const budgetBasedShares = Math.floor(cash * (maxPositionPct / 100) / entry.entryPrice);
           const quantity = Math.floor(Math.min(riskBasedShares, budgetBasedShares) / UNIT_SHARES) * UNIT_SHARES;
           if (quantity <= 0) continue;

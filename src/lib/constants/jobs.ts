@@ -32,26 +32,20 @@ export const JOB_CONCURRENCY = {
 export const BREAK_EVEN_STOP = {
   ACTIVATION_ATR_MULTIPLIER: {
     breakout: 1.0,   // ATR×1.0で早めに建値ロック（ブレイクアウト初動の利益を守る）
-    gapup: 0.3,      // ATR×0.3の含み益でBE発動（短期戦略のためタイト）
+    gapup: 0.3,      // ATR×0.3の含み益でBE発動（WF最適値: be=0.3・trail=0.3が全ウィンドウで安定）
   },
   // ATR不明時のフォールバック（%ベース）
   ACTIVATION_PCT: { breakout: 0.02, gapup: 0.005 },
 } as const;
 
 // トレーリングストップ
-// 制約: ACTIVATION_ATR_MULTIPLIER >= TRAIL_ATR_MULTIPLIER（発動時にストップがエントリー以上）
 export const TRAILING_STOP = {
-  // アクティベーション閾値（エントリー価格からATR×N上昇で発動）
-  ACTIVATION_ATR_MULTIPLIER: {
-    breakout: 1.5,   // ATR×1.5で初動の利益をTSで捕捉（BE=1.0との連携）
-    gapup: 0.5,      // ATR×0.5上昇でTS発動（BE=0.3との連携で素早くロック）
-  },
   // トレール幅（最高値 - ATR×N がストップライン）
   TRAIL_ATR_MULTIPLIER: {
-    breakout: 1.0,   // activation=1.5に対してtrail=1.0→タイトに追従して利益を逃さない
-    gapup: 0.3,      // ATR×0.3のタイトなトレール（短期利確優先）
+    breakout: 1.0,   // BE発動(ATR×1.0)後にATR×1.0幅でトレール
+    gapup: 0.3,      // BE発動(ATR×0.3)後にATR×0.3のタイトなトレール（WF最適値）
   },
-  // ATR不明時のフォールバック（%ベース）— 同じ制約: ACTIVATION >= TRAIL
+  // ATR不明時のフォールバック（%ベース）
   ACTIVATION_PCT: { breakout: 0.03, gapup: 0.008 },
   TRAIL_PCT: { breakout: 0.02, gapup: 0.005 },
 } as const;

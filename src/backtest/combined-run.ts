@@ -115,8 +115,9 @@ async function main() {
   const compareEquityFilter = args.includes("--compare-equity-filter");
   const compareVixFilter = args.includes("--compare-vix-filter");
   const compareBudget = args.includes("--budget-compare");
+  const compareHolding = args.includes("--compare-holding");
 
-  const quietMode = comparePositions || compareEquityFilter || compareVixFilter || compareBudget;
+  const quietMode = comparePositions || compareEquityFilter || compareVixFilter || compareBudget || compareHolding;
   const boConfig: BreakoutBacktestConfig = { ...BREAKOUT_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, verbose: !quietMode && verbose };
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, verbose: !quietMode && verbose };
   if (maxPriceOverride) {
@@ -308,6 +309,45 @@ async function main() {
       );
       console.log(
         `${"  GU".padEnd(30)}| ${String(gm.totalTrades).padStart(6)} | ${gm.winRate.toFixed(1).padStart(6)}% | ${gPf.padStart(5)} | ${((gm.expectancy >= 0 ? "+" : "") + gm.expectancy.toFixed(2) + "%").padStart(8)} |        |         `,
+      );
+    }
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // 保有日数比較モード（ブレイクアウト）
+  if (compareHolding) {
+    const holdingGrid = [
+      { label: "3日", maxHoldingDays: 3, maxExtendedHoldingDays: 5 },
+      { label: "5日 (本番現状)", maxHoldingDays: 5, maxExtendedHoldingDays: 8 },
+      { label: "7日 (BT現状)", maxHoldingDays: 7, maxExtendedHoldingDays: 10 },
+      { label: "10日", maxHoldingDays: 10, maxExtendedHoldingDays: 14 },
+    ];
+
+    console.log("\n=== ブレイクアウト 保有日数比較 (maxHoldingDays) ===");
+    console.log(
+      `${"設定".padEnd(16)}| ${"全Trades".padStart(8)} | ${"BO Trades".padStart(10)} | ${"BO WinR".padStart(8)} | ${"BO PF".padStart(6)} | ${"BO Exp".padStart(8)} | ${"BO AvgH".padStart(8)} | ${"全DD".padStart(7)} | ${"純リターン".padStart(9)}`,
+    );
+    console.log("-".repeat(107));
+
+    for (const row of holdingGrid) {
+      const bc: BreakoutBacktestConfig = {
+        ...boConfig,
+        maxHoldingDays: row.maxHoldingDays,
+        maxExtendedHoldingDays: row.maxExtendedHoldingDays,
+      };
+      const result = runCombinedSimulation(
+        { ...ctx, boConfig: bc },
+        bc.maxPositions,
+        guConfig.maxPositions,
+      );
+      const tm = result.totalMetrics;
+      const bm = result.boMetrics;
+      const bPf = bm.profitFactor === Infinity ? "∞" : bm.profitFactor.toFixed(2);
+      const bExp = (bm.expectancy >= 0 ? "+" : "") + bm.expectancy.toFixed(2) + "%";
+      console.log(
+        `${row.label.padEnd(16)}| ${String(tm.totalTrades).padStart(8)} | ${String(bm.totalTrades).padStart(10)} | ${bm.winRate.toFixed(1).padStart(7)}% | ${bPf.padStart(6)} | ${bExp.padStart(8)} | ${bm.avgHoldingDays.toFixed(1).padStart(7)}d | ${tm.maxDrawdown.toFixed(1).padStart(6)}% | ${tm.netReturnPct.toFixed(1).padStart(8)}%`,
       );
     }
     console.log("");

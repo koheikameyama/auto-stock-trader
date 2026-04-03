@@ -87,12 +87,13 @@ npm run walk-forward:gapup
 | beActivationMultiplier | 0.3, 0.5, 0.8 |
 | trailMultiplier | 0.3, 0.5, 0.8 |
 
-#### 最新WF結果（2026-03-29実施）
+#### 最新WF結果（2026-04-03実施）
 
-- **OOS集計PF=2.44、判定「堅牢 ✓」（IS/OOS比=0.90）**
-- 全6ウィンドウでOOS PF > 1.5（休止なし）
-- trail=0.3・ts=0.5 が全ウィンドウで安定
+- **OOS集計PF=2.16、判定「堅牢 ✓」（IS/OOS比=0.91）**
+- 全6ウィンドウでアクティブ（休止なし）
+- be=0.3・trail=0.3 が全ウィンドウで安定
 - 平均保有日数: 1.2日
+- ※ 以前の結果（2026-03-29: PF=2.44、ts=0.5）は `getDynamicMaxPositionPct` に `stockPrice` 引数漏れによるバグ（qty=NaN）で無効だった
 
 ## ファイル構成
 

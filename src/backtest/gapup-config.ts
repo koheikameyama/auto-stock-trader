@@ -4,6 +4,7 @@
 
 import { GAPUP } from "../lib/constants/gapup";
 import { STOP_LOSS, POSITION_SIZING } from "../lib/constants/scoring";
+import { BREAK_EVEN_STOP, TRAILING_STOP, TIME_STOP } from "../lib/constants";
 import type { GapUpBacktestConfig } from "./types";
 
 /** デフォルト設定 */
@@ -19,13 +20,13 @@ export const GAPUP_BACKTEST_DEFAULTS: Omit<GapUpBacktestConfig, "startDate" | "e
   atrMultiplier: GAPUP.STOP_LOSS.ATR_MULTIPLIER, // 1.0
   maxLossPct: STOP_LOSS.MAX_LOSS_PCT,             // 0.03
 
-  // トレーリングストップ（短期向けにタイト設定）
-  beActivationMultiplier: 0.5,
-  trailMultiplier: 0.5,
+  // トレーリングストップ（本番定数と同一）
+  beActivationMultiplier: BREAK_EVEN_STOP.ACTIVATION_ATR_MULTIPLIER.gapup, // 0.5
+  trailMultiplier: TRAILING_STOP.TRAIL_ATR_MULTIPLIER.gapup,               // 0.3
 
-  // タイムストップ（短期決戦）
-  maxHoldingDays: 3,
-  maxExtendedHoldingDays: 5,
+  // タイムストップ（本番定数と同一）
+  maxHoldingDays: TIME_STOP.GAPUP_MAX_HOLDING_DAYS,                        // 3
+  maxExtendedHoldingDays: TIME_STOP.GAPUP_MAX_EXTENDED_HOLDING_DAYS,       // 5
 
   // ユニバースフィルター
   maxPrice: GAPUP.ENTRY.MAX_PRICE,               // 5000
@@ -41,7 +42,7 @@ export const GAPUP_BACKTEST_DEFAULTS: Omit<GapUpBacktestConfig, "startDate" | "e
 
   // マーケットフィルター
   marketTrendFilter: true,
-  marketTrendThreshold: 0.6,
+  marketTrendThreshold: GAPUP.MARKET_FILTER.BREADTH_THRESHOLD, // 0.6
   indexTrendFilter: true,
   indexTrendSmaPeriod: 50,
   indexTrendOffBufferPct: 0,

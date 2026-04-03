@@ -25,8 +25,8 @@ export const BREAKOUT_BACKTEST_DEFAULTS: Omit<BreakoutBacktestConfig, "startDate
   beActivationMultiplier: BREAK_EVEN_STOP.ACTIVATION_ATR_MULTIPLIER.breakout, // 1.0
   trailMultiplier: TRAILING_STOP.TRAIL_ATR_MULTIPLIER.breakout,               // 1.0
 
-  // タイムストップ
-  maxHoldingDays: 7,                                            // 利益伸長（元: 5）
+  // タイムストップ（本番 TIME_STOP.MAX_HOLDING_DAYS = 5 と同一）
+  maxHoldingDays: TIME_STOP.MAX_HOLDING_DAYS,                   // 5
   maxExtendedHoldingDays: TIME_STOP.MAX_EXTENDED_HOLDING_DAYS, // 10
 
   // ユニバースフィルター（BREAKOUT.ENTRY = single source of truth）
