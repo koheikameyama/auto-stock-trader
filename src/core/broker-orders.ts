@@ -13,6 +13,7 @@ import {
   TACHIBANA_ORDER_STATUS,
   TACHIBANA_ORDER_QUERY,
 } from "../lib/constants/broker";
+import { notifySlack } from "../lib/slack";
 
 // ========================================
 // 型定義
@@ -102,14 +103,11 @@ export async function submitOrder(
     sSecondPassword: process.env.TACHIBANA_SECOND_PASSWORD ?? "",
   };
 
-  // 逆指値パラメータ
-  if (hasReverse) {
-    params.sGyakusasiZyouken = String(req.stopTriggerPrice);
-    params.sGyakusasiPrice =
-      req.stopOrderPrice != null
-        ? String(req.stopOrderPrice)
-        : TACHIBANA_ORDER.MARKET_PRICE;
-  }
+  // 逆指値パラメータ（sGyakusasiZyouken / sGyakusasiPrice は常に必須）
+  params.sGyakusasiZyouken = hasReverse ? String(req.stopTriggerPrice) : "0";
+  params.sGyakusasiPrice = hasReverse
+    ? (req.stopOrderPrice != null ? String(req.stopOrderPrice) : TACHIBANA_ORDER.MARKET_PRICE)
+    : "*";
 
   return executeLiveOrder(params);
 }
@@ -344,6 +342,9 @@ async function executeLiveOrder(
     const res = await client.request(params);
 
     if (res.sResultCode !== "0") {
+      const responseJson = JSON.stringify(res);
+      console.error("[broker-orders] 発注失敗 response:", responseJson);
+      await notifySlack({ title: "発注失敗 APIレスポンス", message: responseJson, color: "danger" });
       return {
         success: false,
         error: `[${res.sResultCode}] ${res.sResultText ?? "Unknown error"}`,
@@ -353,6 +354,9 @@ async function executeLiveOrder(
     // sResultCode=0 でもサブコード(688)にエラーが入る場合がある
     const subCode = String(res.sOrderResultCode ?? "0");
     if (subCode !== "0") {
+      const responseJson = JSON.stringify(res);
+      console.error("[broker-orders] 発注失敗 response:", responseJson);
+      await notifySlack({ title: "発注失敗 APIレスポンス", message: responseJson, color: "danger" });
       return {
         success: false,
         error: `[sub:${subCode}] ${res.sOrderResultText ?? "Unknown error"}`,
