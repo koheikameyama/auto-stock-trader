@@ -344,7 +344,7 @@ export async function resizePendingOrders(): Promise<void> {
     // 株数が0以下 → 注文キャンセル
     if (newQuantity <= 0) {
       if (order.brokerOrderId && order.brokerBusinessDay) {
-        const result = await cancelOrder(order.brokerOrderId, order.brokerBusinessDay);
+        const result = await cancelOrder(order.brokerOrderId, order.brokerBusinessDay, `${order.stock.tickerCode}: 資金割り当て不足のためキャンセル`);
         if (!result.success) {
           console.warn(
             `[pending-resize] ${order.stock.tickerCode} ブローカー取消失敗: ${result.error}`,
@@ -461,7 +461,7 @@ export async function invalidateStalePendingOrders(
 
     // ブローカー注文がある場合は取消
     if (order.brokerOrderId && order.brokerBusinessDay) {
-      const result = await cancelOrder(order.brokerOrderId, order.brokerBusinessDay);
+      const result = await cancelOrder(order.brokerOrderId, order.brokerBusinessDay, `${ticker}: ${reasons.join('、')}`);
       if (!result.success) {
         console.warn(
           `[invalidate-pending] ${ticker} ブローカー取消失敗: ${result.error}`,

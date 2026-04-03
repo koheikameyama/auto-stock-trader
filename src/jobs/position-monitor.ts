@@ -108,7 +108,7 @@ export async function main() {
       );
       // ブローカー注文も取消
       if (order.brokerOrderId && order.brokerBusinessDay) {
-        await cancelOrder(order.brokerOrderId, order.brokerBusinessDay).catch(
+        await cancelOrder(order.brokerOrderId, order.brokerBusinessDay, `${order.stock.tickerCode}: ディフェンシブモード中のため買い注文キャンセル`).catch(
           (err) => console.error(`[position-monitor] cancel error: ${err}`),
         );
       }
@@ -158,6 +158,7 @@ export async function main() {
               await cancelOrder(
                 order.brokerOrderId,
                 order.brokerBusinessDay,
+                `${order.stock.tickerCode}: ${timeCheck.reason}`,
               ).catch((err) =>
                 console.error(`[position-monitor] cancel error: ${err}`),
               );

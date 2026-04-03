@@ -118,6 +118,7 @@ export async function submitOrder(
 export async function cancelOrder(
   orderId: string,
   businessDay: string,
+  reason?: string,
 ): Promise<BrokerOrderResult> {
   const params: TachibanaRequestParams = {
     sCLMID: TACHIBANA_CLMID.CANCEL_ORDER,
@@ -126,7 +127,17 @@ export async function cancelOrder(
     sSecondPassword: process.env.TACHIBANA_SECOND_PASSWORD ?? "",
   };
 
-  return executeLiveRequest(params);
+  const result = await executeLiveRequest(params);
+
+  if (reason) {
+    await notifySlack({
+      title: result.success ? "注文キャンセル" : "注文キャンセル失敗",
+      message: `注文番号: ${orderId}\n営業日: ${businessDay}\n理由: ${reason}${!result.success ? `\nエラー: ${result.error}` : ""}`,
+      color: result.success ? "warning" : "danger",
+    }).catch(() => {});
+  }
+
+  return result;
 }
 
 /**

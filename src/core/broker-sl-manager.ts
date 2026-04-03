@@ -92,7 +92,7 @@ export async function cancelBrokerSL(positionId: string): Promise<void> {
   try {
     const position = await prisma.tradingPosition.findUnique({
       where: { id: positionId },
-      select: { slBrokerOrderId: true, slBrokerBusinessDay: true },
+      select: { slBrokerOrderId: true, slBrokerBusinessDay: true, stock: { select: { tickerCode: true } } },
     });
 
     if (!position?.slBrokerOrderId || !position?.slBrokerBusinessDay) {
@@ -102,6 +102,7 @@ export async function cancelBrokerSL(positionId: string): Promise<void> {
     const result = await cancelOrder(
       position.slBrokerOrderId,
       position.slBrokerBusinessDay,
+      `${position.stock.tickerCode}: SL注文取消`,
     );
 
     // 取消結果にかかわらずフィールドをクリア（約定済みの場合も含む）
