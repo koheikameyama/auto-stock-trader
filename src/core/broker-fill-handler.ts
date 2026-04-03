@@ -3,6 +3,8 @@
  *
  * WebSocket EVENT I/F の EC（約定通知）を受信した際に呼ばれる。
  * CLMOrderListDetail で約定詳細を取得し、DB の注文・ポジションを更新する。
+ *
+ * recoverMissedFills() はポーリングによるリカバリ用（WebSocket見逃し対策）。
  */
 
 import { prisma } from "../lib/prisma";
@@ -14,6 +16,62 @@ import { submitBrokerSL } from "./broker-sl-manager";
 import { validateStopLoss } from "./risk-manager";
 import { notifyOrderFilled, notifySlack } from "../lib/slack";
 import type { ExecutionEvent } from "./broker-event-stream";
+
+// ========================================
+// ポーリングリカバリ
+// ========================================
+
+/**
+ * WebSocketが見逃した約定をAPIポーリングでリカバリする
+ *
+ * DBのpending注文ごとにCLMOrderListDetailでブローカー状態を確認し、
+ * FULLY_FILLEDならhandleBrokerFillで約定処理を実行する。
+ * position-monitorのメインループで毎分呼び出す。
+ */
+export async function recoverMissedFills(): Promise<void> {
+  const pendingOrders = await prisma.tradingOrder.findMany({
+    where: {
+      status: "pending",
+      brokerOrderId: { not: null },
+      brokerBusinessDay: { not: null },
+    },
+    select: {
+      brokerOrderId: true,
+      brokerBusinessDay: true,
+      stock: { select: { tickerCode: true } },
+    },
+  });
+
+  if (!pendingOrders.length) return;
+
+  for (const order of pendingOrders) {
+    const detail = await getOrderDetail(
+      order.brokerOrderId!,
+      order.brokerBusinessDay!,
+    ).catch((e) => {
+      console.warn(
+        `[fill-recovery] getOrderDetail error for ${order.brokerOrderId}:`,
+        e,
+      );
+      return null;
+    });
+
+    if (!detail) continue;
+
+    const brokerStatus = String(detail.sOrderStatusCode ?? detail.sOrderStatus ?? "");
+    if (brokerStatus !== TACHIBANA_ORDER_STATUS.FULLY_FILLED) continue;
+
+    console.log(
+      `[fill-recovery] ${order.stock.tickerCode} order ${order.brokerOrderId}: ブローカー約定済みを検出 → リカバリ処理開始`,
+    );
+
+    await handleBrokerFill({
+      orderNumber: order.brokerOrderId!,
+      businessDay: order.brokerBusinessDay!,
+      raw: {},
+    });
+  }
+}
 
 // ========================================
 // メイン処理

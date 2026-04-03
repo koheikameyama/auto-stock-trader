@@ -46,6 +46,7 @@ import {
 import { fetchCorporateEvents } from "../core/market-data";
 import { notifyOrderFilled, notifyRiskAlert } from "../lib/slack";
 import { syncBrokerOrderStatuses, cancelOrder, submitOrder } from "../core/broker-orders";
+import { recoverMissedFills } from "../core/broker-fill-handler";
 import { cancelBrokerSL, updateBrokerSL } from "../core/broker-sl-manager";
 import { TACHIBANA_ORDER_STATUS } from "../lib/constants/broker";
 import type { ExitSnapshot } from "../types/snapshots";
@@ -73,11 +74,16 @@ export async function main() {
     return;
   }
 
-  // 0. ブローカー注文ステータス同期（Phase 1: 情報取得のみ）
+  // 0. ブローカー注文ステータス同期 + WebSocket見逃し約定リカバリ
   try {
     await syncBrokerOrderStatuses();
   } catch (e) {
     console.warn("[position-monitor] Broker sync error (ignored):", e);
+  }
+  try {
+    await recoverMissedFills();
+  } catch (e) {
+    console.warn("[position-monitor] Fill recovery error (ignored):", e);
   }
 
   // 1. 期限切れ注文をキャンセル
