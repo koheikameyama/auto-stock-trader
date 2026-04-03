@@ -7,6 +7,7 @@ import { html } from "hono/html";
 import dayjs from "dayjs";
 import { prisma } from "../../lib/prisma";
 import { getOpenPositions, getCashBalance, getEffectiveCapital, computeRealizedPnl } from "../../core/position-manager";
+import { getBuyingPower } from "../../core/broker-orders";
 import { getPendingOrders } from "../../core/order-executor";
 import { layout } from "../views/layout";
 import {
@@ -53,6 +54,7 @@ app.get("/", async (c) => {
     latestSummary,
     cashBalance,
     drawdown,
+    apiBuyingPower,
   ] = await Promise.all([
     prisma.tradingConfig.findFirst({ orderBy: { createdAt: "desc" } }),
     prisma.marketAssessment.findFirst({ orderBy: { date: "desc" } }),
@@ -61,6 +63,7 @@ app.get("/", async (c) => {
     prisma.tradingDailySummary.findFirst({ orderBy: { date: "desc" } }),
     getCashBalance().catch(() => null),
     calculateDrawdownStatus(),
+    getBuyingPower().catch(() => null),
   ]);
 
   const totalBudget = config ? Number(config.totalBudget) : 0;
@@ -137,8 +140,11 @@ app.get("/", async (c) => {
       <div class="card">
         <div class="card-title">キャッシュ残高</div>
         <div class="card-value">¥${formatYen(cash)}</div>
+        ${apiBuyingPower != null ? html`
+          <div class="card-sub">API残高(買付可能額): ¥${formatYen(apiBuyingPower)}</div>
+        ` : ""}
         <div class="card-sub" style="display:flex;align-items:center;gap:6px">
-          予算: <span id="budgetDisplay">¥${formatYen(totalBudget)}</span>
+          予算(DB): <span id="budgetDisplay">¥${formatYen(totalBudget)}</span>
           <button class="btn-toggle btn-success" style="font-size:11px;padding:2px 8px" onclick="editBudget(${totalBudget})">変更</button>
         </div>
         <div class="card-sub">確定損益: ${pnlText(realizedPnl)}</div>
@@ -287,6 +293,7 @@ app.get("/", async (c) => {
           alert('予算の更新に失敗しました');
         });
       }
+
     </script>
   `;
 
