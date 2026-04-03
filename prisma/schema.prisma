@@ -1,4 +1,3 @@
-// prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,359 +7,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// 銘柄マスタ
-model Stock {
-  id         String  @id @default(cuid())
-  tickerCode String  @unique // "7203.T"
-  name       String
-  market     String // "東証プライム" etc.
-  sector     String?
-
-  // 財務指標
-  marketCap     Decimal? // 時価総額（億円）
-  dividendYield Decimal? // 配当利回り（%）
-  pbr           Decimal? @db.Decimal(8, 2)
-  per           Decimal? @db.Decimal(8, 2)
-  roe           Decimal? @db.Decimal(8, 4)
-  eps           Decimal? @db.Decimal(12, 2)
-  isProfitable  Boolean?
-
-  // 最新株価データ
-  latestPrice     Decimal?  @db.Decimal(12, 2)
-  latestVolume    BigInt?
-  dailyChangeRate Decimal?  @db.Decimal(8, 2)
-  weekChangeRate  Decimal?  @db.Decimal(8, 2)
-  volatility      Decimal?  @db.Decimal(8, 2)
-  atr14           Decimal?  @db.Decimal(12, 2)
-  latestPriceDate DateTime? @db.Date
-  priceUpdatedAt  DateTime?
-
-  // コーポレートイベント管理（即死ルール用）
-  nextEarningsDate DateTime? @db.Date  // 次回決算発表予定日
-  exDividendDate   DateTime? @db.Date           // 次回配当権利落ち日
-  dividendPerShare Decimal?  @db.Decimal(10, 2) // 1株あたり配当金額（円）
-
-  // 上場廃止管理
-  fetchFailCount Int      @default(0)
-  isDelisted     Boolean  @default(false)
-
-  // JPX CSV同期
-  isActive        Boolean   @default(true)  // JPX上場銘柄CSVに存在するか
-  jpxSectorCode   String?                   // JPX 33業種コード
-  jpxSectorName   String?                   // JPX 33業種区分名
-  jpxLastSyncDate DateTime? @db.Date        // 最後にJPX CSVに出現した日付
-
-  // 廃止予定管理
-  delistingDate DateTime? @db.Date         // 上場廃止予定日
-  isRestricted  Boolean   @default(false)  // 取引制限フラグ
-
-  // 動的防御（立花API用、将来実装）
-  supervisionFlag String?                  // "監理" | "整理" | null
-  tradingHaltFlag Boolean  @default(false) // 売買停止
-  statusUpdatedAt DateTime?                // ステータス最終更新
-
-  // リレーション
-  orders    TradingOrder[]
-  positions TradingPosition[]
-
-  createdAt DateTime @default(now())
-
-  @@index([tickerCode])
-  @@index([sector])
-  @@index([isActive])
-  @@index([isRestricted])
-}
-
-// 取引設定
-model TradingConfig {
-  id             String  @id @default(cuid())
-  totalBudget    Decimal @db.Decimal(12, 0) // 入金額（円）
-  realizedPnl    Decimal @default(0) @db.Decimal(12, 0) // 累計確定損益（円）
-  isActive       Boolean @default(true) // 取引有効/無効
-  peakEquity     Decimal? @db.Decimal(12, 0) // 資産の最高値（ハイウォーターマーク）
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-// 市場状況評価（毎朝VIXベース機械判定）
-model MarketAssessment {
-  id              String   @id @default(cuid())
-  date            DateTime @db.Date
-  nikkeiPrice     Decimal? @db.Decimal(10, 2)
-  nikkeiChange    Decimal? @db.Decimal(8, 4) // 前日比%
-  sp500Change     Decimal? @db.Decimal(8, 4)
-  nasdaqChange    Decimal? @db.Decimal(8, 4) // NASDAQ前日比%
-  dowChange       Decimal? @db.Decimal(8, 4) // ダウ前日比%
-  soxChange       Decimal? @db.Decimal(8, 4) // SOX半導体指数前日比%
-  vix             Decimal? @db.Decimal(8, 2)
-  nikkeiVi        Decimal? @db.Decimal(8, 2)
-  usdjpy          Decimal? @db.Decimal(8, 4)
-  cmeFuturesPrice Decimal? @db.Decimal(10, 2)
-  sentiment       String // bullish / crisis（キルスイッチ時のみcrisis）
-  shouldTrade     Boolean // 今日取引すべきか
-  reasoning       String  @db.Text // 判断理由
-
-  tradingStrategy String? // breakout / gapup
-
-  // 選定銘柄（JSON配列）
-  selectedStocks Json? // [{ tickerCode, strategy, score, reasoning }]
-
-  createdAt DateTime @default(now())
-
-  @@unique([date])
-  @@index([date(sort: Desc)])
-}
-
-// スコアリング記録（候補銘柄 + 即死棄却 + ゴースト追跡）
-model ScoringRecord {
-  id           String   @id @default(cuid())
-  date         DateTime @db.Date
-  tickerCode   String
-
-  // 総合
-  totalScore   Int
-
-  // カテゴリ別スコア（3カテゴリ + セクターボーナス）
-  trendQualityScore    Int   // 0-40
-  entryTimingScore     Int   // 0-35
-  riskQualityScore     Int   // 0-25
-  sectorMomentumScore  Int   @default(0) // -3〜+5（ボーナス/ペナルティ）
-
-  // カテゴリ内訳（JSON）
-  trendQualityBreakdown  Json  // { maAlignment, weeklyTrend, trendContinuity }
-  entryTimingBreakdown   Json  // { pullbackDepth, breakout, candlestickSignal }
-  riskQualityBreakdown   Json  // { atrStability, rangeContraction, volumeStability }
-
-  // 即死ルール
-  isDisqualified    Boolean @default(false)
-  disqualifyReason  String? // price_too_high / spread_too_wide / volatility_extreme
-
-  // トレード結果（後から紐づけ）
-  tradingOrderId String?  @unique
-  tradeResult    String?  // win / loss / no_trade
-  profitPct      Decimal? @db.Decimal(8, 4)
-
-  // 逆行ウィナー分析
-  contrarianBonus Int @default(0)  // 逆行ボーナスポイント（0-7）
-  contrarianWins  Int @default(0)  // 過去90日の逆行勝ち回数
-
-  // Ghost Trading Analysis（偽陰性分析）
-  rejectionReason String?                     // below_threshold / ai_no_go / market_halted / disqualified
-  entryPrice      Decimal? @db.Decimal(10, 2) // スコアリング時の株価
-  closingPrice        Decimal? @db.Decimal(10, 2) // 大引け後の終値
-  ghostProfitPct      Decimal? @db.Decimal(8, 4)  // 仮想損益 %
-  ghostAnalysis       String?  @db.Text           // ゴースト分析
-  nextDayClosingPrice Decimal? @db.Decimal(10, 2) // 翌営業日の終値
-  nextDayProfitPct    Decimal? @db.Decimal(8, 4)  // 翌日騰落率（前日終値比）
-  ghost5DayProfitPct  Decimal? @db.Decimal(8, 4)  // 5営業日後リターン %
-  ghost10DayProfitPct Decimal? @db.Decimal(8, 4)  // 10営業日後リターン %
-
-  createdAt    DateTime @default(now())
-
-  @@unique([date, tickerCode])
-  @@index([date(sort: Desc)])
-  @@index([tradeResult])
-  @@index([rejectionReason])
-}
-
-// 売買注文（シミュレーション）
-model TradingOrder {
-  id         String @id @default(cuid())
-  stockId    String
-  stock      Stock  @relation(fields: [stockId], references: [id])
-  side       String // buy / sell
-  orderType  String // limit / stop_limit / market
-  strategy   String // breakout / gapup
-  limitPrice      Decimal? @db.Decimal(10, 2) // 指値
-  stopPrice       Decimal? @db.Decimal(10, 2) // 逆指値トリガー
-  takeProfitPrice Decimal? @db.Decimal(10, 2) // 利確価格
-  stopLossPrice   Decimal? @db.Decimal(10, 2) // 損切り価格
-  quantity   Int // 株数
-  status     String @default("pending") // pending / filled / cancelled / expired
-  filledPrice Decimal? @db.Decimal(10, 2)
-  filledAt    DateTime?
-  reasoning   String @db.Text // 注文理由
-  entrySnapshot Json? // 注文作成時のスコア・テクニカル情報
-
-  positionId String?
-  position   TradingPosition? @relation(fields: [positionId], references: [id])
-
-  // ブローカー連携フィールド
-  brokerOrderId     String? // 立花証券 sOrderNumber
-  brokerBusinessDay String? // sEigyouDay（注文番号+営業日でユニーク）
-  brokerStatus      String? // ブローカー側ステータスコード
-
-  unfilledFollowUp UnfilledOrderFollowUp?
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  expiresAt DateTime? // 注文有効期限
-
-  @@index([status])
-  @@index([stockId])
-  @@index([positionId])
-  @@index([createdAt(sort: Desc)])
-  @@index([brokerOrderId, brokerBusinessDay])
-}
-
-// 保有ポジション
-model TradingPosition {
-  id              String  @id @default(cuid())
-  stockId         String
-  stock           Stock   @relation(fields: [stockId], references: [id])
-  strategy        String // breakout / gapup
-  entryPrice      Decimal @db.Decimal(10, 2)
-  quantity        Int
-  takeProfitPrice Decimal? @db.Decimal(10, 2)
-  stopLossPrice   Decimal? @db.Decimal(10, 2)
-  status          String  @default("open") // open / closed
-  exitPrice       Decimal? @db.Decimal(10, 2)
-  exitedAt        DateTime?
-  realizedPnl     Decimal? @db.Decimal(12, 2) // 確定損益
-
-  // スナップショット
-  entrySnapshot     Json?                       // 購入時のテクニカル情報・市場環境
-  exitSnapshot      Json?                       // 売却時の理由・値動き・市場状況
-  maxHighDuringHold Decimal? @db.Decimal(10, 2) // 保有中の最高値
-  minLowDuringHold  Decimal? @db.Decimal(10, 2) // 保有中の最安値
-  trailingStopPrice Decimal? @db.Decimal(10, 2) // 現在のトレーリングストップ価格
-  entryAtr          Decimal? @db.Decimal(10, 2) // エントリー時のATR(14)
-  reviewComments    String?  @db.Text           // レビューコメント
-
-  // 保有継続スコアリングによるTS倍率オーバーライド
-  holdingScoreTrailOverride Decimal? @db.Decimal(5, 2)
-
-  // ブローカーSL注文追跡
-  slBrokerOrderId     String? // SL逆指値注文のブローカー注文番号
-  slBrokerBusinessDay String? // SL注文の営業日
-
-  orders              TradingOrder[]
-  defensiveFollowUp   DefensiveExitFollowUp?
-  holdingScores       HoldingScoreRecord[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([status])
-  @@index([stockId])
-  @@index([createdAt(sort: Desc)])
-}
-
-// 保有継続スコアリング記録（日次）
-model HoldingScoreRecord {
-  id         String   @id @default(cuid())
-  date       DateTime @db.Date
-  positionId String
-  position   TradingPosition @relation(fields: [positionId], references: [id])
-  tickerCode String
-
-  // スコア
-  totalScore          Int    // 0-67
-  holdingRank         String // strong / healthy / weakening / deteriorating / critical
-  trendQualityScore   Int    // 0-40
-  riskQualityScore    Int    // 0-25
-  sectorMomentumScore Int    // -3〜+5
-
-  // 内訳（JSON）
-  trendQualityBreakdown Json
-  riskQualityBreakdown  Json
-  gateResult            Json
-  alerts                Json?
-
-  // ポジションコンテキスト
-  currentPrice     Decimal @db.Decimal(10, 2)
-  unrealizedPnlPct Decimal @db.Decimal(8, 4)
-  holdingDays      Int
-
-  // アクション結果
-  actionTaken String? // ts_tightened / early_exit / null
-
-  createdAt DateTime @default(now())
-
-  @@unique([date, positionId])
-  @@index([positionId])
-}
-
-// 日次取引サマリー
-model TradingDailySummary {
-  id             String   @id @default(cuid())
-  date           DateTime @db.Date @unique
-  totalTrades    Int      @default(0)
-  wins           Int      @default(0)
-  losses         Int      @default(0)
-  totalPnl       Decimal  @default(0) @db.Decimal(12, 2)
-  portfolioValue Decimal  @db.Decimal(12, 0) // 時価評価額
-  cashBalance    Decimal  @db.Decimal(12, 0) // 残り現金
-  aiReview       String?  @db.Text // 日次サマリー
-
-  createdAt DateTime @default(now())
-
-  @@index([date(sort: Desc)])
-}
-
-// 週次取引サマリー
-model TradingWeeklySummary {
-  id             String   @id @default(cuid())
-  weekStart      DateTime @db.Date           // 月曜日
-  weekEnd        DateTime @db.Date @unique   // 金曜日（upsertキー）
-  tradingDays    Int
-  totalTrades    Int      @default(0)
-  wins           Int      @default(0)
-  losses         Int      @default(0)
-  totalPnl       Decimal  @default(0) @db.Decimal(12, 2)
-  portfolioValue Decimal  @db.Decimal(12, 0)
-  cashBalance    Decimal  @db.Decimal(12, 0)
-  aiReview       Json                        // 構造化週次レビュー
-
-  createdAt DateTime @default(now())
-
-  @@index([weekEnd(sort: Desc)])
-}
-
-// 銘柄ステータス変更ログ（監査証跡）
-model StockStatusLog {
-  id         String   @id @default(cuid())
-  tickerCode String
-  changeType String   // "jpx_added" | "jpx_removed" | "delisting_set" | "restricted_set" | "news_flag"
-  oldValue   String?
-  newValue   String?
-  source     String   // "jpx_csv" | "jpx_delisting" | "news_collector"
-  detail     String?
-
-  createdAt DateTime @default(now())
-
-  @@index([tickerCode])
-  @@index([createdAt(sort: Desc)])
-}
-
-// コーポレートイベントログ（配当落ち・株式分割の調整記録）
-model CorporateEventLog {
-  id         String   @id @default(cuid())
-  tickerCode String
-  eventType  String   // "ex_dividend" | "stock_split"
-  eventDate  DateTime @db.Date
-  detail     Json?    // { dividendAmount: 15 } or { splitRatio: "1:2", numerator: 1, denominator: 2 }
-
-  // ポジション調整記録
-  positionId     String?
-  adjustmentType String?  // "stop_loss_adjusted" | "position_split_adjusted"
-  beforeValue    Json?    // 調整前の値
-  afterValue     Json?    // 調整後の値
-
-  createdAt DateTime @default(now())
-
-  @@index([tickerCode])
-  @@index([eventDate(sort: Desc)])
-  @@index([eventType])
-}
-
-// 日次バックテスト結果（資金帯別）
 model BacktestDailyResult {
-  id              String   @id @default(cuid())
+  id              String   @id
   date            DateTime @db.Date
-  conditionKey    String   // "baseline" / "ts_act_1.5" / "score_60" / "atr_0.8" / "trail_0.8" etc.
-  conditionLabel  String   // "ベースライン" / "TS起動1.5" etc.
   initialBudget   Int
   maxPrice        Int
   maxPositions    Int
@@ -380,120 +29,19 @@ model BacktestDailyResult {
   periodStart     String
   periodEnd       String
   executionTimeMs Int
-
-  createdAt DateTime @default(now())
+  createdAt       DateTime @default(now())
+  conditionKey    String
+  conditionLabel  String
 
   @@unique([date, conditionKey])
   @@index([date(sort: Desc)])
 }
 
-// ディフェンシブモード妥当性検証（exit後の価格追跡）
-model DefensiveExitFollowUp {
-  id         String   @id @default(cuid())
-  positionId String   @unique
-  position   TradingPosition @relation(fields: [positionId], references: [id])
-  tickerCode String
-  exitDate   DateTime @db.Date
-  exitPrice  Decimal  @db.Decimal(10, 2)
-  exitReason String   // "crisis"
-
-  // N営業日後の終値
-  day1Price  Decimal? @db.Decimal(10, 2)
-  day3Price  Decimal? @db.Decimal(10, 2)
-  day5Price  Decimal? @db.Decimal(10, 2)
-
-  // 持ち続けた場合の損益%
-  day1PnlPct Decimal? @db.Decimal(8, 4)
-  day3PnlPct Decimal? @db.Decimal(8, 4)
-  day5PnlPct Decimal? @db.Decimal(8, 4)
-
-  isComplete Boolean @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([isComplete])
-  @@index([exitDate(sort: Desc)])
-}
-
-// 未約定注文フォローアップ（指値が刺さらなかった注文の事後検証）
-model UnfilledOrderFollowUp {
-  id         String   @id @default(cuid())
-  orderId    String   @unique
-  order      TradingOrder @relation(fields: [orderId], references: [id])
-  tickerCode String
-  strategy   String   // breakout / gapup
-
-  // 注文コンテキスト
-  orderDate   DateTime @db.Date
-  limitPrice  Decimal  @db.Decimal(10, 2)
-  marketPrice Decimal  @db.Decimal(10, 2) // 注文時の市場価格
-  gapPct      Decimal  @db.Decimal(8, 4)  // (limitPrice - marketPrice) / marketPrice * 100
-  cancelReason String  // expired / cancelled_eod
-
-  // N営業日後の終値
-  day1Price  Decimal? @db.Decimal(10, 2)
-  day3Price  Decimal? @db.Decimal(10, 2)
-  day5Price  Decimal? @db.Decimal(10, 2)
-
-  // 指値に到達したか（N営業日目までの安値が指値以下）
-  day1ReachedLimit Boolean?
-  day3ReachedLimit Boolean?
-  day5ReachedLimit Boolean?
-
-  // 仮想損益（指値で買えていた場合のN営業日後損益%）
-  day1PnlPct Decimal? @db.Decimal(8, 4)
-  day3PnlPct Decimal? @db.Decimal(8, 4)
-  day5PnlPct Decimal? @db.Decimal(8, 4)
-
-  isComplete Boolean @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([isComplete])
-  @@index([orderDate(sort: Desc)])
-}
-
-// OHLCV日足バー（backfill-pricesで保存、stock-scannerで参照）
-model StockDailyBar {
-  id         String   @id @default(cuid())
-  tickerCode String
-  date       DateTime @db.Date
-  open       Float
-  high       Float
-  low        Float
-  close      Float
-  volume     BigInt
-
-  @@unique([tickerCode, date])
-  @@index([tickerCode, date(sort: Desc)])
-}
-
-// ブレイクアウトウォッチリスト（日次スナップショット）
-model BreakoutWatchlistEntry {
-  id          String   @id @default(cuid())
-  date        DateTime @db.Date
-  tickerCode  String
-  avgVolume25 Float
-  high20      Float
-  atr14       Float
-  latestClose Float
-  createdAt   DateTime @default(now())
-
-  @@unique([date, tickerCode])
-  @@index([date(sort: Desc)])
-}
-
-// バックテスト実行結果（戦略共通）
 model BacktestRun {
-  id              String   @id @default(cuid())
-  strategy        String   @default("breakout") // "breakout" | "gapup"
+  id              String   @id
   runAt           DateTime
-  startDate       String   // YYYY-MM-DD
-  endDate         String   // YYYY-MM-DD
-
-  // 指標カラム（履歴一覧・比較用）
+  startDate       String
+  endDate         String
   totalTrades     Int
   wins            Int
   losses          Int
@@ -506,53 +54,390 @@ model BacktestRun {
   netReturnPct    Float
   totalNetPnl     Float
   avgHoldingDays  Float
-
-  // 詳細JSON
-  metricsJson     Json     // PerformanceMetrics 全体（byRegime含む）
-  equityCurveJson Json     // DailyEquity[]
-  tradesJson      Json     // SimulatedPosition[]
-  configJson      Json     // BreakoutBacktestConfig | GapUpBacktestConfig
-
+  metricsJson     Json
+  equityCurveJson Json
+  tradesJson      Json
+  configJson      Json
   createdAt       DateTime @default(now())
+  strategy        String   @default("breakout")
 
   @@index([strategy, runAt(sort: Desc)])
 }
 
-// 市場予想（大引け後にAI生成、翌営業日の見通し）
-model MarketForecast {
-  id          String   @id @default(cuid())
-  date        DateTime @db.Date // 予想対象日（翌営業日）
-  generatedAt DateTime @default(now())
+model BreakoutWatchlistEntry {
+  id          String   @id
+  date        DateTime @db.Date
+  tickerCode  String
+  avgVolume25 Float
+  high20      Float
+  atr14       Float
+  latestClose Float
+  createdAt   DateTime @default(now())
 
-  // 入力データスナップショット
-  marketData    Json  // {nikkei, vix, sp500, nasdaq, dow, sox, usdjpy, cme, assessment}
-  newsHeadlines Json? // [{title, pubDate, source, url}]
-
-  // AI予想
-  outlook    String // bullish / neutral / bearish
-  confidence Int // 1-5
-  summary    String @db.Text
-  keyFactors Json // [{factor, impact}]
-  risks      Json // [{risk, severity}]
-
-  // 取引戦略示唆
-  tradingHints String? @db.Text
-
-  @@unique([date])
+  @@unique([date, tickerCode])
   @@index([date(sort: Desc)])
 }
 
-// ニュース記事（生データ）
+model CorporateEventLog {
+  id             String   @id
+  tickerCode     String
+  eventType      String
+  eventDate      DateTime @db.Date
+  detail         Json?
+  positionId     String?
+  adjustmentType String?
+  beforeValue    Json?
+  afterValue     Json?
+  createdAt      DateTime @default(now())
+
+  @@index([eventDate(sort: Desc)])
+  @@index([eventType])
+  @@index([tickerCode])
+}
+
+model DefensiveExitFollowUp {
+  id              String          @id
+  positionId      String          @unique
+  tickerCode      String
+  exitDate        DateTime        @db.Date
+  exitPrice       Decimal         @db.Decimal(10, 2)
+  exitReason      String
+  day1Price       Decimal?        @db.Decimal(10, 2)
+  day3Price       Decimal?        @db.Decimal(10, 2)
+  day5Price       Decimal?        @db.Decimal(10, 2)
+  day1PnlPct      Decimal?        @db.Decimal(8, 4)
+  day3PnlPct      Decimal?        @db.Decimal(8, 4)
+  day5PnlPct      Decimal?        @db.Decimal(8, 4)
+  isComplete      Boolean         @default(false)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime
+  TradingPosition TradingPosition @relation(fields: [positionId], references: [id])
+
+  @@index([exitDate(sort: Desc)])
+  @@index([isComplete])
+}
+
+model HoldingScoreRecord {
+  id                    String          @id
+  date                  DateTime        @db.Date
+  positionId            String
+  tickerCode            String
+  totalScore            Int
+  holdingRank           String
+  trendQualityScore     Int
+  riskQualityScore      Int
+  sectorMomentumScore   Int
+  trendQualityBreakdown Json
+  riskQualityBreakdown  Json
+  gateResult            Json
+  alerts                Json?
+  currentPrice          Decimal         @db.Decimal(10, 2)
+  unrealizedPnlPct      Decimal         @db.Decimal(8, 4)
+  holdingDays           Int
+  actionTaken           String?
+  createdAt             DateTime        @default(now())
+  TradingPosition       TradingPosition @relation(fields: [positionId], references: [id])
+
+  @@unique([date, positionId])
+  @@index([positionId])
+}
+
+model MarketAssessment {
+  id              String   @id
+  date            DateTime @unique @db.Date
+  nikkeiPrice     Decimal? @db.Decimal(10, 2)
+  nikkeiChange    Decimal? @db.Decimal(8, 4)
+  sp500Change     Decimal? @db.Decimal(8, 4)
+  vix             Decimal? @db.Decimal(8, 2)
+  usdjpy          Decimal? @db.Decimal(8, 4)
+  cmeFuturesPrice Decimal? @db.Decimal(10, 2)
+  sentiment       String
+  shouldTrade     Boolean
+  reasoning       String
+  selectedStocks  Json?
+  createdAt       DateTime @default(now())
+  nikkeiVi        Decimal? @db.Decimal(8, 2)
+  tradingStrategy String?
+  nasdaqChange    Decimal? @db.Decimal(8, 4)
+  dowChange       Decimal? @db.Decimal(8, 4)
+  soxChange       Decimal? @db.Decimal(8, 4)
+
+  @@index([date(sort: Desc)])
+}
+
+model MarketForecast {
+  id            String   @id
+  date          DateTime @unique @db.Date
+  generatedAt   DateTime @default(now())
+  marketData    Json
+  newsHeadlines Json?
+  outlook       String
+  confidence    Int
+  summary       String
+  keyFactors    Json
+  risks         Json
+  tradingHints  String?
+
+  @@index([date(sort: Desc)])
+}
+
 model NewsArticle {
-  id          String   @id @default(cuid())
-  source      String   // "google_rss"
+  id          String   @id
+  source      String
   title       String
   url         String
   publishedAt DateTime
-  category    String   // "geopolitical" | "sector" | "stock"
-  contentHash String   @unique // SHA-256(title|url)
+  category    String
+  contentHash String   @unique
   createdAt   DateTime @default(now())
 
-  @@index([publishedAt(sort: Desc)])
   @@index([category])
+  @@index([publishedAt(sort: Desc)])
+}
+
+model ScoringRecord {
+  id                    String   @id
+  date                  DateTime @db.Date
+  tickerCode            String
+  totalScore            Int
+  isDisqualified        Boolean  @default(false)
+  disqualifyReason      String?
+  tradingOrderId        String?  @unique
+  tradeResult           String?
+  profitPct             Decimal? @db.Decimal(8, 4)
+  createdAt             DateTime @default(now())
+  closingPrice          Decimal? @db.Decimal(10, 2)
+  entryPrice            Decimal? @db.Decimal(10, 2)
+  ghostAnalysis         String?
+  ghostProfitPct        Decimal? @db.Decimal(8, 4)
+  rejectionReason       String?
+  contrarianBonus       Int      @default(0)
+  contrarianWins        Int      @default(0)
+  nextDayClosingPrice   Decimal? @db.Decimal(10, 2)
+  nextDayProfitPct      Decimal? @db.Decimal(8, 4)
+  entryTimingBreakdown  Json
+  entryTimingScore      Int
+  riskQualityBreakdown  Json
+  riskQualityScore      Int
+  trendQualityBreakdown Json
+  trendQualityScore     Int
+  sectorMomentumScore   Int      @default(0)
+  ghost5DayProfitPct    Decimal? @db.Decimal(8, 4)
+  ghost10DayProfitPct   Decimal? @db.Decimal(8, 4)
+
+  @@unique([date, tickerCode])
+  @@index([date(sort: Desc)])
+  @@index([rejectionReason])
+  @@index([tradeResult])
+}
+
+model Stock {
+  id               String            @id
+  tickerCode       String            @unique
+  name             String
+  market           String
+  sector           String?
+  marketCap        Decimal?
+  dividendYield    Decimal?
+  pbr              Decimal?          @db.Decimal(8, 2)
+  per              Decimal?          @db.Decimal(8, 2)
+  roe              Decimal?          @db.Decimal(8, 4)
+  eps              Decimal?          @db.Decimal(12, 2)
+  isProfitable     Boolean?
+  latestPrice      Decimal?          @db.Decimal(12, 2)
+  latestVolume     BigInt?
+  dailyChangeRate  Decimal?          @db.Decimal(8, 2)
+  weekChangeRate   Decimal?          @db.Decimal(8, 2)
+  volatility       Decimal?          @db.Decimal(8, 2)
+  atr14            Decimal?          @db.Decimal(12, 2)
+  latestPriceDate  DateTime?         @db.Date
+  priceUpdatedAt   DateTime?
+  fetchFailCount   Int               @default(0)
+  isDelisted       Boolean           @default(false)
+  createdAt        DateTime          @default(now())
+  delistingDate    DateTime?         @db.Date
+  isActive         Boolean           @default(true)
+  isRestricted     Boolean           @default(false)
+  jpxLastSyncDate  DateTime?         @db.Date
+  jpxSectorCode    String?
+  jpxSectorName    String?
+  statusUpdatedAt  DateTime?
+  supervisionFlag  String?
+  tradingHaltFlag  Boolean           @default(false)
+  nextEarningsDate DateTime?         @db.Date
+  exDividendDate   DateTime?         @db.Date
+  dividendPerShare Decimal?          @db.Decimal(10, 2)
+  TradingOrder     TradingOrder[]
+  TradingPosition  TradingPosition[]
+
+  @@index([isActive])
+  @@index([isRestricted])
+  @@index([sector])
+  @@index([tickerCode])
+}
+
+model StockDailyBar {
+  id         String   @id
+  tickerCode String
+  date       DateTime @db.Date
+  open       Float
+  high       Float
+  low        Float
+  close      Float
+  volume     BigInt
+
+  @@unique([tickerCode, date])
+  @@index([tickerCode, date(sort: Desc)])
+}
+
+model StockStatusLog {
+  id         String   @id
+  tickerCode String
+  changeType String
+  oldValue   String?
+  newValue   String?
+  source     String
+  detail     String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
+  @@index([tickerCode])
+}
+
+model TradingConfig {
+  id          String   @id
+  totalBudget Decimal  @db.Decimal(12, 0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime
+  peakEquity  Decimal? @db.Decimal(12, 0)
+  realizedPnl Decimal  @default(0) @db.Decimal(12, 0)
+}
+
+model TradingDailySummary {
+  id             String   @id
+  date           DateTime @unique @db.Date
+  totalTrades    Int      @default(0)
+  wins           Int      @default(0)
+  losses         Int      @default(0)
+  totalPnl       Decimal  @default(0) @db.Decimal(12, 2)
+  portfolioValue Decimal  @db.Decimal(12, 0)
+  cashBalance    Decimal  @db.Decimal(12, 0)
+  aiReview       String?
+  createdAt      DateTime @default(now())
+
+  @@index([date(sort: Desc)])
+}
+
+model TradingOrder {
+  id                    String                 @id
+  stockId               String
+  side                  String
+  orderType             String
+  strategy              String
+  limitPrice            Decimal?               @db.Decimal(10, 2)
+  stopPrice             Decimal?               @db.Decimal(10, 2)
+  quantity              Int
+  status                String                 @default("pending")
+  filledPrice           Decimal?               @db.Decimal(10, 2)
+  filledAt              DateTime?
+  reasoning             String
+  positionId            String?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime
+  expiresAt             DateTime?
+  entrySnapshot         Json?
+  stopLossPrice         Decimal?               @db.Decimal(10, 2)
+  takeProfitPrice       Decimal?               @db.Decimal(10, 2)
+  brokerBusinessDay     String?
+  brokerOrderId         String?
+  brokerStatus          String?
+  TradingPosition       TradingPosition?       @relation(fields: [positionId], references: [id])
+  Stock                 Stock                  @relation(fields: [stockId], references: [id])
+  UnfilledOrderFollowUp UnfilledOrderFollowUp?
+
+  @@index([brokerOrderId, brokerBusinessDay])
+  @@index([createdAt(sort: Desc)])
+  @@index([positionId])
+  @@index([status])
+  @@index([stockId])
+}
+
+model TradingPosition {
+  id                        String                 @id
+  stockId                   String
+  strategy                  String
+  entryPrice                Decimal                @db.Decimal(10, 2)
+  quantity                  Int
+  takeProfitPrice           Decimal?               @db.Decimal(10, 2)
+  stopLossPrice             Decimal?               @db.Decimal(10, 2)
+  status                    String                 @default("open")
+  exitPrice                 Decimal?               @db.Decimal(10, 2)
+  exitedAt                  DateTime?
+  realizedPnl               Decimal?               @db.Decimal(12, 2)
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime
+  entrySnapshot             Json?
+  exitSnapshot              Json?
+  maxHighDuringHold         Decimal?               @db.Decimal(10, 2)
+  minLowDuringHold          Decimal?               @db.Decimal(10, 2)
+  reviewComments            String?
+  entryAtr                  Decimal?               @db.Decimal(10, 2)
+  trailingStopPrice         Decimal?               @db.Decimal(10, 2)
+  holdingScoreTrailOverride Decimal?               @db.Decimal(5, 2)
+  slBrokerBusinessDay       String?
+  slBrokerOrderId           String?
+  DefensiveExitFollowUp     DefensiveExitFollowUp?
+  HoldingScoreRecord        HoldingScoreRecord[]
+  TradingOrder              TradingOrder[]
+  Stock                     Stock                  @relation(fields: [stockId], references: [id])
+
+  @@index([createdAt(sort: Desc)])
+  @@index([status])
+  @@index([stockId])
+}
+
+model TradingWeeklySummary {
+  id             String   @id
+  weekStart      DateTime @db.Date
+  weekEnd        DateTime @unique @db.Date
+  tradingDays    Int
+  totalTrades    Int      @default(0)
+  wins           Int      @default(0)
+  losses         Int      @default(0)
+  totalPnl       Decimal  @default(0) @db.Decimal(12, 2)
+  portfolioValue Decimal  @db.Decimal(12, 0)
+  cashBalance    Decimal  @db.Decimal(12, 0)
+  aiReview       Json
+  createdAt      DateTime @default(now())
+
+  @@index([weekEnd(sort: Desc)])
+}
+
+model UnfilledOrderFollowUp {
+  id               String       @id
+  orderId          String       @unique
+  tickerCode       String
+  strategy         String
+  orderDate        DateTime     @db.Date
+  limitPrice       Decimal      @db.Decimal(10, 2)
+  marketPrice      Decimal      @db.Decimal(10, 2)
+  gapPct           Decimal      @db.Decimal(8, 4)
+  cancelReason     String
+  day1Price        Decimal?     @db.Decimal(10, 2)
+  day3Price        Decimal?     @db.Decimal(10, 2)
+  day5Price        Decimal?     @db.Decimal(10, 2)
+  day1ReachedLimit Boolean?
+  day3ReachedLimit Boolean?
+  day5ReachedLimit Boolean?
+  day1PnlPct       Decimal?     @db.Decimal(8, 4)
+  day3PnlPct       Decimal?     @db.Decimal(8, 4)
+  day5PnlPct       Decimal?     @db.Decimal(8, 4)
+  isComplete       Boolean      @default(false)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime
+  TradingOrder     TradingOrder @relation(fields: [orderId], references: [id])
+
+  @@index([isComplete])
+  @@index([orderDate(sort: Desc)])
 }
