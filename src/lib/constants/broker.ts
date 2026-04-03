@@ -8,6 +8,9 @@
 
 export type TachibanaEnv = "demo" | "production";
 
+export const isTachibanaProduction =
+  process.env.TACHIBANA_ENV === "production";
+
 export const TACHIBANA_API_URLS = {
   demo: "https://demo-kabuka.e-shiten.jp/e_api_v4r8/",
   production: "https://kabuka.e-shiten.jp/e_api_v4r8/",

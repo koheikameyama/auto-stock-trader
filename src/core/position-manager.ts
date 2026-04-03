@@ -8,6 +8,7 @@ import { prisma } from "../lib/prisma";
 import type { TradingConfig, TradingPosition } from "@prisma/client";
 import { calculateTradeCosts } from "./trading-costs";
 import { getBuyingPower } from "./broker-orders";
+import { isTachibanaProduction } from "../lib/constants/broker";
 
 /**
  * 全クローズ済みポジションの確定損益を合計する
@@ -28,7 +29,7 @@ export async function computeRealizedPnl(): Promise<number> {
  * API失敗時はDBフォールバック。
  */
 export async function getEffectiveCapital(config?: TradingConfig | null): Promise<number> {
-  if (process.env.TACHIBANA_ENV === "production") {
+  if (isTachibanaProduction) {
     const apiBuyingPower = await getBuyingPower();
     if (apiBuyingPower != null) {
       const investedAmount = await getInvestedAmount();
@@ -185,7 +186,7 @@ export async function getTotalPortfolioValue(
  * それ以外: 実質資金からオープンポジションの取得コスト合計を差し引く。
  */
 export async function getCashBalance(): Promise<number> {
-  if (process.env.TACHIBANA_ENV === "production") {
+  if (isTachibanaProduction) {
     const apiBuyingPower = await getBuyingPower();
     if (apiBuyingPower != null) return apiBuyingPower;
     // API失敗時はDBフォールバック

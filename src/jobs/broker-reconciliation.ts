@@ -19,7 +19,7 @@ import { TACHIBANA_ORDER } from "../lib/constants/broker";
 import { closePosition } from "../core/position-manager";
 import { submitBrokerSL } from "../core/broker-sl-manager";
 import { fetchStockQuote } from "../core/market-data";
-import { TACHIBANA_ORDER_STATUS } from "../lib/constants/broker";
+import { TACHIBANA_ORDER_STATUS, isTachibanaProduction } from "../lib/constants/broker";
 
 export async function main(): Promise<void> {
   console.log("=== Broker Reconciliation 開始 ===");
@@ -38,11 +38,9 @@ export async function main(): Promise<void> {
     console.warn("[broker-reconciliation] recoverMissedFills error (ignored):", e);
   }
 
-  const isProduction = process.env.TACHIBANA_ENV === "production";
-
   // Phase 3〜5: 本番環境のみ実行
   // デモサーバーは保有管理をサポートしないため保有・注文照合が誤動作する
-  if (isProduction) {
+  if (isTachibanaProduction) {
     // Phase 3: 保有株数照合
     try {
       await reconcileHoldings();
