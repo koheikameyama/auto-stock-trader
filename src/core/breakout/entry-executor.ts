@@ -149,8 +149,16 @@ export async function executeEntry(
       console.log(`[entry-executor] ${ticker} スキップ: ${reason}`);
       return { success: false, reason, retryable: false };
     }
-    console.log(`[entry-executor] ${ticker} 集中率上限で縮小: ${quantity}株 → ${maxByConcentration}株（上限: ${maxPositionPct}%）`);
-    quantity = maxByConcentration;
+    const originalQuantity = quantity;
+    const reducedQuantity = maxByConcentration;
+    // 集中率キャップで50%未満に縮小される場合はスキップ（ギャップリスクが2%ルールを超える可能性）
+    if (reducedQuantity < originalQuantity * 0.5) {
+      const reason = `集中率上限（${maxPositionPct}%）で株数が半分未満に縮小されるためスキップ（${originalQuantity}株 → ${reducedQuantity}株）`;
+      console.log(`[entry-executor] ${ticker} スキップ: ${reason}`);
+      return { success: false, reason, retryable: false };
+    }
+    console.log(`[entry-executor] ${ticker} 集中率上限で縮小: ${originalQuantity}株 → ${reducedQuantity}株（上限: ${maxPositionPct}%）`);
+    quantity = reducedQuantity;
   }
 
   // 5. canOpenPosition でセクター集中・ドローダウン・ポジション数を確認（プリフェッチデータを渡す）
