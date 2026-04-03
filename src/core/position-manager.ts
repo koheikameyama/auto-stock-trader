@@ -75,6 +75,8 @@ export async function openPosition(
       minLowDuringHold: entryPrice,
       trailingStopPrice: null,
       entryAtr: entryAtr ?? null,
+      id: crypto.randomUUID() as string,
+      updatedAt: new Date(),
     },
   });
 }
@@ -124,6 +126,7 @@ export async function closePosition(
         filledAt: new Date(),
         reasoning: `ポジション決済（損益: ${realizedPnl >= 0 ? "+" : ""}${realizedPnl.toFixed(0)}円）`,
         positionId,
+        updatedAt: new Date(),
       },
     });
 
