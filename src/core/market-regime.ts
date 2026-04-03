@@ -13,7 +13,7 @@ import type { OHLCVData } from "./technical-analysis";
 
 export type RegimeLevel = "normal" | "elevated" | "high" | "crisis";
 
-export type Sentiment = "bullish" | "neutral" | "cautious" | "bearish" | "crisis";
+export type Sentiment = "normal" | "crisis";
 
 export interface MarketRegime {
   level: RegimeLevel;

@@ -100,8 +100,8 @@ function makeAssessment(shouldTrade: boolean) {
     id: "assessment-1",
     date: new Date("2026-03-24T00:00:00Z"),
     shouldTrade,
-    sentiment: "bullish",
-    reasoning: "市場は強気",
+    sentiment: "normal",
+    reasoning: "市場は通常",
     selectedStocks: null,
   };
 }

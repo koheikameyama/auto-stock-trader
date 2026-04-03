@@ -653,9 +653,7 @@ export async function notifyScoringAccuracyReport(data: {
 
   // 取引見送り日サマリー
   const sentimentLabel: Record<string, string> = {
-    bullish: "強気",
-    neutral: "中立",
-    bearish: "弱気",
+    normal: "通常",
     crisis: "危機",
   };
   let haltedSection: string;

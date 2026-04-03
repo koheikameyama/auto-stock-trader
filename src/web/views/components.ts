@@ -39,10 +39,7 @@ export function pnlPercent(value: number): HtmlContent {
 export function sentimentBadge(sentiment: string | null): HtmlContent {
   if (!sentiment) return html`<span class="badge badge-neutral">N/A</span>`;
   const labels: Record<string, string> = {
-    bullish: "強気",
-    bearish: "弱気",
-    neutral: "中立",
-    cautious: "警戒",
+    normal: "通常",
     crisis: "危機",
   };
   return html`<span class="badge badge-${sentiment}"

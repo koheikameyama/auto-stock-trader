@@ -200,11 +200,8 @@ export async function main(): Promise<MarketAssessmentContext> {
       orderBy: { createdAt: "desc" },
       select: { sentiment: true },
     });
-    const drawdownSentiment = (latestAssessment?.sentiment ?? "neutral") as
-      | "bullish"
-      | "neutral"
-      | "cautious"
-      | "bearish"
+    const drawdownSentiment = (latestAssessment?.sentiment ?? "normal") as
+      | "normal"
       | "crisis";
     console.log(
       `  → ドローダウン停止時のsentiment: ${drawdownSentiment}（市場評価を維持）`,
@@ -232,7 +229,7 @@ export async function main(): Promise<MarketAssessmentContext> {
     console.log("[2/2] VIXベース市場評価...");
     assessment = {
       shouldTrade: true,
-      sentiment: "bullish" as Sentiment,
+      sentiment: "normal" as Sentiment,
       reasoning: `機械判定: VIX ${marketData.vix.price.toFixed(1)} — レジーム・キルスイッチで制御`,
     };
     console.log(

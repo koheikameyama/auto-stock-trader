@@ -56,18 +56,6 @@ export const TRAILING_STOP = {
   TRAIL_PCT: { breakout: 0.02, gapup: 0.005 },
 } as const;
 
-// ディフェンシブモード（市場環境悪化時のポジション防衛）
-export const DEFENSIVE_MODE = {
-  ENABLED_SENTIMENTS: ["bearish", "crisis"] as readonly string[],
-  // 微益撤退の最低利益率（%）— 損小利大を維持するため手数料以上の利益を確保
-  MIN_PROFIT_PCT_FOR_RETREAT: 1.0,
-  // bearish時の含み損損切り閾値（%）— ギャップダウンリスクを回避するため引き締め
-  BEARISH_LOSS_CUT_PCT: 1.5,
-} as const;
-
-// cautiousモード（市場環境が徐々に悪化している場合のリスク制限）
-// neutral → bearish の中間段階
-export const CAUTIOUS_MODE = {} as const;
 
 // 昼休み再評価
 export const MIDDAY_REASSESSMENT = {

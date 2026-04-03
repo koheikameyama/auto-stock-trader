@@ -1,8 +1,8 @@
 /**
  * ディフェンシブモード妥当性検証ジョブ（16:20 JST / 平日）
  *
- * defensive exit（crisis全決済/bearish微益撤退）した銘柄の
- * exit後1/3/5営業日の株価を追跡し、決済判断が正しかったかを検証する。
+ * crisis全決済した銘柄のexit後1/3/5営業日の株価を追跡し、
+ * 決済判断が正しかったかを検証する。
  *
  * 1. 未追跡のdefensive exitポジションを検出 → フォローアップレコード作成
  * 2. 既存フォローアップの価格取得（営業日ベース）
@@ -23,16 +23,7 @@ interface ExitSnapshotData {
 function isDefensiveExit(exitSnapshot: unknown): boolean {
   if (!exitSnapshot || typeof exitSnapshot !== "object") return false;
   const snapshot = exitSnapshot as ExitSnapshotData;
-  if (!snapshot.exitReason) return false;
-  return (
-    snapshot.exitReason.includes("crisis") ||
-    snapshot.exitReason.includes("bearish微益撤退")
-  );
-}
-
-function classifyExitReason(exitSnapshot: unknown): "crisis" | "bearish" {
-  const snapshot = exitSnapshot as ExitSnapshotData;
-  return snapshot.exitReason?.includes("crisis") ? "crisis" : "bearish";
+  return snapshot.exitReason?.includes("crisis") ?? false;
 }
 
 export async function main() {
@@ -73,11 +64,11 @@ export async function main() {
           tickerCode: position.stock.tickerCode,
           exitDate: exitDateForDb,
           exitPrice: position.exitPrice!,
-          exitReason: classifyExitReason(position.exitSnapshot),
+          exitReason: "crisis",
         },
       });
       console.log(
-        `  → ${position.stock.tickerCode}: フォローアップ作成（${classifyExitReason(position.exitSnapshot)}）`,
+        `  → ${position.stock.tickerCode}: フォローアップ作成（crisis）`,
       );
     }
   } else {
@@ -198,30 +189,12 @@ export async function main() {
   });
 
   if (completedFollowUps.length > 0) {
-    const crisisExits = completedFollowUps.filter(
-      (f) => f.exitReason === "crisis",
+    const day5Pnls = completedFollowUps.map((f) => Number(f.day5PnlPct));
+    const avgPnl = day5Pnls.reduce((sum, v) => sum + v, 0) / day5Pnls.length;
+    const savedCount = day5Pnls.filter((v) => v < 0).length; // 下落=決済正解
+    console.log(
+      `  [crisis] ${completedFollowUps.length}件: 5日後平均${avgPnl >= 0 ? "+" : ""}${avgPnl.toFixed(2)}%, 正答率${((savedCount / completedFollowUps.length) * 100).toFixed(0)}%（下落=${savedCount}件）`,
     );
-    const bearishExits = completedFollowUps.filter(
-      (f) => f.exitReason === "bearish",
-    );
-
-    const summarize = (
-      exits: typeof completedFollowUps,
-      label: string,
-    ) => {
-      if (exits.length === 0) return;
-      const day5Pnls = exits.map((f) => Number(f.day5PnlPct));
-      const avgPnl =
-        day5Pnls.reduce((sum, v) => sum + v, 0) / day5Pnls.length;
-      const savedCount = day5Pnls.filter((v) => v < 0).length; // 下落=決済正解
-      console.log(
-        `  [${label}] ${exits.length}件: 5日後平均${avgPnl >= 0 ? "+" : ""}${avgPnl.toFixed(2)}%, 正答率${((savedCount / exits.length) * 100).toFixed(0)}%（下落=${savedCount}件）`,
-      );
-    };
-
-    summarize(crisisExits, "crisis");
-    summarize(bearishExits, "bearish");
-    summarize(completedFollowUps, "合計");
   }
 
   console.log("=== Defensive Exit Follow-Up 終了 ===");

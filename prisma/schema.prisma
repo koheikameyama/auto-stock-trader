@@ -395,7 +395,7 @@ model DefensiveExitFollowUp {
   tickerCode String
   exitDate   DateTime @db.Date
   exitPrice  Decimal  @db.Decimal(10, 2)
-  exitReason String   // "crisis" | "bearish"
+  exitReason String   // "crisis"
 
   // N営業日後の終値
   day1Price  Decimal? @db.Decimal(10, 2)

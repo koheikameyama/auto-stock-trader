@@ -105,10 +105,8 @@ export const CSS = `
     white-space: nowrap;
     flex-shrink: 0;
   }
-  .badge-bullish { background: rgba(34,197,94,0.15); color: ${COLORS.bullish}; }
-  .badge-bearish { background: rgba(239,68,68,0.15); color: ${COLORS.bearish}; }
+  .badge-normal { background: rgba(34,197,94,0.15); color: ${COLORS.bullish}; }
   .badge-neutral { background: rgba(148,163,184,0.15); color: ${COLORS.neutral}; }
-  .badge-cautious { background: rgba(245,158,11,0.15); color: ${COLORS.cautious}; }
   .badge-crisis { background: rgba(220,38,38,0.15); color: ${COLORS.crisis}; }
   .badge-breakout { background: rgba(59,130,246,0.15); color: ${COLORS.accent}; }
   .badge-gapup { background: rgba(168,85,247,0.15); color: #a855f7; }

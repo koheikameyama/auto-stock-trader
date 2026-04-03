@@ -14,7 +14,6 @@ import { getLimitDownPrice } from "../lib/constants/price-limits";
 import { determineMarketRegime } from "../core/market-regime";
 import { UNIT_SHARES } from "../lib/constants/trading";
 import { getDynamicMaxPositionPct } from "../core/risk-manager";
-import { DEFENSIVE_MODE } from "../lib/constants";
 import { TECHNICAL_MIN_DATA } from "../lib/constants";
 import { calculateMetrics } from "./metrics";
 import { RISK_PER_TRADE_PCT } from "./breakout-config";
@@ -574,11 +573,8 @@ export function runBreakoutBacktest(
         if (defBarIdx == null) continue;
         const todayBar = allData.get(pos.ticker)![defBarIdx];
 
-        const currentProfitPct = ((todayBar.close - pos.entryPrice) / pos.entryPrice) * 100;
         let shouldClose = false;
         if (todayRegime === "crisis") {
-          shouldClose = true;
-        } else if (currentProfitPct >= DEFENSIVE_MODE.MIN_PROFIT_PCT_FOR_RETREAT) {
           shouldClose = true;
         }
 

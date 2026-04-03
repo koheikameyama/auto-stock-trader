@@ -12,7 +12,6 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import {
   POSITION_DEFAULTS,
-  DEFENSIVE_MODE,
   WEEKEND_RISK,
   TRAILING_STOP,
   TIME_STOP,
@@ -95,11 +94,7 @@ export async function main() {
     orderBy: { date: "desc" },
     select: { sentiment: true },
   });
-  const isDefensiveModeForBuy =
-    latestAssessmentForBuyBlock?.sentiment != null &&
-    DEFENSIVE_MODE.ENABLED_SENTIMENTS.includes(
-      latestAssessmentForBuyBlock.sentiment,
-    );
+  const isDefensiveModeForBuy = latestAssessmentForBuyBlock?.sentiment === "crisis";
 
   const pendingOrders = await getPendingOrders();
   console.log(`  未約定注文: ${pendingOrders.length}件`);
@@ -664,7 +659,7 @@ export async function main() {
     return;
   }
 
-  // 3.5. ディフェンシブモード（bearish/crisis時のポジション防衛）
+  // 3.5. ディフェンシブモード（crisis時の全ポジション即時決済）
   console.log("[2.5/3] ディフェンシブモード判定...");
   const latestAssessmentForDefense = await prisma.marketAssessment.findFirst({
     orderBy: { date: "desc" },
@@ -672,30 +667,16 @@ export async function main() {
   });
 
   const currentSentiment = latestAssessmentForDefense?.sentiment;
-  const isDefensiveMode =
-    currentSentiment != null &&
-    DEFENSIVE_MODE.ENABLED_SENTIMENTS.includes(currentSentiment);
+  const isDefensiveMode = currentSentiment === "crisis";
 
   if (isDefensiveMode) {
-    const isCrisis = currentSentiment === "crisis";
-    console.log(`  → ディフェンシブモード発動: ${currentSentiment}`);
+    console.log(`  → ディフェンシブモード発動: crisis`);
 
     // TP/SLで決済済みを除外した残存ポジションを取得
     const remainingPositions = await getOpenPositions();
     let defensiveCloseCount = 0;
 
     for (const position of remainingPositions) {
-      // 猶予期間チェック（crisis=資本防衛は猶予なしで即時決済）
-      if (!isCrisis) {
-        const positionAgeMs = Date.now() - new Date(position.createdAt).getTime();
-        if (positionAgeMs < EXIT_GRACE_PERIOD_MS) {
-          console.log(
-            `  → ${position.stock.tickerCode}: 猶予期間中のためディフェンシブ決済スキップ`,
-          );
-          continue;
-        }
-      }
-
       const quote = await fetchStockQuote(position.stock.tickerCode);
       if (!quote) continue;
 
@@ -703,28 +684,10 @@ export async function main() {
       const currentProfitPct =
         ((quote.price - entryPriceNum) / entryPriceNum) * 100;
 
-      let shouldDefensiveClose = false;
-      let defensiveReason = "";
+      // crisis: 全ポジション即時決済（資本防衛）
+      const defensiveReason = `crisis全ポジション即時決済（含み損益: ${currentProfitPct >= 0 ? "+" : ""}${currentProfitPct.toFixed(2)}%）`;
 
-      if (isCrisis) {
-        // crisis: 全ポジション即時決済（資本防衛）
-        shouldDefensiveClose = true;
-        defensiveReason = `crisis全ポジション即時決済（含み損益: ${currentProfitPct >= 0 ? "+" : ""}${currentProfitPct.toFixed(2)}%）`;
-      } else if (
-        currentProfitPct >= DEFENSIVE_MODE.MIN_PROFIT_PCT_FOR_RETREAT
-      ) {
-        // bearish: 含み益ポジションのみ決済（利益確保）
-        shouldDefensiveClose = true;
-        defensiveReason = `bearish微益撤退（含み益 +${currentProfitPct.toFixed(2)}%）`;
-      } else if (
-        currentProfitPct <= -DEFENSIVE_MODE.BEARISH_LOSS_CUT_PCT
-      ) {
-        // bearish: 含み損が閾値超過 → SL引き締め（ギャップダウンリスク回避）
-        shouldDefensiveClose = true;
-        defensiveReason = `bearish含み損損切り（含み損 ${currentProfitPct.toFixed(2)}%、閾値: -${DEFENSIVE_MODE.BEARISH_LOSS_CUT_PCT}%）`;
-      }
-
-      if (shouldDefensiveClose) {
+      {
         const maxHigh = position.maxHighDuringHold
           ? Math.max(Number(position.maxHighDuringHold), quote.high)
           : quote.high;
@@ -782,10 +745,6 @@ export async function main() {
         });
 
         defensiveCloseCount++;
-      } else {
-        console.log(
-          `  → ${position.stock.tickerCode}: bearish維持（含み損益 ${currentProfitPct.toFixed(2)}%、閾値未満のため通常SL監視継続）`,
-        );
       }
     }
 
@@ -800,6 +759,8 @@ export async function main() {
       `  → ディフェンシブモード: OFF（sentiment: ${currentSentiment ?? "不明"}）`,
     );
   }
+
+
 
   // システム停止チェック（フェーズ間で再確認）
   if (!(await isSystemActive())) {
