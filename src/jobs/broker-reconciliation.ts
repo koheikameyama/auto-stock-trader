@@ -8,12 +8,14 @@
  * Phase 2: 見逃し約定リカバリ   (recoverMissedFills から移管)
  * Phase 3: 保有株数照合         (NEW) ブローカー保有 vs DBオープンポジション
  * Phase 4: SL注文照合           (NEW) 失効・取消SLの再発注
+ * Phase 5: 孤立買い注文キャンセル (NEW) DBに記録のないブローカー買い注文を自動キャンセル
  */
 
 import { prisma } from "../lib/prisma";
 import { notifySlack } from "../lib/slack";
-import { syncBrokerOrderStatuses, getHoldings, getOrderDetail } from "../core/broker-orders";
+import { syncBrokerOrderStatuses, getHoldings, getOrderDetail, getOrders, cancelOrder } from "../core/broker-orders";
 import { recoverMissedFills } from "../core/broker-fill-handler";
+import { TACHIBANA_ORDER } from "../lib/constants/broker";
 import { closePosition } from "../core/position-manager";
 import { submitBrokerSL } from "../core/broker-sl-manager";
 import { fetchStockQuote } from "../core/market-data";
@@ -48,6 +50,13 @@ export async function main(): Promise<void> {
     await reconcileSLOrders();
   } catch (e) {
     console.warn("[broker-reconciliation] reconcileSLOrders error (ignored):", e);
+  }
+
+  // Phase 5: 孤立買い注文キャンセル
+  try {
+    await cancelOrphanedBuyOrders();
+  } catch (e) {
+    console.warn("[broker-reconciliation] cancelOrphanedBuyOrders error (ignored):", e);
   }
 
   console.log("=== Broker Reconciliation 完了 ===");
@@ -292,5 +301,64 @@ async function reconcileSLOrders(): Promise<void> {
         }).catch(() => {});
       }
     }
+  }
+}
+
+/**
+ * DBに記録のないブローカー買い注文を検出してキャンセルする
+ *
+ * DBに対応するTradingOrderがない未約定買い注文は「孤立注文」として自動キャンセルする。
+ * 約定するとSL・TP管理なしの野良ポジションになるため、キャンセルして安全側に倒す。
+ */
+async function cancelOrphanedBuyOrders(): Promise<void> {
+  // ブローカーの未約定注文一覧を取得
+  const res = await getOrders({ statusFilter: "" });
+  if (!res || res.sResultCode !== "0") return;
+
+  const brokerOrders = (res.aOrderList as Record<string, unknown>[]) ?? [];
+
+  // DBに記録されているbrokerOrderIdのセットを作成
+  const dbOrderIds = new Set(
+    (
+      await prisma.tradingOrder.findMany({
+        where: { brokerOrderId: { not: null } },
+        select: { brokerOrderId: true },
+      })
+    ).map((o) => o.brokerOrderId!),
+  );
+
+  for (const bo of brokerOrders) {
+    const orderNum = String(bo.sOrderOrderNumber ?? bo.sOrderNumber ?? "");
+    const businessDay = String(bo.sOrderSikkouDay ?? bo.sEigyouDay ?? "");
+    const side = String(bo.sBaibaiKubun ?? bo.sOrderBaibaiKubun ?? "");
+    const status = String(bo.sOrderStatusCode ?? bo.sOrderStatus ?? "");
+
+    // 買い注文かつ未約定（UNFILLED or PARTIAL_FILLED）のみ対象
+    if (side !== TACHIBANA_ORDER.SIDE.BUY) continue;
+    if (
+      status !== TACHIBANA_ORDER_STATUS.UNFILLED &&
+      status !== TACHIBANA_ORDER_STATUS.PARTIAL_FILLED
+    ) continue;
+    if (!orderNum || !businessDay) continue;
+
+    // DBに対応レコードがある場合はスキップ
+    if (dbOrderIds.has(orderNum)) continue;
+
+    // 孤立買い注文 → キャンセル
+    console.warn(
+      `[broker-reconciliation] 孤立買い注文を検出: ${orderNum} (${businessDay}) → キャンセル`,
+    );
+    const result = await cancelOrder(orderNum, businessDay).catch(() => ({
+      success: false,
+      error: "cancel request failed",
+    }));
+
+    await notifySlack({
+      title: result.success
+        ? `⚠️ 孤立買い注文をキャンセルしました`
+        : `❌ 孤立買い注文のキャンセルに失敗しました`,
+      message: `注文番号: ${orderNum}\n営業日: ${businessDay}\n${result.success ? "DBに記録のない買い注文を自動キャンセルしました" : `キャンセル失敗: ${result.error}\n手動対応が必要です`}`,
+      color: result.success ? "warning" : "danger",
+    }).catch(() => {});
   }
 }
