@@ -35,8 +35,6 @@ let lastScanDate: string | null = null;
 /** 保有中ティッカー（直近スキャン時のスナップショット） */
 let lastHoldingTickers: Set<string> = new Set();
 let gapupScanner: GapUpScanner | null = null;
-/** 本日のgapupスキャン実行済みフラグ */
-let gapupScannedToday = false;
 
 /**
  * スキャナーの状態を外部から取得する（Web UIで使用）
@@ -66,7 +64,6 @@ export async function main(): Promise<void> {
   if (lastScanDate && lastScanDate !== today) {
     scanner = null;
     gapupScanner = null;
-    gapupScannedToday = false;
   }
   lastScanDate = today;
 
@@ -246,15 +243,12 @@ export async function main(): Promise<void> {
   }
 
   // ========================================
-  // gapupスキャン（14:50以降、1日1回）
+  // gapupスキャン（15:20以降、1日1回）
   // ========================================
   const jstNow = dayjs().tz(TIMEZONE);
-  const currentMinutes = jstNow.hour() * 60 + jstNow.minute();
-  const gapupScanTime = GAPUP.GUARD.SCAN_HOUR * 60 + GAPUP.GUARD.SCAN_MINUTE;
+  const scanStart = jstNow.clone().hour(GAPUP.GUARD.SCAN_HOUR).minute(GAPUP.GUARD.SCAN_MINUTE).second(0).millisecond(0);
 
-  if (!gapupScannedToday && currentMinutes >= gapupScanTime && gapupScanner) {
-    gapupScannedToday = true;
-
+  if (!jstNow.isBefore(scanStart) && gapupScanner) {
     // breadthフィルター（バックテストの marketTrendFilter と同等）
     const livePriceMap = new Map(
       quotesRaw.filter((q): q is NonNullable<typeof q> => q !== null).map((q) => [q.tickerCode, q.price]),
@@ -269,7 +263,7 @@ export async function main(): Promise<void> {
       return;
     }
 
-    console.log(`${tag} [gapup] 14:50 gapupスキャン開始`);
+    console.log(`${tag} [gapup] 15:20 gapupスキャン開始`);
 
     // quotesRawは既に取得済み（上のbreakoutスキャンで使った全銘柄OHLCVデータ）
     // YfQuoteResult には open, high, low, price, volume が全て含まれている
@@ -414,5 +408,4 @@ export async function reactivateCancelledTriggers(
 export function resetScanner(): void {
   scanner = null;
   gapupScanner = null;
-  gapupScannedToday = false;
 }

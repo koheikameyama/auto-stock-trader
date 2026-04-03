@@ -14,9 +14,9 @@ export const GAPUP = {
   },
   /** エントリーガード条件（ライブ用） */
   GUARD: {
-    /** gapupスキャン実行時刻（JST、14:50） */
-    SCAN_HOUR: 14,
-    SCAN_MINUTE: 50,
+    /** gapupスキャン実行時刻（JST、15:20） */
+    SCAN_HOUR: 15,
+    SCAN_MINUTE: 20,
   },
   /** マーケットフィルター（ライブ用） */
   MARKET_FILTER: {

@@ -3,10 +3,11 @@
  *
  * 時間帯に応じたエントリー可否判定を行う。
  * - breakout: 9:00-9:30の寄付き直後はブロック（乱高下回避）
- * - gapup: 14:50-15:00のみエントリー可能
+ * - gapup: 15:20-15:25のみエントリー可能（引け注文受付期限に合わせる）
  */
 
 import { TIME_WINDOW, TIMEZONE } from "../lib/constants";
+import { GAPUP } from "../lib/constants/gapup";
 import type { TradingStrategy } from "./market-regime";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
@@ -32,18 +33,11 @@ export function checkTimeWindow(
   now?: dayjs.Dayjs,
 ): TimeWindowCheck {
   const jstNow = now ?? dayjs().tz(TIMEZONE);
-  const hour = jstNow.hour();
-  const minute = jstNow.minute();
-  const timeMinutes = hour * 60 + minute;
 
   // 寄付き直後チェック（9:00-9:30）
-  const openStart =
-    TIME_WINDOW.OPENING_VOLATILITY.start.hour * 60 +
-    TIME_WINDOW.OPENING_VOLATILITY.start.minute;
-  const openEnd =
-    TIME_WINDOW.OPENING_VOLATILITY.end.hour * 60 +
-    TIME_WINDOW.OPENING_VOLATILITY.end.minute;
-  const isOpeningVolatility = timeMinutes >= openStart && timeMinutes < openEnd;
+  const openStart = jstNow.clone().hour(TIME_WINDOW.OPENING_VOLATILITY.start.hour).minute(TIME_WINDOW.OPENING_VOLATILITY.start.minute).second(0).millisecond(0);
+  const openEnd = jstNow.clone().hour(TIME_WINDOW.OPENING_VOLATILITY.end.hour).minute(TIME_WINDOW.OPENING_VOLATILITY.end.minute).second(0).millisecond(0);
+  const isOpeningVolatility = !jstNow.isBefore(openStart) && jstNow.isBefore(openEnd);
 
   // breakout: 寄付き30分は新規エントリー不可（乱高下回避）
   if (strategy === "breakout" && isOpeningVolatility) {
@@ -54,14 +48,14 @@ export function checkTimeWindow(
     };
   }
 
-  // gapup: 14:50-15:00のみエントリー可能
+  // gapup: 15:20-15:25のみエントリー可能（引け注文受付期限に合わせる）
   if (strategy === "gapup") {
-    const gapupStart = 14 * 60 + 50; // 14:50
-    const gapupEnd = 15 * 60;        // 15:00
-    if (timeMinutes < gapupStart || timeMinutes >= gapupEnd) {
+    const gapupStart = jstNow.clone().hour(GAPUP.GUARD.SCAN_HOUR).minute(GAPUP.GUARD.SCAN_MINUTE).second(0).millisecond(0);
+    const gapupEnd = jstNow.clone().hour(15).minute(25).second(0).millisecond(0);
+    if (jstNow.isBefore(gapupStart) || !jstNow.isBefore(gapupEnd)) {
       return {
         canTrade: false,
-        reason: "gapup戦略は14:50-15:00のみエントリー可能",
+        reason: "gapup戦略は15:20-15:25のみエントリー可能",
         isOpeningVolatility: false,
       };
     }
