@@ -61,28 +61,37 @@ export async function tachibanaFetchQuote(
   return parsePriceData(list[0], symbol);
 }
 
+const PRICE_CONCURRENCY = 10;
+
 /**
  * 立花APIから複数銘柄のクォートをバッチ取得
  *
  * CLMMfdsGetMarketPrice は1銘柄ずつしか取得できないため、
- * p-limit で並行度を制御しつつ並列呼び出しする。
+ * p-limit で同時10件に制限しつつ並列呼び出しする。
+ * requestPrice はミューテックス不使用のため並列実行可能。
+ * セッション切断時は reLoginOnce で1回だけ再ログインし全スロットで共有する。
  */
 export async function tachibanaFetchQuotesBatch(
   symbols: string[],
 ): Promise<(YfQuoteResult | null)[]> {
+  const pLimit = (await import("p-limit")).default;
+  const limit = pLimit(PRICE_CONCURRENCY);
   const errors: string[] = [];
+  const results: (YfQuoteResult | null)[] = new Array(symbols.length).fill(null);
 
-  const results: (YfQuoteResult | null)[] = [];
-  for (const symbol of symbols) {
-    try {
-      results.push(await tachibanaFetchQuote(symbol));
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      console.warn(`[tachibana-price] Batch: failed for ${symbol}:`, msg);
-      errors.push(`${symbol}: ${msg}`);
-      results.push(null);
-    }
-  }
+  const tasks = symbols.map((symbol, i) =>
+    limit(async () => {
+      try {
+        results[i] = await tachibanaFetchQuote(symbol);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.warn(`[tachibana-price] Batch: failed for ${symbol}:`, msg);
+        errors.push(`${symbol}: ${msg}`);
+      }
+    }),
+  );
+
+  await Promise.all(tasks);
 
   // 全銘柄失敗 → throw して上位（worker.ts runJob）で通知させる
   if (symbols.length > 0 && errors.length === symbols.length) {

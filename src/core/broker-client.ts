@@ -235,11 +235,43 @@ export class TachibanaClient {
 
   /**
    * PRICE仮想URLにリクエスト送信
+   * 読み取り専用のためミューテックスを使用せず並列実行可能。
+   * p_noはJS単一スレッド内でのインクリメントのため採番順序は保証される。
    */
   async requestPrice(
     params: TachibanaRequestParams,
   ): Promise<TachibanaResponse> {
-    return this.requestWithRetry(() => this.session!.urlPrice, params);
+    await this.ensureSession();
+    const res = await this.fetchPriceWithRetry(params);
+    return res;
+  }
+
+  private async fetchPriceWithRetry(
+    params: TachibanaRequestParams,
+  ): Promise<TachibanaResponse> {
+    const fullParams = {
+      ...params,
+      p_no: this.nextRequestNo(),
+      p_sd_date: this.formatTimestamp(),
+    };
+    const url = `${this.session!.urlPrice}?${this.encodeParams(fullParams)}`;
+    const res = await this.fetchWithDecode(url);
+
+    if (this.isSessionError(res)) {
+      console.warn(
+        `[TachibanaClient] Session disconnected (${res.sResultText ?? ""}), re-logging in...`,
+      );
+      await this.reLoginOnce();
+      const retryParams = {
+        ...params,
+        p_no: this.nextRequestNo(),
+        p_sd_date: this.formatTimestamp(),
+      };
+      const retryUrl = `${this.session!.urlPrice}?${this.encodeParams(retryParams)}`;
+      return this.fetchWithDecode(retryUrl);
+    }
+
+    return res;
   }
 
   // ========================================
