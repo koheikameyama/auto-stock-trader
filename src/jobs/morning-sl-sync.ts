@@ -10,9 +10,15 @@
 import { prisma } from "../lib/prisma";
 import { notifySlack } from "../lib/slack";
 import { submitBrokerSL } from "../core/broker-sl-manager";
+import { isTachibanaProduction } from "../lib/constants/broker";
 
 export async function main(): Promise<void> {
   console.log("=== Morning SL Sync 開始 ===");
+
+  if (!isTachibanaProduction) {
+    console.log("[morning-sl-sync] デモ環境のためスキップ（価格ベース管理に移行）");
+    return;
+  }
 
   const openPositions = await prisma.tradingPosition.findMany({
     where: { status: "open" },

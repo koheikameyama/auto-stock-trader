@@ -1,12 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockPositionFindMany, mockPositionUpdate, mockSubmitBrokerSL, mockNotifySlack } =
+const { mockPositionFindMany, mockPositionUpdate, mockSubmitBrokerSL, mockNotifySlack, mockBrokerConstants } =
   vi.hoisted(() => ({
     mockPositionFindMany: vi.fn(),
     mockPositionUpdate: vi.fn().mockResolvedValue({}),
     mockSubmitBrokerSL: vi.fn().mockResolvedValue(undefined),
     mockNotifySlack: vi.fn().mockResolvedValue(undefined),
+    mockBrokerConstants: { isTachibanaProduction: true },
   }));
+
+vi.mock("../../lib/constants/broker", () => ({
+  TACHIBANA_ORDER: {
+    SIDE: { SELL: "1", BUY: "3" },
+    MARKET_PRICE: "0",
+    EXPIRE: { TODAY: "0" },
+    EXCHANGE: { TSE: "00" },
+    CONDITION: { NONE: "0" },
+    MARGIN_TYPE: { CASH: "0" },
+    REVERSE_ORDER_TYPE: { NORMAL: "0", REVERSE_ONLY: "1", NORMAL_AND_REVERSE: "2" },
+    TAX_TYPE: { SPECIFIC: "1" },
+  },
+  TACHIBANA_ORDER_STATUS: { FULLY_FILLED: "10", CANCELLED: "7", EXPIRED: "12" },
+  get isTachibanaProduction() { return mockBrokerConstants.isTachibanaProduction; },
+}));
 
 vi.mock("../../lib/prisma", () => ({
   prisma: {
@@ -60,6 +76,7 @@ function makePosition(overrides: {
 describe("morning-sl-sync: main()", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockBrokerConstants.isTachibanaProduction = true;
   });
 
   // ────────────────────────────────────────────────────────────
@@ -184,5 +201,21 @@ describe("morning-sl-sync: main()", () => {
         message: expect.stringContaining("失敗: 1件"),
       }),
     );
+  });
+
+  // ────────────────────────────────────────────────────────────
+  // 8. デモ環境ではスキップ
+  // ────────────────────────────────────────────────────────────
+  it("デモ環境（isTachibanaProduction=false）ではSL再発注をスキップしSlack通知もしない", async () => {
+    mockBrokerConstants.isTachibanaProduction = false;
+    // ポジションが存在してもスキップされること
+    mockPositionFindMany.mockResolvedValue([
+      makePosition({ stopLossPrice: 900 }),
+    ]);
+
+    await main();
+
+    expect(mockSubmitBrokerSL).not.toHaveBeenCalled();
+    expect(mockNotifySlack).not.toHaveBeenCalled();
   });
 });
