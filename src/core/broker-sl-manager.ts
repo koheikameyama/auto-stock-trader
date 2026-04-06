@@ -17,6 +17,7 @@ import {
   cancelOrder,
 } from "./broker-orders";
 import { notifySlack } from "../lib/slack";
+import { isTachibanaProduction } from "../lib/constants/broker";
 
 // ========================================
 // SL 注文発注
@@ -150,6 +151,10 @@ export async function updateBrokerSL(params: {
   newStopTriggerPrice: number;
   strategy: string;
 }): Promise<void> {
+  if (!isTachibanaProduction) {
+    console.log(`[broker-sl-manager] デモ環境のためupdateBrokerSLをスキップ: ${params.ticker}`);
+    return;
+  }
   await cancelBrokerSL(params.positionId);
   await submitBrokerSL({
     positionId: params.positionId,
