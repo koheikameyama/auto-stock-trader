@@ -47,9 +47,13 @@ vi.mock("../../../lib/slack", () => ({
   notifySlack: vi.fn(),
 }));
 
-vi.mock("../../../lib/market-date", () => ({
-  getTodayForDB: vi.fn().mockReturnValue(new Date("2026-03-24T00:00:00Z")),
-}));
+vi.mock("../../../lib/market-date", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../lib/market-date")>();
+  return {
+    ...actual,
+    getTodayForDB: vi.fn().mockReturnValue(new Date("2026-03-24T00:00:00Z")),
+  };
+});
 
 import { executeEntry, invalidateStalePendingOrders } from "../entry-executor";
 import { prisma } from "../../../lib/prisma";
