@@ -152,7 +152,7 @@ export async function updateBrokerSL(params: {
   strategy: string;
 }): Promise<void> {
   if (!isTachibanaProduction) {
-    console.log(`[broker-sl-manager] デモ環境のためupdateBrokerSLをスキップ: ${params.ticker}`);
+    console.log(`[broker-sl] デモ環境のためupdateBrokerSLをスキップ: ${params.ticker}`);
     return;
   }
   await cancelBrokerSL(params.positionId);
