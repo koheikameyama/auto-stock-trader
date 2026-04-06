@@ -214,16 +214,19 @@ describe("broker-reconciliation: Phase 3 保有照合", () => {
     );
   });
 
-  it("ブローカー保有なし + SL注文なし → voidPositionで損益なしクローズを呼ぶ", async () => {
+  it("ブローカー保有なし + SL注文なし → Slack通知のみ送信しvoidPositionを呼ばない", async () => {
     const position = makePosition({ slBrokerOrderId: null });
     setupForPhase3([position]);
     mockGetHoldings.mockResolvedValue([]);
 
     await main();
 
-    expect(mockVoidPosition).toHaveBeenCalledWith(
-      "pos-1",
-      expect.stringContaining("保有照合クローズ"),
+    expect(mockVoidPosition).not.toHaveBeenCalled();
+    expect(mockNotifySlack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: expect.stringContaining("要確認"),
+        color: "warning",
+      }),
     );
   });
 
@@ -303,7 +306,7 @@ describe("broker-reconciliation: Phase 4 孤立買い注文キャンセル", () 
     expect(mockCancelOrder).not.toHaveBeenCalled();
   });
 
-  it("DBに記録のない未約定買い注文をキャンセルしSlack warningを送信する", async () => {
+  it("DBに記録のない未約定買い注文を検出しSlack warningを送信する（自動キャンセルなし）", async () => {
     mockGetOrders.mockResolvedValue({
       sResultCode: "0",
       aOrderList: [
@@ -319,10 +322,11 @@ describe("broker-reconciliation: Phase 4 孤立買い注文キャンセル", () 
 
     await main();
 
-    expect(mockCancelOrder).toHaveBeenCalledWith("ORPHAN-001", "20260403");
+    expect(mockCancelOrder).not.toHaveBeenCalled();
     expect(mockNotifySlack).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: expect.stringContaining("孤立買い注文をキャンセル"),
+        title: expect.stringContaining("孤立買い注文を検出"),
+        color: "warning",
       }),
     );
   });
