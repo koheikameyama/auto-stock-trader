@@ -15,7 +15,7 @@ import { prisma } from "../lib/prisma";
 import { notifySlack } from "../lib/slack";
 import { syncBrokerOrderStatuses, getHoldings, getOrderDetail, getOrders, cancelOrder } from "../core/broker-orders";
 import { recoverMissedFills } from "../core/broker-fill-handler";
-import { TACHIBANA_ORDER, TACHIBANA_ORDER_STATUS } from "../lib/constants/broker";
+import { TACHIBANA_ORDER, TACHIBANA_ORDER_STATUS, isTachibanaProduction } from "../lib/constants/broker";
 import { closePosition, voidPosition } from "../core/position-manager";
 import { submitBrokerSL } from "../core/broker-sl-manager";
 
@@ -70,6 +70,11 @@ export async function main(): Promise<void> {
  * 数量が不一致の場合はSlackアラートを送信する。
  */
 async function reconcileHoldings(): Promise<void> {
+  if (!isTachibanaProduction) {
+    console.log("[broker-reconciliation] デモ環境のため保有照合をスキップ");
+    return;
+  }
+
   const [brokerHoldings, openPositions] = await Promise.all([
     getHoldings(),
     prisma.tradingPosition.findMany({

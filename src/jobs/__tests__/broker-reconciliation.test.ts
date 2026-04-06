@@ -17,8 +17,10 @@ const {
   mockCancelOrder,
   mockSubmitBrokerSL,
   mockClosePosition,
+  mockVoidPosition,
   mockFetchStockQuote,
   mockNotifySlack,
+  mockBrokerConstants,
 } = vi.hoisted(() => ({
   mockPositionFindMany: vi.fn(),
   mockPositionUpdate: vi.fn().mockResolvedValue({}),
@@ -32,8 +34,10 @@ const {
   mockCancelOrder: vi.fn().mockResolvedValue({ success: true }),
   mockSubmitBrokerSL: vi.fn().mockResolvedValue(undefined),
   mockClosePosition: vi.fn().mockResolvedValue({ realizedPnl: -1000 }),
+  mockVoidPosition: vi.fn().mockResolvedValue({}),
   mockFetchStockQuote: vi.fn().mockResolvedValue({ price: 950 }),
   mockNotifySlack: vi.fn().mockResolvedValue(undefined),
+  mockBrokerConstants: { isTachibanaProduction: true },
 }));
 
 vi.mock("../../lib/prisma", () => ({
@@ -57,6 +61,32 @@ vi.mock("../../core/broker-orders", () => ({
   cancelOrder: mockCancelOrder,
 }));
 
+vi.mock("../../lib/constants/broker", () => ({
+  TACHIBANA_ORDER: {
+    SIDE: { SELL: "1", BUY: "3" },
+    MARGIN_TYPE: { CASH: "0", MARGIN_NEW: "2", MARGIN_CLOSE: "4" },
+    EXCHANGE: { TSE: "00" },
+    CONDITION: { NONE: "0", OPEN: "2", CLOSE: "4", FUNARI: "6" },
+    REVERSE_ORDER_TYPE: { NORMAL: "0", REVERSE_ONLY: "1", NORMAL_AND_REVERSE: "2" },
+    EXPIRE: { TODAY: "0" },
+    TAX_TYPE: { SPECIFIC: "1", GENERAL: "3", NISA: "5" },
+    MARKET_PRICE: "0",
+  },
+  TACHIBANA_ORDER_STATUS: {
+    NOT_RECEIVED: "0",
+    UNFILLED: "1",
+    PARTIAL_FILLED: "9",
+    FULLY_FILLED: "10",
+    CANCELLED: "7",
+    EXPIRED: "12",
+    WAITING_REVERSE: "13",
+    SWITCHING: "15",
+    SWITCHED_UNFILLED: "16",
+    SUBMITTING: "50",
+  },
+  get isTachibanaProduction() { return mockBrokerConstants.isTachibanaProduction; },
+}));
+
 vi.mock("../../core/broker-fill-handler", () => ({
   recoverMissedFills: mockRecoverMissedFills,
 }));
@@ -67,6 +97,7 @@ vi.mock("../../core/broker-sl-manager", () => ({
 
 vi.mock("../../core/position-manager", () => ({
   closePosition: mockClosePosition,
+  voidPosition: mockVoidPosition,
 }));
 
 vi.mock("../../core/market-data", () => ({
@@ -144,6 +175,7 @@ function setupForPhase5() {
 describe("broker-reconciliation: Phase 3 保有照合", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockBrokerConstants.isTachibanaProduction = true;
   });
 
   it("openPositionsが0件の場合、closePositionを呼ばない", async () => {
@@ -202,19 +234,16 @@ describe("broker-reconciliation: Phase 3 保有照合", () => {
     );
   });
 
-  it("ブローカー保有なし + SL注文なし → 現在価格でclosePositionを呼ぶ", async () => {
+  it("ブローカー保有なし + SL注文なし → voidPositionで損益なしクローズを呼ぶ", async () => {
     const position = makePosition({ slBrokerOrderId: null });
     setupForPhase3([position]);
     mockGetHoldings.mockResolvedValue([]);
-    mockFetchStockQuote.mockResolvedValue({ price: 920 });
-    mockOrderFindFirst.mockResolvedValue(null); // 約定済み売注文なし
 
     await main();
 
-    expect(mockClosePosition).toHaveBeenCalledWith(
+    expect(mockVoidPosition).toHaveBeenCalledWith(
       "pos-1",
-      920,
-      expect.objectContaining({ exitReason: expect.stringContaining("保有照合クローズ") }),
+      expect.stringContaining("保有照合クローズ"),
     );
   });
 
@@ -245,6 +274,7 @@ describe("broker-reconciliation: Phase 3 保有照合", () => {
 describe("broker-reconciliation: Phase 4 SL注文照合", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockBrokerConstants.isTachibanaProduction = true;
   });
 
   it("SL注文がEXPIREDの場合、IDクリア → submitBrokerSLで再発注する", async () => {
@@ -395,5 +425,26 @@ describe("broker-reconciliation: Phase 5 孤立買い注文キャンセル", () 
         title: expect.stringContaining("孤立買い注文をキャンセル"),
       }),
     );
+  });
+});
+
+// ========================================
+// デモ環境スキップ
+// ========================================
+
+describe("broker-reconciliation: デモ環境スキップ", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockBrokerConstants.isTachibanaProduction = false;
+  });
+
+  it("デモ環境ではPhase3保有照合をスキップしvoidPositionを呼ばない", async () => {
+    setupForPhase3([makePosition()]);
+    mockGetHoldings.mockResolvedValue([]); // 保有なし → 本来なら自動クローズ
+
+    await main();
+
+    expect(mockVoidPosition).not.toHaveBeenCalled();
+    expect(mockClosePosition).not.toHaveBeenCalled();
   });
 });
