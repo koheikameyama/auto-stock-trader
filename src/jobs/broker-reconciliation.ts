@@ -12,10 +12,10 @@
 
 import { prisma } from "../lib/prisma";
 import { notifySlack } from "../lib/slack";
-import { syncBrokerOrderStatuses, getHoldings, getOrderDetail, getOrders, cancelOrder } from "../core/broker-orders";
+import { syncBrokerOrderStatuses, getHoldings, getOrderDetail, getOrders } from "../core/broker-orders";
 import { recoverMissedFills } from "../core/broker-fill-handler";
 import { TACHIBANA_ORDER, TACHIBANA_ORDER_STATUS, isTachibanaProduction } from "../lib/constants/broker";
-import { closePosition, voidPosition } from "../core/position-manager";
+import { closePosition } from "../core/position-manager";
 
 // 約定直後はブローカーの保有反映が遅れるためスキップする猶予期間
 const HOLDINGS_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5分
@@ -186,16 +186,14 @@ async function handleMissingHolding(position: {
     }
   }
 
-  // SL注文なし or 約定確認できず → 実取引が確認できないためP&Lなしでクローズ
-  const reason = "保有照合クローズ（ブローカー保有なし・約定未確認）";
-  await voidPosition(position.id, reason);
-  console.log(
-    `[broker-reconciliation] ${ticker}: 保有照合クローズ（約定未確認） → P&Lなしでクローズ`,
+  // SL注文なし or 約定確認できず → 通知のみ（手動確認を促す）
+  console.warn(
+    `[broker-reconciliation] ${ticker}: ブローカー保有なし・約定未確認 → 通知のみ（自動クローズ停止中）`,
   );
   await notifySlack({
-    title: `🔴 保有照合クローズ: ${ticker}`,
-    message: `ブローカーに保有が見つからないため自動クローズしました\npositionId: ${position.id}\nSL注文: ${position.slBrokerOrderId ?? "なし"}\n損益: 記録なし（約定未確認）\n手動確認を推奨します`,
-    color: "danger",
+    title: `⚠️ 要確認: ブローカー保有なし ${ticker}`,
+    message: `ブローカーに保有が見つかりません（SL約定未確認）\npositionId: ${position.id}\nSL注文: ${position.slBrokerOrderId ?? "なし"}\n手動で確認してください`,
+    color: "warning",
   }).catch(() => {});
 }
 
@@ -240,21 +238,14 @@ async function cancelOrphanedBuyOrders(): Promise<void> {
     // DBに対応レコードがある場合はスキップ
     if (dbOrderIds.has(orderNum)) continue;
 
-    // 孤立買い注文 → キャンセル
+    // 孤立買い注文 → 通知のみ（自動キャンセル停止中）
     console.warn(
-      `[broker-reconciliation] 孤立買い注文を検出: ${orderNum} (${businessDay}) → キャンセル`,
+      `[broker-reconciliation] 孤立買い注文を検出: ${orderNum} (${businessDay}) → 通知のみ`,
     );
-    const result = await cancelOrder(orderNum, businessDay).catch(() => ({
-      success: false,
-      error: "cancel request failed",
-    }));
-
     await notifySlack({
-      title: result.success
-        ? `⚠️ 孤立買い注文をキャンセルしました`
-        : `❌ 孤立買い注文のキャンセルに失敗しました`,
-      message: `注文番号: ${orderNum}\n営業日: ${businessDay}\n${result.success ? "DBに記録のない買い注文を自動キャンセルしました" : `キャンセル失敗: ${result.error}\n手動対応が必要です`}`,
-      color: result.success ? "warning" : "danger",
+      title: `⚠️ 要確認: 孤立買い注文を検出`,
+      message: `注文番号: ${orderNum}\n営業日: ${businessDay}\nDBに記録のない買い注文が存在します\n手動で確認してください`,
+      color: "warning",
     }).catch(() => {});
   }
 }
