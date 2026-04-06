@@ -293,7 +293,7 @@ export function layout(
             switchNikkeiPeriod('1d');
           }
 
-          // 株価を非同期取得してDOM更新
+          // 株価を非同期取得してDOM更新（30秒ポーリング）
           (function() {
             var rows = document.querySelectorAll('[data-quote-row]');
             if (rows.length === 0) return;
@@ -307,101 +307,106 @@ export function layout(
 
             var params = new URLSearchParams(window.location.search);
             var token = params.get('token') || '';
-            fetch('/api/quotes?tickers=' + encodeURIComponent(tickers.join(',')) + '&token=' + encodeURIComponent(token))
-              .then(function(r) { return r.json(); })
-              .then(function(quotes) {
-                var fmt = function(v) { return Number(v).toLocaleString('ja-JP', { maximumFractionDigits: 0 }); };
-                var pnlHtml = function(v) {
-                  var cls = v >= 0 ? 'pnl-positive' : 'pnl-negative';
-                  var sign = v >= 0 ? '+' : '';
-                  return '<span class="' + cls + '">' + sign + '¥' + fmt(v) + '</span>';
-                };
-                var pctHtml = function(v) {
-                  var cls = v >= 0 ? 'pnl-positive' : 'pnl-negative';
-                  var sign = v >= 0 ? '+' : '';
-                  return '<span class="' + cls + '">' + sign + v.toFixed(2) + '%</span>';
-                };
+            var fmt = function(v) { return Number(v).toLocaleString('ja-JP', { maximumFractionDigits: 0 }); };
+            var pnlHtml = function(v) {
+              var cls = v >= 0 ? 'pnl-positive' : 'pnl-negative';
+              var sign = v >= 0 ? '+' : '';
+              return '<span class="' + cls + '">' + sign + '¥' + fmt(v) + '</span>';
+            };
+            var pctHtml = function(v) {
+              var cls = v >= 0 ? 'pnl-positive' : 'pnl-negative';
+              var sign = v >= 0 ? '+' : '';
+              return '<span class="' + cls + '">' + sign + v.toFixed(2) + '%</span>';
+            };
 
-                var portfolioInvested = 0;
-                var hasPortfolio = !!document.querySelector('[data-portfolio]');
+            function updateQuotes() {
+              fetch('/api/quotes?tickers=' + encodeURIComponent(tickers.join(',')) + '&token=' + encodeURIComponent(token))
+                .then(function(r) { return r.json(); })
+                .then(function(quotes) {
+                  var portfolioInvested = 0;
+                  var hasPortfolio = !!document.querySelector('[data-portfolio]');
 
-                rows.forEach(function(row) {
-                  var ticker = row.getAttribute('data-ticker');
-                  var q = quotes[ticker];
-                  if (!q) {
-                    // 取得失敗時は「-」を表示
-                    var loadings = row.querySelectorAll('.quote-loading');
-                    loadings.forEach(function(el) { el.textContent = '-'; });
-                    // ポートフォリオ計算: 取得失敗時は建値を使用
-                    var ep = parseFloat(row.getAttribute('data-entry-price') || '0');
-                    var qty = parseInt(row.getAttribute('data-quantity') || '0', 10);
-                    if (ep && qty) portfolioInvested += ep * qty;
-                    return;
+                  rows.forEach(function(row) {
+                    var ticker = row.getAttribute('data-ticker');
+                    var q = quotes[ticker];
+                    if (!q) {
+                      // 取得失敗時は「-」を表示
+                      var loadings = row.querySelectorAll('.quote-loading');
+                      loadings.forEach(function(el) { el.textContent = '-'; });
+                      // ポートフォリオ計算: 取得失敗時は建値を使用
+                      var ep = parseFloat(row.getAttribute('data-entry-price') || '0');
+                      var qty = parseInt(row.getAttribute('data-quantity') || '0', 10);
+                      if (ep && qty) portfolioInvested += ep * qty;
+                      return;
+                    }
+
+                    var priceEl = row.querySelector('[data-quote-price]');
+                    if (priceEl) priceEl.innerHTML = '¥' + fmt(q.price);
+
+                    var entryPrice = parseFloat(row.getAttribute('data-entry-price') || '0');
+                    var quantity = parseInt(row.getAttribute('data-quantity') || '0', 10);
+
+                    // ポジション: 含み損益
+                    var pnlEl = row.querySelector('[data-quote-pnl]');
+                    if (pnlEl && entryPrice && quantity) {
+                      var pnl = (q.price - entryPrice) * quantity;
+                      pnlEl.innerHTML = pnlHtml(pnl);
+                    }
+
+                    // ポジション: 損益率
+                    var rateEl = row.querySelector('[data-quote-pnl-rate]');
+                    if (rateEl && entryPrice) {
+                      var rate = ((q.price - entryPrice) / entryPrice) * 100;
+                      rateEl.innerHTML = pctHtml(rate);
+                    }
+
+                    // 注文: 乖離率
+                    var devEl = row.querySelector('[data-quote-deviation]');
+                    var orderPrice = parseFloat(row.getAttribute('data-order-price') || '0');
+                    if (devEl && orderPrice) {
+                      var dev = ((q.price - orderPrice) / orderPrice) * 100;
+                      devEl.innerHTML = pctHtml(dev);
+                    }
+
+                    // ウォッチリスト: 価格条件チェック
+                    var priceCheckEl = row.querySelector('[data-price-check]');
+                    if (priceCheckEl && orderPrice) {
+                      var priceOk = q.price > orderPrice;
+                      var color = priceOk ? '#22c55e' : '#64748b';
+                      var mark = priceOk ? '\u2713' : '\u2717';
+                      priceCheckEl.innerHTML = '\u4fa1\u683c' + mark;
+                      priceCheckEl.style.color = color;
+                    }
+
+                    // ポートフォリオ計算用
+                    if (quantity) portfolioInvested += q.price * quantity;
+                  });
+
+                  // ポートフォリオ合計を更新
+                  if (hasPortfolio) {
+                    var pEl = document.querySelector('[data-portfolio]');
+                    var cash = parseFloat(pEl.getAttribute('data-cash') || '0');
+                    var budget = parseFloat(pEl.getAttribute('data-total-budget') || '0');
+                    var total = cash + portfolioInvested;
+                    var totalPnl = total - budget;
+
+                    var totalEl = document.querySelector('[data-portfolio-total]');
+                    if (totalEl) totalEl.textContent = '¥' + fmt(total);
+
+                    var pnlEl2 = document.querySelector('[data-portfolio-pnl]');
+                    if (pnlEl2) pnlEl2.innerHTML = pnlHtml(totalPnl);
                   }
-
-                  var priceEl = row.querySelector('[data-quote-price]');
-                  if (priceEl) priceEl.innerHTML = '¥' + fmt(q.price);
-
-                  var entryPrice = parseFloat(row.getAttribute('data-entry-price') || '0');
-                  var quantity = parseInt(row.getAttribute('data-quantity') || '0', 10);
-
-                  // ポジション: 含み損益
-                  var pnlEl = row.querySelector('[data-quote-pnl]');
-                  if (pnlEl && entryPrice && quantity) {
-                    var pnl = (q.price - entryPrice) * quantity;
-                    pnlEl.innerHTML = pnlHtml(pnl);
-                  }
-
-                  // ポジション: 損益率
-                  var rateEl = row.querySelector('[data-quote-pnl-rate]');
-                  if (rateEl && entryPrice) {
-                    var rate = ((q.price - entryPrice) / entryPrice) * 100;
-                    rateEl.innerHTML = pctHtml(rate);
-                  }
-
-                  // 注文: 乖離率
-                  var devEl = row.querySelector('[data-quote-deviation]');
-                  var orderPrice = parseFloat(row.getAttribute('data-order-price') || '0');
-                  if (devEl && orderPrice) {
-                    var dev = ((q.price - orderPrice) / orderPrice) * 100;
-                    devEl.innerHTML = pctHtml(dev);
-                  }
-
-                  // ウォッチリスト: 価格条件チェック
-                  var priceCheckEl = row.querySelector('[data-price-check]');
-                  if (priceCheckEl && orderPrice) {
-                    var priceOk = q.price > orderPrice;
-                    var color = priceOk ? '#22c55e' : '#64748b';
-                    var mark = priceOk ? '\u2713' : '\u2717';
-                    priceCheckEl.innerHTML = '\u4fa1\u683c' + mark;
-                    priceCheckEl.style.color = color;
-                  }
-
-                  // ポートフォリオ計算用
-                  if (quantity) portfolioInvested += q.price * quantity;
+                })
+                .catch(function() {
+                  // 取得失敗時はローディング表示を「-」に
+                  document.querySelectorAll('.quote-loading').forEach(function(el) {
+                    el.textContent = '-';
+                  });
                 });
+            }
 
-                // ポートフォリオ合計を更新
-                if (hasPortfolio) {
-                  var pEl = document.querySelector('[data-portfolio]');
-                  var cash = parseFloat(pEl.getAttribute('data-cash') || '0');
-                  var budget = parseFloat(pEl.getAttribute('data-total-budget') || '0');
-                  var total = cash + portfolioInvested;
-                  var totalPnl = total - budget;
-
-                  var totalEl = document.querySelector('[data-portfolio-total]');
-                  if (totalEl) totalEl.textContent = '¥' + fmt(total);
-
-                  var pnlEl2 = document.querySelector('[data-portfolio-pnl]');
-                  if (pnlEl2) pnlEl2.innerHTML = pnlHtml(totalPnl);
-                }
-              })
-              .catch(function() {
-                // 取得失敗時はローディング表示を「-」に
-                document.querySelectorAll('.quote-loading').forEach(function(el) {
-                  el.textContent = '-';
-                });
-              });
+            updateQuotes();
+            setInterval(updateQuotes, 30000);
           })();
         </script>
       </body>
