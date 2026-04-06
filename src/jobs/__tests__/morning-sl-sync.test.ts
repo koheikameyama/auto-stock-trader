@@ -260,7 +260,63 @@ describe("morning-sl-sync: main()", () => {
   });
 
   // ────────────────────────────────────────────────────────────
-  // 8. デモ環境ではスキップ
+  // 8. improved=true のとき発注成功後に DB が更新される
+  // ────────────────────────────────────────────────────────────
+  it("improved=true かつ発注成功のとき maxHighDuringHold と trailingStopPrice が DB に保存される", async () => {
+    mockPositionFindMany.mockResolvedValue([
+      makePosition({ id: "pos-1", slBrokerOrderId: "SL-OLD-001", stopLossPrice: 900 }),
+    ]);
+    mockComputeRecoveredStop.mockReturnValue({
+      newMaxHigh: 2200,
+      newStopPrice: 2120,
+      improved: true,
+    });
+    mockSubmitBrokerSL.mockResolvedValue(undefined);
+
+    await main();
+
+    expect(mockPositionUpdate).toHaveBeenCalledTimes(2);
+    // 1回目: SL ID クリア
+    expect(mockPositionUpdate).toHaveBeenNthCalledWith(1, {
+      where: { id: "pos-1" },
+      data: { slBrokerOrderId: null, slBrokerBusinessDay: null },
+    });
+    // 2回目: maxHighDuringHold と trailingStopPrice の更新
+    expect(mockPositionUpdate).toHaveBeenNthCalledWith(2, {
+      where: { id: "pos-1" },
+      data: { maxHighDuringHold: 2200, trailingStopPrice: 2120 },
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────
+  // 9. improved=true でも発注失敗時は DB が更新されない
+  // ────────────────────────────────────────────────────────────
+  it("improved=true でも発注失敗時は maxHighDuringHold / trailingStopPrice の DB 更新をしない", async () => {
+    mockPositionFindMany.mockResolvedValue([
+      makePosition({ id: "pos-1", stopLossPrice: 900 }),
+    ]);
+    mockComputeRecoveredStop.mockReturnValue({
+      newMaxHigh: 2200,
+      newStopPrice: 2120,
+      improved: true,
+    });
+    mockSubmitBrokerSL.mockRejectedValue(new Error("API error"));
+
+    await main();
+
+    // SL ID クリアの update が呼ばれていないこと（旧SL IDなし）を前提に、
+    // maxHighDuringHold / trailingStopPrice の更新が呼ばれていないことを確認
+    const updateCalls = mockPositionUpdate.mock.calls;
+    const dbUpdateWithNewValues = updateCalls.find(
+      (call) =>
+        call[0]?.data?.maxHighDuringHold !== undefined ||
+        call[0]?.data?.trailingStopPrice !== undefined,
+    );
+    expect(dbUpdateWithNewValues).toBeUndefined();
+  });
+
+  // ────────────────────────────────────────────────────────────
+  // 10. デモ環境ではスキップ
   // ────────────────────────────────────────────────────────────
   it("デモ環境（isTachibanaProduction=false）ではSL再発注をスキップしSlack通知もしない", async () => {
     mockBrokerConstants.isTachibanaProduction = false;
