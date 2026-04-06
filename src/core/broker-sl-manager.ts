@@ -11,6 +11,7 @@
 import dayjs from "dayjs";
 import { prisma } from "../lib/prisma";
 import { TIME_STOP } from "../lib/constants";
+import { adjustToTradingDay } from "../lib/market-calendar";
 import {
   submitOrder,
   cancelOrder,
@@ -32,10 +33,11 @@ export async function submitBrokerSL(params: {
   strategy: string;
 }): Promise<void> {
   try {
-    // SL注文の期限: タイムストップ上限+1日
-    const expireDay = dayjs()
+    // SL注文の期限: タイムストップ上限+1日（非営業日なら直後の営業日に調整）
+    const rawExpire = dayjs()
       .add(TIME_STOP.MAX_EXTENDED_HOLDING_DAYS + 1, "day")
-      .format("YYYYMMDD");
+      .toDate();
+    const expireDay = dayjs(adjustToTradingDay(rawExpire)).format("YYYYMMDD");
 
     const result = await submitOrder({
       ticker: params.ticker,

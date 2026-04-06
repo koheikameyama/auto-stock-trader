@@ -27,6 +27,7 @@ import { BREAKOUT } from "../../lib/constants/breakout";
 import { GAPUP } from "../../lib/constants/gapup";
 import { TACHIBANA_ORDER } from "../../lib/constants/broker";
 import { ORDER_EXPIRY } from "../../lib/constants/jobs";
+import { adjustToTradingDay } from "../../lib/market-calendar";
 import type { BreakoutTrigger } from "./types";
 import type { QuoteData } from "./breakout-scanner";
 import type { GapUpTrigger } from "../gapup/gapup-scanner";
@@ -196,7 +197,7 @@ export async function executeEntry(
       quantity,
       limitPrice: isGapUp ? null : currentPrice,
       condition: isGapUp ? TACHIBANA_ORDER.CONDITION.CLOSE : undefined,
-      expireDay: isGapUp ? undefined : dayjs(expiresAt).tz(TIMEZONE).format("YYYYMMDD"),
+      expireDay: isGapUp ? undefined : dayjs(adjustToTradingDay(expiresAt)).tz(TIMEZONE).format("YYYYMMDD"),
     });
   } catch (brokerErr) {
     console.error(`[entry-executor] ブローカーエラー ${ticker}:`, brokerErr);

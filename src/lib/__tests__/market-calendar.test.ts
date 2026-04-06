@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { countNonTradingDaysAhead } from "../market-calendar";
+import { countNonTradingDaysAhead, adjustToTradingDay } from "../market-calendar";
 
 // テスト用ヘルパー: YYYY-MM-DD → Date（JST基準）
 function jstDate(dateStr: string): Date {
@@ -46,5 +46,32 @@ describe("countNonTradingDaysAhead", () => {
     const result = countNonTradingDaysAhead();
     expect(result).toBeGreaterThanOrEqual(0);
     expect(result).toBeLessThanOrEqual(30);
+  });
+});
+
+describe("adjustToTradingDay", () => {
+  it("営業日（月曜）はそのまま返す", () => {
+    // 2026-04-06 = 月曜日
+    const result = adjustToTradingDay(jstDate("2026-04-06"));
+    expect(result.getUTCDate()).toBe(6);
+  });
+
+  it("土曜日 → 直後の月曜日に調整", () => {
+    // 2026-04-11 = 土曜日 → 2026-04-13 = 月曜日
+    const result = adjustToTradingDay(jstDate("2026-04-11"));
+    expect(result.getUTCMonth()).toBe(3); // April (0-indexed)
+    expect(result.getUTCDate()).toBe(13);
+  });
+
+  it("日曜日 → 直後の月曜日に調整", () => {
+    // 2026-04-12 = 日曜日 → 2026-04-13 = 月曜日
+    const result = adjustToTradingDay(jstDate("2026-04-12"));
+    expect(result.getUTCDate()).toBe(13);
+  });
+
+  it("祝日 → 直後の営業日に調整", () => {
+    // 2026-04-29 = 昭和の日（水曜祝日） → 2026-04-30 = 木曜
+    const result = adjustToTradingDay(jstDate("2026-04-29"));
+    expect(result.getUTCDate()).toBe(30);
   });
 });

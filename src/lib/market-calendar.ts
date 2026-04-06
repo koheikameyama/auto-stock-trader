@@ -69,6 +69,24 @@ export function countNonTradingDaysAhead(date?: Date): number {
 }
 
 /**
+ * 指定日が非営業日の場合、直後の営業日に調整する
+ * 営業日であればそのまま返す
+ *
+ * 用途: 注文期日(sOrderExpireDay)がカレンダー日加算で非営業日に
+ * なるケースを防ぐ（立花APIは非営業日の期日を拒否する）
+ */
+export function adjustToTradingDay(date: Date): Date {
+  let d = dayjs(date).tz(JST);
+  let attempts = 0;
+  while (!isMarketDay(d.toDate()) && attempts < MAX_LOOKAHEAD_DAYS) {
+    d = d.add(1, "day");
+    attempts++;
+  }
+  // JST日付をUTC 00:00として返す（getNextTradingDayと同じ形式）
+  return new Date(Date.UTC(d.year(), d.month(), d.date()));
+}
+
+/**
  * 次の営業日の日付を返す
  *
  * @param from 起点日（デフォルト: 現在のJST日付）
