@@ -15,7 +15,6 @@ const {
   mockGetOrderDetail,
   mockGetOrders,
   mockCancelOrder,
-  mockSubmitBrokerSL,
   mockClosePosition,
   mockVoidPosition,
   mockFetchStockQuote,
@@ -32,7 +31,6 @@ const {
   mockGetOrderDetail: vi.fn(),
   mockGetOrders: vi.fn(),
   mockCancelOrder: vi.fn().mockResolvedValue({ success: true }),
-  mockSubmitBrokerSL: vi.fn().mockResolvedValue(undefined),
   mockClosePosition: vi.fn().mockResolvedValue({ realizedPnl: -1000 }),
   mockVoidPosition: vi.fn().mockResolvedValue({}),
   mockFetchStockQuote: vi.fn().mockResolvedValue({ price: 950 }),
@@ -91,10 +89,6 @@ vi.mock("../../core/broker-fill-handler", () => ({
   recoverMissedFills: mockRecoverMissedFills,
 }));
 
-vi.mock("../../core/broker-sl-manager", () => ({
-  submitBrokerSL: mockSubmitBrokerSL,
-}));
-
 vi.mock("../../core/position-manager", () => ({
   closePosition: mockClosePosition,
   voidPosition: mockVoidPosition,
@@ -142,30 +136,16 @@ function makePosition(overrides: {
   };
 }
 
-/** Phase 3 のみテストするセットアップ（Phase 4, 5 を無害化） */
+/** Phase 3 のみテストするセットアップ（Phase 4 を無害化） */
 function setupForPhase3(phase3Positions: ReturnType<typeof makePosition>[]) {
-  // Phase 3: tradingPosition.findMany({ where: { status: "open" } })
-  // Phase 4: tradingPosition.findMany({ where: { status: "open", slBrokerOrderId: { not: null } } })
-  mockPositionFindMany.mockImplementation(async ({ where }: { where: Record<string, unknown> }) => {
-    if (where.slBrokerOrderId) return []; // Phase 4 → 空
-    return phase3Positions;
-  });
-  // Phase 5
+  mockPositionFindMany.mockResolvedValue(phase3Positions);
+  // Phase 4
   mockGetOrders.mockResolvedValue({ sResultCode: "0", aOrderList: [] });
 }
 
 /** Phase 4 のみテストするセットアップ（Phase 3 を無害化） */
-function setupForPhase4(phase4Positions: ReturnType<typeof makePosition>[]) {
-  mockPositionFindMany.mockImplementation(async ({ where }: { where: Record<string, unknown> }) => {
-    if (where.slBrokerOrderId) return phase4Positions; // Phase 4
-    return []; // Phase 3 → 空
-  });
-  mockGetOrders.mockResolvedValue({ sResultCode: "0", aOrderList: [] });
-}
-
-/** Phase 5 のみテストするセットアップ（Phase 3, 4 を無害化） */
-function setupForPhase5() {
-  mockPositionFindMany.mockResolvedValue([]); // Phase 3, 4 → 空
+function setupForPhase4() {
+  mockPositionFindMany.mockResolvedValue([]); // Phase 3 → 空
 }
 
 // ========================================
@@ -268,93 +248,13 @@ describe("broker-reconciliation: Phase 3 保有照合", () => {
 });
 
 // ========================================
-// Phase 4: SL注文照合（reconcileSLOrders）
+// Phase 4: 孤立買い注文キャンセル（cancelOrphanedBuyOrders）
 // ========================================
 
-describe("broker-reconciliation: Phase 4 SL注文照合", () => {
+describe("broker-reconciliation: Phase 4 孤立買い注文キャンセル", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockBrokerConstants.isTachibanaProduction = true;
-  });
-
-  it("SL注文がEXPIREDの場合、IDクリア → submitBrokerSLで再発注する", async () => {
-    const position = makePosition({
-      slBrokerOrderId: "SL-EXPIRED",
-      stopLossPrice: 900,
-    });
-    setupForPhase4([position]);
-    mockGetOrderDetail.mockResolvedValue({ sOrderStatusCode: "12" }); // EXPIRED
-
-    await main();
-
-    // IDクリア
-    expect(mockPositionUpdate).toHaveBeenCalledWith({
-      where: { id: "pos-1" },
-      data: { slBrokerOrderId: null, slBrokerBusinessDay: null },
-    });
-    // 再発注
-    expect(mockSubmitBrokerSL).toHaveBeenCalledWith(
-      expect.objectContaining({
-        positionId: "pos-1",
-        stopTriggerPrice: 900,
-      }),
-    );
-  });
-
-  it("SL注文がCANCELLEDの場合、IDクリア → submitBrokerSLで再発注する", async () => {
-    const position = makePosition({
-      slBrokerOrderId: "SL-CANCELLED",
-      stopLossPrice: 850,
-    });
-    setupForPhase4([position]);
-    mockGetOrderDetail.mockResolvedValue({ sOrderStatusCode: "7" }); // CANCELLED
-
-    await main();
-
-    expect(mockPositionUpdate).toHaveBeenCalledWith({
-      where: { id: "pos-1" },
-      data: { slBrokerOrderId: null, slBrokerBusinessDay: null },
-    });
-    expect(mockSubmitBrokerSL).toHaveBeenCalledWith(
-      expect.objectContaining({ stopTriggerPrice: 850 }),
-    );
-  });
-
-  it("SL価格が0の場合、再発注せずSlack dangerを送信する", async () => {
-    const position = makePosition({
-      slBrokerOrderId: "SL-EXPIRED",
-      stopLossPrice: 0,
-      trailingStopPrice: null,
-    });
-    setupForPhase4([position]);
-    mockGetOrderDetail.mockResolvedValue({ sOrderStatusCode: "12" }); // EXPIRED
-
-    await main();
-
-    expect(mockSubmitBrokerSL).not.toHaveBeenCalled();
-    expect(mockNotifySlack).toHaveBeenCalledWith(
-      expect.objectContaining({ color: "danger" }),
-    );
-  });
-
-  it("getOrderDetailが失敗した場合、例外を投げずスキップする", async () => {
-    const position = makePosition({ slBrokerOrderId: "SL-001" });
-    setupForPhase4([position]);
-    mockGetOrderDetail.mockRejectedValue(new Error("API timeout"));
-
-    await expect(main()).resolves.not.toThrow();
-    expect(mockSubmitBrokerSL).not.toHaveBeenCalled();
-  });
-});
-
-// ========================================
-// Phase 5: 孤立買い注文キャンセル（cancelOrphanedBuyOrders）
-// ========================================
-
-describe("broker-reconciliation: Phase 5 孤立買い注文キャンセル", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    setupForPhase5();
+    setupForPhase4();
   });
 
   it("getOrdersがnullを返す場合、cancelOrderを呼ばない", async () => {

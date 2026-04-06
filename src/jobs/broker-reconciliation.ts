@@ -7,8 +7,7 @@
  * Phase 1: 注文ステータス同期    (syncBrokerOrderStatuses から移管)
  * Phase 2: 見逃し約定リカバリ   (recoverMissedFills から移管)
  * Phase 3: 保有株数照合         (NEW) ブローカー保有 vs DBオープンポジション
- * Phase 4: SL注文照合           (NEW) 失効・取消SLの再発注
- * Phase 5: 孤立買い注文キャンセル (NEW) DBに記録のないブローカー買い注文を自動キャンセル
+ * Phase 4: 孤立買い注文キャンセル (NEW) DBに記録のないブローカー買い注文を自動キャンセル
  */
 
 import { prisma } from "../lib/prisma";
@@ -17,7 +16,6 @@ import { syncBrokerOrderStatuses, getHoldings, getOrderDetail, getOrders, cancel
 import { recoverMissedFills } from "../core/broker-fill-handler";
 import { TACHIBANA_ORDER, TACHIBANA_ORDER_STATUS, isTachibanaProduction } from "../lib/constants/broker";
 import { closePosition, voidPosition } from "../core/position-manager";
-import { submitBrokerSL } from "../core/broker-sl-manager";
 
 // 約定直後はブローカーの保有反映が遅れるためスキップする猶予期間
 const HOLDINGS_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5分
@@ -46,14 +44,7 @@ export async function main(): Promise<void> {
     console.warn("[broker-reconciliation] reconcileHoldings error (ignored):", e);
   }
 
-  // Phase 4: SL注文照合
-  try {
-    await reconcileSLOrders();
-  } catch (e) {
-    console.warn("[broker-reconciliation] reconcileSLOrders error (ignored):", e);
-  }
-
-  // Phase 5: 孤立買い注文キャンセル
+  // Phase 4: 孤立買い注文キャンセル
   try {
     await cancelOrphanedBuyOrders();
   } catch (e) {
@@ -208,83 +199,6 @@ async function handleMissingHolding(position: {
   }).catch(() => {});
 }
 
-
-/**
- * SL注文の状態を照合する
- *
- * オープンポジションのSL注文が失効・取消されている場合は再発注する。
- * SL約定（FULLY_FILLED）は Phase 3 の保有照合で処理済みのためここではスキップ。
- */
-async function reconcileSLOrders(): Promise<void> {
-  const openPositions = await prisma.tradingPosition.findMany({
-    where: {
-      status: "open",
-      slBrokerOrderId: { not: null },
-      slBrokerBusinessDay: { not: null },
-    },
-    include: { stock: true },
-  });
-
-  if (!openPositions.length) return;
-
-  for (const position of openPositions) {
-    if (!position.slBrokerOrderId || !position.slBrokerBusinessDay) continue;
-
-    const detail = await getOrderDetail(
-      position.slBrokerOrderId,
-      position.slBrokerBusinessDay,
-    ).catch(() => null);
-
-    if (!detail) continue;
-
-    const brokerStatus = String(detail.sOrderStatusCode ?? detail.sOrderStatus ?? "");
-    const ticker = position.stock.tickerCode;
-
-    // 失効・取消の場合は再発注（約定は Phase 3 で処理済み）
-    if (
-      brokerStatus === TACHIBANA_ORDER_STATUS.EXPIRED ||
-      brokerStatus === TACHIBANA_ORDER_STATUS.CANCELLED
-    ) {
-      const reason = brokerStatus === TACHIBANA_ORDER_STATUS.EXPIRED ? "失効" : "取消";
-      console.warn(
-        `[broker-reconciliation] ${ticker}: SL注文 ${position.slBrokerOrderId} が${reason} → 再発注`,
-      );
-
-      // SL IDをクリアしてから再発注
-      await prisma.tradingPosition.update({
-        where: { id: position.id },
-        data: { slBrokerOrderId: null, slBrokerBusinessDay: null },
-      });
-
-      // 最新のSL価格（trailingStop優先）で再発注
-      const stopPrice =
-        position.trailingStopPrice != null
-          ? Number(position.trailingStopPrice)
-          : Number(position.stopLossPrice ?? 0);
-
-      if (stopPrice > 0) {
-        await submitBrokerSL({
-          positionId: position.id,
-          ticker,
-          quantity: position.quantity,
-          stopTriggerPrice: stopPrice,
-          strategy: position.strategy,
-        });
-        await notifySlack({
-          title: `⚠️ SL注文再発注: ${ticker}`,
-          message: `SL注文 ${position.slBrokerOrderId} が${reason}されたため再発注しました\nトリガー価格: ¥${stopPrice.toLocaleString()}`,
-          color: "warning",
-        }).catch(() => {});
-      } else {
-        await notifySlack({
-          title: `❌ SL注文再発注失敗: ${ticker}`,
-          message: `SL注文 ${position.slBrokerOrderId} が${reason}されましたが、SL価格が不明なため再発注できません\npositionId: ${position.id}\n手動対応が必要です`,
-          color: "danger",
-        }).catch(() => {});
-      }
-    }
-  }
-}
 
 /**
  * DBに記録のないブローカー買い注文を検出してキャンセルする
