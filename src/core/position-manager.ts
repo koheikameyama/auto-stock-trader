@@ -134,6 +134,27 @@ export async function closePosition(
 }
 
 /**
+ * ポジションを無効化する（実取引が確認できない場合）
+ *
+ * ブローカーに保有が見つからず、約定も確認できないケースで使用する。
+ * 損益は記録しない（realizedPnl = null）。
+ */
+export async function voidPosition(
+  positionId: string,
+  reason: string,
+): Promise<TradingPosition> {
+  return prisma.tradingPosition.update({
+    where: { id: positionId },
+    data: {
+      status: "closed",
+      exitedAt: new Date(),
+      realizedPnl: null,
+      exitSnapshot: { exitReason: reason },
+    },
+  });
+}
+
+/**
  * オープン中の全ポジションを取得する
  */
 export async function getOpenPositions() {

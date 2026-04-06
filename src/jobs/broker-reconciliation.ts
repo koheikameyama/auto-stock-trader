@@ -16,9 +16,8 @@ import { notifySlack } from "../lib/slack";
 import { syncBrokerOrderStatuses, getHoldings, getOrderDetail, getOrders, cancelOrder } from "../core/broker-orders";
 import { recoverMissedFills } from "../core/broker-fill-handler";
 import { TACHIBANA_ORDER, TACHIBANA_ORDER_STATUS } from "../lib/constants/broker";
-import { closePosition } from "../core/position-manager";
+import { closePosition, voidPosition } from "../core/position-manager";
 import { submitBrokerSL } from "../core/broker-sl-manager";
-import { fetchStockQuote } from "../core/market-data";
 
 // 約定直後はブローカーの保有反映が遅れるためスキップする猶予期間
 const HOLDINGS_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5分
@@ -191,58 +190,19 @@ async function handleMissingHolding(position: {
     }
   }
 
-  // SL注文なし or 約定確認できず → DBの約定済み売注文 or 現在値でクローズ
-  const exitPrice = await resolveExitPrice(position);
-  await closePosition(position.id, exitPrice, {
-    exitReason: "保有照合クローズ（ブローカー保有なし・自動修正）",
-    exitPrice,
-    marketContext: null,
-  });
+  // SL注文なし or 約定確認できず → 実取引が確認できないためP&Lなしでクローズ
+  const reason = "保有照合クローズ（ブローカー保有なし・約定未確認）";
+  await voidPosition(position.id, reason);
   console.log(
-    `[broker-reconciliation] ${ticker}: 保有照合クローズ @ ¥${exitPrice} → ポジションクローズ`,
+    `[broker-reconciliation] ${ticker}: 保有照合クローズ（約定未確認） → P&Lなしでクローズ`,
   );
   await notifySlack({
     title: `🔴 保有照合クローズ: ${ticker}`,
-    message: `ブローカーに保有が見つからないため自動クローズしました\npositionId: ${position.id}\nSL注文: ${position.slBrokerOrderId ?? "なし"}\n使用価格: ¥${exitPrice.toLocaleString()}`,
+    message: `ブローカーに保有が見つからないため自動クローズしました\npositionId: ${position.id}\nSL注文: ${position.slBrokerOrderId ?? "なし"}\n損益: 記録なし（約定未確認）\n手動確認を推奨します`,
     color: "danger",
   }).catch(() => {});
 }
 
-/**
- * ポジションの推定エグジット価格を解決する
- *
- * 1. DB内の約定済み売注文の約定価格
- * 2. 現在の市場価格
- * 3. trailingStopPrice or stopLossPrice（フォールバック）
- */
-async function resolveExitPrice(position: {
-  id: string;
-  stopLossPrice: unknown;
-  trailingStopPrice: unknown;
-  stock: { tickerCode: string };
-}): Promise<number> {
-  // 1. DB内の約定済み売注文
-  const filledSellOrder = await prisma.tradingOrder.findFirst({
-    where: { positionId: position.id, side: "sell", status: "filled" },
-    orderBy: { filledAt: "desc" },
-  });
-  if (filledSellOrder?.filledPrice) {
-    return Number(filledSellOrder.filledPrice);
-  }
-
-  // 2. 現在の市場価格
-  const quote = await fetchStockQuote(position.stock.tickerCode).catch(() => null);
-  if (quote?.price && quote.price > 0) {
-    return quote.price;
-  }
-
-  // 3. trailingStopPrice or stopLossPrice
-  const fallback =
-    position.trailingStopPrice != null
-      ? Number(position.trailingStopPrice)
-      : Number(position.stopLossPrice ?? 0);
-  return fallback;
-}
 
 /**
  * SL注文の状態を照合する
