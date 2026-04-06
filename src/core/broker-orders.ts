@@ -93,7 +93,9 @@ export async function submitOrder(
     sSizyouC: TACHIBANA_ORDER.EXCHANGE.TSE,
     sBaibaiKubun: baibaiKubun,
     sCondition: req.condition ?? TACHIBANA_ORDER.CONDITION.NONE,
-    sOrderPrice: req.limitPrice != null ? String(req.limitPrice) : TACHIBANA_ORDER.MARKET_PRICE,
+    // REVERSE_ONLY注文（逆指値のみ）では主注文価格が存在しないため "*" を使用
+    // NORMAL / NORMAL_AND_REVERSE では通常通り指値または成行 "0"
+    sOrderPrice: (hasReverse && !hasLimit) ? "*" : (hasLimit ? String(req.limitPrice) : TACHIBANA_ORDER.MARKET_PRICE),
     sOrderSuryou: String(req.quantity),
     sGenkinShinyouKubun: TACHIBANA_ORDER.MARGIN_TYPE.CASH,
     sOrderExpireDay: req.expireDay ?? TACHIBANA_ORDER.EXPIRE.TODAY,
