@@ -73,14 +73,13 @@ export async function main(): Promise<void> {
   const result = runCombinedSimulation(
     { boConfig, guConfig, budget, verbose: false, allData, precomputed, breakoutSignals, gapupSignals, vixData: vixData.size > 0 ? vixData : undefined, monthlyAddAmount: 0, equityCurveSmaPeriod: 20 },
     boConfig.maxPositions,
-    guConfig.maxPositions,
   );
 
   // DB保存
   try {
     const savedId = await saveBacktestResult(
       {
-        config: { startDate, endDate, boMaxPositions: boConfig.maxPositions, guMaxPositions: guConfig.maxPositions, initialBudget: budget },
+        config: { startDate, endDate, maxPositions: boConfig.maxPositions, initialBudget: budget },
         trades: result.allTrades,
         equityCurve: result.equityCurve,
         metrics: result.totalMetrics,

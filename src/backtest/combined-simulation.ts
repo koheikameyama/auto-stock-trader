@@ -358,14 +358,13 @@ function checkEquityCurveFilter(
 // ──────────────────────────────────────────
 export function runCombinedSimulation(
   ctx: SimContext,
-  boMaxPositions: number,
-  guMaxPositions: number,
+  maxPositions: number,
 ): SimResult {
   const { boConfig, guConfig, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel } = ctx;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
 
-  const boConfigLocal = { ...boConfig, maxPositions: boMaxPositions };
-  const guConfigLocal = { ...guConfig, maxPositions: guMaxPositions };
+  const boConfigLocal = { ...boConfig };
+  const guConfigLocal = { ...guConfig };
 
   let cash = budget;
   let totalCapitalAdded = budget;
@@ -448,10 +447,11 @@ export function runCombinedSimulation(
     ]);
 
     // ── 2a. Breakout エントリー ──
-    if (boShouldTrade && !shouldSkipByVixRegime(todayRegime, boVixSkipLevel) && boPositions.length < boConfigLocal.maxPositions && cash > 0) {
+    const totalPositions = () => boPositions.length + guPositions.length;
+    if (boShouldTrade && !shouldSkipByVixRegime(todayRegime, boVixSkipLevel) && totalPositions() < maxPositions && cash > 0) {
       const rawSignals = breakoutSignals.get(today) ?? [];
       for (const signal of rawSignals) {
-        if (boPositions.length >= boConfigLocal.maxPositions) break;
+        if (totalPositions() >= maxPositions) break;
         if (allOpenTickers.has(signal.ticker)) continue;
 
         const lastExit = lastExitDayIdx.get(signal.ticker);
@@ -488,10 +488,10 @@ export function runCombinedSimulation(
     }
 
     // ── 2b. GapUp エントリー ──
-    if (guShouldTrade && !shouldSkipByVixRegime(todayRegime, guVixSkipLevel) && guPositions.length < guConfigLocal.maxPositions && cash > 0) {
+    if (guShouldTrade && !shouldSkipByVixRegime(todayRegime, guVixSkipLevel) && totalPositions() < maxPositions && cash > 0) {
       const signals = gapupSignals.get(today) ?? [];
       for (const signal of signals) {
-        if (guPositions.length >= guConfigLocal.maxPositions) break;
+        if (totalPositions() >= maxPositions) break;
         if (allOpenTickers.has(signal.ticker)) continue;
 
         const lastExit = lastExitDayIdx.get(signal.ticker);

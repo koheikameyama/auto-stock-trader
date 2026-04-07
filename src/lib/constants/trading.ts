@@ -11,7 +11,7 @@ export const UNIT_SHARES = 100;
 
 export const TRADING_DEFAULTS = {
   TOTAL_BUDGET: 500_000, // 50万円
-  MAX_POSITIONS: 2, // 最大同時保有数（gapup枠確保のため）
+  MAX_POSITIONS: 3, // 最大同時保有数（全戦略合計）
   MAX_POSITION_PCT: 40, // 1銘柄集中リスク防止（50万円規模: 最大20万/銘柄）
   MAX_DAILY_LOSS_PCT: 3, // 日次最大損失率(%)
 } as const;

@@ -194,8 +194,7 @@ async function main() {
       const gc: GapUpBacktestConfig = { ...guConfig, initialBudget: row.budget };
       const result = runCombinedSimulation(
         { ...ctx, boConfig: bc, guConfig: gc, budget: row.budget },
-        bc.maxPositions,
-        gc.maxPositions,
+        boConfig.maxPositions,
       );
       const m = result.totalMetrics;
       const util = calculateCapitalUtilization(result.equityCurve);
@@ -213,20 +212,20 @@ async function main() {
   // ポジション比較モード
   if (comparePositions) {
     const grid = [
-      { bo: 3, gu: 3, label: "3:3（現状）" },
-      { bo: 5, gu: 2, label: "5:2" },
-      { bo: 3, gu: 5, label: "3:5" },
-      { bo: 5, gu: 5, label: "5:5" },
+      { maxPos: 2, label: "2枠" },
+      { maxPos: 3, label: "3枠（現状）" },
+      { maxPos: 5, label: "5枠" },
+      { maxPos: 10, label: "10枠" },
     ];
 
-    console.log("\n=== ポジション枠比較 ===");
+    console.log("\n=== ポジション枠比較（全戦略合計） ===");
     console.log(
-      `${"枠(BO:GU)".padEnd(14)}| ${"Trades".padStart(6)} | ${"WinRate".padStart(7)} | ${"PF".padStart(5)} | ${"Expect".padStart(8)} | ${"MaxDD".padStart(7)} | ${"NetRet".padStart(8)} | ${"稼働率".padStart(6)}`,
+      `${"枠数".padEnd(14)}| ${"Trades".padStart(6)} | ${"WinRate".padStart(7)} | ${"PF".padStart(5)} | ${"Expect".padStart(8)} | ${"MaxDD".padStart(7)} | ${"NetRet".padStart(8)} | ${"稼働率".padStart(6)}`,
     );
     console.log("-".repeat(78));
 
     for (const row of grid) {
-      const result = runCombinedSimulation(ctx, row.bo, row.gu);
+      const result = runCombinedSimulation(ctx, row.maxPos);
       const m = result.totalMetrics;
       const util = calculateCapitalUtilization(result.equityCurve);
       const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
@@ -254,7 +253,6 @@ async function main() {
       const result = runCombinedSimulation(
         { ...ctx, equityCurveSmaPeriod: sma },
         boConfig.maxPositions,
-        guConfig.maxPositions,
       );
       const m = result.totalMetrics;
       const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
@@ -290,7 +288,6 @@ async function main() {
       const result = runCombinedSimulation(
         { ...ctx, boVixSkipLevel: row.boSkip, guVixSkipLevel: row.guSkip },
         boConfig.maxPositions,
-        guConfig.maxPositions,
       );
       const m = result.totalMetrics;
       const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
@@ -339,8 +336,7 @@ async function main() {
       };
       const result = runCombinedSimulation(
         { ...ctx, boConfig: bc },
-        bc.maxPositions,
-        guConfig.maxPositions,
+        boConfig.maxPositions,
       );
       const tm = result.totalMetrics;
       const bm = result.boMetrics;
@@ -356,8 +352,8 @@ async function main() {
   }
 
   // 通常実行
-  console.log(`ポジション枠: Breakout ${boConfig.maxPositions} / GapUp ${guConfig.maxPositions}`);
-  const result = runCombinedSimulation(ctx, boConfig.maxPositions, guConfig.maxPositions);
+  console.log(`ポジション枠: 全戦略合計 ${boConfig.maxPositions}`);
+  const result = runCombinedSimulation(ctx, boConfig.maxPositions);
 
   console.log("\n" + "=".repeat(60));
   console.log("統合バックテスト結果");
@@ -402,7 +398,7 @@ async function main() {
   try {
     const id = await saveBacktestResult(
       {
-        config: { startDate, endDate, boMaxPositions: boConfig.maxPositions, guMaxPositions: guConfig.maxPositions, initialBudget: budget },
+        config: { startDate, endDate, maxPositions: boConfig.maxPositions, initialBudget: budget },
         trades: result.allTrades,
         equityCurve: result.equityCurve,
         metrics: result.totalMetrics,

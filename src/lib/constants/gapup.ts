@@ -23,9 +23,4 @@ export const GAPUP = {
     /** breadth閾値（ウォッチリスト銘柄のSMA25上回り比率）— バックテストの marketTrendThreshold と同値 */
     BREADTH_THRESHOLD: 0.6,
   },
-  /** ポジション管理 */
-  POSITION: {
-    /** 最大同時保有数（breakoutとは独立） */
-    MAX_POSITIONS: 2,
-  },
 } as const;
