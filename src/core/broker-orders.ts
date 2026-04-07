@@ -12,6 +12,7 @@ import {
   TACHIBANA_ORDER,
   TACHIBANA_ORDER_STATUS,
   TACHIBANA_ORDER_QUERY,
+  isTachibanaProduction,
 } from "../lib/constants/broker";
 import { notifySlack } from "../lib/slack";
 
@@ -72,6 +73,14 @@ export interface BrokerHolding {
 export async function submitOrder(
   req: BrokerOrderRequest,
 ): Promise<BrokerOrderResult> {
+  // デモ環境では売り注文をスキップ（サーバー側に保有データがないためエラーになる）
+  if (!isTachibanaProduction && req.side === "sell") {
+    console.log(
+      `[broker-orders] Demo環境のため売り注文をスキップ: ${req.ticker} qty=${req.quantity}`,
+    );
+    return { success: true, orderNumber: undefined, businessDay: undefined };
+  }
+
   const brokerCode = tickerToBrokerCode(req.ticker);
   const baibaiKubun =
     req.side === "buy" ? TACHIBANA_ORDER.SIDE.BUY : TACHIBANA_ORDER.SIDE.SELL;
@@ -122,6 +131,14 @@ export async function cancelOrder(
   businessDay: string,
   reason?: string,
 ): Promise<BrokerOrderResult> {
+  // デモ環境では売り注文が未発注のため取消もスキップ
+  if (!isTachibanaProduction) {
+    console.log(
+      `[broker-orders] Demo環境のため注文取消をスキップ: ${orderId}`,
+    );
+    return { success: true };
+  }
+
   const params: TachibanaRequestParams = {
     sCLMID: TACHIBANA_CLMID.CANCEL_ORDER,
     sOrderNumber: orderId,
@@ -154,6 +171,14 @@ export async function modifyOrder(
     expireDay?: string;
   },
 ): Promise<BrokerOrderResult> {
+  // デモ環境では売り注文が未発注のため訂正もスキップ
+  if (!isTachibanaProduction) {
+    console.log(
+      `[broker-orders] Demo環境のため注文訂正をスキップ: ${orderId}`,
+    );
+    return { success: true };
+  }
+
   const params: TachibanaRequestParams = {
     sCLMID: TACHIBANA_CLMID.CORRECT_ORDER,
     sOrderNumber: orderId,
