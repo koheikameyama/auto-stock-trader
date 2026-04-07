@@ -157,7 +157,6 @@ describe("getHoldings", () => {
       marketPrice: 3350,
       marketValue: 335000,
       unrealizedPnl: 15000,
-      accountType: "1",
     });
   });
 

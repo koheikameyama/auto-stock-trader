@@ -60,8 +60,6 @@ export interface BrokerHolding {
   marketPrice: number;
   marketValue: number;
   unrealizedPnl: number;
-  /** 譲渡益課税区分（"1"=特定, "3"=一般, "5"=NISA, "6"=N成長） */
-  accountType: string;
 }
 
 // ========================================
@@ -78,12 +76,6 @@ export async function submitOrder(
   const baibaiKubun =
     req.side === "buy" ? TACHIBANA_ORDER.SIDE.BUY : TACHIBANA_ORDER.SIDE.SELL;
 
-  // 売り注文で taxType 未指定の場合、保有銘柄の口座区分を自動取得
-  let taxType = req.taxType;
-  if (!taxType && req.side === "sell") {
-    taxType = await resolveAccountTypeForSell(req.ticker);
-  }
-
   // 逆指値の有無で注文種別を決定
   const hasReverse = req.stopTriggerPrice != null;
   const hasLimit = req.limitPrice != null;
@@ -96,7 +88,7 @@ export async function submitOrder(
 
   const params: TachibanaRequestParams = {
     sCLMID: TACHIBANA_CLMID.NEW_ORDER,
-    sZyoutoekiKazeiC: taxType ?? TACHIBANA_ORDER.TAX_TYPE.SPECIFIC,
+    sZyoutoekiKazeiC: req.taxType ?? TACHIBANA_ORDER.TAX_TYPE.SPECIFIC,
     sIssueCode: brokerCode,
     sSizyouC: TACHIBANA_ORDER.EXCHANGE.TSE,
     sBaibaiKubun: baibaiKubun,
@@ -237,7 +229,6 @@ export async function getHoldings(): Promise<BrokerHolding[] | null> {
     marketPrice: Number(item.sUriOrderHyoukaTanka ?? 0),
     marketValue: Number(item.sUriOrderGaisanHyoukagaku ?? 0),
     unrealizedPnl: Number(item.sUriOrderGaisanHyoukaSoneki ?? 0),
-    accountType: String(item.sUriOrderZyoutoekiKazeiC ?? TACHIBANA_ORDER.TAX_TYPE.SPECIFIC),
   }));
 }
 
@@ -354,33 +345,6 @@ export async function syncBrokerOrderStatuses(): Promise<void> {
 // ========================================
 // 内部ヘルパー
 // ========================================
-
-/**
- * 売り注文時に保有銘柄の口座区分（譲渡益課税区分）をブローカーから取得する。
- * 取得失敗時はデフォルト（特定口座）にフォールバック。
- */
-async function resolveAccountTypeForSell(
-  ticker: string,
-): Promise<string> {
-  try {
-    const holdings = await getHoldings();
-    if (!holdings) return TACHIBANA_ORDER.TAX_TYPE.SPECIFIC;
-
-    const holding = holdings.find((h) => h.ticker === ticker);
-    if (holding) {
-      console.log(
-        `[broker-orders] ${ticker} 口座区分: ${holding.accountType}`,
-      );
-      return holding.accountType;
-    }
-  } catch (err) {
-    console.warn(
-      `[broker-orders] Failed to resolve account type for ${ticker}, using default:`,
-      err,
-    );
-  }
-  return TACHIBANA_ORDER.TAX_TYPE.SPECIFIC;
-}
 
 async function executeLiveOrder(
   params: TachibanaRequestParams,
