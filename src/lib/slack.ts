@@ -167,6 +167,7 @@ export async function notifyOrderFilled(data: {
   filledPrice: number;
   quantity: number;
   pnl?: number;
+  exitReason?: string;
 }): Promise<void> {
   const emoji = data.side === "buy" ? "✅" : "💰";
   const fields: SlackField[] = [
@@ -187,8 +188,10 @@ export async function notifyOrderFilled(data: {
     });
   }
 
+  const reasonSuffix = data.exitReason ? ` — ${data.exitReason}` : "";
+
   await notifySlack({
-    title: `${emoji} 約定: ${data.tickerCode}${data.name ? ` ${data.name}` : ""} [${data.side.toUpperCase()}]`,
+    title: `${emoji} 約定: ${data.tickerCode}${data.name ? ` ${data.name}` : ""} [${data.side.toUpperCase()}]${reasonSuffix}`,
     message: `約定価格 ¥${data.filledPrice.toLocaleString()} × ${data.quantity}株`,
     color: data.pnl != null ? (data.pnl >= 0 ? "good" : "danger") : "#439FE0",
     fields,

@@ -508,6 +508,7 @@ export async function main() {
         pnl: closedPosition.realizedPnl
           ? Number(closedPosition.realizedPnl)
           : 0,
+        exitReason,
       });
     } else {
       // maxHigh/minLow/trailingStopPrice を更新
@@ -639,6 +640,7 @@ export async function main() {
       filledPrice: quote.price,
       quantity: position.quantity,
       pnl: closed.realizedPnl ? Number(closed.realizedPnl) : 0,
+      exitReason: earningsReason,
     });
 
     earningsCloseCount++;
@@ -742,6 +744,7 @@ export async function main() {
           filledPrice: quote.price,
           quantity: position.quantity,
           pnl: closed.realizedPnl ? Number(closed.realizedPnl) : 0,
+          exitReason: defensiveReason,
         });
 
         defensiveCloseCount++;

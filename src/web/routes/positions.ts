@@ -137,6 +137,7 @@ app.get("/", async (c) => {
                   <th>${tt("建値", "エントリー時の購入価格")}</th>
                   <th>${tt("決済", "ポジションを閉じた時の価格")}</th>
                   <th>${tt("損益", "実現損益（税引前）")}</th>
+                  <th>${tt("決済理由", "損切り・利確・トレーリング・タイムストップ等")}</th>
                   <th>${tt("決済日", "ポジションを閉じた日付")}</th>
                 </tr>
               </thead>
@@ -157,6 +158,10 @@ app.get("/", async (c) => {
                           ? pnlText(Number(p.realizedPnl))
                           : "-"}
                       </td>
+                      <td style="white-space:nowrap">${(() => {
+                        const snap = p.exitSnapshot as { exitReason?: string } | null;
+                        return snap?.exitReason ?? "-";
+                      })()}</td>
                       <td style="white-space:nowrap">${p.exitedAt ? dayjs(p.exitedAt).format("M/D") : "-"}</td>
                     </tr>
                   `,

@@ -33,6 +33,11 @@ vi.mock("../../lib/slack", () => ({
   notifySlack: mockNotifySlack,
 }));
 
+vi.mock("../../lib/constants/broker", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/constants/broker")>();
+  return { ...actual, isTachibanaProduction: true };
+});
+
 import {
   cancelOrder,
   getHoldings,

@@ -1,7 +1,7 @@
 /**
  * 取引コスト定数
  *
- * 立花証券 e-Supportプラン手数料 + 税金
+ * 立花証券 e支店 個別手数料コース手数料 + 税金
  */
 
 /** 手数料ティア（固定額 or 料率） */
@@ -20,15 +20,19 @@ export type CommissionTier = CommissionTierFixed | CommissionTierRate;
 
 export const TRADING_COSTS = {
   /**
-   * 立花証券 e支店 現物定額コース 手数料テーブル（税込）
-   * ※ 定額コースは本来1日の約定代金合計で計算（100万ごとに253円追加、50万まで253円など）。
-   * ※ シミュレーション上は1約定ごとの計算となるため、定額料金を概算で按分したテーブルを設定。
+   * 立花証券 e支店 現物個別手数料コース 手数料テーブル（税込）
+   * 1注文の約定代金に対する手数料
    */
   COMMISSION_TIERS: [
-    { maxTradeValue: 120_000, commission: 0 },
-    { maxTradeValue: 500_000, commission: 126 }, // 50万定額(253円)の約半分
-    { maxTradeValue: 1_000_000, commission: 253 }, // 100万定額(506円)の約半分
-    { maxTradeValue: Infinity, rate: 0.000253 }, // 100万ごとに253円追加
+    { maxTradeValue: 100_000, commission: 77 },
+    { maxTradeValue: 200_000, commission: 99 },
+    { maxTradeValue: 500_000, commission: 187 },
+    { maxTradeValue: 1_000_000, commission: 341 },
+    { maxTradeValue: 1_500_000, commission: 407 },
+    { maxTradeValue: 3_000_000, commission: 473 },
+    { maxTradeValue: 6_000_000, commission: 814 },
+    { maxTradeValue: 10_000_000, commission: 869 },
+    { maxTradeValue: Infinity, commission: 1_100 },
   ] as CommissionTier[],
 
   /** 譲渡益課税（特定口座・源泉徴収あり） */
