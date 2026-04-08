@@ -198,9 +198,9 @@ describe("buildWatchlist", () => {
     expect(stats.skipGate).toBe(1);
   });
 
-  it("株価が MIN_PRICE (300円) を下回ると低位株ゲート失敗で除外される", async () => {
-    const bars = makeBars(80, { close: 200, high: 210 });
-    mockStockFindMany.mockResolvedValue([makeStock("1111", { latestPrice: 200 })]);
+  it("株価が MIN_PRICE (100円) を下回ると低位株ゲート失敗で除外される", async () => {
+    const bars = makeBars(80, { close: 50, high: 55 });
+    mockStockFindMany.mockResolvedValue([makeStock("1111", { latestPrice: 50 })]);
     mockReadHistoricalFromDB.mockResolvedValue(new Map([["1111", bars]]));
 
     const { entries, stats } = await buildWatchlist();
@@ -223,12 +223,13 @@ describe("buildWatchlist", () => {
   it("週足下降トレンドの銘柄（weeklyClose < weeklySma13）はゲート通過でも除外される", async () => {
     // 80本で緩やかに下落: newest(i=0)=500, oldest(i=79)≈994
     // weeklyClose(≈500) < weeklySma13(≈688) となる（急落を避けてATRスパイクを防ぐ）
+    // volume=300_000: 500×300,000=1.5億 >= MIN_TURNOVER(1億) → ゲート通過
     const bars = makeBars(80, {
       override: (i) => {
         const price = Math.round(500 + i * 6.25);
         return { open: price * 0.99, high: price * 1.02, low: price * 0.99, close: price };
       },
-      volume: 100_000,
+      volume: 300_000,
     });
 
     // latestPrice=700: ATR(≈18) < 700*3%=21 → canAffordEntry通過
@@ -305,8 +306,8 @@ describe("buildWatchlist", () => {
     expect(stats.totalStocks).toBe(0);
   });
 
-  it("売買代金が MIN_TURNOVER (5000万円) を下回るとゲート失敗で除外される", async () => {
-    // 株価400円 × 出来高100,000株 = 売買代金4,000万円 < 5,000万円
+  it("売買代金が MIN_TURNOVER (1億円) を下回るとゲート失敗で除外される", async () => {
+    // 株価400円 × 出来高100,000株 = 売買代金4,000万円 < 1億円
     const bars = makeBars(80, { close: 400, high: 410 });
     mockStockFindMany.mockResolvedValue([makeStock("1111", { latestPrice: 400 })]);
     mockReadHistoricalFromDB.mockResolvedValue(new Map([["1111", bars]]));
