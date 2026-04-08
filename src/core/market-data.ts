@@ -10,7 +10,7 @@ import dayjs from "dayjs";
 
 import { prisma } from "../lib/prisma";
 import { normalizeTickerCode } from "../lib/ticker-utils";
-import { DATA_QUALITY, YAHOO_FINANCE } from "../lib/constants";
+import { DATA_QUALITY, YAHOO_FINANCE, LIQUIDITY_FILTER } from "../lib/constants";
 import { sleep } from "../lib/retry-utils";
 import {
   providerFetchQuote,
@@ -516,4 +516,78 @@ export async function fetchNextEarningsDate(
 ): Promise<Date | null> {
   const events = await fetchCorporateEvents(tickerCode);
   return events.nextEarningsDate;
+}
+
+// ========================================
+// 流動性チェック（板情報フィルター）
+// ========================================
+
+export interface LiquidityCheckResult {
+  /** 約定可能と判断されたか */
+  isLiquid: boolean;
+  /** スプレッド率（%） */
+  spreadPct: number | null;
+  /** リスクフラグ（板薄、スプレッド大、売り圧力大など） */
+  riskFlags: string[];
+  /** 不合格時の理由（isLiquid=true なら undefined） */
+  reason?: string;
+}
+
+/**
+ * 板情報による流動性チェック
+ *
+ * エントリー前に best ask/bid の厚みとスプレッドを検証し、
+ * 約定リスクの高い銘柄をフィルタリングする。
+ *
+ * @param quote   StockQuote（askPrice/bidPrice/askSize/bidSize を含む）
+ * @param orderQuantity 注文予定株数
+ */
+export function checkLiquidity(
+  quote: Pick<StockQuote, "askPrice" | "bidPrice" | "askSize" | "bidSize" | "price">,
+  orderQuantity: number,
+): LiquidityCheckResult {
+  const riskFlags: string[] = [];
+
+  // 板情報が取得できない場合はパス（yfinanceフォールバック時など）
+  if (!quote.askPrice || !quote.bidPrice) {
+    return { isLiquid: true, spreadPct: null, riskFlags: [] };
+  }
+
+  // 1. スプレッドチェック
+  const spread = quote.askPrice - quote.bidPrice;
+  const spreadPct = quote.price > 0 ? (spread / quote.price) * 100 : 0;
+
+  if (spreadPct > LIQUIDITY_FILTER.MAX_SPREAD_PCT) {
+    return {
+      isLiquid: false,
+      spreadPct,
+      riskFlags: ["スプレッド大"],
+      reason: `スプレッド ${spreadPct.toFixed(2)}% > 上限 ${LIQUIDITY_FILTER.MAX_SPREAD_PCT}%（ask=¥${quote.askPrice} bid=¥${quote.bidPrice}）`,
+    };
+  }
+
+  // 2. 板厚チェック（askSideに注文数量以上の板があるか）
+  const requiredDepth = orderQuantity * LIQUIDITY_FILTER.MIN_BOARD_DEPTH_RATIO;
+  if (quote.askSize != null && quote.askSize < requiredDepth) {
+    return {
+      isLiquid: false,
+      spreadPct,
+      riskFlags: ["板薄"],
+      reason: `売り板 ${quote.askSize}株 < 注文 ${orderQuantity}株（スリッページリスク大）`,
+    };
+  }
+
+  // 3. 売り圧力チェック（リスクフラグのみ、ブロックはしない）
+  if (quote.askSize != null && quote.bidSize != null && quote.bidSize > 0) {
+    const sellPressureRatio = quote.askSize / quote.bidSize;
+    if (sellPressureRatio >= LIQUIDITY_FILTER.SELL_PRESSURE_THRESHOLD) {
+      riskFlags.push("売り圧力大");
+    }
+  }
+
+  if (spreadPct > LIQUIDITY_FILTER.MAX_SPREAD_PCT * 0.7) {
+    riskFlags.push("スプレッドやや大");
+  }
+
+  return { isLiquid: true, spreadPct, riskFlags };
 }

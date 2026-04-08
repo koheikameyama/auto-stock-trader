@@ -276,65 +276,56 @@ Phase 4 の損切り検証ルールで自動チェックされる。
 
 ---
 
+## 板情報フィルター（流動性チェック）
+
+### 概要
+
+エントリー直前に立花証券APIから最新の板情報（best ask/bid）を取得し、流動性が不十分な銘柄への発注を自動的にブロックする。
+
+### 実装場所
+
+- 流動性チェック関数: `src/core/market-data.ts` (`checkLiquidity()`)
+- エントリーへの組み込み: `src/core/breakout/entry-executor.ts`（`canOpenPosition` の後、ブローカー発注の前）
+- 定数: `src/lib/constants/trading.ts` (`LIQUIDITY_FILTER`)
+
+### 判定ロジック
+
+| チェック項目   | 判定基準                                                   | 不合格時のアクション |
+| -------------- | ---------------------------------------------------------- | -------------------- |
+| スプレッド     | `(askPrice - bidPrice) / price > 0.5%`                     | エントリー見送り     |
+| 最良気配の厚み | `askSize < orderQuantity × MIN_BOARD_DEPTH_RATIO (1.0)`    | エントリー見送り     |
+| 売り圧力       | `askSize / bidSize >= SELL_PRESSURE_THRESHOLD (3.0)`       | リスクフラグ付与     |
+
+### インターフェース
+
+```typescript
+interface LiquidityCheckResult {
+  isLiquid: boolean;       // 約定可能と判断されたか
+  spreadPct: number | null; // スプレッド率（%）
+  riskFlags: string[];     // ["板薄", "スプレッド大", "売り圧力大"] 等
+  reason?: string;         // 不合格理由
+}
+```
+
+### 動作
+
+1. `executeEntry()` 内で `canOpenPosition()` 通過後に `fetchStockQuote()` で最新板情報を取得
+2. `checkLiquidity()` でスプレッド・板厚・売り圧力を検証
+3. 不合格 → `retryable: true` で返却（次スキャンで再試行可能）
+4. リスクフラグ → ログ出力（ブロックはしない）
+5. 板情報は `entrySnapshot.liquidity` に記録（事後分析用）
+
+### 板情報が取得できない場合
+
+yfinanceフォールバック時など板情報がない場合は、チェックをパス（`isLiquid: true`）として従来通り発注する。
+
+### 将来の拡張
+
+- 板の変動性チェック（急激に薄くなっていないか）
+- 複数気配値の深さ分析（現在は best ask/bid の1本値のみ）
+- エグジット時の流動性チェック
+
 ## 将来のフェーズ（本仕様のスコープ外）
-
-### 板情報フィルター（第2フィルター）
-
-立花証券API等から板データを取得し、第1フィルターを通過した銘柄の「物理的な約定可能性」をロジックで判定する。
-
-#### 目的
-
-テクニカル的に有望でも、板が薄ければ「買いたいけど買えない（または高く買わされる）」事故が起きる。板情報を第2フィルターとして追加することで、実戦での約定リスクを排除する。
-
-#### 実装場所
-
-`src/core/market-data.ts` への追加
-
-#### 判定ロジック
-
-| チェック項目   | 判定基準                                 | 不合格時のアクション |
-| -------------- | ---------------------------------------- | -------------------- |
-| 最良気配の厚み | 自分の注文数量に対して十分な板厚があるか | 候補から除外         |
-| スプレッド     | 買い気配と売り気配の差が許容範囲内か     | 候補から除外         |
-| 買い/売り比率  | オーバー（売り超過）が極端でないか       | リスクフラグ付与     |
-| 板の変動性     | 板が急激に薄くなっていないか             | リスクフラグ付与     |
-
-#### インターフェース
-
-```typescript
-interface OrderBookScore {
-  buyPressure: number; // 買い板の厚さ（株数）
-  sellPressure: number; // 売り板の厚さ（株数）
-  ratio: number; // 買い/売り比率
-  spread: number; // スプレッド（円）
-  spreadPct: number; // スプレッド率（%）
-  isLiquid: boolean; // 約定可能と判断されたか
-  score: number; // 0-100
-  riskFlags: string[]; // ["板薄", "スプレッド大"] 等
-}
-```
-
-#### パイプラインへの組み込み
-
-```typescript
-async function marketScanner() {
-  // 1. ロジックで全銘柄スキャン（CPU処理）
-  const logicalCandidates = await scanByLogic(allTickers);
-
-  // 2. 板情報で約定可能性チェック（API処理）※将来実装
-  const liquidityCandidates = await checkLiquidity(logicalCandidates);
-
-  // 3. フィルター通過銘柄を自動承認
-  for (const candidate of liquidityCandidates) {
-    await orderManager.createOrder(candidate);
-  }
-}
-```
-
-#### 前提条件
-
-- 立花証券API（またはそれに相当する板データ提供API）の利用開始
-- リアルタイム板データの取得環境の構築
 
 ### スコアリングシステム改善
 

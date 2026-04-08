@@ -145,13 +145,25 @@ export const TIME_WINDOW = {
 } as const;
 
 // ========================================
-// スプレッドフィルタ
+// 流動性フィルタ（板情報チェック）
 // ========================================
 
-export const SPREAD_FILTER = {
-  // エントリーをスキップするスプレッド閾値（%）
+export const LIQUIDITY_FILTER = {
+  // スプレッド上限（%）: best ask - best bid が株価に対してこの比率を超えたらスキップ
   // 日経225銘柄は通常0.1-0.3%。0.5%超は流動性不足と判断
   MAX_SPREAD_PCT: 0.5,
+
+  // 最良気配の最小板厚（株数）: 自分の注文数量以上の板厚がなければスキップ
+  // 注文数量との比較で判定するため、固定値ではなく倍率で管理
+  MIN_BOARD_DEPTH_RATIO: 1.0, // askSize >= 注文数量 × この倍率
+
+  // 売り超過の警戒閾値: askSize / bidSize がこの値以上なら「売り圧力大」としてリスクフラグ
+  SELL_PRESSURE_THRESHOLD: 3.0,
+} as const;
+
+/** @deprecated LIQUIDITY_FILTER.MAX_SPREAD_PCT を使用してください */
+export const SPREAD_FILTER = {
+  MAX_SPREAD_PCT: LIQUIDITY_FILTER.MAX_SPREAD_PCT,
 } as const;
 
 // ========================================
