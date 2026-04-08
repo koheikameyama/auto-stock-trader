@@ -49,7 +49,7 @@ export type PrecomputedGapUpSignals = Map<string, PrecomputedGapUpSignal[]>;
  */
 export function precomputeGapUpDailySignals(
   config: Pick<GapUpBacktestConfig,
-    | "maxPrice" | "minAtrPct" | "minAvgVolume25"
+    | "maxPrice" | "minAtrPct" | "minAvgVolume25" | "minTurnover"
     | "gapMinPct" | "volSurgeRatio"
     | "marketTrendFilter" | "marketTrendThreshold" | "indexTrendFilter"
     | "maxLossPct"
@@ -96,6 +96,7 @@ export function precomputeGapUpDailySignals(
       if (!passesUniverseGates({
         price: todayBar.close, avgVolume25, atrPct,
         maxPrice: config.maxPrice, minAvgVolume25: config.minAvgVolume25, minAtrPct: config.minAtrPct,
+        minTurnover: config.minTurnover,
       })) continue;
 
       const volumeSurgeRatio = todayBar.volume / avgVolume25;

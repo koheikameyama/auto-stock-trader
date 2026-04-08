@@ -31,7 +31,7 @@ export function isBreakoutSignal(params: {
   return true;
 }
 
-/** ユニバースゲート（価格・出来高・ATR%） */
+/** ユニバースゲート（価格・出来高・ATR%・売買代金） */
 export function passesUniverseGates(params: {
   price: number;
   avgVolume25: number;
@@ -39,13 +39,15 @@ export function passesUniverseGates(params: {
   maxPrice: number;
   minAvgVolume25: number;
   minAtrPct: number;
+  minTurnover?: number;
 }): boolean {
-  const { price, avgVolume25, atrPct, maxPrice, minAvgVolume25, minAtrPct } = params;
+  const { price, avgVolume25, atrPct, maxPrice, minAvgVolume25, minAtrPct, minTurnover } = params;
 
   if (price <= 0) return false;
   if (price > maxPrice) return false;
   if (avgVolume25 < minAvgVolume25) return false;
   if (atrPct < minAtrPct) return false;
+  if (minTurnover && price * avgVolume25 < minTurnover) return false;
 
   return true;
 }
