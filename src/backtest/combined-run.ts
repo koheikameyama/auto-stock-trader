@@ -117,8 +117,9 @@ async function main() {
   const compareVixFilter = args.includes("--compare-vix-filter");
   const compareBudget = args.includes("--budget-compare");
   const compareHolding = args.includes("--compare-holding");
+  const compareTurnover = args.includes("--compare-turnover");
 
-  const quietMode = comparePositions || compareEquityFilter || compareVixFilter || compareBudget || compareHolding;
+  const quietMode = comparePositions || compareEquityFilter || compareVixFilter || compareBudget || compareHolding || compareTurnover;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
   const boConfig: BreakoutBacktestConfig = { ...BREAKOUT_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
@@ -346,6 +347,45 @@ async function main() {
       const bExp = (bm.expectancy >= 0 ? "+" : "") + bm.expectancy.toFixed(2) + "%";
       console.log(
         `${row.label.padEnd(16)}| ${String(tm.totalTrades).padStart(8)} | ${String(bm.totalTrades).padStart(10)} | ${bm.winRate.toFixed(1).padStart(7)}% | ${bPf.padStart(6)} | ${bExp.padStart(8)} | ${bm.avgHoldingDays.toFixed(1).padStart(7)}d | ${tm.maxDrawdown.toFixed(1).padStart(6)}% | ${tm.netReturnPct.toFixed(1).padStart(8)}%`,
+      );
+    }
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // 売買代金フィルター比較モード
+  if (compareTurnover) {
+    const turnoverGrid = [
+      { label: "なし (0)", value: 0 },
+      { label: "3000万円", value: 30_000_000 },
+      { label: "5000万円 (現状)", value: 50_000_000 },
+      { label: "1億円", value: 100_000_000 },
+      { label: "2億円", value: 200_000_000 },
+    ];
+
+    console.log("\n=== 売買代金フィルター比較 ===");
+    console.log(
+      `${"売買代金下限".padEnd(18)}| ${"Trades".padStart(6)} | ${"WinRate".padStart(7)} | ${"PF".padStart(5)} | ${"Expect".padStart(8)} | ${"MaxDD".padStart(7)} | ${"NetRet".padStart(8)} | ${"稼働率".padStart(6)}`,
+    );
+    console.log("-".repeat(84));
+
+    for (const row of turnoverGrid) {
+      const bc: BreakoutBacktestConfig = { ...boConfig, minTurnover: row.value };
+      const gc: GapUpBacktestConfig = { ...guConfig, minTurnover: row.value };
+      // シグナル再計算（minTurnover が変わるとユニバースが変わる）
+      const boSig = precomputeDailySignals(bc, allData, precomputed);
+      const guSig = precomputeGapUpDailySignals(gc, allData, precomputed);
+      const result = runCombinedSimulation(
+        { ...ctx, boConfig: bc, guConfig: gc, breakoutSignals: boSig, gapupSignals: guSig },
+        boConfig.maxPositions,
+      );
+      const m = result.totalMetrics;
+      const utilResult = calculateCapitalUtilization(result.equityCurve);
+      const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
+      const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
+      console.log(
+        `${row.label.padEnd(18)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(6)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(8)} | ${m.maxDrawdown.toFixed(1).padStart(6)}% | ${m.netReturnPct.toFixed(1).padStart(7)}% | ${utilResult.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
       );
     }
     console.log("");
