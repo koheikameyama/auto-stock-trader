@@ -277,8 +277,23 @@ export const SECTOR_RISK = {
 // ========================================
 
 export const DRAWDOWN = {
-  WEEKLY_HALT_PCT: 5, // 週次5%で取引停止
-  MONTHLY_HALT_PCT: 10, // 月次10%で取引停止
+  WEEKLY_HALT_PCT: 5, // 週次5%で取引停��
+  MONTHLY_HALT_PCT: 10, // 月���10%で取��停止
+} as const;
+
+// ========================================
+// 連敗クールダウン
+// ========================================
+
+export const LOSING_STREAK = {
+  /** リスク%縮小の開始トリガー（連敗数） */
+  SCALE_TRIGGER: 3,
+  /** リスク%のスケールファクター（50%に縮小） */
+  SCALE_FACTOR: 0.5,
+  /** クールダウン中の最大同時保有数 */
+  MAX_POSITIONS_COOLDOWN: 1,
+  /** 取引停止の連敗数 */
+  HALT_TRIGGER: 5,
 } as const;
 
 // ========================================

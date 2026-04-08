@@ -5,7 +5,7 @@
  * 1. 今日のMarketAssessmentでshouldTradeを確認
  * 2. 買い余力チェック（ローカル計算）
  * 3. SL価格 = currentPrice - ATR(14) × 1.0（最大3%）
- * 4. ポジションサイズ = リスク金額（資金の2%） / (currentPrice - SL)、100株単位切捨て
+ * 4. ポジションサイズ = リスク金額（資金のRISK_PER_TRADE_PCT%） / (currentPrice - SL)��100株単位切捨て
  * 5. TradingOrderをDBに作成
  * 6. submitBrokerOrder()でブローカー発注
  * 7. Slack通知
@@ -20,8 +20,8 @@ import { getCashBalance, getEffectiveCapital } from "../position-manager";
 import { canOpenPosition, getDynamicMaxPositionPct } from "../risk-manager";
 import { submitOrder as submitBrokerOrder, modifyOrder, cancelOrder } from "../broker-orders";
 import { notifyOrderPlaced, notifySlack } from "../../lib/slack";
-import { STOP_LOSS, UNIT_SHARES } from "../../lib/constants";
-import { getRiskPctByRR } from "../risk-manager";
+import { STOP_LOSS, UNIT_SHARES, POSITION_SIZING, LOSING_STREAK } from "../../lib/constants";
+import { getLosingStreak } from "../drawdown-manager";
 import { checkLiquidity } from "../market-data";
 import { TIMEZONE } from "../../lib/constants/timezone";
 import { BREAKOUT } from "../../lib/constants/breakout";
@@ -56,7 +56,7 @@ export async function executeEntry(
   const { ticker, currentPrice, atr14 } = trigger;
 
   // 0. 共有データを並列で一括取得（重複クエリ削減）
-  const [todayAssessment, stock, cashBalance, effectiveCapital, config, openPositions] =
+  const [todayAssessment, stock, cashBalance, effectiveCapital, config, openPositions, losingStreak] =
     await Promise.all([
       prisma.marketAssessment.findUnique({ where: { date: getTodayForDB() } }),
       prisma.stock.findUnique({ where: { tickerCode: ticker } }),
@@ -67,6 +67,7 @@ export async function executeEntry(
         where: { status: "open" },
         include: { stock: { select: { id: true, jpxSectorName: true, tickerCode: true } } },
       }),
+      getLosingStreak(),
     ]);
 
   // 1. shouldTrade確認
@@ -108,12 +109,15 @@ export async function executeEntry(
     return { success: false, reason, retryable: false };
   }
 
-  // 利確参考値: ATR × 5.0（トレーリングストップが実際の利確を担う）
+  // 利確参考値: ATR × 5.0（トレーリングストップが実際の利確を担う、サイジングには使わない）
   const takeProfitPrice = Math.round(currentPrice + atr14 * 5.0);
 
-  // RRに応じたリスク%傾斜: 高RR → 厚いポジション、低RR → 控えめ
-  const riskRewardRatio = (takeProfitPrice - currentPrice) / riskPerShare;
-  const riskPct = getRiskPctByRR(riskRewardRatio);
+  // リスク%: フラット2%（SL/TPが共にATRベースのためRR傾斜は常に固定値になり無意味）
+  // 連敗時はスケールダウンして損失を抑える
+  const baseRiskPct = POSITION_SIZING.RISK_PER_TRADE_PCT;
+  const riskPct = losingStreak >= LOSING_STREAK.SCALE_TRIGGER
+    ? baseRiskPct * LOSING_STREAK.SCALE_FACTOR
+    : baseRiskPct;
   const riskAmount = effectiveCapital * (riskPct / 100);
 
   const rawQuantity = Math.floor(riskAmount / riskPerShare);
@@ -163,6 +167,7 @@ export async function executeEntry(
       config: config ?? undefined,
       openPositions,
       effectiveCapital,
+      losingStreak,
     },
     strategy,
   );
@@ -262,8 +267,8 @@ export async function executeEntry(
           triggeredAt: trigger.triggeredAt.toISOString(),
         },
         slClamped: isSLClamped,
-        riskRewardRatio: Math.round(riskRewardRatio * 100) / 100,
         riskPct,
+        ...(losingStreak > 0 ? { losingStreak } : {}),
         ...(trigger.askPrice ? {
           liquidity: {
             askPrice: trigger.askPrice,
@@ -278,7 +283,7 @@ export async function executeEntry(
   });
 
   console.log(
-    `[entry-executor] ${ticker} 注文作成: id=${newOrder.id}, 指値=¥${currentPrice}, SL=¥${stopLossPrice}, TP=¥${takeProfitPrice}, 数量=${quantity}株, RR=${riskRewardRatio.toFixed(1)}, リスク%=${riskPct}%`,
+    `[entry-executor] ${ticker} 注文作成: id=${newOrder.id}, 指値=¥${currentPrice}, SL=¥${stopLossPrice}, TP=¥${takeProfitPrice}, 数量=${quantity}株, リスク%=${riskPct}%${losingStreak >= LOSING_STREAK.SCALE_TRIGGER ? `, 連敗${losingStreak}（縮小中）` : ""}`,
   );
 
   // 8. Slack通知
@@ -336,11 +341,9 @@ export async function resizePendingOrders(): Promise<void> {
       continue;
     }
 
-    // リスクベース株数（entrySnapshotのRRに応じたリスク%を使用）
+    // リスクベース株数（フラット2%）
     const riskPerShare = limitPrice - stopLossPrice;
-    const snapshot = order.entrySnapshot as Record<string, unknown> | null;
-    const savedRR = (snapshot?.riskRewardRatio as number) ?? 0;
-    const riskPctForResize = getRiskPctByRR(savedRR);
+    const riskPctForResize = POSITION_SIZING.RISK_PER_TRADE_PCT;
     const riskAmount = effectiveCapital * (riskPctForResize / 100);
     const riskBasedQty =
       Math.floor(Math.floor(riskAmount / riskPerShare) / UNIT_SHARES) * UNIT_SHARES;

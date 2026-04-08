@@ -142,6 +142,31 @@ export async function calculateDrawdownStatus(
 }
 
 /**
+ * 直近のクローズ済みポジションから連敗数を動的計算する
+ *
+ * closedAt降順で並べて、連続する負けトレード（realizedPnl < 0）の数を返す。
+ * 1つでも勝ちがあればそこでリセットされる。
+ */
+export async function getLosingStreak(): Promise<number> {
+  const recentPositions = await prisma.tradingPosition.findMany({
+    where: { status: "closed", closedAt: { not: null } },
+    orderBy: { closedAt: "desc" },
+    take: 10,
+    select: { realizedPnl: true },
+  });
+
+  let streak = 0;
+  for (const pos of recentPositions) {
+    if (Number(pos.realizedPnl) < 0) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+/**
  * ピークエクイティを更新する（end-of-dayで呼び出し）
  *
  * 現在の資産がハイウォーターマークを超えていれば更新する。

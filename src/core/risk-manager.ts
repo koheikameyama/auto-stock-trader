@@ -12,9 +12,10 @@ import {
   POSITION_SIZING,
   GAP_RISK,
   TRADING_DEFAULTS,
+  LOSING_STREAK,
 } from "../lib/constants";
 import { canAddToSector, canAddToMacroFactor } from "./sector-analyzer";
-import { calculateDrawdownStatus } from "./drawdown-manager";
+import { calculateDrawdownStatus, getLosingStreak } from "./drawdown-manager";
 import { fetchStockQuotesBatch } from "./market-data";
 import { getEffectiveCapital } from "./position-manager";
 import type { TradingConfig, TradingPosition } from "@prisma/client";
@@ -24,12 +25,13 @@ type OpenPositionWithStock = TradingPosition & {
   stock: { id: string; jpxSectorName: string | null };
 };
 
-/** 事前取得データ（重複クエリ削減用） */
+/** 事前取得データ（重複ク��リ削減用） */
 export interface RiskCheckPrefetch {
   config?: TradingConfig;
-  /** stock リレーション付きのオープンポジション */
+  /** stock ���レーション付きのオープンポジション */
   openPositions?: OpenPositionWithStock[];
   effectiveCapital?: number;
+  losingStreak?: number;
 }
 
 /**
@@ -140,6 +142,23 @@ export async function canOpenPosition(
       allowed: false,
       reason: `ドローダウン停止: ${drawdown.reason}`,
       retryable: false,
+    };
+  }
+
+  // 7. 連敗クールダウンチェック
+  const streak = prefetch?.losingStreak ?? await getLosingStreak();
+  if (streak >= LOSING_STREAK.HALT_TRIGGER) {
+    return {
+      allowed: false,
+      reason: `${streak}連敗のため取引停止中`,
+      retryable: false,
+    };
+  }
+  if (streak >= LOSING_STREAK.SCALE_TRIGGER && openPositions.length >= LOSING_STREAK.MAX_POSITIONS_COOLDOWN) {
+    return {
+      allowed: false,
+      reason: `${streak}連敗クールダウン中: 最大${LOSING_STREAK.MAX_POSITIONS_COOLDOWN}ポジション制限（現在: ${openPositions.length}）`,
+      retryable: true,
     };
   }
 
