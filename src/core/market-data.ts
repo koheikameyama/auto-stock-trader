@@ -2,8 +2,8 @@
  * 市場データ取得モジュール
  *
  * market-data-provider を使用して株価・市場指標データを取得する。
- * プライマリ: yfinance (Python sidecar)
- * フォールバック: yahoo-finance2 (Node.js)
+ * プライマリ: 立花証券API
+ * yfinanceフォールバック: 画面表示用途のみ（workerでは使わない）
  */
 
 import dayjs from "dayjs";
@@ -20,6 +20,10 @@ import {
   providerFetchMarket,
   providerFetchEvents,
 } from "../lib/market-data-provider";
+import {
+  yfFetchQuote,
+  yfFetchQuotesBatch,
+} from "../lib/yfinance-client";
 
 // ========================================
 // インターフェース
@@ -78,11 +82,18 @@ export interface MarketData {
 // 個別銘柄データ取得
 // ========================================
 
+interface QuoteFetchOptions {
+  /** 立花API失敗時に yfinance へフォールバックする（画面表示用） */
+  yfinanceFallback?: boolean;
+}
+
 /**
  * 個別銘柄のリアルタイムクォートを取得
+ * @param options.yfinanceFallback true なら立花API失敗時に yfinance で再取得（画面表示用）
  */
 export async function fetchStockQuote(
   tickerCode: string,
+  options?: QuoteFetchOptions,
 ): Promise<StockQuote | null> {
   const symbol = normalizeTickerCode(tickerCode);
 
@@ -90,6 +101,19 @@ export async function fetchStockQuote(
     const result = await providerFetchQuote(symbol);
     return result as StockQuote;
   } catch (error) {
+    if (options?.yfinanceFallback) {
+      console.warn(
+        `[market-data] 立花API失敗、yfinanceにフォールバック (${symbol}):`,
+        error instanceof Error ? error.message : error,
+      );
+      try {
+        const result = await yfFetchQuote(symbol);
+        return result as StockQuote;
+      } catch (yfError) {
+        console.error(`[market-data] yfinanceフォールバックも失敗 (${symbol}):`, yfError);
+        return null;
+      }
+    }
     console.error(`[market-data] Failed to fetch quote for ${symbol}:`, error);
     return null;
   }
@@ -97,9 +121,11 @@ export async function fetchStockQuote(
 
 /**
  * 複数銘柄のクォートをバッチ取得（1リクエストで複数銘柄）
+ * @param options.yfinanceFallback true なら立花API失敗時に yfinance で再取得（画面表示用）
  */
 export async function fetchStockQuotesBatch(
   tickerCodes: string[],
+  options?: QuoteFetchOptions,
 ): Promise<Map<string, StockQuote>> {
   const results = new Map<string, StockQuote>();
   const symbols = tickerCodes.map(normalizeTickerCode);
@@ -115,18 +141,50 @@ export async function fetchStockQuotesBatch(
           results.set(result.tickerCode, result as StockQuote);
         }
       }
+
+      // 立花APIで null だった銘柄を yfinance で補完
+      if (options?.yfinanceFallback) {
+        const failedSymbols = batch.filter((s) => !results.has(s));
+        if (failedSymbols.length > 0) {
+          console.warn(
+            `[market-data] 立花APIで${failedSymbols.length}銘柄失敗、yfinanceで補完`,
+          );
+          try {
+            const fbResults = await yfFetchQuotesBatch(failedSymbols);
+            for (const r of fbResults) {
+              if (r && r.tickerCode) results.set(r.tickerCode, r as StockQuote);
+            }
+          } catch (yfError) {
+            console.warn(`[market-data] yfinanceバッチ補完も失敗:`, yfError);
+          }
+        }
+      }
     } catch (error) {
       console.error(
         `[market-data] Batch quote failed for [${i}..${i + batch.length}]:`,
         error,
       );
-      // バッチ失敗時は個別にフォールバック
-      for (const symbol of batch) {
+
+      if (options?.yfinanceFallback) {
+        // 立花バッチ全失敗 → yfinance で一括取得
+        console.warn(`[market-data] 立花APIバッチ全失敗、yfinanceにフォールバック`);
         try {
-          const result = await providerFetchQuote(symbol);
-          results.set(result.tickerCode, result as StockQuote);
-        } catch {
-          console.error(`[market-data] Individual fallback failed: ${symbol}`);
+          const fbResults = await yfFetchQuotesBatch(batch);
+          for (const r of fbResults) {
+            if (r && r.tickerCode) results.set(r.tickerCode, r as StockQuote);
+          }
+        } catch (yfError) {
+          console.warn(`[market-data] yfinanceバッチフォールバックも失敗:`, yfError);
+        }
+      } else {
+        // フォールバックなし: 個別に立花APIで再試行
+        for (const symbol of batch) {
+          try {
+            const result = await providerFetchQuote(symbol);
+            results.set(result.tickerCode, result as StockQuote);
+          } catch {
+            console.error(`[market-data] Individual fallback failed: ${symbol}`);
+          }
         }
       }
     }
@@ -144,8 +202,9 @@ export async function fetchStockQuotesBatch(
  */
 export async function fetchStockQuotes(
   tickerCodes: string[],
+  options?: QuoteFetchOptions,
 ): Promise<(StockQuote | null)[]> {
-  const batchMap = await fetchStockQuotesBatch(tickerCodes);
+  const batchMap = await fetchStockQuotesBatch(tickerCodes, options);
   return tickerCodes.map((ticker) => {
     const symbol = normalizeTickerCode(ticker);
     return batchMap.get(symbol) ?? null;

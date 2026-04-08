@@ -1,7 +1,7 @@
 /**
  * マーケットデータプロバイダー
  *
- * - リアルタイムクォート: 立花証券API（20並列、高速）
+ * - リアルタイムクォート: 立花証券API
  * - ヒストリカル・市場指標・ニュース等: yfinance
  */
 
@@ -35,7 +35,7 @@ export async function providerFetchQuote(symbol: string): Promise<YfQuoteResult>
 }
 
 /**
- * 複数銘柄のクォートをバッチ取得（立花証券API、20並列）
+ * 複数銘柄のクォートをバッチ取得（立花証券API、10並列）
  */
 export async function providerFetchQuotesBatch(
   symbols: string[],

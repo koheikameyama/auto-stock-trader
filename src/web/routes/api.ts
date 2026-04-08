@@ -216,7 +216,7 @@ app.get("/stock/:tickerCode/modal", async (c) => {
       prisma.tradingPosition.findFirst({
         where: { stockId: stock.id, status: "open" },
       }),
-      fetchStockQuote(tickerCode),
+      fetchStockQuote(tickerCode, { yfinanceFallback: true }),
     ]);
 
     if (ohlcv && ohlcv.length > 0) {
@@ -267,7 +267,7 @@ app.get("/quotes", async (c) => {
   const tickers = tickersParam.split(",").filter(Boolean);
   if (tickers.length === 0) return c.json({});
 
-  const quotes = await fetchStockQuotesBatch(tickers);
+  const quotes = await fetchStockQuotesBatch(tickers, { yfinanceFallback: true });
   const result: Record<string, { price: number }> = {};
   for (const [key, value] of quotes) {
     result[key] = { price: value.price };
@@ -306,7 +306,7 @@ app.get("/watchlist/state", async (c) => {
       where: { date: getTodayForDB() },
       select: { shouldTrade: true },
     }),
-    fetchStockQuotesBatch(tickers),
+    fetchStockQuotesBatch(tickers, { yfinanceFallback: true }),
   ]);
 
   const orderedTickers = new Set(todayOrders.map((o) => o.stock.tickerCode));
