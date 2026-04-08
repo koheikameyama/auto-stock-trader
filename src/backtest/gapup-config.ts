@@ -5,6 +5,7 @@
 import { GAPUP } from "../lib/constants/gapup";
 import { STOP_LOSS, POSITION_SIZING } from "../lib/constants/scoring";
 import { BREAK_EVEN_STOP, TRAILING_STOP, TIME_STOP } from "../lib/constants";
+import { getMaxBuyablePrice } from "../core/risk-manager";
 import type { GapUpBacktestConfig } from "./types";
 
 /** デフォルト設定 */
@@ -29,7 +30,7 @@ export const GAPUP_BACKTEST_DEFAULTS: Omit<GapUpBacktestConfig, "startDate" | "e
   maxExtendedHoldingDays: TIME_STOP.GAPUP_MAX_EXTENDED_HOLDING_DAYS,       // 5
 
   // ユニバースフィルター
-  maxPrice: GAPUP.ENTRY.MAX_PRICE,               // 5000
+  maxPrice: getMaxBuyablePrice(500_000),           // 資金連動（50万→2500）
   minAvgVolume25: GAPUP.ENTRY.MIN_AVG_VOLUME_25, // 100_000
   minAtrPct: GAPUP.ENTRY.MIN_ATR_PCT,            // 1.5
 

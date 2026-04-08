@@ -11,6 +11,7 @@
 import dayjs from "dayjs";
 import { prisma } from "../lib/prisma";
 import { GAPUP_BACKTEST_DEFAULTS } from "./gapup-config";
+import { getMaxBuyablePrice } from "../core/risk-manager";
 import { runGapUpBacktest } from "./gapup-simulation";
 import { saveBacktestResult } from "./db-saver";
 import { fetchHistoricalFromDB, fetchVixFromDB, fetchIndexFromDB } from "./data-fetcher";
@@ -120,7 +121,7 @@ async function main() {
   console.log(`[data] ${rawData.size}銘柄, VIX ${vixData.size}日, N225 ${indexData.size}日`);
 
   // 事前フィルタ: maxPrice以下のバーが1つ以上ある銘柄のみ
-  const maxPrice = GAPUP_BACKTEST_DEFAULTS.maxPrice;
+  const maxPrice = getMaxBuyablePrice(budget);
   const allData = new Map<string, OHLCVData[]>();
   for (const [ticker, bars] of rawData) {
     if (bars.some((b) => b.close <= maxPrice && b.close > 0)) {
@@ -134,6 +135,7 @@ async function main() {
     startDate,
     endDate,
     initialBudget: budget,
+    maxPrice,
     verbose,
     positionCapEnabled: !noPositionCap,
   };

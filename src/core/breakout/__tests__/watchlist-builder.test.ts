@@ -173,9 +173,23 @@ describe("buildWatchlist", () => {
     expect(entries[0].avgVolume25).toBeCloseTo(200_000);
   });
 
-  it("株価が MAX_PRICE (5000) を超えるとゲート失敗で除外される", async () => {
-    const bars = makeBars(80, { close: 6000, high: 6100 });
-    mockStockFindMany.mockResolvedValue([makeStock("9999", { latestPrice: 6000 })]);
+  it("株価が maxBuyablePrice を超えるとゲート失敗で除外される", async () => {
+    // effectiveCapital=10M → maxBuyablePrice=50,000 なので 60,000円の株は除外
+    const bars = makeBars(80, { close: 60_000, high: 61_000 });
+    mockStockFindMany.mockResolvedValue([makeStock("9999", { latestPrice: 60_000 })]);
+    mockReadHistoricalFromDB.mockResolvedValue(new Map([["9999", bars]]));
+
+    const { entries, stats } = await buildWatchlist();
+
+    expect(entries.length).toBe(0);
+    expect(stats.skipGate).toBe(1);
+  });
+
+  it("資金が少ないと高い株がゲート失敗で除外される", async () => {
+    // effectiveCapital=500k → maxBuyablePrice=2,500 なので 3,000円の株は除外
+    mockGetEffectiveCapital.mockResolvedValue(500_000);
+    const bars = makeBars(80, { close: 3000, high: 3100 });
+    mockStockFindMany.mockResolvedValue([makeStock("9999", { latestPrice: 3000 })]);
     mockReadHistoricalFromDB.mockResolvedValue(new Map([["9999", bars]]));
 
     const { entries, stats } = await buildWatchlist();
@@ -282,11 +296,12 @@ describe("buildWatchlist", () => {
 
   it("複数銘柄のうちゲートを通過したものだけが返される", async () => {
     const goodBars = makeBars(80);
-    const expensiveBars = makeBars(80, { close: 6000, high: 6100 });
+    // effectiveCapital=10M → maxBuyablePrice=50,000なので60,000は除外される
+    const expensiveBars = makeBars(80, { close: 60_000, high: 61_000 });
 
     mockStockFindMany.mockResolvedValue([
-      makeStock("7777"),                               // ゲート通過（正常銘柄）
-      makeStock("8888", { latestPrice: 6000 }),        // 株価高すぎてゲート失敗
+      makeStock("7777"),                                 // ゲート通過（正常銘柄）
+      makeStock("8888", { latestPrice: 60_000 }),        // 株価高すぎてゲート失敗
     ]);
     mockReadHistoricalFromDB.mockResolvedValue(
       new Map([

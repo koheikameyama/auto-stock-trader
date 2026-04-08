@@ -5,6 +5,7 @@
 import { BREAKOUT } from "../lib/constants/breakout";
 import { STOP_LOSS, POSITION_SIZING } from "../lib/constants/scoring";
 import { BREAK_EVEN_STOP, TRAILING_STOP, TIME_STOP } from "../lib/constants";
+import { getMaxBuyablePrice } from "../core/risk-manager";
 import type { BreakoutBacktestConfig } from "./types";
 
 /** デフォルト設定（本番パラメータと同一） */
@@ -30,7 +31,7 @@ export const BREAKOUT_BACKTEST_DEFAULTS: Omit<BreakoutBacktestConfig, "startDate
   maxExtendedHoldingDays: TIME_STOP.MAX_EXTENDED_HOLDING_DAYS, // 10
 
   // ユニバースフィルター（BREAKOUT.ENTRY = single source of truth）
-  maxPrice: BREAKOUT.ENTRY.MAX_PRICE,                         // 5000
+  maxPrice: getMaxBuyablePrice(500_000),                       // 資金連動（50万→2500）
   minAvgVolume25: BREAKOUT.ENTRY.MIN_AVG_VOLUME_25,           // 100_000
   minAtrPct: BREAKOUT.ENTRY.MIN_ATR_PCT,                      // 1.5
 

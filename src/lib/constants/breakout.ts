@@ -65,8 +65,6 @@ export const BREAKOUT = {
     MAX_CHASE_ATR: 0.5,
     /** 高値の検索期間（営業日） */
     HIGH_LOOKBACK_DAYS: 20,
-    /** 最大株価 */
-    MAX_PRICE: 5000,
     /** 最小平均出来高25日。BT検証済み */
     MIN_AVG_VOLUME_25: 100_000,
     /** 最小ATR%（ボラティリティ下限） */

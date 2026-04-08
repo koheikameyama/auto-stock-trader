@@ -14,6 +14,8 @@ interface GateInput {
   nextEarningsDate: Date | null;
   exDividendDate: Date | null;
   today: Date;
+  /** 資金連動の最大株価（getMaxBuyablePrice で算出） */
+  maxPrice: number;
 }
 
 /**
@@ -21,13 +23,13 @@ interface GateInput {
  * 流動性・価格・ATR・決算・権利落ち日の条件を満たさない銘柄を除外する
  */
 export function checkGates(input: GateInput): { passed: boolean; reason?: string } {
-  const { latestPrice, avgVolume25, atrPct, nextEarningsDate, exDividendDate, today } = input;
+  const { latestPrice, avgVolume25, atrPct, nextEarningsDate, exDividendDate, today, maxPrice } = input;
 
   if (!avgVolume25 || avgVolume25 < SCORING.GATES.MIN_AVG_VOLUME_25) {
     return { passed: false, reason: "volume" };
   }
 
-  if (latestPrice > SCORING.GATES.MAX_PRICE) {
+  if (latestPrice > maxPrice) {
     return { passed: false, reason: "price" };
   }
 

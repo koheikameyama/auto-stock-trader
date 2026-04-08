@@ -19,6 +19,7 @@ import { readHistoricalFromDB } from "../market-data";
 import { analyzeTechnicals } from "../technical-analysis";
 import { checkGates, computeScoringIntermediates } from "./filters";
 import { getEffectiveCapital } from "../position-manager";
+import { getMaxBuyablePrice } from "../risk-manager";
 import { BREAKOUT } from "../../lib/constants/breakout";
 import type { WatchlistEntry, WatchlistBuildResult } from "./types";
 
@@ -122,7 +123,8 @@ export async function buildWatchlist(): Promise<WatchlistBuildResult> {
 
   // 2. 実効資金を取得（余力フィルター用、1回だけ）
   const effectiveCapital = await getEffectiveCapital();
-  console.log(`[watchlist-builder] 実効資金: ¥${effectiveCapital.toLocaleString()}`);
+  const maxPrice = getMaxBuyablePrice(effectiveCapital);
+  console.log(`[watchlist-builder] 実効資金: ¥${effectiveCapital.toLocaleString()}, 最大株価: ¥${maxPrice.toLocaleString()}`);
 
   // 3. OHLCVデータを一括取得（DBから）
   const historicalMap = await readHistoricalFromDB(allTickerCodes);
@@ -170,6 +172,7 @@ export async function buildWatchlist(): Promise<WatchlistBuildResult> {
         nextEarningsDate: stock.nextEarningsDate ?? null,
         exDividendDate: stock.exDividendDate ?? null,
         today,
+        maxPrice,
       });
 
       if (!gate.passed) {
