@@ -286,6 +286,9 @@ export function estimateGapRisk(
   return Math.min(Math.max(maxGapDownPct, atrFloorPct), atrCapPct);
 }
 
+/** getDynamicMaxPositionPct / getMaxBuyablePrice 共通の集中率上限（%） */
+const CONCENTRATION_MAX_PCT = 50;
+
 /**
  * 有効資本と購入株価に応じた1銘柄あたり最大投資比率（%）を動的に計算する
  *
@@ -297,9 +300,21 @@ export function estimateGapRisk(
 export function getDynamicMaxPositionPct(effectiveCapital: number, stockPrice: number): number {
   const minUnitCost = UNIT_SHARES * stockPrice;
   const MIN_PCT = 33; // 固定値（MAX_POSITIONSに依存しない）
-  const MAX_PCT = 50;
   const minRequired = Math.ceil((minUnitCost / effectiveCapital) * 100);
-  return Math.min(MAX_PCT, Math.max(MIN_PCT, minRequired));
+  return Math.min(CONCENTRATION_MAX_PCT, Math.max(MIN_PCT, minRequired));
+}
+
+/**
+ * 有効資本から購入可能な最大株価を計算する
+ *
+ * 集中率上限（CONCENTRATION_MAX_PCT）と単元株数（100株）から逆算し、
+ * 「1単元は必ず買える」価格帯のみをユニバースに含める。
+ *
+ * 例: 50万 × 50% / 100株 = 2,500円
+ *     100万 × 50% / 100株 = 5,000円
+ */
+export function getMaxBuyablePrice(effectiveCapital: number): number {
+  return Math.floor((effectiveCapital * CONCENTRATION_MAX_PCT) / (100 * UNIT_SHARES));
 }
 
 /**

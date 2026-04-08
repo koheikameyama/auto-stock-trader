@@ -13,6 +13,7 @@ import dayjs from "dayjs";
 import { prisma } from "../lib/prisma";
 import { BREAKOUT_BACKTEST_DEFAULTS } from "./breakout-config";
 import { GAPUP_BACKTEST_DEFAULTS } from "./gapup-config";
+import { getMaxBuyablePrice } from "../core/risk-manager";
 import {
   precomputeSimData,
   precomputeDailySignals,
@@ -118,8 +119,9 @@ async function main() {
   const compareHolding = args.includes("--compare-holding");
 
   const quietMode = comparePositions || compareEquityFilter || compareVixFilter || compareBudget || compareHolding;
-  const boConfig: BreakoutBacktestConfig = { ...BREAKOUT_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, verbose: !quietMode && verbose };
-  const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, verbose: !quietMode && verbose };
+  const dynamicMaxPrice = getMaxBuyablePrice(budget);
+  const boConfig: BreakoutBacktestConfig = { ...BREAKOUT_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
+  const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   if (maxPriceOverride) {
     boConfig.maxPrice = Number(maxPriceOverride);
     guConfig.maxPrice = Number(maxPriceOverride);

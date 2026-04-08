@@ -26,7 +26,7 @@ import {
 } from "../core/market-data";
 import { analyzeTechnicals } from "../core/technical-analysis";
 import type { TechnicalSummary } from "../core/technical-analysis";
-import { getDynamicMaxPositionPct } from "../core/risk-manager";
+import { getMaxBuyablePrice } from "../core/risk-manager";
 // scoring は無効化済み（breakout 戦略に移行）
  
 const scoreStock = (_params: unknown): { totalScore: number } => ({ totalScore: 0 });
@@ -155,7 +155,6 @@ export async function main(context?: MarketAssessmentContext) {
   const effectiveCap = config
     ? await getEffectiveCapital(config)
     : TRADING_DEFAULTS.TOTAL_BUDGET;
-  const maxPositionPct = getDynamicMaxPositionPct(effectiveCap);
 
   const openPositions = await prisma.tradingPosition.findMany({
     where: { status: "open" },
@@ -175,10 +174,10 @@ export async function main(context?: MarketAssessmentContext) {
     ? cashBalance * WEEKEND_RISK.POSITION_SIZE_MULTIPLIER
     : cashBalance;
 
-  const maxPositionAmount = effectiveCap * (maxPositionPct / 100);
-  const maxAffordablePrice = Math.floor(
-    Math.min(effectiveCash, maxPositionAmount) / UNIT_SHARES,
-  );
+  // 資金連動の上限株価と残高ベースの上限株価のうち小さい方を採用
+  const capitalBasedMaxPrice = getMaxBuyablePrice(effectiveCap);
+  const cashBasedMaxPrice = Math.floor(effectiveCash / UNIT_SHARES);
+  const maxAffordablePrice = Math.min(capitalBasedMaxPrice, cashBasedMaxPrice);
 
   console.log(
     `  資金状況: 実質資金=${effectiveCap}円, 投資中=${investedAmount}円, 残高=${cashBalance}円${isWeekendRisk ? ` → 週末リスク適用(×${WEEKEND_RISK.POSITION_SIZE_MULTIPLIER}): ${effectiveCash}円` : ""} → 上限株価=${maxAffordablePrice}円`,

@@ -11,6 +11,7 @@
 import dayjs from "dayjs";
 import { prisma } from "../lib/prisma";
 import { BREAKOUT_BACKTEST_DEFAULTS } from "./breakout-config";
+import { getMaxBuyablePrice } from "../core/risk-manager";
 import { runBreakoutBacktest } from "./breakout-simulation";
 import { fetchHistoricalFromDB, fetchVixFromDB, fetchIndexFromDB } from "./data-fetcher";
 import { calculateCapitalUtilization } from "./metrics";
@@ -393,7 +394,12 @@ async function main() {
   if (budgetStr) config.initialBudget = Number(budgetStr);
   if (noCost) config.costModelEnabled = false;
   if (noPositionCap) config.positionCapEnabled = false;
-  if (maxPriceStr) config.maxPrice = Number(maxPriceStr);
+  // maxPrice: CLI指定 > 資金連動（デフォルトは config の initialBudget から算出済み）
+  if (maxPriceStr) {
+    config.maxPrice = Number(maxPriceStr);
+  } else if (budgetStr) {
+    config.maxPrice = getMaxBuyablePrice(config.initialBudget);
+  }
 
   console.log("=".repeat(60));
   console.log("ブレイクアウトバックテスト");

@@ -5,6 +5,7 @@ import {
   calculatePositionSize,
   validateStopLoss,
   getDynamicMaxPositionPct,
+  getMaxBuyablePrice,
 } from "../risk-manager";
 import {
   STOP_LOSS,
@@ -257,6 +258,28 @@ describe("getDynamicMaxPositionPct", () => {
 
   it("20万円・¥5,000株 → 50%上限（最低単元¥500,000が20万の250% → MAX_PCT上限50%でキャップ）", () => {
     expect(getDynamicMaxPositionPct(200_000, 5_000)).toBe(50);
+  });
+});
+
+// ========================================
+// getMaxBuyablePrice
+// ========================================
+
+describe("getMaxBuyablePrice", () => {
+  it("50万 → 2,500円（500,000 × 50% / 100株）", () => {
+    expect(getMaxBuyablePrice(500_000)).toBe(2_500);
+  });
+
+  it("100万 → 5,000円", () => {
+    expect(getMaxBuyablePrice(1_000_000)).toBe(5_000);
+  });
+
+  it("200万 → 10,000円", () => {
+    expect(getMaxBuyablePrice(2_000_000)).toBe(10_000);
+  });
+
+  it("30万 → 1,500円", () => {
+    expect(getMaxBuyablePrice(300_000)).toBe(1_500);
   });
 });
 

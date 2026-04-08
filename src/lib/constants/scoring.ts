@@ -36,7 +36,6 @@ export const SCORING = {
   /** ゲート（即死ルール） */
   GATES: {
     MIN_AVG_VOLUME_25: 50_000,
-    MAX_PRICE: 5000,
     MIN_ATR_PCT: 1.5,
     EARNINGS_DAYS_BEFORE: 5,
     EX_DIVIDEND_DAYS_BEFORE: 3,
