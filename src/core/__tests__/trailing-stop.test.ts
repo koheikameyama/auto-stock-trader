@@ -65,27 +65,27 @@ describe("calculateTrailingStop", () => {
     it("breakout + ATRあり: 正しいトレール幅で算出", () => {
       // BE = 2000 + 80*1.0 = 2080
       // maxHigh = 2200 >= 2080 → 発動
-      // trailWidth = 80 * 1.0 = 80
-      // raw = 2200 - 80 = 2120
-      // ratchet: max(2120, SL=1920, entry=2000) = 2120
+      // trailWidth = 80 * 1.5 = 120
+      // raw = 2200 - 120 = 2080
+      // ratchet: max(2080, SL=1920, entry=2000) = 2080
       const result = calculateTrailingStop(
         makeInput({ maxHighDuringHold: 2200 }),
       );
       expect(result.isActivated).toBe(true);
-      expect(result.trailingStopPrice).toBe(2120);
-      expect(result.effectiveStopLoss).toBe(2120);
+      expect(result.trailingStopPrice).toBe(2080);
+      expect(result.effectiveStopLoss).toBe(2080);
       expect(result.effectiveTakeProfit).toBeNull(); // TP無効化
     });
 
     it("ちょうどBE閾値 → 発動", () => {
       // BE = 2080 ぴったり
-      // trailWidth = 80
-      // raw = 2080 - 80 = 2000 = entryPrice
+      // trailWidth = 80 * 1.5 = 120
+      // raw = 2080 - 120 = 1960 < entryPrice=2000 → entryPriceまで引き上げ
       const result = calculateTrailingStop(
         makeInput({ maxHighDuringHold: 2080 }),
       );
       expect(result.isActivated).toBe(true);
-      expect(result.trailingStopPrice).toBe(2000); // entryPrice
+      expect(result.trailingStopPrice).toBe(2000); // entryPrice（フロア制約）
       expect(result.effectiveTakeProfit).toBeNull();
     });
 
@@ -107,8 +107,8 @@ describe("calculateTrailingStop", () => {
   // ============================================================
   describe("ラチェット", () => {
     it("currentTrailingStopが高い場合、下がらない", () => {
-      // maxHigh=2200 → raw = 2200 - 80 = 2120
-      // currentTrailingStop=2150 > 2120 → 2150を維持
+      // maxHigh=2200 → raw = 2200 - 120 = 2080
+      // currentTrailingStop=2150 > 2080 → 2150を維持
       const result = calculateTrailingStop(
         makeInput({ maxHighDuringHold: 2200, currentTrailingStop: 2150 }),
       );
@@ -116,19 +116,19 @@ describe("calculateTrailingStop", () => {
     });
 
     it("新計算が高い場合、切り上がる", () => {
-      // maxHigh=2300 → raw = 2300 - 80 = 2220
-      // currentTrailingStop=2150 < 2220 → 2220に切り上げ
+      // maxHigh=2300 → raw = 2300 - 120 = 2180
+      // currentTrailingStop=2150 < 2180 → 2180に切り上げ
       const result = calculateTrailingStop(
         makeInput({ maxHighDuringHold: 2300, currentTrailingStop: 2150 }),
       );
-      expect(result.trailingStopPrice).toBe(2220);
+      expect(result.trailingStopPrice).toBe(2180);
     });
 
     it("currentTrailingStop null（初回発動）", () => {
       const result = calculateTrailingStop(
         makeInput({ maxHighDuringHold: 2200, currentTrailingStop: null }),
       );
-      expect(result.trailingStopPrice).toBe(2120); // raw = 2200 - 80
+      expect(result.trailingStopPrice).toBe(2080); // raw = 2200 - 120
     });
   });
 

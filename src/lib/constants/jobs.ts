@@ -42,7 +42,7 @@ export const BREAK_EVEN_STOP = {
 export const TRAILING_STOP = {
   // トレール幅（最高値 - ATR×N がストップライン）
   TRAIL_ATR_MULTIPLIER: {
-    breakout: 1.0,   // BE発動(ATR×1.0)後にATR×1.0幅でトレール
+    breakout: 1.5,   // ATR×1.0ではノイズ（通常リトレースメント）で狩られるため1.5に拡大
     gapup: 0.3,      // BE発動(ATR×0.3)後にATR×0.3のタイトなトレール（WF最適値）
   },
   // ATR不明時のフォールバック（%ベース）

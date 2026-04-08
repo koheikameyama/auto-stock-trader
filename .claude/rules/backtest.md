@@ -34,7 +34,7 @@ npm run walk-forward:breakout
 |-----------|-----|
 | atrMultiplier | 0.8, 1.0, 1.2 |
 | beActivationMultiplier | 0.3, 0.5, 0.8 |
-| trailMultiplier | 0.3, 0.5, 0.8 |
+| trailMultiplier | 0.8, 1.0, 1.5 |
 
 #### IS最低PFゲート
 

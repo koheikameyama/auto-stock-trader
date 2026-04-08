@@ -109,8 +109,8 @@ describe("checkPositionExit", () => {
     });
 
     it("大レンジでhighがBE閾値超え → trailing_profitになる", () => {
-      // high=2210 → trailing発動 → SL=trailingStop(2130)
-      // low=1910 <= 2130 → trailing_profit
+      // high=2210 → trailing発動 → SL=trailingStop(2210-120=2090)
+      // low=1910 <= 2090 → trailing_profit
       const result = checkPositionExit(
         makePosition(),
         makeBar({ open: 2000, high: 2210, low: 1910, close: 1950 }),
@@ -126,13 +126,13 @@ describe("checkPositionExit", () => {
   describe("トレーリング利確", () => {
     it("トレーリング発動中 + bar.low <= trailingStop → trailing_profit", () => {
       // maxHigh=2200 → BE=2080(breakout, ATR=80, mult=1.0) → 発動
-      // trailingStop = 2200 - 80 = 2120
+      // trailingStop = 2200 - 120 = 2080（trail=1.5 ATR）
       const result = checkPositionExit(
         makePosition({ maxHighDuringHold: 2200 }),
-        makeBar({ open: 2130, high: 2140, low: 2110, close: 2115 }),
+        makeBar({ open: 2090, high: 2100, low: 2070, close: 2075 }),
       );
       expect(result.exitReason).toBe("trailing_profit");
-      expect(result.exitPrice).toBe(2120); // trailing stop price
+      expect(result.exitPrice).toBe(2080); // trailing stop price
       expect(result.isTrailingActivated).toBe(true);
     });
 
@@ -143,17 +143,17 @@ describe("checkPositionExit", () => {
         makeBar({ open: 2160, high: 2170, low: 2130, close: 2150 }),
       );
       // TP(2150)にbar.highが到達しているが、トレーリング発動中なのでTP判定されない
-      expect(result.exitReason).toBeNull(); // トレーリングストップ(2120)にも当たらない
+      expect(result.exitReason).toBeNull(); // トレーリングストップ(2080)にも当たらない
     });
 
     it("ギャップダウンでトレーリングストップを下抜け → bar.openで約定", () => {
-      // trailingStop = 2120
+      // trailingStop = 2200 - 120 = 2080（trail=1.5 ATR）
       const result = checkPositionExit(
         makePosition({ maxHighDuringHold: 2200 }),
-        makeBar({ open: 2100, high: 2110, low: 2090, close: 2095 }),
+        makeBar({ open: 2060, high: 2070, low: 2050, close: 2055 }),
       );
       expect(result.exitReason).toBe("trailing_profit");
-      expect(result.exitPrice).toBe(2100); // bar.open（スリッページ）
+      expect(result.exitPrice).toBe(2060); // bar.open（スリッページ）
     });
   });
 
@@ -193,7 +193,7 @@ describe("checkPositionExit", () => {
         makePosition({ maxHighDuringHold: 2200, holdingBusinessDays: 12 }),
         makeBar({ open: 2130, high: 2140, low: 2125, close: 2130 }),
       );
-      // trailing activated, bar.low > trailingStop(2120) → exitなし
+      // trailing activated, bar.low > trailingStop(2080) → exitなし
       expect(result.exitReason).toBeNull();
       expect(result.isTrailingActivated).toBe(true);
     });

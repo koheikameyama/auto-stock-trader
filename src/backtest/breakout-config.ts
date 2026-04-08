@@ -68,7 +68,7 @@ export const RISK_PER_TRADE_PCT = POSITION_SIZING.RISK_PER_TRADE_PCT; // 2
 export const PARAMETER_GRID = {
   atrMultiplier: [0.8, 1.0, 1.2],
   beActivationMultiplier: [0.3, 0.5, 0.8],
-  trailMultiplier: [0.3, 0.5, 0.8],
+  trailMultiplier: [0.8, 1.0, 1.5],
 } as const;
 
 export type ParameterKey = keyof typeof PARAMETER_GRID;
