@@ -23,6 +23,7 @@ env:
   TACHIBANA_SECOND_PASSWORD: ${{ secrets.TACHIBANA_SECOND_PASSWORD }}
   TACHIBANA_ENV: ${{ secrets.TACHIBANA_ENV }}
   YFINANCE_PROXY: ${{ secrets.YFINANCE_PROXY }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
 jobs:
   check-market-day:
