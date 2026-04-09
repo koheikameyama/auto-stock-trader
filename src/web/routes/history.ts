@@ -1,5 +1,7 @@
 /**
  * 履歴ページ（GET /history）
+ *
+ * 振り返りカード3つ + 日次サマリーテーブル
  */
 
 import { Hono } from "hono";
@@ -7,27 +9,148 @@ import { html } from "hono/html";
 import dayjs from "dayjs";
 import { prisma } from "../../lib/prisma";
 import { QUERY_LIMITS, ROUTE_LOOKBACK_DAYS } from "../../lib/constants";
+import { COLORS } from "../views/styles";
 import { layout } from "../views/layout";
 import {
   formatYen,
   pnlText,
   emptyState,
   sparklineChart,
+  miniBarChart,
+  detailRow,
+  signalRow,
   tt,
 } from "../views/components";
+import type { SignalStatus } from "../views/components";
 
 const app = new Hono();
 
+/** exitSnapshot から exitReason を安全に取り出す */
+function getExitReason(snapshot: unknown): string {
+  if (snapshot && typeof snapshot === "object" && "exitReason" in snapshot) {
+    return String((snapshot as { exitReason: string }).exitReason);
+  }
+  return "unknown";
+}
+
+/** exitReason を4分類にまとめる */
+function classifyExit(reason: string): "sl" | "trailing" | "time_stop" | "other" {
+  if (reason === "stop_loss") return "sl";
+  if (reason === "trailing_profit") return "trailing";
+  if (reason === "time_stop") return "time_stop";
+  return "other";
+}
+
+const EXIT_COLORS: Record<string, string> = {
+  sl: "#ef4444",
+  trailing: "#22c55e",
+  time_stop: "#f59e0b",
+  other: "#64748b",
+};
+
+const EXIT_LABELS: Record<string, string> = {
+  sl: "SL\uFF08\u640D\u5207\u308A\uFF09",
+  trailing: "\u30C8\u30EC\u30FC\u30EA\u30F3\u30B0",
+  time_stop: "\u30BF\u30A4\u30E0\u30B9\u30C8\u30C3\u30D7",
+  other: "\u305D\u306E\u4ED6",
+};
+
 app.get("/", async (c) => {
-
-
   const thirtyDaysAgo = dayjs().subtract(ROUTE_LOOKBACK_DAYS.HISTORY, "day").toDate();
+  const ninetyDaysAgo = dayjs().subtract(90, "day").toDate();
 
-  const summaries = await prisma.tradingDailySummary.findMany({
-    where: { date: { gte: thirtyDaysAgo } },
-    orderBy: { date: "desc" },
-    take: QUERY_LIMITS.HISTORY_SUMMARIES,
-  });
+  // Parallel data fetch
+  const [summaries, closedPositions, assessments] = await Promise.all([
+    prisma.tradingDailySummary.findMany({
+      where: { date: { gte: thirtyDaysAgo } },
+      orderBy: { date: "desc" },
+      take: QUERY_LIMITS.HISTORY_SUMMARIES,
+    }),
+    prisma.tradingPosition.findMany({
+      where: { status: "closed", exitedAt: { gte: ninetyDaysAgo } },
+      select: {
+        exitSnapshot: true,
+        realizedPnl: true,
+        exitedAt: true,
+        strategy: true,
+        entryPrice: true,
+        exitPrice: true,
+      },
+      orderBy: { exitedAt: "desc" },
+    }),
+    prisma.marketAssessment.findMany({
+      where: { date: { gte: thirtyDaysAgo } },
+      select: { date: true, shouldTrade: true, breadth: true, vix: true, reasoning: true },
+      orderBy: { date: "desc" },
+    }),
+  ]);
+
+  // === Exit classification ===
+  const exitCounts = { sl: 0, trailing: 0, time_stop: 0, other: 0 };
+  for (const p of closedPositions) {
+    const reason = getExitReason(p.exitSnapshot);
+    exitCounts[classifyExit(reason)]++;
+  }
+  const totalClosed = closedPositions.length;
+  const trailingPct = totalClosed > 0 ? (exitCounts.trailing / totalClosed) * 100 : 0;
+  const trailingStatus: SignalStatus =
+    trailingPct >= 40 ? "ok" : trailingPct >= 20 ? "warning" : "danger";
+  const trailingComment =
+    trailingPct >= 40
+      ? "\u5229\u76CA\u3092\u4F38\u3070\u305B\u3066\u3044\u308B"
+      : trailingPct >= 20
+        ? "\u6A19\u6E96\u7684"
+        : "\u5229\u76CA\u304C\u4F38\u3073\u3066\u3044\u306A\u3044 \u2014 \u30D1\u30E9\u30E1\u30FC\u30BF\u8981\u78BA\u8A8D";
+
+  // === Performance metrics ===
+  const wins = closedPositions.filter(
+    (p) => p.realizedPnl && Number(p.realizedPnl) > 0,
+  );
+  const losses = closedPositions.filter(
+    (p) => p.realizedPnl && Number(p.realizedPnl) <= 0,
+  );
+  const grossProfit = wins.reduce((s, p) => s + Number(p.realizedPnl), 0);
+  const grossLoss = Math.abs(
+    losses.reduce((s, p) => s + Number(p.realizedPnl), 0),
+  );
+  const pf = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Infinity : 0;
+  const winRate = totalClosed > 0 ? (wins.length / totalClosed) * 100 : 0;
+
+  // PnL% approximation from entry/exit prices
+  const winPcts = wins
+    .filter((p) => p.entryPrice && p.exitPrice && Number(p.entryPrice) > 0)
+    .map(
+      (p) =>
+        ((Number(p.exitPrice) - Number(p.entryPrice)) / Number(p.entryPrice)) *
+        100,
+    );
+  const lossPcts = losses
+    .filter((p) => p.entryPrice && p.exitPrice && Number(p.entryPrice) > 0)
+    .map(
+      (p) =>
+        ((Number(p.exitPrice) - Number(p.entryPrice)) / Number(p.entryPrice)) *
+        100,
+    );
+  const avgWinPct =
+    winPcts.length > 0 ? winPcts.reduce((s, v) => s + v, 0) / winPcts.length : 0;
+  const avgLossPct =
+    lossPcts.length > 0
+      ? lossPcts.reduce((s, v) => s + v, 0) / lossPcts.length
+      : 0;
+  const rr =
+    avgLossPct !== 0 ? Math.abs(avgWinPct / avgLossPct) : avgWinPct > 0 ? Infinity : 0;
+  const expectancy =
+    (winRate / 100) * avgWinPct + (1 - winRate / 100) * avgLossPct;
+
+  // Average holding days (approximate from exitedAt - not precise but usable)
+  const totalPnl = closedPositions.reduce(
+    (s, p) => s + Number(p.realizedPnl ?? 0),
+    0,
+  );
+
+  // === Gate log ===
+  const tradeDays = assessments.filter((a) => a.shouldTrade).length;
+  const skipDays = assessments.filter((a) => !a.shouldTrade);
 
   // Cumulative PnL chart data (oldest first)
   const chartData = [...summaries].reverse().reduce<
@@ -42,47 +165,113 @@ app.get("/", async (c) => {
   }, []);
 
   const content = html`
+    <!-- Exit Classification -->
+    <p class="section-title">${tt("\u30A8\u30B0\u30B8\u30C3\u30C8\u5206\u985E", "\u904E\u53BB90\u65E5\u306E\u6C7A\u6E08\u7406\u7531\u306E\u5185\u8A33")}\uFF0890\u65E5\uFF09</p>
+    ${totalClosed > 0
+      ? html`
+          <div class="card">
+            ${miniBarChart(
+              [
+                { label: EXIT_LABELS.sl, count: exitCounts.sl, color: EXIT_COLORS.sl },
+                { label: EXIT_LABELS.trailing, count: exitCounts.trailing, color: EXIT_COLORS.trailing },
+                { label: EXIT_LABELS.time_stop, count: exitCounts.time_stop, color: EXIT_COLORS.time_stop },
+                { label: EXIT_LABELS.other, count: exitCounts.other, color: EXIT_COLORS.other },
+              ],
+              totalClosed,
+            )}
+            <div style="margin-top:10px;padding-top:10px;border-top:1px solid ${COLORS.border}">
+              ${signalRow(
+                "\u30C8\u30EC\u30FC\u30EA\u30F3\u30B0\u6BD4\u7387",
+                `${trailingPct.toFixed(0)}%: ${trailingComment}`,
+                trailingStatus,
+              )}
+            </div>
+          </div>
+        `
+      : html`<div class="card">${emptyState("\u6C7A\u6E08\u6E08\u307F\u30C8\u30EC\u30FC\u30C9\u306A\u3057")}</div>`}
+
+    <!-- Performance Metrics -->
+    <p class="section-title">${tt("\u30D1\u30D5\u30A9\u30FC\u30DE\u30F3\u30B9\u6307\u6A19", "\u904E\u53BB90\u65E5\u306E\u5B9F\u7E3E\u30D9\u30FC\u30B9\u306E\u5404\u6307\u6A19")}\uFF0890\u65E5\uFF09</p>
+    ${totalClosed > 0
+      ? html`
+          <div class="card">
+            ${detailRow(tt("PF", "\u30D7\u30ED\u30D5\u30A3\u30C3\u30C8\u30D5\u30A1\u30AF\u30BF\u30FC\u3002\u7DCF\u5229\u76CA\u00F7\u7DCF\u640D\u5931\u30021.3\u4EE5\u4E0A\u304C\u76EE\u6A19"), pf === Infinity ? "\u221E" : pf.toFixed(2))}
+            ${detailRow(tt("\u52DD\u7387", "\u5229\u76CA\u304C\u51FA\u305F\u30C8\u30EC\u30FC\u30C9\u306E\u5272\u5408"), `${winRate.toFixed(1)}%`)}
+            ${detailRow(tt("RR\u6BD4", "\u30EA\u30B9\u30AF\u30EA\u30EF\u30FC\u30C9\u6BD4\u30021.5\u4EE5\u4E0A\u304C\u76EE\u6A19"), rr === Infinity ? "\u221E" : rr.toFixed(2))}
+            ${detailRow(tt("\u671F\u5F85\u5024", "(\u52DD\u7387\u00D7\u5E73\u5747\u5229\u76CA%) + (\u6557\u7387\u00D7\u5E73\u5747\u640D\u5931%)\u3002\u6B63\u306A\u3089\u512A\u4F4D\u6027\u3042\u308A"), `${expectancy >= 0 ? "+" : ""}${expectancy.toFixed(2)}%`)}
+            ${detailRow("\u640D\u76CA", pnlText(totalPnl))}
+            ${detailRow("\u53D6\u5F15\u6570", `${totalClosed}\u4EF6`)}
+          </div>
+        `
+      : html`<div class="card">${emptyState("\u6C7A\u6E08\u6E08\u307F\u30C8\u30EC\u30FC\u30C9\u306A\u3057")}</div>`}
+
+    <!-- Gate Log -->
+    <p class="section-title">${tt("\u30B2\u30FC\u30C8\u30ED\u30B0", "\u5E02\u5834\u30B3\u30F3\u30C7\u30A3\u30B7\u30E7\u30F3\u306B\u3088\u308B\u53D6\u5F15\u53EF\u5426\u306E\u8A18\u9332")}\uFF0830\u65E5\uFF09</p>
+    ${assessments.length > 0
+      ? html`
+          <div class="card">
+            ${detailRow("\u53D6\u5F15\u53EF", `${tradeDays}\u65E5`)}
+            ${detailRow("\u898B\u9001\u308A", `${skipDays.length}\u65E5`)}
+            ${skipDays.length > 0
+              ? html`
+                  <div style="margin-top:10px;padding-top:10px;border-top:1px solid ${COLORS.border}">
+                    ${skipDays.map((a) => {
+                      const dateStr = dayjs(a.date).format("M/D");
+                      const reason = a.reasoning
+                        ? String(a.reasoning).replace(/^\[.*?\]\s*/, "").slice(0, 80)
+                        : "\u7406\u7531\u4E0D\u660E";
+                      return html`<div style="font-size:12px;color:${COLORS.textMuted};margin-bottom:4px">
+                        <span style="color:${COLORS.loss}">\u{1F534}</span> ${dateStr} \u2014 ${reason}
+                      </div>`;
+                    })}
+                  </div>
+                `
+              : ""}
+          </div>
+        `
+      : html`<div class="card">${emptyState("\u5E02\u5834\u8A55\u4FA1\u30C7\u30FC\u30BF\u306A\u3057")}</div>`}
+
     <!-- PnL Chart -->
-    <p class="section-title">累積損益（過去30日）</p>
+    <p class="section-title">\u7D2F\u7A4D\u640D\u76CA\uFF08\u904E\u53BB30\u65E5\uFF09</p>
     <div class="chart-container">
       ${chartData.length >= 2
         ? sparklineChart(chartData, 340, 140)
-        : emptyState("データ不足")}
+        : emptyState("\u30C7\u30FC\u30BF\u4E0D\u8DB3")}
     </div>
 
     <!-- Daily Summary Table -->
-    <p class="section-title">日次サマリー</p>
+    <p class="section-title">\u65E5\u6B21\u30B5\u30DE\u30EA\u30FC</p>
     ${summaries.length > 0
       ? html`
           <div class="card table-wrap responsive-table">
             <table>
               <thead>
                 <tr>
-                  <th>日付</th>
-                  <th>取引</th>
-                  <th>${tt("勝敗", "W=勝ち（利確）/ L=負け（損切）")}</th>
-                  <th>${tt("損益", "当日の実現損益合計")}</th>
-                  <th>${tt("PF値", "プロフィットファクター。総利益÷総損失")}</th>
+                  <th>\u65E5\u4ED8</th>
+                  <th>\u53D6\u5F15</th>
+                  <th>${tt("\u52DD\u6557", "W=\u52DD\u3061\uFF08\u5229\u78BA\uFF09/ L=\u8CA0\u3051\uFF08\u640D\u5207\uFF09")}</th>
+                  <th>${tt("\u640D\u76CA", "\u5F53\u65E5\u306E\u5B9F\u73FE\u640D\u76CA\u5408\u8A08")}</th>
+                  <th>${tt("PF\u5024", "\u30D7\u30ED\u30D5\u30A3\u30C3\u30C8\u30D5\u30A1\u30AF\u30BF\u30FC\u3002\u7DCF\u5229\u76CA\u00F7\u7DCF\u640D\u5931")}</th>
                 </tr>
               </thead>
               <tbody>
                 ${summaries.map(
                   (s) => html`
                     <tr>
-                      <td data-label="日付">
+                      <td data-label="\u65E5\u4ED8">
                         ${new Date(s.date).toLocaleDateString("ja-JP", {
                           month: "numeric",
                           day: "numeric",
                         })}
                       </td>
-                      <td data-label="取引">${s.totalTrades}</td>
-                      <td data-label="勝敗">
+                      <td data-label="\u53D6\u5F15">${s.totalTrades}</td>
+                      <td data-label="\u52DD\u6557">
                         ${s.totalTrades > 0
                           ? `${s.wins}W ${s.losses}L`
                           : "-"}
                       </td>
-                      <td data-label="損益">${pnlText(Number(s.totalPnl))}</td>
-                      <td data-label="PF値">¥${formatYen(Number(s.portfolioValue))}</td>
+                      <td data-label="\u640D\u76CA">${pnlText(Number(s.totalPnl))}</td>
+                      <td data-label="PF\u5024">\u00A5${formatYen(Number(s.portfolioValue))}</td>
                     </tr>
                     ${s.aiReview
                       ? html`
@@ -102,10 +291,10 @@ app.get("/", async (c) => {
             </table>
           </div>
         `
-      : html`<div class="card">${emptyState("日次サマリーなし")}</div>`}
+      : html`<div class="card">${emptyState("\u65E5\u6B21\u30B5\u30DE\u30EA\u30FC\u306A\u3057")}</div>`}
   `;
 
-  return c.html(layout("履歴", "/history", content));
+  return c.html(layout("\u5C65\u6B74", "/history", content));
 });
 
 export default app;

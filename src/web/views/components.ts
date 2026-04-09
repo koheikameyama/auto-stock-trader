@@ -439,6 +439,28 @@ export function equityCurveChart(
   </svg>`;
 }
 
+/** 横棒グラフ（エグジット分類用） */
+export function miniBarChart(
+  items: { label: string; count: number; color: string }[],
+  total: number,
+): HtmlContent {
+  if (total === 0) return emptyState("データなし");
+  const maxCount = Math.max(...items.map((i) => i.count));
+  return html`<div style="display:flex;flex-direction:column;gap:6px">
+    ${items.map((item) => {
+      const pct = total > 0 ? (item.count / total) * 100 : 0;
+      const barW = maxCount > 0 ? (item.count / maxCount) * 100 : 0;
+      return html`<div style="display:flex;align-items:center;gap:8px;font-size:12px">
+        <span style="width:90px;color:${COLORS.textMuted};flex-shrink:0">${item.label}</span>
+        <div style="flex:1;height:16px;background:${COLORS.border};border-radius:4px;overflow:hidden">
+          <div style="width:${barW}%;height:100%;background:${item.color};border-radius:4px;transition:width 0.3s"></div>
+        </div>
+        <span style="width:60px;text-align:right;color:${COLORS.text};flex-shrink:0">${item.count} (${pct.toFixed(0)}%)</span>
+      </div>`;
+    })}
+  </div>`;
+}
+
 /** SVG 折れ線チャート（累積PnL） */
 export function sparklineChart(
   data: { label: string; value: number }[],
