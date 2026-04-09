@@ -19,6 +19,7 @@ import { expireOrders } from "../core/order-executor";
 import { getDailyPnl } from "../core/risk-manager";
 import { updatePeakEquity } from "../core/drawdown-manager";
 import { notifyDailyReport, notifyOrderFilled } from "../lib/slack";
+import { chatCompletion } from "../lib/openai";
 import dayjs from "dayjs";
 
 async function forceClosePositions(
@@ -70,6 +71,151 @@ async function forceClosePositions(
       quantity: position.quantity,
       pnl: closed.realizedPnl ? Number(closed.realizedPnl) : 0,
     });
+  }
+}
+
+/** exitSnapshot から exitReason を安全に取り出す */
+function getExitReason(snapshot: unknown): string {
+  if (snapshot && typeof snapshot === "object" && "exitReason" in snapshot) {
+    return String((snapshot as { exitReason: string }).exitReason);
+  }
+  return "unknown";
+}
+
+async function generateDailyReview(params: {
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  totalPnl: number;
+  portfolioValue: number;
+  cashBalance: number;
+  closedToday: { exitSnapshot: unknown; realizedPnl: unknown; strategy: string | null; stock: { tickerCode: string; name: string }; entryPrice: unknown; exitPrice: unknown }[];
+  filledBuyOrders: { stock: { tickerCode: string; name: string } }[];
+  openPositions: { stock: { tickerCode: string; name: string }; stockId: string; entryPrice: unknown; quantity: number; strategy: string | null }[];
+  priceMap: Map<string, number>;
+  vix: number | null;
+  breadth: number | null;
+  sentiment: string | null;
+}): Promise<string> {
+  const {
+    totalTrades, wins, losses, totalPnl, portfolioValue, cashBalance,
+    closedToday, filledBuyOrders, openPositions, priceMap, vix, breadth, sentiment,
+  } = params;
+
+  // フォールバック用の機械的テキスト
+  const fallback = totalTrades > 0
+    ? `${totalTrades}件決済(${wins}勝${losses}敗, 勝率${totalTrades > 0 ? Math.round((wins / totalTrades) * 100) : 0}%)`
+    : filledBuyOrders.length > 0
+      ? `新規エントリー${filledBuyOrders.length}件`
+      : "取引なし";
+
+  // トレードがなければAI不要
+  if (totalTrades === 0 && filledBuyOrders.length === 0) {
+    return fallback;
+  }
+
+  try {
+    // エグジット分類集計
+    const exitCounts: Record<string, number> = {};
+    for (const p of closedToday) {
+      const reason = getExitReason(p.exitSnapshot);
+      exitCounts[reason] = (exitCounts[reason] || 0) + 1;
+    }
+    const exitSummary = Object.entries(exitCounts)
+      .map(([reason, count]) => `${reason}: ${count}件`)
+      .join(", ");
+
+    // 戦略別集計
+    const strategyCounts: Record<string, number> = {};
+    for (const p of closedToday) {
+      const s = p.strategy || "unknown";
+      strategyCounts[s] = (strategyCounts[s] || 0) + 1;
+    }
+    const strategySummary = Object.entries(strategyCounts)
+      .map(([s, count]) => `${s}: ${count}件`)
+      .join(", ");
+
+    // 新規エントリー銘柄
+    const entryNames = filledBuyOrders
+      .map((o) => `${o.stock.tickerCode}(${o.stock.name})`)
+      .join(", ");
+
+    const grossProfit = closedToday
+      .filter((p) => p.realizedPnl && Number(p.realizedPnl) > 0)
+      .reduce((s, p) => s + Number(p.realizedPnl), 0);
+    const grossLoss = Math.abs(
+      closedToday
+        .filter((p) => p.realizedPnl && Number(p.realizedPnl) <= 0)
+        .reduce((s, p) => s + Number(p.realizedPnl), 0),
+    );
+    const pf = grossLoss > 0 ? (grossProfit / grossLoss).toFixed(2) : grossProfit > 0 ? "∞" : "-";
+
+    // 決済銘柄の詳細
+    const closedDetails = closedToday.map((p) => {
+      const pnl = Number(p.realizedPnl ?? 0);
+      const entry = Number(p.entryPrice);
+      const exit = Number(p.exitPrice);
+      const pnlPct = entry > 0 ? ((exit - entry) / entry * 100).toFixed(1) : "?";
+      const reason = getExitReason(p.exitSnapshot);
+      return `  ${p.stock.tickerCode}(${p.stock.name}): ${reason}, ${pnlPct}%, ¥${pnl.toLocaleString()}`;
+    }).join("\n");
+
+    // 保有中ポジションの詳細
+    const openDetails = openPositions.map((p) => {
+      const entry = Number(p.entryPrice);
+      const current = priceMap.get(p.stockId) ?? entry;
+      const unrealizedPnl = (current - entry) * p.quantity;
+      const unrealizedPct = entry > 0 ? ((current - entry) / entry * 100).toFixed(1) : "?";
+      return `  ${p.stock.tickerCode}(${p.stock.name}): ${p.strategy ?? "?"}, ${unrealizedPct}%, 含み損益¥${Math.round(unrealizedPnl).toLocaleString()}`;
+    }).join("\n");
+
+    const userContent = [
+      `## 本日のトレード結果`,
+      `- 決済: ${totalTrades}件 (${wins}勝${losses}敗)`,
+      `- 損益: ¥${totalPnl.toLocaleString()}`,
+      `- PF: ${pf}`,
+      totalTrades > 0 ? `- エグジット内訳: ${exitSummary}` : null,
+      totalTrades > 0 ? `- 戦略別: ${strategySummary}` : null,
+      totalTrades > 0 ? `\n### 決済銘柄\n${closedDetails}` : null,
+      filledBuyOrders.length > 0 ? `\n### 新規エントリー: ${filledBuyOrders.length}件\n  ${entryNames}` : null,
+      openPositions.length > 0 ? `\n### 保有中ポジション (${openPositions.length}件)\n${openDetails}` : null,
+      ``,
+      `## ポートフォリオ`,
+      `- 評価額: ¥${Math.round(portfolioValue).toLocaleString()}`,
+      `- 現金: ¥${Math.round(cashBalance).toLocaleString()}`,
+      ``,
+      `## 市場環境`,
+      `- VIX: ${vix?.toFixed(1) ?? "N/A"}`,
+      `- Breadth(値上がり率): ${breadth != null ? (breadth * 100).toFixed(0) + "%" : "N/A"}`,
+      `- センチメント: ${sentiment ?? "N/A"}`,
+    ].filter(Boolean).join("\n");
+
+    const result = await chatCompletion([
+      {
+        role: "system",
+        content: [
+          "あなたはプロの株式トレーダーです。",
+          "本日のトレード結果と市場環境を踏まえ、日次の総評を日本語で書いてください。",
+          "ルール:",
+          "- 2〜3文で簡潔に（100文字以内目安）",
+          "- 損切りは「想定通り」とポジティブに評価する（損小利大戦略のため）",
+          "- トレーリングストップでの利確は「利益を伸ばせた」と評価する",
+          "- 市場環境（VIX, Breadth）と結果の整合性に言及する",
+          "- 取引がない日は市場環境のみコメントする",
+          "- JSONで返す: {\"review\": \"...\"}",
+        ].join("\n"),
+      },
+      { role: "user", content: userContent },
+    ], { temperature: 0.5, maxTokens: 300 });
+
+    const parsed = JSON.parse(result);
+    if (parsed.review && typeof parsed.review === "string") {
+      return parsed.review;
+    }
+    return fallback;
+  } catch (error) {
+    console.error("  AI日次レビュー生成失敗（フォールバック使用）:", error);
+    return fallback;
   }
 }
 
@@ -146,6 +292,7 @@ export async function main() {
       status: "closed",
       exitedAt: { gte: startOfDay, lte: endOfDay },
     },
+    include: { stock: true },
   });
 
   // 今日約定した買い注文（エントリー）
@@ -188,17 +335,25 @@ export async function main() {
     `  決済数: ${totalTrades}, 勝: ${wins}, 負: ${losses}, 損益: ¥${totalPnl.toLocaleString()}, エントリー: ${filledBuyOrders.length}件`,
   );
 
-  // 4. 日次サマリー生成
+  // 4. 日次サマリー生成（AI総評）
   console.log("[4/5] 日次サマリー生成...");
-  let aiReview = "";
-  if (totalTrades > 0) {
-    const winRate = ((wins / totalTrades) * 100).toFixed(0);
-    aiReview = `${totalTrades}件決済(${wins}勝${losses}敗, 勝率${winRate}%), 損益¥${totalPnl.toLocaleString()}, PF時価¥${portfolioValue.toLocaleString()}`;
-  } else if (filledBuyOrders.length > 0) {
-    aiReview = `新規${filledBuyOrders.length}件エントリー, 未決済, PF時価¥${portfolioValue.toLocaleString()}`;
-  } else {
-    aiReview = `取引なし, PF時価¥${portfolioValue.toLocaleString()}, 現金¥${cashBalance.toLocaleString()}`;
-  }
+  const aiReview = await generateDailyReview({
+    totalTrades,
+    wins,
+    losses,
+    totalPnl,
+    portfolioValue,
+    cashBalance,
+    closedToday,
+    filledBuyOrders,
+    openPositions,
+    priceMap,
+    vix: todayVix,
+    breadth: todayAssessmentForStrategy?.breadth != null
+      ? Number(todayAssessmentForStrategy.breadth)
+      : null,
+    sentiment: todaySentiment,
+  });
 
   // 5. TradingDailySummary 作成
   console.log("[5/5] DailySummary保存 + Slack通知...");
