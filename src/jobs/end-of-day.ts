@@ -109,8 +109,8 @@ async function generateDailyReview(params: {
       ? `新規エントリー${filledBuyOrders.length}件`
       : "取引なし";
 
-  // トレードがなければAI不要
-  if (totalTrades === 0 && filledBuyOrders.length === 0) {
+  // 何もアクティビティがなければAI不要
+  if (totalTrades === 0 && filledBuyOrders.length === 0 && openPositions.length === 0) {
     return fallback;
   }
 
@@ -196,17 +196,20 @@ async function generateDailyReview(params: {
         content: [
           "あなたはプロの株式トレーダーです。",
           "本日のトレード結果と市場環境を踏まえ、日次の総評を日本語で書いてください。",
-          "ルール:",
-          "- 2〜3文で簡潔に（100文字以内目安）",
-          "- 損切りは「想定通り」とポジティブに評価する（損小利大戦略のため）",
-          "- トレーリングストップでの利確は「利益を伸ばせた」と評価する",
+          "",
+          "## ルール",
+          "- 決済・エントリー・保有中の各銘柄名に触れつつ全体を俯瞰した総評を書く",
+          "- 各銘柄の損益%やエグジット理由を具体的に言及する（例:「〇〇はtrailingで+3.2%確保」）",
+          "- 損切り(stop_loss)は損小利大戦略では正常動作。ポジティブに評価する",
+          "- トレーリング(trailing_profit)は「利益を伸ばせた」と評価する",
           "- 市場環境（VIX, Breadth）と結果の整合性に言及する",
           "- 取引がない日は市場環境のみコメントする",
+          "- 銘柄数が多い場合は損益インパクトの大きい銘柄を優先して言及する",
           "- JSONで返す: {\"review\": \"...\"}",
         ].join("\n"),
       },
       { role: "user", content: userContent },
-    ], { temperature: 0.5, maxTokens: 300 });
+    ], { temperature: 0.5, maxTokens: 500 });
 
     const parsed = JSON.parse(result);
     if (parsed.review && typeof parsed.review === "string") {
