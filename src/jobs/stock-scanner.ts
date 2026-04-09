@@ -113,6 +113,7 @@ async function restoreContextFromDB(): Promise<MarketAssessmentContext> {
     drawdown,
     strategyDecision: { strategy: (record.tradingStrategy ?? "breakout") as TradingStrategy, reason: "DB復元" },
     cmeDivergencePct,
+    breadth: record.breadth ? Number(record.breadth) : null,
     assessment: {
       shouldTrade: record.shouldTrade,
       sentiment: record.sentiment as Sentiment,

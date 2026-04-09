@@ -12,17 +12,21 @@ import { layout } from "../views/layout";
 import {
   formatYen,
   pnlText,
-  sentimentBadge,
+  pnlPercent,
   strategyBadge,
   emptyState,
   detailRow,
+  signalRow,
   tickerLink,
   tt,
   nikkeiChartShell,
 } from "../views/components";
+import type { SignalStatus } from "../views/components";
 import { isMarketDay } from "../../lib/market-date";
 import { determineMarketRegime } from "../../core/market-regime";
 import { calculateDrawdownStatus } from "../../core/drawdown-manager";
+import { VIX_THRESHOLDS, CME_NIGHT_DIVERGENCE, DRAWDOWN } from "../../lib/constants";
+import { COLORS } from "../views/styles";
 
 // jobState is injected from worker.ts
 export let jobState: {
@@ -81,11 +85,6 @@ app.get("/", async (c) => {
   const uptimeH = Math.floor(uptimeMs / 3600000);
   const uptimeM = Math.floor((uptimeMs % 3600000) / 60000);
 
-  // Selected stocks count
-  const selectedStocks = assessment?.selectedStocks as
-    | { tickerCode: string }[]
-    | null;
-
   // Trading verdict: 3-gate check
   const vix = assessment?.vix ? Number(assessment.vix) : null;
   const regime = vix !== null ? determineMarketRegime(vix) : null;
@@ -95,6 +94,40 @@ app.get("/", async (c) => {
     !drawdown.shouldHaltTrading;
 
   const marketOpen = isMarketDay();
+
+  // Signal light logic
+  const breadth = assessment?.breadth ? Number(assessment.breadth) : null;
+  const breadthStatus: SignalStatus = breadth === null ? "warning"
+    : breadth >= 0.73 ? "ok"
+    : breadth >= 0.50 ? "warning"
+    : "danger";
+  const breadthText = breadth !== null ? `${(breadth * 100).toFixed(1)}% (≥73%)` : "N/A";
+
+  const vixStatus: SignalStatus = vix === null ? "warning"
+    : vix < VIX_THRESHOLDS.NORMAL ? "ok"
+    : vix < VIX_THRESHOLDS.ELEVATED ? "warning"
+    : "danger";
+  const vixLabel = regime?.level
+    ? { normal: "Normal", elevated: "Elevated", high: "High", crisis: "Crisis" }[regime.level]
+    : "N/A";
+  const vixText = vix !== null ? `${vix.toFixed(1)} ${vixLabel}` : "N/A";
+
+  const cmeDivPct = assessment?.cmeDivergencePct ? Number(assessment.cmeDivergencePct) : null;
+  const cmeStatus: SignalStatus = cmeDivPct === null ? "warning"
+    : cmeDivPct > CME_NIGHT_DIVERGENCE.WARNING ? "ok"
+    : cmeDivPct > CME_NIGHT_DIVERGENCE.CRITICAL ? "warning"
+    : "danger";
+  const cmeText = cmeDivPct !== null ? `${cmeDivPct >= 0 ? "+" : ""}${cmeDivPct.toFixed(1)}%` : "N/A";
+
+  const ddStatus: SignalStatus = drawdown.shouldHaltTrading ? "danger"
+    : (drawdown.weeklyDrawdownPct >= DRAWDOWN.WEEKLY_HALT_PCT * 0.6
+      || drawdown.monthlyDrawdownPct >= DRAWDOWN.MONTHLY_HALT_PCT * 0.6) ? "warning"
+    : "ok";
+  const ddText = `週${drawdown.weeklyDrawdownPct.toFixed(1)}% / 月${drawdown.monthlyDrawdownPct.toFixed(1)}%`;
+
+  const overallEmoji = canTrade ? "\u{1F7E2}" : "\u{1F534}";
+  const overallLabel = canTrade ? "トレード可" : "取引見送り";
+  const overallColor = canTrade ? "#22c55e" : "#ef4444";
 
   const content = html`
     <!-- System status -->
@@ -148,27 +181,30 @@ app.get("/", async (c) => {
     <!-- Nikkei 225 Chart -->
     ${nikkeiChartShell()}
 
-    <!-- Market Assessment + Trading Verdict -->
+    <!-- Market Condition -->
     <div class="card">
-      <div class="card-title">市場評価</div>
+      <div class="card-title">市場コンディション</div>
       ${assessment
         ? html`
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-              ${canTrade
-                ? html`<span class="badge" style="background:#22c55e20;color:#22c55e;font-size:14px;padding:6px 12px">取引許可</span>`
-                : html`<span class="badge" style="background:#ef444420;color:#ef4444;font-size:14px;padding:6px 12px">取引見送り</span>`}
-              ${sentimentBadge(assessment.sentiment)}
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:16px;font-weight:700">
+              <span>${overallEmoji}</span>
+              <span style="color:${overallColor}">総合判定: ${overallLabel}</span>
             </div>
-            ${detailRow(
-              "日経225",
-              assessment.nikkeiPrice
-                ? `¥${formatYen(Number(assessment.nikkeiPrice))}`
-                : "N/A",
-            )}
-            ${detailRow(
-              "選定銘柄",
-              `${selectedStocks?.length ?? 0}銘柄`,
-            )}
+
+            ${signalRow(tt("Breadth", "SMA25超の銘柄比率。73%以上でエントリー許可"), breadthText, breadthStatus)}
+            ${signalRow(tt("VIX", "恐怖指数。20未満が通常、25超で警戒、30超で危機"), vixText, vixStatus)}
+            ${signalRow(tt("CME乖離", "CME日経先物と前日終値の乖離率"), cmeText, cmeStatus)}
+            ${signalRow(tt("ドローダウン", "週次5%/月次10%で取引停止"), ddText, ddStatus)}
+
+            <div style="border-top:1px solid ${COLORS.border};margin-top:10px;padding-top:10px">
+              <div style="font-size:11px;color:${COLORS.textMuted};margin-bottom:6px">米国市場（前日）</div>
+              ${detailRow("S&P500", assessment.sp500Change != null ? pnlPercent(Number(assessment.sp500Change)) : "N/A")}
+              ${detailRow("NASDAQ", assessment.nasdaqChange != null ? pnlPercent(Number(assessment.nasdaqChange)) : "N/A")}
+              ${detailRow("DOW", assessment.dowChange != null ? pnlPercent(Number(assessment.dowChange)) : "N/A")}
+              ${detailRow("SOX", assessment.soxChange != null ? pnlPercent(Number(assessment.soxChange)) : "N/A")}
+              ${detailRow("USD/JPY", assessment.usdjpy != null ? Number(assessment.usdjpy).toFixed(1) : "N/A")}
+            </div>
+
             <details>
               <summary>判断理由</summary>
               <div class="review-text">${assessment.reasoning}</div>

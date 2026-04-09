@@ -20,6 +20,7 @@ import {
 import type { MarketRegime, StrategyDecision, Sentiment } from "../core/market-regime";
 import { calculateDrawdownStatus } from "../core/drawdown-manager";
 import type { DrawdownStatus } from "../core/drawdown-manager";
+import { calculateMarketBreadth } from "../core/market-breadth";
 
 /** market-assessment の結果（オーケストレーターや stock-scanner に渡す） */
 export interface MarketAssessmentContext {
@@ -29,11 +30,15 @@ export interface MarketAssessmentContext {
   drawdown: DrawdownStatus;
   strategyDecision: StrategyDecision;
   cmeDivergencePct: number | null;
+  breadth: number | null;
   assessment: { shouldTrade: boolean; sentiment: Sentiment; reasoning: string } | null;
 }
 
 /** MarketAssessment保存用の市場指標フィールドを構築する */
-function buildMarketFields(marketData: Awaited<ReturnType<typeof fetchMarketData>>) {
+function buildMarketFields(
+  marketData: Awaited<ReturnType<typeof fetchMarketData>>,
+  extra?: { breadth?: number | null; cmeDivergencePct?: number | null },
+) {
   return {
     nikkeiPrice: marketData.nikkei!.price,
     nikkeiChange: marketData.nikkei!.changePercent,
@@ -45,6 +50,8 @@ function buildMarketFields(marketData: Awaited<ReturnType<typeof fetchMarketData
     nikkeiVi: null as null,
     usdjpy: marketData.usdjpy?.price,
     cmeFuturesPrice: marketData.cmeFutures?.price,
+    breadth: extra?.breadth ?? null,
+    cmeDivergencePct: extra?.cmeDivergencePct ?? null,
   };
 }
 
@@ -53,9 +60,19 @@ export async function main(): Promise<MarketAssessmentContext> {
   let isShadowMode = false;
   let shadowAlert: { type: string; message: string } | null = null;
 
-  // 1. 市場指標データ取得
-  console.log("[1/2] 市場指標データ取得中...");
-  const marketData = await fetchMarketData();
+  // 1. 市場指標データ取得 + Breadth計算（並列）
+  console.log("[1/2] 市場指標データ + Breadth 取得中...");
+  const [marketData, breadthResult] = await Promise.all([
+    fetchMarketData(),
+    calculateMarketBreadth().catch((e) => {
+      console.warn("Breadth計算に失敗:", e);
+      return null;
+    }),
+  ]);
+  const breadthValue = breadthResult?.breadth ?? null;
+  if (breadthResult) {
+    console.log(`  Breadth: ${(breadthResult.breadth * 100).toFixed(1)}% (${breadthResult.above}/${breadthResult.total}銘柄)`);
+  }
 
   if (!marketData.nikkei) {
     console.error("市場データの取得に失敗しました");
@@ -106,7 +123,7 @@ export async function main(): Promise<MarketAssessmentContext> {
         console.log(`  → ${preMarket.reason}`);
         shadowAlert = { type: "CME先物乖離率キルスイッチ", message: preMarket.reason! };
         const assessmentData = {
-          ...buildMarketFields(marketData),
+          ...buildMarketFields(marketData, { breadth: breadthValue, cmeDivergencePct }),
           sentiment: "crisis" as const,
           shouldTrade: false,
           reasoning: `[CME先物乖離率キルスイッチ] ${preMarket.reason}`,
@@ -167,7 +184,7 @@ export async function main(): Promise<MarketAssessmentContext> {
     console.log(`[1.8.5/2] ${reason}`);
     shadowAlert = { type: "日経平均キルスイッチ", message: reason };
     const assessmentData = {
-      ...buildMarketFields(marketData),
+      ...buildMarketFields(marketData, { breadth: breadthValue, cmeDivergencePct }),
       sentiment: "crisis" as const,
       shouldTrade: false,
       reasoning: `[日経平均キルスイッチ] ${reason}`,
@@ -207,7 +224,7 @@ export async function main(): Promise<MarketAssessmentContext> {
       `  → ドローダウン停止時のsentiment: ${drawdownSentiment}（市場評価を維持）`,
     );
     const drawdownAssessmentData = {
-      ...buildMarketFields(marketData),
+      ...buildMarketFields(marketData, { breadth: breadthValue, cmeDivergencePct }),
       sentiment: drawdownSentiment,
       shouldTrade: false,
       reasoning: `[ドローダウン自動停止] ${drawdown.reason}（sentiment=${drawdownSentiment}は市場評価を維持）`,
@@ -237,7 +254,7 @@ export async function main(): Promise<MarketAssessmentContext> {
     );
 
     const assessmentData = {
-      ...buildMarketFields(marketData),
+      ...buildMarketFields(marketData, { breadth: breadthValue, cmeDivergencePct }),
       sentiment: assessment.sentiment,
       shouldTrade: assessment.shouldTrade,
       reasoning: assessment.reasoning,
@@ -280,6 +297,7 @@ export async function main(): Promise<MarketAssessmentContext> {
     drawdown,
     strategyDecision,
     cmeDivergencePct,
+    breadth: breadthValue,
     assessment,
   };
 }

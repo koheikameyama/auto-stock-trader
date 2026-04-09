@@ -161,6 +161,8 @@ model MarketAssessment {
   nasdaqChange    Decimal? @db.Decimal(8, 4)
   dowChange       Decimal? @db.Decimal(8, 4)
   soxChange       Decimal? @db.Decimal(8, 4)
+  breadth          Decimal? @db.Decimal(5, 4)
+  cmeDivergencePct Decimal? @db.Decimal(8, 4)
 
   @@index([date(sort: Desc)])
 }
