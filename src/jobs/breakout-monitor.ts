@@ -21,9 +21,6 @@ import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone.js";
 import utc from "dayjs/plugin/utc.js";
 import type { QuoteData } from "../core/breakout/breakout-scanner";
-import { GapUpScanner } from "../core/gapup/gapup-scanner";
-import type { GapUpQuoteData } from "../core/gapup/gapup-scanner";
-import { GAPUP } from "../lib/constants/gapup";
 import { getContrarianHistoryBatch, calculateContinuousContrarianBonus } from "../core/contrarian-analyzer";
 
 dayjs.extend(utc);
@@ -34,8 +31,6 @@ let scanner: BreakoutScanner | null = null;
 let lastScanDate: string | null = null;
 /** 保有中ティッカー（直近スキャン時のスナップショット） */
 let lastHoldingTickers: Set<string> = new Set();
-let gapupScanner: GapUpScanner | null = null;
-
 /**
  * スキャナーの状態を外部から取得する（Web UIで使用）
  * スキャナー未起動時は null を返す
@@ -63,16 +58,11 @@ export async function main(): Promise<void> {
   const today = dayjs().tz(TIMEZONE).format("YYYY-MM-DD");
   if (lastScanDate && lastScanDate !== today) {
     scanner = null;
-    gapupScanner = null;
   }
   lastScanDate = today;
 
   if (!scanner) {
     scanner = new BreakoutScanner(watchlist);
-  }
-
-  if (!gapupScanner) {
-    gapupScanner = new GapUpScanner(watchlist);
   }
 
   // 0-2. MarketAssessment・保有ポジションを並列取得
@@ -258,139 +248,6 @@ export async function main(): Promise<void> {
     }
   }
 
-  // ========================================
-  // gapupスキャン（15:20以降、1日1回）
-  // ========================================
-  const jstNow = dayjs().tz(TIMEZONE);
-  const scanStart = jstNow.clone().hour(GAPUP.GUARD.SCAN_HOUR).minute(GAPUP.GUARD.SCAN_MINUTE).second(0).millisecond(0);
-
-  if (!jstNow.isBefore(scanStart) && gapupScanner) {
-    // breadthフィルター（バックテストの marketTrendFilter と同等）
-    const livePriceMap = new Map(
-      quotesRaw.filter((q): q is NonNullable<typeof q> => q !== null).map((q) => [q.tickerCode, q.price]),
-    );
-    const breadth = await calculateLiveBreadth(tickers, livePriceMap);
-    console.log(`${tag} [gapup] breadth=${(breadth * 100).toFixed(1)}%`);
-
-    if (breadth < GAPUP.MARKET_FILTER.BREADTH_THRESHOLD) {
-      console.log(
-        `${tag} [gapup] スキップ: breadth=${(breadth * 100).toFixed(1)}% < ${GAPUP.MARKET_FILTER.BREADTH_THRESHOLD * 100}%`,
-      );
-      return;
-    }
-
-    console.log(`${tag} [gapup] 15:20 gapupスキャン開始`);
-
-    // quotesRawは既に取得済み（上のbreakoutスキャンで使った全銘柄OHLCVデータ）
-    // YfQuoteResult には open, high, low, price, volume が全て含まれている
-    const gapupQuotes: GapUpQuoteData[] = quotesRaw
-      .filter((q): q is NonNullable<typeof q> => q !== null && q.open > 0 && q.volume > 0)
-      .map((q) => ({
-        ticker: q.tickerCode,
-        open: q.open,
-        price: q.price,
-        high: q.high,
-        low: q.low,
-        volume: q.volume,
-      }));
-
-    if (gapupQuotes.length > 0) {
-      const gapupTriggers = gapupScanner.scan(gapupQuotes, holdingTickers);
-
-      // トリガーに板情報を付与
-      for (const t of gapupTriggers) {
-        const raw = rawQuoteMap.get(t.ticker);
-        if (raw) {
-          t.askPrice = raw.askPrice;
-          t.bidPrice = raw.bidPrice;
-          t.askSize = raw.askSize;
-          t.bidSize = raw.bidSize;
-        }
-      }
-
-      console.log(
-        `${tag} [gapup] スキャン完了: 時価=${gapupQuotes.length} トリガー=${gapupTriggers.length}`,
-      );
-
-      const triggerLines =
-        gapupTriggers.length > 0
-          ? gapupTriggers
-              .map((t) => `• ${t.ticker} ¥${t.currentPrice.toLocaleString()} 出来高サージ ${t.volumeSurgeRatio.toFixed(2)}x`)
-              .join("\n")
-          : "シグナルなし";
-      await notifySlack({
-        title: `[gapup] スキャン完了: ${gapupTriggers.length}件`,
-        message: `スキャン対象: ${gapupQuotes.length}銘柄 / breadth: ${(breadth * 100).toFixed(1)}%\n${triggerLines}`,
-        color: gapupTriggers.length > 0 ? "good" : undefined,
-      });
-
-      for (const trigger of gapupTriggers) {
-        console.log(
-          `${tag} [gapup] トリガー発火: ${trigger.ticker} 価格=¥${trigger.currentPrice} 出来高サージ=${trigger.volumeSurgeRatio.toFixed(2)}x`,
-        );
-        try {
-          const result = await executeEntry(trigger, "gapup");
-          if (!result.success) {
-            await notifySlack({
-              title: `[gapup] エントリー失敗: ${trigger.ticker}`,
-              message: `理由: ${result.reason ?? "不明"}\n価格: ¥${trigger.currentPrice.toLocaleString()} / 出来高サージ: ${trigger.volumeSurgeRatio.toFixed(2)}x`,
-              color: "warning",
-            });
-          }
-        } catch (err) {
-          console.error(`${tag} [gapup] エントリーエラー: ${trigger.ticker}`, err);
-          await notifySlack({
-            title: `[gapup] エントリー例外: ${trigger.ticker}`,
-            message: `${err instanceof Error ? err.message : String(err)}`,
-            color: "danger",
-          });
-        }
-      }
-    } else {
-      console.log(`${tag} [gapup] スキップ: OHLCV取得0件`);
-    }
-  }
-}
-
-/**
- * ウォッチリスト銘柄のSMA25上回り比率（breadth）を計算する。
- * バックテストの marketTrendFilter と同等のロジック。
- */
-async function calculateLiveBreadth(
-  tickers: string[],
-  livePrices: Map<string, number>,
-): Promise<number> {
-  const SMA_LEN = 25;
-  const cutoff = dayjs().tz(TIMEZONE).subtract(45, "day").toDate();
-  const bars = await prisma.stockDailyBar.findMany({
-    where: { tickerCode: { in: tickers }, date: { gte: cutoff } },
-    select: { tickerCode: true, close: true },
-    orderBy: [{ tickerCode: "asc" }, { date: "asc" }],
-  });
-
-  const tickerCloses = new Map<string, number[]>();
-  for (const bar of bars) {
-    let arr = tickerCloses.get(bar.tickerCode);
-    if (!arr) {
-      arr = [];
-      tickerCloses.set(bar.tickerCode, arr);
-    }
-    arr.push(bar.close);
-  }
-
-  let above = 0;
-  let total = 0;
-  for (const ticker of tickers) {
-    const historical = tickerCloses.get(ticker);
-    const livePrice = livePrices.get(ticker);
-    if (!historical || !livePrice || historical.length < SMA_LEN - 1) continue;
-
-    const closes = [...historical.slice(-(SMA_LEN - 1)), livePrice];
-    const sma = closes.reduce((s, c) => s + c, 0) / closes.length;
-    total++;
-    if (livePrice > sma) above++;
-  }
-  return total > 0 ? above / total : 0;
 }
 
 /**
@@ -447,5 +304,4 @@ export async function reactivateCancelledTriggers(
  */
 export function resetScanner(): void {
   scanner = null;
-  gapupScanner = null;
 }

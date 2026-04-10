@@ -19,6 +19,7 @@ dayjs.extend(timezone);
 import { main as runMonitor } from "./jobs/position-monitor";
 import { main as runBreakoutMonitor } from "./jobs/breakout-monitor";
 import { main as runWeeklyBreakMonitor } from "./jobs/weekly-break-monitor";
+import { main as runGapupMonitor } from "./jobs/gapup-monitor";
 import { main as runBrokerReconciliation } from "./jobs/broker-reconciliation";
 import { app } from "./web/app";
 import { setJobState } from "./web/routes/dashboard";
@@ -144,6 +145,8 @@ const schedules = [
   { cron: "30-59 12 * * 1-5", job: runBreakoutMonitor, name: "breakout-monitor", requiresMarketDay: true },
   { cron: "* 13-14 * * 1-5", job: runBreakoutMonitor, name: "breakout-monitor", requiresMarketDay: true },
   { cron: "0-25 15 * * 1-5", job: runBreakoutMonitor, name: "breakout-monitor", requiresMarketDay: true },
+  // 15:20-15:25 ギャップアップ監視（内部で1日1回制限）
+  { cron: "20-25 15 * * 1-5", job: runGapupMonitor, name: "gapup-monitor", requiresMarketDay: true },
   // 15:20-15:25 週足ブレイク監視（内部で週末最終営業日のみ実行）
   { cron: "20-25 15 * * 1-5", job: runWeeklyBreakMonitor, name: "weekly-break-monitor", requiresMarketDay: true },
 ];
