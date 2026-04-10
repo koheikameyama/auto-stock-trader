@@ -107,6 +107,50 @@ npm run walk-forward:gapup
 - 平均保有日数: 1.2日
 - ※ 以前の結果（2026-03-29: PF=2.44、ts=0.5）は `getDynamicMaxPositionPct` に `stockPrice` 引数漏れによるバグ（qty=NaN）で無効だった
 
+### スクイーズブレイクアウト戦略バックテスト
+
+```bash
+npm run backtest:squeeze-breakout
+# オプション: --start 2025-01-01 --end 2025-12-31 --budget 500000 --verbose --compare-entry --no-position-cap
+```
+
+BB幅スクイーズ（60日パーセンタイル<20%）+ 上部BBまたは20日高値ブレイク + 出来高サージ1.5倍 + 陽線で当日終値エントリー。
+
+### スクイーズブレイクアウト walk-forward 分析
+
+```bash
+npm run walk-forward:squeeze-breakout
+```
+
+#### パラメータグリッド（27通り、エグジット系のみ）
+
+| パラメータ | 値 |
+|-----------|-----|
+| atrMultiplier | 0.8, 1.0, 1.2 |
+| beActivationMultiplier | 0.3, 0.5, 0.8 |
+| trailMultiplier | 0.5, 0.8, 1.0 |
+
+#### WF結果（2026-04-10実施）
+
+- **OOS集計PF=1.39、判定「堅牢 ✓」だが実質微妙**
+- 6窓中3窓が休止（IS PF < 0.5）
+- Window 5: IS PF=2.99 → OOS PF=0.10（過学習パターン）
+- パラメータ不安定（atr, beが窓ごとにバラバラ、trailのみ安定=0.5）
+- **結論: 実戦投入には至らず。`ENTRY_ENABLED = false` のまま**
+
+### 戦略追加検証の総括（2026-04-10）
+
+breakout無効化後の3本目の戦略候補を4つWF検証した結果:
+
+| 戦略 | OOS集計PF | 判定 | 問題点 |
+|------|-----------|------|--------|
+| squeeze-breakout | 1.39 | 堅牢（微妙） | 6窓中3休止、W5過学習 |
+| earnings-gap | - | 検証不能 | 決算日データ不足、全窓トレード3件未満 |
+| momentum | 0.00 | 過学習 | OOS合計2トレード全敗 |
+| 出来高+大陽線 | 未検証 | - | 旧breakout亜種、見送り |
+
+**結論: 50万以下の中小型株ユニバースでは日足テクニカル系に新たなエッジなし。gapup + weekly-break の2本柱で運用継続。**
+
 ## ファイル構成
 
 ### breakout
@@ -132,3 +176,14 @@ npm run walk-forward:gapup
 | `src/backtest/gapup-simulation.ts` | シミュレーションエンジン（precompute対応） |
 | `src/backtest/gapup-run.ts` | CLI実行エントリーポイント（`--compare-entry` オプションあり） |
 | `scripts/walk-forward-gapup.ts` | walk-forward検証スクリプト |
+
+### squeeze-breakout
+
+| ファイル | 役割 |
+|---------|------|
+| `src/lib/constants/squeeze-breakout.ts` | スクイーズブレイクアウト戦略の定数 |
+| `src/core/squeeze-breakout/entry-conditions.ts` | `isSqueezeBreakoutSignal()` エントリー判定 |
+| `src/backtest/squeeze-breakout-config.ts` | デフォルト設定 + WFパラメータグリッド |
+| `src/backtest/squeeze-breakout-simulation.ts` | シミュレーションエンジン（precompute対応） |
+| `src/backtest/squeeze-breakout-run.ts` | CLI実行エントリーポイント（`--compare-entry` オプションあり） |
+| `scripts/walk-forward-squeeze-breakout.ts` | walk-forward検証スクリプト |

@@ -426,3 +426,60 @@ export interface EarningsGapBacktestResult {
   equityCurve: DailyEquity[];
   metrics: PerformanceMetrics;
 }
+
+// ──────────────────────────────────────────
+// スクイーズブレイクアウトバックテスト設定
+// ──────────────────────────────────────────
+
+export interface SqueezeBreakoutBacktestConfig {
+  startDate: string;
+  endDate: string;
+  initialBudget: number;
+  maxPositions: number;
+
+  /** BB幅パーセンタイル閾値（この%以下をスクイーズとみなす） */
+  bbSqueezePercentile: number;
+  /** BB期間 */
+  bbPeriod: number;
+  /** パーセンタイル計算のルックバック日数 */
+  bbLookback: number;
+  /** 出来高サージ倍率 */
+  volSurgeRatio: number;
+
+  atrMultiplier: number;
+  maxLossPct: number;
+
+  beActivationMultiplier: number;
+  trailMultiplier: number;
+
+  maxHoldingDays: number;
+  maxExtendedHoldingDays: number;
+
+  maxPrice: number;
+  minAvgVolume25: number;
+  minAtrPct: number;
+  minTurnover: number;
+  minPrice: number;
+
+  costModelEnabled: boolean;
+  priceLimitEnabled: boolean;
+
+  cooldownDays: number;
+
+  marketTrendFilter?: boolean;
+  marketTrendThreshold?: number;
+  indexTrendFilter?: boolean;
+  indexTrendSmaPeriod?: number;
+  indexTrendOffBufferPct?: number;
+  indexTrendOnBufferPct?: number;
+
+  verbose: boolean;
+  positionCapEnabled?: boolean;
+}
+
+export interface SqueezeBreakoutBacktestResult {
+  config: SqueezeBreakoutBacktestConfig;
+  trades: SimulatedPosition[];
+  equityCurve: DailyEquity[];
+  metrics: PerformanceMetrics;
+}
