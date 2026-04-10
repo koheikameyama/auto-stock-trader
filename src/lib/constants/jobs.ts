@@ -33,9 +33,12 @@ export const BREAK_EVEN_STOP = {
   ACTIVATION_ATR_MULTIPLIER: {
     breakout: 1.0,   // ATR×1.0で早めに建値ロック（ブレイクアウト初動の利益を守る）
     gapup: 0.3,      // ATR×0.3の含み益でBE発動（WF最適値: be=0.3・trail=0.3が全ウィンドウで安定）
+    momentum: 1.0,
+    "earnings-gap": 0.3,
+    "weekly-break": 0.8,
   },
   // ATR不明時のフォールバック（%ベース）
-  ACTIVATION_PCT: { breakout: 0.02, gapup: 0.005 },
+  ACTIVATION_PCT: { breakout: 0.02, gapup: 0.005, momentum: 0.02, "earnings-gap": 0.005, "weekly-break": 0.015 },
 } as const;
 
 // トレーリングストップ
@@ -44,10 +47,13 @@ export const TRAILING_STOP = {
   TRAIL_ATR_MULTIPLIER: {
     breakout: 1.5,   // ATR×1.0ではノイズ（通常リトレースメント）で狩られるため1.5に拡大
     gapup: 0.3,      // BE発動(ATR×0.3)後にATR×0.3のタイトなトレール（WF最適値）
+    momentum: 1.0,
+    "earnings-gap": 0.3,
+    "weekly-break": 1.0,
   },
   // ATR不明時のフォールバック（%ベース）
-  ACTIVATION_PCT: { breakout: 0.03, gapup: 0.008 },
-  TRAIL_PCT: { breakout: 0.02, gapup: 0.005 },
+  ACTIVATION_PCT: { breakout: 0.03, gapup: 0.008, momentum: 0.02, "earnings-gap": 0.008, "weekly-break": 0.015 },
+  TRAIL_PCT: { breakout: 0.02, gapup: 0.005, momentum: 0.02, "earnings-gap": 0.005, "weekly-break": 0.015 },
 } as const;
 
 

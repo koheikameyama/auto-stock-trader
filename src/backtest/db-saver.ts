@@ -4,9 +4,9 @@
 
 import { prisma } from "../lib/prisma";
 import { BACKTEST_RUN_MAX_COUNT } from "../lib/constants";
-import type { BreakoutBacktestResult, GapUpBacktestResult } from "./types";
+import type { BreakoutBacktestResult, GapUpBacktestResult, MomentumBacktestResult, EarningsGapBacktestResult, WeeklyBreakBacktestResult } from "./types";
 
-type BacktestStrategy = "breakout" | "gapup" | "combined";
+type BacktestStrategy = "breakout" | "gapup" | "combined" | "momentum" | "earnings-gap" | "weekly-break";
 
 interface BacktestResultCommon {
   config: { startDate: string; endDate: string };
@@ -33,7 +33,7 @@ interface BacktestResultCommon {
  * 保存後、同一戦略で件数が BACKTEST_RUN_MAX_COUNT を超えた分を古い順に削除する。
  */
 export async function saveBacktestResult(
-  result: BreakoutBacktestResult | GapUpBacktestResult,
+  result: BreakoutBacktestResult | GapUpBacktestResult | MomentumBacktestResult | EarningsGapBacktestResult | WeeklyBreakBacktestResult,
   strategy: BacktestStrategy = "breakout",
 ): Promise<string> {
   const { config, trades, equityCurve, metrics } = result as BacktestResultCommon;

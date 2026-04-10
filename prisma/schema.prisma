@@ -427,3 +427,14 @@ model UnfilledOrderFollowUp {
   @@index([isComplete])
   @@index([orderDate(sort: Desc)])
 }
+
+model EarningsDate {
+  id         String   @id @default(cuid())
+  tickerCode String
+  date       DateTime @db.Date
+  createdAt  DateTime @default(now())
+
+  @@unique([tickerCode, date])
+  @@index([tickerCode, date(sort: Desc)])
+  @@index([date])
+}

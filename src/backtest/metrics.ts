@@ -20,7 +20,8 @@ export function calculateMetrics(
       t.exitReason === "stop_loss" ||
       t.exitReason === "trailing_profit" ||
       t.exitReason === "time_stop" ||
-      t.exitReason === "defensive_exit",
+      t.exitReason === "defensive_exit" ||
+      t.exitReason === "rotation_exit",
   );
   const stillOpen = trades.filter((t) => t.exitReason === "still_open").length;
 

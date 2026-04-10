@@ -125,3 +125,33 @@ export async function fetchIndexFromDB(
   }
   return indexMap;
 }
+
+/**
+ * 決算日データ取得
+ *
+ * @returns Map<tickerCode, Set<date(YYYY-MM-DD)>>
+ */
+export async function fetchEarningsFromDB(
+  tickerCodes: string[],
+  startDate: string,
+  endDate: string,
+): Promise<Map<string, Set<string>>> {
+  const rows = await prisma.earningsDate.findMany({
+    where: {
+      tickerCode: { in: tickerCodes },
+      date: {
+        gte: new Date(`${startDate}T00:00:00Z`),
+        lte: new Date(`${endDate}T00:00:00Z`),
+      },
+    },
+    select: { tickerCode: true, date: true },
+  });
+
+  const result = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const ticker = row.tickerCode;
+    if (!result.has(ticker)) result.set(ticker, new Set());
+    result.get(ticker)!.add(dayjs(row.date).format("YYYY-MM-DD"));
+  }
+  return result;
+}

@@ -119,6 +119,7 @@ export interface SimulatedPosition {
     | "trailing_profit"
     | "time_stop"
     | "defensive_exit"
+    | "rotation_exit"
     | "still_open"
     | null;
   pnl: number | null;
@@ -260,6 +261,167 @@ export interface GapUpBacktestConfig {
 
 export interface GapUpBacktestResult {
   config: GapUpBacktestConfig;
+  trades: SimulatedPosition[];
+  equityCurve: DailyEquity[];
+  metrics: PerformanceMetrics;
+}
+
+// ──────────────────────────────────────────
+// 週足レンジブレイクバックテスト設定
+// ──────────────────────────────────────────
+
+export interface WeeklyBreakBacktestConfig {
+  startDate: string;
+  endDate: string;
+  initialBudget: number;
+  maxPositions: number;
+
+  /** N週高値ルックバック（週数） */
+  weeklyHighLookback: number;
+  /** 週足出来高サージ倍率 */
+  weeklyVolSurgeRatio: number;
+
+  atrMultiplier: number;
+  maxLossPct: number;
+
+  beActivationMultiplier: number;
+  trailMultiplier: number;
+
+  maxHoldingDays: number;
+  maxExtendedHoldingDays: number;
+
+  maxPrice: number;
+  minAvgVolume25: number;
+  minAtrPct: number;
+  minTurnover: number;
+  minPrice: number;
+
+  costModelEnabled: boolean;
+  priceLimitEnabled: boolean;
+
+  cooldownDays: number;
+
+  marketTrendFilter?: boolean;
+  marketTrendThreshold?: number;
+  indexTrendFilter?: boolean;
+  indexTrendSmaPeriod?: number;
+  indexTrendOffBufferPct?: number;
+  indexTrendOnBufferPct?: number;
+
+  verbose: boolean;
+  positionCapEnabled?: boolean;
+}
+
+export interface WeeklyBreakBacktestResult {
+  config: WeeklyBreakBacktestConfig;
+  trades: SimulatedPosition[];
+  equityCurve: DailyEquity[];
+  metrics: PerformanceMetrics;
+}
+
+// ──────────────────────────────────────────
+// モメンタムバックテスト設定
+// ──────────────────────────────────────────
+
+export interface MomentumBacktestConfig {
+  startDate: string;
+  endDate: string;
+  initialBudget: number;
+  maxPositions: number;
+
+  /** リターン計測ルックバック（営業日） */
+  lookbackDays: number;
+  /** 保有する上位銘柄数 */
+  topN: number;
+  /** リバランス頻度（営業日） */
+  rebalanceDays: number;
+  /** 最低リターン閾値（%） */
+  minReturnPct: number;
+
+  atrMultiplier: number;
+  maxLossPct: number;
+
+  beActivationMultiplier: number;
+  trailMultiplier: number;
+
+  maxHoldingDays: number;
+  maxExtendedHoldingDays: number;
+
+  maxPrice: number;
+  minAvgVolume25: number;
+  minAtrPct: number;
+  minTurnover: number;
+  minPrice: number;
+
+  costModelEnabled: boolean;
+  priceLimitEnabled: boolean;
+
+  cooldownDays: number;
+
+  marketTrendFilter?: boolean;
+  marketTrendThreshold?: number;
+  indexTrendFilter?: boolean;
+  indexTrendSmaPeriod?: number;
+  indexTrendOffBufferPct?: number;
+  indexTrendOnBufferPct?: number;
+
+  verbose: boolean;
+  positionCapEnabled?: boolean;
+}
+
+export interface MomentumBacktestResult {
+  config: MomentumBacktestConfig;
+  trades: SimulatedPosition[];
+  equityCurve: DailyEquity[];
+  metrics: PerformanceMetrics;
+}
+
+// ──────────────────────────────────────────
+// 決算ギャップバックテスト設定
+// ──────────────────────────────────────────
+
+export interface EarningsGapBacktestConfig {
+  startDate: string;
+  endDate: string;
+  initialBudget: number;
+  maxPositions: number;
+
+  gapMinPct: number;
+  volSurgeRatio: number;
+
+  atrMultiplier: number;
+  maxLossPct: number;
+
+  beActivationMultiplier: number;
+  trailMultiplier: number;
+
+  maxHoldingDays: number;
+  maxExtendedHoldingDays: number;
+
+  maxPrice: number;
+  minAvgVolume25: number;
+  minAtrPct: number;
+  minTurnover: number;
+  minPrice: number;
+
+  costModelEnabled: boolean;
+  priceLimitEnabled: boolean;
+
+  cooldownDays: number;
+
+  marketTrendFilter?: boolean;
+  marketTrendThreshold?: number;
+  indexTrendFilter?: boolean;
+  indexTrendSmaPeriod?: number;
+  indexTrendOffBufferPct?: number;
+  indexTrendOnBufferPct?: number;
+
+  verbose: boolean;
+  positionCapEnabled?: boolean;
+}
+
+export interface EarningsGapBacktestResult {
+  config: EarningsGapBacktestConfig;
   trades: SimulatedPosition[];
   equityCurve: DailyEquity[];
   metrics: PerformanceMetrics;
