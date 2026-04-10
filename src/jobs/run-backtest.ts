@@ -1,34 +1,32 @@
 /**
- * 統合バックテスト実行ジョブ
+ * 日次バックテスト実行ジョブ
  *
  * cron-job.org から POST /api/cron/run-backtest で呼び出される。
- * 直近12ヶ月の統合バックテスト（Breakout + GapUp 共有資金プール）を実行し、結果をDBに保存する。
+ * 直近12ヶ月のギャップアップ戦略バックテストを実行し、結果をDBに保存する。
+ *
+ * ※ 2026-04-10: breakout戦略エッジ消失のため、gapup単独に変更
  */
 
 import dayjs from "dayjs";
 import { prisma } from "../lib/prisma";
-import { BREAKOUT_BACKTEST_DEFAULTS } from "../backtest/breakout-config";
 import { GAPUP_BACKTEST_DEFAULTS } from "../backtest/gapup-config";
 import {
   precomputeSimData,
-  precomputeDailySignals,
 } from "../backtest/breakout-simulation";
-import { precomputeGapUpDailySignals } from "../backtest/gapup-simulation";
+import { precomputeGapUpDailySignals, runGapUpBacktest } from "../backtest/gapup-simulation";
 import { fetchHistoricalFromDB, fetchVixFromDB, fetchIndexFromDB } from "../backtest/data-fetcher";
 import { saveBacktestResult } from "../backtest/db-saver";
 import { notifyCombinedBacktest } from "../lib/slack";
-import { runCombinedSimulation } from "../backtest/combined-simulation";
-import type { BreakoutBacktestConfig, GapUpBacktestConfig } from "../backtest/types";
+import type { GapUpBacktestConfig } from "../backtest/types";
 
 export async function main(): Promise<void> {
   const startDate = dayjs().subtract(12, "month").format("YYYY-MM-DD");
   const endDate = dayjs().format("YYYY-MM-DD");
   const budget = 500_000;
 
-  const boConfig: BreakoutBacktestConfig = { ...BREAKOUT_BACKTEST_DEFAULTS, startDate, endDate, verbose: false };
-  const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, verbose: false };
+  const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, verbose: false };
 
-  console.log(`[run-backtest] 実行開始 ${startDate} → ${endDate}`);
+  console.log(`[run-backtest] gapup単独バックテスト実行開始 ${startDate} → ${endDate}`);
 
   // 銘柄一覧取得
   const stocks = await prisma.stock.findMany({
@@ -45,10 +43,9 @@ export async function main(): Promise<void> {
     fetchIndexFromDB("^N225", startDate, endDate),
   ]);
 
-  const maxPrice = Math.max(boConfig.maxPrice, guConfig.maxPrice);
   const allData = new Map<string, import("../core/technical-analysis").OHLCVData[]>();
   for (const [ticker, bars] of rawData) {
-    if (bars.some((b) => b.close <= maxPrice && b.close > 0)) {
+    if (bars.some((b) => b.close <= guConfig.maxPrice && b.close > 0)) {
       allData.set(ticker, bars);
     }
   }
@@ -58,33 +55,36 @@ export async function main(): Promise<void> {
   const precomputed = precomputeSimData(
     startDate, endDate, allData,
     true, true,
-    boConfig.indexTrendSmaPeriod ?? 50,
+    guConfig.indexTrendSmaPeriod ?? 50,
     indexData.size > 0 ? indexData : undefined,
-    boConfig.indexMomentumFilter ?? false,
-    boConfig.indexMomentumDays ?? 60,
-    boConfig.indexTrendOffBufferPct ?? 0,
-    boConfig.indexTrendOnBufferPct ?? 0,
+    false,
+    60,
+    guConfig.indexTrendOffBufferPct ?? 0,
+    guConfig.indexTrendOnBufferPct ?? 0,
   );
 
-  const breakoutSignals = precomputeDailySignals(boConfig, allData, precomputed);
   const gapupSignals = precomputeGapUpDailySignals(guConfig, allData, precomputed);
 
   // シミュレーション実行
-  const result = runCombinedSimulation(
-    { boConfig, guConfig, budget, verbose: false, allData, precomputed, breakoutSignals, gapupSignals, vixData: vixData.size > 0 ? vixData : undefined, monthlyAddAmount: 0, equityCurveSmaPeriod: 20 },
-    boConfig.maxPositions,
+  const result = runGapUpBacktest(
+    guConfig,
+    allData,
+    vixData.size > 0 ? vixData : undefined,
+    indexData.size > 0 ? indexData : undefined,
+    precomputed,
+    gapupSignals,
   );
 
   // DB保存
   try {
     const savedId = await saveBacktestResult(
       {
-        config: { startDate, endDate, maxPositions: boConfig.maxPositions, initialBudget: budget },
-        trades: result.allTrades,
+        config: { startDate, endDate, maxPositions: guConfig.maxPositions, initialBudget: budget },
+        trades: result.trades,
         equityCurve: result.equityCurve,
-        metrics: result.totalMetrics,
+        metrics: result.metrics,
       } as Parameters<typeof saveBacktestResult>[0],
-      "combined",
+      "gapup",
     );
     console.log(`[run-backtest] 保存完了: ${savedId}`);
   } catch (err) {
@@ -94,7 +94,7 @@ export async function main(): Promise<void> {
 
   // Slack通知
   try {
-    const m = result.totalMetrics;
+    const m = result.metrics;
     await notifyCombinedBacktest({
       period: `${startDate} 〜 ${endDate}`,
       profitFactor: m.profitFactor === Infinity ? 9999 : m.profitFactor,

@@ -1,0 +1,47 @@
+name: "[Scheduled] Monthly Walk-Forward Analysis"
+
+on:
+  schedule:
+    # 毎月第1土曜 11:00 JST = 02:00 UTC（1-7日の土曜）
+    - cron: "0 2 1-7 * 6"
+  workflow_dispatch:
+
+concurrency:
+  group: monthly-walk-forward
+  cancel-in-progress: false
+
+env:
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+jobs:
+  walk-forward:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - name: Run walk-forward analysis (breakout + gapup)
+        run: python scripts/run_monthly_walk_forward.py
+
+  notify-failure:
+    needs: walk-forward
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on failure
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "❌ Monthly Walk-Forward 失敗"
+          SLACK_MESSAGE: |
+            Walk-Forward分析が失敗しました。
+            詳細はGitHub Actionsログを確認してください。
+          SLACK_COLOR: danger
+          SLACK_FOOTER: "Stock Buddy"
