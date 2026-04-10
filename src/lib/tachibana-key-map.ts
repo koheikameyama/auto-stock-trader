@@ -50,8 +50,8 @@ const NUMERIC_KEY_MAP: Record<string, string> = {
   "656": "sOrderStatus",         // 注文状態テキスト（"全部約定" 等）※"542" はドキュメント記載
   "657": "sOrderStatusCode",     // 注文状態コード（"10" = FULLY_FILLED）
   "96":  "aYakuzyouSikkouList",  // 約定執行リスト
-  "878": "sYakuzyouPrice",       // 約定価格
-  "879": "sYakuzyouSuryou",      // 約定株数
+  "878": "sYakuzyouSuryou",      // 約定株数
+  "879": "sYakuzyouPrice",       // 約定価格
 
   // 現物保有銘柄
   "859": "sUriOrderIssueCode",
