@@ -55,6 +55,7 @@ app.get("/", async (c) => {
                   <th>${tt("現在価格", "Yahoo Financeからのリアルタイム価格")}</th>
                   <th>${tt("含み損益", "（現在価格 − 建値）× 数量")}</th>
                   <th>${tt("損益率", "（現在価格 − 建値）÷ 建値 × 100")}</th>
+                  <th>${tt("MFE%", "最大含み益（Maximum Favorable Excursion）。保有中の最高値ベース")}</th>
                   <th>${tt("損切", "現在有効な損切り価格（固定SL/BE/TS）")}</th>
                   <th>${tt("出口状態", "SL=固定損切り、BE=建値撤退、TS=トレーリングストップ")}</th>
                 </tr>
@@ -74,6 +75,12 @@ app.get("/", async (c) => {
                       <td data-quote-price><span class="quote-loading">...</span></td>
                       <td data-quote-pnl><span class="quote-loading">...</span></td>
                       <td data-quote-pnl-rate><span class="quote-loading">...</span></td>
+                      ${(() => {
+                        const maxHigh_ = p.maxHighDuringHold ? Number(p.maxHighDuringHold) : entryPrice;
+                        const mfePct = ((maxHigh_ - entryPrice) / entryPrice) * 100;
+                        const mfeColor = mfePct > 0 ? "#22c55e" : "#94a3b8";
+                        return html`<td style="color:${mfeColor}">+${mfePct.toFixed(1)}%</td>`;
+                      })()}
                       ${(() => {
                         const sl = p.stopLossPrice ? Number(p.stopLossPrice) : entryPrice * POSITION_DEFAULTS.STOP_LOSS_RATIO;
                         const tp = p.takeProfitPrice ? Number(p.takeProfitPrice) : entryPrice * POSITION_DEFAULTS.TAKE_PROFIT_RATIO;
@@ -138,6 +145,7 @@ app.get("/", async (c) => {
                   <th>数量</th>
                   <th>${tt("決済", "ポジションを閉じた時の価格")}</th>
                   <th>${tt("損益", "実現損益（税引前）")}</th>
+                  <th>${tt("MFE%", "最大含み益。保有中に到達した最高利益率")}</th>
                   <th>${tt("決済理由", "損切り・利確・トレーリング・タイムストップ等")}</th>
                   <th>${tt("決済日", "ポジションを閉じた日付")}</th>
                 </tr>
@@ -160,6 +168,13 @@ app.get("/", async (c) => {
                           ? pnlText(Number(p.realizedPnl))
                           : "-"}
                       </td>
+                      <td style="white-space:nowrap">${(() => {
+                        const snap = p.exitSnapshot as { priceJourney?: { maxFavorableExcursion?: number } } | null;
+                        const mfe = snap?.priceJourney?.maxFavorableExcursion;
+                        if (mfe == null) return "-";
+                        const color = mfe > 0 ? "#22c55e" : "#94a3b8";
+                        return html`<span style="color:${color}">+${mfe.toFixed(1)}%</span>`;
+                      })()}</td>
                       <td style="white-space:nowrap">${(() => {
                         const snap = p.exitSnapshot as { exitReason?: string } | null;
                         return snap?.exitReason ?? "-";

@@ -142,6 +142,28 @@ app.get("/", async (c) => {
   const expectancy =
     (winRate / 100) * avgWinPct + (1 - winRate / 100) * avgLossPct;
 
+  // MFE stats from exitSnapshot
+  const mfeValues = closedPositions
+    .map((p) => {
+      const snap = p.exitSnapshot as { priceJourney?: { maxFavorableExcursion?: number } } | null;
+      return snap?.priceJourney?.maxFavorableExcursion ?? null;
+    })
+    .filter((v): v is number => v !== null);
+  const avgMfe = mfeValues.length > 0 ? mfeValues.reduce((s, v) => s + v, 0) / mfeValues.length : 0;
+
+  // Profit giveback rate: how much of MFE was returned
+  // Only for trades that had positive MFE
+  const givebackRates = closedPositions
+    .map((p) => {
+      const snap = p.exitSnapshot as { priceJourney?: { maxFavorableExcursion?: number } } | null;
+      const mfe = snap?.priceJourney?.maxFavorableExcursion;
+      if (!mfe || mfe <= 0 || !p.entryPrice || !p.exitPrice) return null;
+      const realizedPct = ((Number(p.exitPrice) - Number(p.entryPrice)) / Number(p.entryPrice)) * 100;
+      return 1 - realizedPct / mfe; // 0 = kept all, 1 = returned all
+    })
+    .filter((v): v is number => v !== null);
+  const avgGiveback = givebackRates.length > 0 ? givebackRates.reduce((s, v) => s + v, 0) / givebackRates.length : 0;
+
   // Average holding days (approximate from exitedAt - not precise but usable)
   const totalPnl = closedPositions.reduce(
     (s, p) => s + Number(p.realizedPnl ?? 0),
@@ -199,6 +221,8 @@ app.get("/", async (c) => {
             ${detailRow(tt("\u52DD\u7387", "\u5229\u76CA\u304C\u51FA\u305F\u30C8\u30EC\u30FC\u30C9\u306E\u5272\u5408"), `${winRate.toFixed(1)}%`)}
             ${detailRow(tt("RR\u6BD4", "\u30EA\u30B9\u30AF\u30EA\u30EF\u30FC\u30C9\u6BD4\u30021.5\u4EE5\u4E0A\u304C\u76EE\u6A19"), rr === Infinity ? "\u221E" : rr.toFixed(2))}
             ${detailRow(tt("\u671F\u5F85\u5024", "(\u52DD\u7387\u00D7\u5E73\u5747\u5229\u76CA%) + (\u6557\u7387\u00D7\u5E73\u5747\u640D\u5931%)\u3002\u6B63\u306A\u3089\u512A\u4F4D\u6027\u3042\u308A"), `${expectancy >= 0 ? "+" : ""}${expectancy.toFixed(2)}%`)}
+            ${detailRow(tt("平均MFE%", "保有中に到達した最大含み益の平均。大きいほどエントリー精度が高い"), `+${avgMfe.toFixed(2)}%`)}
+            ${detailRow(tt("利益返還率", "MFEのうち返した割合。低いほど利益を守れている"), `${(avgGiveback * 100).toFixed(0)}%`)}
             ${detailRow("\u640D\u76CA", pnlText(totalPnl))}
             ${detailRow("\u53D6\u5F15\u6570", `${totalClosed}\u4EF6`)}
           </div>
