@@ -1,0 +1,94 @@
+name: "[Scheduled] Weekly Memory Review"
+
+on:
+  schedule:
+    # 金曜 19:00 JST = 金曜 10:00 UTC
+    - cron: "0 10 * * 5"
+  workflow_dispatch:
+
+concurrency:
+  group: weekly-memory-review
+  cancel-in-progress: false
+
+jobs:
+  memory-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run weekly memory review
+        run: python3 scripts/weekly-memory-review.py
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if git diff --quiet memory/ .claude/rules/; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Pull Request
+        if: steps.check_changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          BRANCH_NAME="weekly-memory-review/$(date +%Y-%m-%d)"
+
+          git checkout -b "$BRANCH_NAME"
+          git add memory/ .claude/rules/
+          git commit -m "chore: 週次メモリ振り返り $(date +%Y-%m-%d)"
+          git push origin "$BRANCH_NAME"
+
+          PR_BODY="## 週次メモリ振り返り
+
+自動的に検出されたパターンと昇格されたルールを確認してください。
+
+### 変更内容
+
+- memory/daily/ からパターンを抽出
+- memory/long-term/ に繰り返しパターンを記録
+- pain_count ≥ 3 のエントリを .claude/rules/ に昇格
+
+### レビューポイント
+
+- [ ] long-term/ のエントリが適切か確認
+- [ ] rules/ への昇格が妥当か確認
+- [ ] 不要なエントリがあれば削除
+
+---
+
+進化的記憶システムによる自動PR"
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH_NAME" \
+            --title "chore: 週次メモリ振り返り $(date +%Y-%m-%d)" \
+            --body "$PR_BODY"
+
+  notify-failure:
+    needs: memory-review
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on failure
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "Weekly Memory Review 失敗"
+          SLACK_MESSAGE: |
+            週次メモリ振り返りが失敗しました。
+            詳細はGitHub Actionsログを確認してください。
+          SLACK_COLOR: danger
+          SLACK_FOOTER: "Stock Buddy"

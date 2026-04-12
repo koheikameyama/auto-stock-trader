@@ -126,11 +126,26 @@
 
 ### 記憶・ルールの保存
 
-新しいパターンや規約を記憶する際も `.claude/rules/` を積極的に活用してください。
+**進化的記憶システムを使用しています。** `memory/evolution.md` を参照してください。
 
-- **既存ファイルに関連する内容** → 対応する rules ファイルに追記
-- **新しいトピック** → `.claude/rules/` に新規ファイルを作成し、上記の参照テーブルにも追加
-- `memory/MEMORY.md` はプロジェクト横断的な記憶のみ（インフラ制約など）に絞る
+- **日次の決定事項**: `memory/daily/` に自動記録（SessionEnd Hook）
+- **繰り返すパターン**: 週次振り返りで `memory/long-term/` に昇格
+- **重要なルール**: pain_count ≥ 3 で `.claude/rules/` に自動昇格
+- **グローバルルール**: pain_count ≥ 5 または手動判断で `CLAUDE.md` に追加
+
+#### 昇格フロー
+
+```
+memory/daily/ (pain_count: 0)
+  ↓ 週次振り返り（毎週金曜 19:00 JST）
+memory/long-term/ (pain_count: 1-2)
+  ↓ pain_count ≥ 3
+.claude/rules/ (強制力: 強)
+  ↓ pain_count ≥ 5 または手動判断
+CLAUDE.md (強制力: 最強)
+```
+
+詳細は `memory/evolution.md` と `memory/README.md` を参照してください。
 
 | ファイル | 内容 |
 |---|---|
