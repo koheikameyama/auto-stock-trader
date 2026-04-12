@@ -66,12 +66,19 @@ app.get("/", async (c) => {
     getPendingOrders(),
     prisma.tradingDailySummary.findFirst({ orderBy: { date: "desc" } }),
     getCashBalance().catch(() => null),
-    calculateDrawdownStatus(),
+    calculateDrawdownStatus().catch((): {
+      weeklyDrawdownPct: number; monthlyDrawdownPct: number; shouldHaltTrading: boolean;
+    } => ({
+      weeklyDrawdownPct: 0, monthlyDrawdownPct: 0, shouldHaltTrading: false,
+    })),
   ]);
 
   const totalBudget = config ? Number(config.totalBudget) : 0;
   const [effectiveCap, realizedPnl] = config
-    ? [await getEffectiveCapital(config), await computeRealizedPnl()]
+    ? await Promise.all([
+        getEffectiveCapital(config).catch(() => Number(config.totalBudget)),
+        computeRealizedPnl(),
+      ])
     : [0, 0];
   const cash = cashBalance ?? effectiveCap;
   // 初期表示は建値ベース（リアルタイム価格はクライアント側で非同期取得）
