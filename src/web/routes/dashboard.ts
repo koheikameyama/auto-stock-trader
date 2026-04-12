@@ -26,6 +26,7 @@ import { isMarketDay } from "../../lib/market-date";
 import { determineMarketRegime } from "../../core/market-regime";
 import { calculateDrawdownStatus } from "../../core/drawdown-manager";
 import { VIX_THRESHOLDS, CME_NIGHT_DIVERGENCE, DRAWDOWN } from "../../lib/constants";
+import { isTachibanaProduction } from "../../lib/constants/broker";
 import { COLORS } from "../views/styles";
 
 // jobState is injected from worker.ts
@@ -178,8 +179,10 @@ app.get("/", async (c) => {
         <div class="card-title">キャッシュ残高</div>
         <div class="card-value">¥${formatYen(cash)}</div>
 <div class="card-sub" style="display:flex;align-items:center;gap:6px">
-          予算(DB): <span id="budgetDisplay">¥${formatYen(totalBudget)}</span>
-          <button class="btn-toggle btn-success" style="font-size:11px;padding:2px 8px" onclick="editBudget(${totalBudget})">変更</button>
+          ${isTachibanaProduction
+            ? html`実質資金(API): ¥${formatYen(effectiveCap)}`
+            : html`予算: <span id="budgetDisplay">¥${formatYen(totalBudget)}</span>
+              <button class="btn-toggle btn-success" style="font-size:11px;padding:2px 8px" onclick="editBudget(${totalBudget})">変更</button>`}
         </div>
         <div class="card-sub">確定損益: ${pnlText(realizedPnl)}</div>
       </div>

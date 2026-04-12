@@ -40,10 +40,10 @@ export async function computeRealizedPnl(): Promise<number> {
 }
 
 /**
- * 実質資金 = 入金額 + 累計確定損益（ポジション履歴から計算）
+ * 実質資金を取得する
  *
- * TACHIBANA_ENV=production の場合はブローカーAPIから買余力を取得し、
- * 投資中金額を加算して実質資金を算出する。取得値はDBにも同期する。
+ * TACHIBANA_ENV=production: ブローカーAPIの買余力 + 投資中金額
+ * それ以外: DBのtotalBudget + 累計確定損益
  * API失敗時はDBフォールバック。
  */
 export async function getEffectiveCapital(config?: TradingConfig | null): Promise<number> {
@@ -51,9 +51,7 @@ export async function getEffectiveCapital(config?: TradingConfig | null): Promis
     const apiBuyingPower = await getBuyingPower();
     if (apiBuyingPower != null) {
       const investedAmount = await getInvestedAmount();
-      const effectiveCapital = apiBuyingPower + investedAmount;
-      await syncTotalBudget(effectiveCapital);
-      return effectiveCapital;
+      return apiBuyingPower + investedAmount;
     }
     // API失敗時はDBフォールバック
   }
@@ -254,19 +252,3 @@ async function getInvestedAmount(): Promise<number> {
   return openPositions.reduce((sum, pos) => sum + Number(pos.entryPrice) * pos.quantity, 0);
 }
 
-/** ブローカーから取得した実質資金をDBに同期 */
-async function syncTotalBudget(effectiveCapital: number): Promise<void> {
-  try {
-    const realizedPnl = await computeRealizedPnl();
-    const totalBudget = effectiveCapital - realizedPnl;
-    const config = await prisma.tradingConfig.findFirst({ orderBy: { createdAt: "desc" } });
-    if (config) {
-      await prisma.tradingConfig.update({
-        where: { id: config.id },
-        data: { totalBudget },
-      });
-    }
-  } catch (err) {
-    console.warn("[position-manager] totalBudget同期失敗:", err);
-  }
-}
