@@ -114,7 +114,7 @@ app.get("/", async (c) => {
     : breadth >= 0.60 ? "ok"
     : breadth >= 0.50 ? "warning"
     : "danger";
-  const breadthText = breadth !== null ? `${(breadth * 100).toFixed(1)}% (≥60%)` : "N/A";
+  const breadthText = breadth !== null ? `${(breadth * 100).toFixed(1)}%` : "N/A";
 
   const vixStatus: SignalStatus = vix === null ? "warning"
     : vix < VIX_THRESHOLDS.NORMAL ? "ok"
