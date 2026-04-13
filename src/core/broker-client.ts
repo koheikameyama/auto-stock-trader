@@ -17,6 +17,7 @@ import {
 import { mapNumericKeys } from "../lib/tachibana-key-map";
 import { TIMEZONE } from "../lib/constants";
 import { notifyBrokerError } from "../lib/slack";
+import { prisma } from "../lib/prisma";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -90,10 +91,16 @@ export class TachibanaClient {
    * ログイン — 仮想URLを5つ取得しセッションに保持
    */
   async login(): Promise<TachibanaSession> {
-    // ログインロック中はクールダウン期間スキップ
-    if (this.loginLockedUntil && new Date() < this.loginLockedUntil) {
+    // ログインロック中はDBから確認してクールダウン期間スキップ
+    const configForLockCheck = await prisma.tradingConfig.findFirst({
+      orderBy: { createdAt: "desc" },
+      select: { loginLockedUntil: true },
+    });
+    const dbLockedUntil = configForLockCheck?.loginLockedUntil ?? null;
+    if (dbLockedUntil && new Date() < dbLockedUntil) {
+      this.loginLockedUntil = dbLockedUntil;
       throw new Error(
-        `Tachibana login is locked until ${this.loginLockedUntil.toISOString()}. Call the support center to unlock.`,
+        `Tachibana login is locked until ${dbLockedUntil.toISOString()}. Call the support center to unlock.`,
       );
     }
 
@@ -126,11 +133,19 @@ export class TachibanaClient {
     // アカウントロック検出（パスワード間違い規定回数超過）
     const orderResultCode = raw.sOrderResultCode as string | undefined;
     if (orderResultCode === "10033") {
-      this.loginLockedUntil = new Date(
-        Date.now() + TachibanaClient.LOGIN_LOCK_COOLDOWN_MS,
-      );
+      const lockedUntil = new Date(Date.now() + TachibanaClient.LOGIN_LOCK_COOLDOWN_MS);
+      this.loginLockedUntil = lockedUntil;
       const errorMsg = (raw.sOrderResultText as string) || "アカウントがロックされています";
       console.error(`[TachibanaClient] Account locked: ${errorMsg}`);
+
+      // DBに永続化
+      const configToUpdate = await prisma.tradingConfig.findFirst({ orderBy: { createdAt: "desc" } });
+      if (configToUpdate) {
+        await prisma.tradingConfig.update({
+          where: { id: configToUpdate.id },
+          data: { loginLockedUntil: lockedUntil, loginLockReason: errorMsg },
+        });
+      }
 
       if (!this.loginLockNotified) {
         this.loginLockNotified = true;
@@ -146,6 +161,15 @@ export class TachibanaClient {
     // ログインロック解除（正常ログイン成功時）
     this.loginLockedUntil = null;
     this.loginLockNotified = false;
+
+    // DBもクリア
+    const configToClear = await prisma.tradingConfig.findFirst({ orderBy: { createdAt: "desc" } });
+    if (configToClear) {
+      await prisma.tradingConfig.update({
+        where: { id: configToClear.id },
+        data: { loginLockedUntil: null, loginLockReason: null },
+      });
+    }
 
     // 金商法のお知らせ未読チェック
     if (raw.sKinsyouhouMidokuFlg === "1") {
@@ -373,11 +397,19 @@ export class TachibanaClient {
   /**
    * ログインロックを手動解除（コールセンターで解除後に使用）
    */
-  clearLoginLock(): void {
+  async clearLoginLock(): Promise<void> {
     this.loginLockedUntil = null;
     this.loginLockNotified = false;
     this.session = null;
     console.log("[TachibanaClient] Login lock cleared manually");
+
+    const config = await prisma.tradingConfig.findFirst({ orderBy: { createdAt: "desc" } });
+    if (config) {
+      await prisma.tradingConfig.update({
+        where: { id: config.id },
+        data: { loginLockedUntil: null, loginLockReason: null },
+      });
+    }
   }
 
   // ========================================
