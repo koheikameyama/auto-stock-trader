@@ -372,11 +372,6 @@ app.get("/watchlist/state", async (c) => {
       strategies.push("GU");
     }
 
-    // BO: price > high20 + サージ ≥ 2.0x
-    if (quote.price > wl.high20 && surgeRatio >= BREAKOUT.ENTRY.TRIGGER_THRESHOLD) {
-      strategies.push("BO");
-    }
-
     // WB: price > weeklyHigh13（金曜のみ）
     if (isFriday && wl.weeklyHigh13 != null && quote.price > wl.weeklyHigh13) {
       strategies.push("WB");
