@@ -14,7 +14,7 @@ const {
   mockDailyBarFindMany,
   mockGapUpScan,
 } = vi.hoisted(() => ({
-  mockGetWatchlist: vi.fn(),
+  mockGetWatchlist: vi.fn(), // getGuWatchlist のモック
   mockFetchQuotes: vi.fn(),
   mockExecuteEntry: vi.fn().mockResolvedValue({ success: true }),
   mockNotifySlack: vi.fn().mockResolvedValue(undefined),
@@ -32,7 +32,7 @@ vi.mock("../../lib/prisma", () => ({
   },
 }));
 
-vi.mock("../watchlist-builder", () => ({ getWatchlist: mockGetWatchlist }));
+vi.mock("../watchlist-builder", () => ({ getGuWatchlist: mockGetWatchlist }));
 vi.mock("../../lib/tachibana-price-client", () => ({
   tachibanaFetchQuotesBatch: mockFetchQuotes,
 }));
