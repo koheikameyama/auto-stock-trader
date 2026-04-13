@@ -391,6 +391,34 @@ app.get("/watchlist/state", async (c) => {
     return strategies;
   }
 
+  // GU条件詳細を計算
+  type GapupConditions = {
+    gapPct: number;        // ギャップ率 (%)
+    isGapOk: boolean;      // gap >= 3%
+    isCandleOk: boolean;   // 陽線（price >= open）
+    isVolumeOk: boolean;   // 出来高サージ >= 1.5x
+    prevClose: number;
+    open: number;
+  };
+
+  function calcGapupConditions(ticker: string, quote: { price: number; open: number; volume: number } | null): GapupConditions | null {
+    if (!quote) return null;
+    const wl = wlMap.get(ticker);
+    if (!wl || wl.latestClose <= 0) return null;
+
+    const surgeRatio = calculateVolumeSurgeRatio(quote.volume, wl.avgVolume25, hour, minute);
+    const gapPct = ((quote.open - wl.latestClose) / wl.latestClose) * 100;
+
+    return {
+      gapPct,
+      isGapOk: quote.open > wl.latestClose * (1 + GAPUP.ENTRY.GAP_MIN_PCT),
+      isCandleOk: quote.price >= quote.open,
+      isVolumeOk: surgeRatio >= GAPUP.ENTRY.VOL_SURGE_RATIO,
+      prevClose: wl.latestClose,
+      open: quote.open,
+    };
+  }
+
   // ティッカーごとのデータ
   const tickerData: Record<string, {
     status: WatchlistStatus;
@@ -399,6 +427,8 @@ app.get("/watchlist/state", async (c) => {
     surgeRatio: number | null;
     price: number | null;
     open: number | null;
+    gapup: GapupConditions | null;
+    wbDeviation: number | null;
   }> = {};
 
   for (const ticker of tickers) {
@@ -410,13 +440,22 @@ app.get("/watchlist/state", async (c) => {
       ? calculateVolumeSurgeRatio(quote.volume, wl.avgVolume25, hour, minute)
       : null;
 
+    const quoteData = quote ? { price: quote.price, open: quote.open, volume: quote.volume } : null;
+
+    // WB乖離: 金曜のみ、現在価格 vs 13週高値 (%)
+    const wbDeviation = isFriday && quote && wl?.weeklyHigh13
+      ? ((quote.price - wl.weeklyHigh13) / wl.weeklyHigh13) * 100
+      : null;
+
     tickerData[ticker] = {
       status,
       ...(orderStrategy && { orderStrategy }),
-      strategies: checkStrategies(ticker, quote ? { price: quote.price, open: quote.open, volume: quote.volume } : null),
+      strategies: checkStrategies(ticker, quoteData),
       surgeRatio,
       price: quote?.price ?? null,
       open: quote?.open ?? null,
+      gapup: calcGapupConditions(ticker, quoteData),
+      wbDeviation,
     };
   }
 

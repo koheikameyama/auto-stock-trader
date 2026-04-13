@@ -143,10 +143,12 @@ app.get("/", async (c) => {
                   <th>銘柄</th>
                   <th>${tt("状態", "保有中/注文済/監視中")}</th>
                   <th>${tt("戦略", "GU=ギャップアップ BO=ブレイクアウト WB=週足ブレイク(金)")}</th>
+                  <th>${tt("GU条件", "Gap≥3% / 陽線(終値≥始値) / 出来高≥1.5x")}</th>
                   <th>${tt("サージ", "出来高サージ比率（時間帯加重）")}</th>
                   <th>${tt("現在価格", "リアルタイム価格")}</th>
                   <th>${tt("20日高値", "ブレイクアウト基準価格")}</th>
                   <th>${tt("乖離", "現在価格と20日高値の差（%）")}</th>
+                  ${isFriday ? html`<th>${tt("WB乖離", "現在価格 vs 13週高値（金曜のみ）")}</th>` : ""}
                 </tr>
               </thead>
               <tbody>
@@ -156,10 +158,12 @@ app.get("/", async (c) => {
                       <td>${tickerLink(w.ticker, `${w.ticker} ${nameMap.get(w.ticker) ?? w.ticker}`)}</td>
                       <td data-status-badge>${statusBadgeHtml(w.status, w.orderStrategy)}</td>
                       <td data-strategies style="font-size: 11px; white-space: nowrap;"><span class="quote-loading">...</span></td>
+                      <td data-gapup-conditions style="font-size: 11px; white-space: nowrap;"><span class="quote-loading">...</span></td>
                       <td data-surge-ratio><span class="quote-loading">...</span></td>
                       <td data-quote-price><span class="quote-loading">...</span></td>
                       <td>¥${formatYen(w.high20)}</td>
                       <td data-quote-deviation><span class="quote-loading">...</span></td>
+                      ${isFriday ? html`<td data-wb-deviation><span class="quote-loading">...</span></td>` : ""}
                     </tr>
                   `,
                 )}
@@ -256,6 +260,29 @@ app.get("/", async (c) => {
                   if (strats.indexOf('WB') !== -1) wbCount++;
                 }
 
+                // GU条件
+                var guEl = row.querySelector('[data-gapup-conditions]');
+                if (guEl) {
+                  var gu = d.gapup;
+                  if (gu) {
+                    var gapSign = gu.gapPct >= 0 ? '+' : '';
+                    var gapColor = gu.isGapOk ? '#22c55e' : (gu.gapPct >= 1.5 ? '#f59e0b' : '#64748b');
+                    var candleColor = gu.isCandleOk ? '#22c55e' : '#ef4444';
+                    var candleLabel = gu.isCandleOk ? '\u25cb' : '\u00d7';
+                    var volColor = gu.isVolumeOk ? '#22c55e' : '#64748b';
+                    var allMet = gu.isGapOk && gu.isCandleOk && gu.isVolumeOk;
+                    guEl.innerHTML =
+                      '<span style="color:' + gapColor + ';">' + gapSign + gu.gapPct.toFixed(1) + '%</span>' +
+                      '<span style="color:#475569; margin: 0 2px;">|</span>' +
+                      '<span style="color:' + candleColor + ';">' + candleLabel + '</span>' +
+                      '<span style="color:#475569; margin: 0 2px;">|</span>' +
+                      '<span style="color:' + volColor + ';">' + d.surgeRatio.toFixed(1) + 'x</span>' +
+                      (allMet ? ' <span style="color:#22c55e; font-weight:600;">\u2714</span>' : '');
+                  } else {
+                    guEl.innerHTML = '<span style="color: #475569;">-</span>';
+                  }
+                }
+
                 // サージ比率
                 var surgeEl = row.querySelector('[data-surge-ratio]');
                 if (surgeEl) {
@@ -279,6 +306,19 @@ app.get("/", async (c) => {
                     var cls = dev >= 0 ? 'pnl-positive' : 'pnl-negative';
                     var sign = dev >= 0 ? '+' : '';
                     devEl.innerHTML = '<span class="' + cls + '">' + sign + dev.toFixed(2) + '%</span>';
+                  }
+                }
+
+                // WB乖離（金曜のみ）
+                var wbDevEl = row.querySelector('[data-wb-deviation]');
+                if (wbDevEl) {
+                  var wb = d.wbDeviation;
+                  if (wb != null) {
+                    var wbSign = wb >= 0 ? '+' : '';
+                    var wbColor = wb >= 0 ? '#22c55e' : '#64748b';
+                    wbDevEl.innerHTML = '<span style="color:' + wbColor + '; font-weight:' + (wb >= 0 ? '600' : '400') + ';">' + wbSign + wb.toFixed(2) + '%</span>';
+                  } else {
+                    wbDevEl.innerHTML = '<span style="color: #475569;">-</span>';
                   }
                 }
               });
