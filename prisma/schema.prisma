@@ -79,6 +79,21 @@ model BreakoutWatchlistEntry {
   @@index([date(sort: Desc)])
 }
 
+model WatchlistEntry {
+  id           String   @id @default(cuid())
+  date         DateTime @db.Date
+  tickerCode   String
+  avgVolume25  Float
+  atr14        Float
+  latestClose  Float
+  momentum5d   Float
+  weeklyHigh13 Float?
+  createdAt    DateTime @default(now())
+
+  @@unique([date, tickerCode])
+  @@index([date(sort: Desc)])
+}
+
 model CorporateEventLog {
   id             String   @id @default(cuid())
   tickerCode     String
