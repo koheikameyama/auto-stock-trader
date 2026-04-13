@@ -142,7 +142,9 @@ export async function main(): Promise<void> {
     color: gapupTriggers.length > 0 ? "good" : undefined,
   });
 
-  for (const trigger of gapupTriggers) {
+  // 1日1件制限: RR降順ソート済みの先頭シグナルのみエントリー（WF検証済み: PF 2.45→2.73）
+  const topTriggers = gapupTriggers.slice(0, 1);
+  for (const trigger of topTriggers) {
     console.log(
       `${tag} トリガー発火: ${trigger.ticker} 価格=¥${trigger.currentPrice} 出来高サージ=${trigger.volumeSurgeRatio.toFixed(2)}x`,
     );

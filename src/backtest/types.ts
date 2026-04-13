@@ -257,6 +257,9 @@ export interface GapUpBacktestConfig {
 
   /** 1銘柄あたりの資金上限（getDynamicMaxPositionPct）を適用するか。デフォルト: true */
   positionCapEnabled?: boolean;
+
+  /** 1日あたりの最大エントリー件数。省略時=無制限 */
+  maxDailyEntries?: number;
 }
 
 export interface GapUpBacktestResult {
