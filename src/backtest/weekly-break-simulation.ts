@@ -323,8 +323,10 @@ export function runWeeklyBreakBacktest(
     if (todayRegime !== "crisis" && openPositions.length < config.maxPositions) {
       const signals = precomputedSignals?.get(today) ?? [];
 
+      let dailyEntryCount = 0;
       for (const signal of signals) {
         if (openPositions.length >= config.maxPositions) break;
+        if (config.maxDailyEntries != null && dailyEntryCount >= config.maxDailyEntries) break;
 
         // 重複排除
         if (openPositions.some((p) => p.ticker === signal.ticker)) continue;
@@ -391,6 +393,7 @@ export function runWeeklyBreakBacktest(
         };
 
         openPositions.push(position);
+        dailyEntryCount++;
 
         if (config.verbose) {
           console.log(

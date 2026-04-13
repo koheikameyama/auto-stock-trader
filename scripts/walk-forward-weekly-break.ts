@@ -148,6 +148,8 @@ function padPF(pf: number): string {
 async function main() {
   const args = process.argv.slice(2);
   const useRobust = !args.includes("--max-pf");
+  const maxDailyEntriesArg = args.find((a) => a.startsWith("--max-daily-entries="));
+  const maxDailyEntries = maxDailyEntriesArg ? parseInt(maxDailyEntriesArg.split("=")[1], 10) : undefined;
   const endDate = dayjs().format("YYYY-MM-DD");
   const startDate = dayjs().subtract(TOTAL_MONTHS, "month").format("YYYY-MM-DD");
 
@@ -158,6 +160,7 @@ async function main() {
   console.log(`IS: ${IS_MONTHS}ヶ月 / OOS: ${OOS_MONTHS}ヶ月 / スライド: ${SLIDE_MONTHS}ヶ月`);
   console.log(`ウィンドウ数: ${NUM_WINDOWS}`);
   console.log(`選択方式: ${useRobust ? "ロバスト（近傍中央値PF）" : "最大PF"}`);
+  if (maxDailyEntries != null) console.log(`1日最大エントリー: ${maxDailyEntries}件`);
 
   const paramCombos = generateWeeklyBreakParameterCombinations();
   console.log(`パラメータ組み合わせ: ${paramCombos.length}通り`);
@@ -223,6 +226,7 @@ async function main() {
         startDate: isStart,
         endDate: isEnd,
         verbose: false,
+        ...(maxDailyEntries != null ? { maxDailyEntries } : {}),
       };
       const result = runWeeklyBreakBacktest(config, allData, vixArg, indexArg, isPrecomputed, isSignals);
       if (result.metrics.totalTrades < 3) continue;
@@ -272,6 +276,7 @@ async function main() {
       startDate: oosStart,
       endDate: oosEnd,
       verbose: false,
+      ...(maxDailyEntries != null ? { maxDailyEntries } : {}),
     };
     const oosResult = runWeeklyBreakBacktest(oosConfig, allData, vixArg, indexArg, oosPrecomputed, oosSignals);
 

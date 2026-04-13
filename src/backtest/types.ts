@@ -313,6 +313,9 @@ export interface WeeklyBreakBacktestConfig {
 
   verbose: boolean;
   positionCapEnabled?: boolean;
+
+  /** 1日あたりの最大エントリー件数。省略時=無制限 */
+  maxDailyEntries?: number;
 }
 
 export interface WeeklyBreakBacktestResult {
