@@ -221,7 +221,7 @@ app.get("/", async (c) => {
       : html`<div class="card">${emptyState("完了済みデータなし")}</div>`}
   `;
 
-  return c.html(layout("未約定FU（GU/WB用）", "/unfilled-orders", content));
+  return c.html(layout("未約定FU", "/unfilled-orders", content));
 });
 
 export default app;
