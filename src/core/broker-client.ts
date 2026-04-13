@@ -467,8 +467,12 @@ export class TachibanaClient {
           urlEventWebSocket: saved.urlEventWebSocket,
           loginAt: saved.loginAt,
         };
+        // セッション復元時はp_noをUnixタイムスタンプ秒にセットする。
+        // p_noはセッション内で単調増加である必要があるため、
+        // 0から再開すると前回セッションの値以下になりエラーになる。
+        this.requestCounter = Math.floor(Date.now() / 1000);
         console.log(
-          `[TachibanaClient] Session restored from DB (${this.env}), loginAt=${saved.loginAt.toISOString()}`,
+          `[TachibanaClient] Session restored from DB (${this.env}), loginAt=${saved.loginAt.toISOString()}, p_no start=${this.requestCounter}`,
         );
         return this.session;
       }
