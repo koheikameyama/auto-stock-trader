@@ -3,7 +3,8 @@
  *
  * market-data-provider を使用して株価・市場指標データを取得する。
  * プライマリ: 立花証券API
- * yfinanceフォールバック: 画面表示用途のみ（workerでは使わない）
+ * 画面表示用フォールバック: 立花API → DB（Stock + StockDailyBar）→ yfinance
+ * workerではフォールバックなし（立花APIのみ）
  */
 
 import dayjs from "dayjs";
@@ -83,13 +84,122 @@ export interface MarketData {
 // ========================================
 
 interface QuoteFetchOptions {
-  /** 立花API失敗時に yfinance へフォールバックする（画面表示用） */
+  /** 立花API失敗時に DB→yfinance へフォールバックする（画面表示用） */
   yfinanceFallback?: boolean;
 }
 
 /**
+ * DBから最新終値を取得して StockQuote 形式に変換する（単一銘柄）
+ * Stock.latestPrice + StockDailyBar の直近2日分から前日比を計算
+ */
+async function fetchQuoteFromDB(tickerCode: string): Promise<StockQuote | null> {
+  const stock = await prisma.stock.findUnique({
+    where: { tickerCode },
+    select: { latestPrice: true, latestVolume: true, latestPriceDate: true },
+  });
+
+  if (!stock?.latestPrice) return null;
+
+  const bars = await prisma.stockDailyBar.findMany({
+    where: { tickerCode },
+    orderBy: { date: "desc" },
+    take: 2,
+    select: { open: true, high: true, low: true, close: true, volume: true },
+  });
+
+  const latest = bars[0];
+  const prev = bars[1];
+  if (!latest) return null;
+
+  const price = Number(stock.latestPrice);
+  const previousClose = prev ? prev.close : price;
+  const change = price - previousClose;
+  const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
+
+  return {
+    tickerCode,
+    price,
+    previousClose,
+    change: Math.round(change * 100) / 100,
+    changePercent: Math.round(changePercent * 10000) / 10000,
+    volume: latest.volume ? Number(latest.volume) : 0,
+    high: latest.high,
+    low: latest.low,
+    open: latest.open,
+    per: null,
+    pbr: null,
+    eps: null,
+    marketCap: null,
+  };
+}
+
+/**
+ * DBから最新終値をバッチ取得して StockQuote 形式に変換する（複数銘柄）
+ */
+async function fetchQuotesBatchFromDB(tickerCodes: string[]): Promise<Map<string, StockQuote>> {
+  const results = new Map<string, StockQuote>();
+  if (tickerCodes.length === 0) return results;
+
+  const [stocks, allBars] = await Promise.all([
+    prisma.stock.findMany({
+      where: { tickerCode: { in: tickerCodes }, latestPrice: { not: null } },
+      select: { tickerCode: true, latestPrice: true, latestVolume: true },
+    }),
+    // 銘柄ごとに直近2日分を取得するため、全バーを日付降順で取得してコード側でグループ化
+    prisma.stockDailyBar.findMany({
+      where: { tickerCode: { in: tickerCodes } },
+      orderBy: { date: "desc" },
+      select: { tickerCode: true, open: true, high: true, low: true, close: true, volume: true },
+      // 各銘柄2件 × 銘柄数 で十分だが、Prismaでは銘柄別take不可なので多めに取得して絞る
+      take: tickerCodes.length * 2,
+    }),
+  ]);
+
+  // 銘柄ごとに直近2バーをグループ化
+  const barsByTicker = new Map<string, typeof allBars>();
+  for (const bar of allBars) {
+    const existing = barsByTicker.get(bar.tickerCode);
+    if (!existing) {
+      barsByTicker.set(bar.tickerCode, [bar]);
+    } else if (existing.length < 2) {
+      existing.push(bar);
+    }
+  }
+
+  for (const stock of stocks) {
+    const price = Number(stock.latestPrice);
+    const tickerBars = barsByTicker.get(stock.tickerCode);
+    if (!tickerBars || tickerBars.length === 0) continue;
+
+    const latest = tickerBars[0];
+    const prev = tickerBars.length >= 2 ? tickerBars[1] : null;
+    const previousClose = prev ? prev.close : price;
+    const change = price - previousClose;
+    const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
+
+    results.set(stock.tickerCode, {
+      tickerCode: stock.tickerCode,
+      price,
+      previousClose,
+      change: Math.round(change * 100) / 100,
+      changePercent: Math.round(changePercent * 10000) / 10000,
+      volume: latest.volume ? Number(latest.volume) : 0,
+      high: latest.high,
+      low: latest.low,
+      open: latest.open,
+      per: null,
+      pbr: null,
+      eps: null,
+      marketCap: null,
+    });
+  }
+
+  return results;
+}
+
+/**
  * 個別銘柄のリアルタイムクォートを取得
- * @param options.yfinanceFallback true なら立花API失敗時に yfinance で再取得（画面表示用）
+ * @param options.yfinanceFallback true なら立花API失敗時に DB→yfinance の順でフォールバック（画面表示用）
  */
 export async function fetchStockQuote(
   tickerCode: string,
@@ -103,9 +213,20 @@ export async function fetchStockQuote(
   } catch (error) {
     if (options?.yfinanceFallback) {
       console.warn(
-        `[market-data] 立花API失敗、yfinanceにフォールバック (${symbol}):`,
+        `[market-data] 立花API失敗、DBフォールバック試行 (${symbol}):`,
         error instanceof Error ? error.message : error,
       );
+      // 1st fallback: DB（外部API不要、即座に返せる）
+      try {
+        const dbResult = await fetchQuoteFromDB(symbol);
+        if (dbResult) {
+          console.info(`[market-data] DBフォールバック成功 (${symbol})`);
+          return dbResult;
+        }
+      } catch (dbError) {
+        console.warn(`[market-data] DBフォールバック失敗 (${symbol}):`, dbError);
+      }
+      // 2nd fallback: yfinance
       try {
         const result = await yfFetchQuote(symbol);
         return result as StockQuote;
@@ -121,7 +242,7 @@ export async function fetchStockQuote(
 
 /**
  * 複数銘柄のクォートをバッチ取得（1リクエストで複数銘柄）
- * @param options.yfinanceFallback true なら立花API失敗時に yfinance で再取得（画面表示用）
+ * @param options.yfinanceFallback true なら立花API失敗時に DB→yfinance の順でフォールバック（画面表示用）
  */
 export async function fetchStockQuotesBatch(
   tickerCodes: string[],
@@ -142,20 +263,34 @@ export async function fetchStockQuotesBatch(
         }
       }
 
-      // 立花APIで null だった銘柄を yfinance で補完
+      // 立花APIで null だった銘柄を DB→yfinance で補完
       if (options?.yfinanceFallback) {
         const failedSymbols = batch.filter((s) => !results.has(s));
         if (failedSymbols.length > 0) {
+          // 1st fallback: DB
           console.warn(
-            `[market-data] 立花APIで${failedSymbols.length}銘柄失敗、yfinanceで補完`,
+            `[market-data] 立花APIで${failedSymbols.length}銘柄失敗、DBで補完`,
           );
           try {
-            const fbResults = await yfFetchQuotesBatch(failedSymbols);
-            for (const r of fbResults) {
-              if (r && r.tickerCode) results.set(r.tickerCode, r as StockQuote);
+            const dbResults = await fetchQuotesBatchFromDB(failedSymbols);
+            for (const [k, v] of dbResults) results.set(k, v);
+          } catch (dbError) {
+            console.warn(`[market-data] DBバッチ補完失敗:`, dbError);
+          }
+          // 2nd fallback: yfinance（DB でも取れなかった銘柄のみ）
+          const stillFailed = failedSymbols.filter((s) => !results.has(s));
+          if (stillFailed.length > 0) {
+            console.warn(
+              `[market-data] DB後も${stillFailed.length}銘柄未取得、yfinanceで補完`,
+            );
+            try {
+              const fbResults = await yfFetchQuotesBatch(stillFailed);
+              for (const r of fbResults) {
+                if (r && r.tickerCode) results.set(r.tickerCode, r as StockQuote);
+              }
+            } catch (yfError) {
+              console.warn(`[market-data] yfinanceバッチ補完も失敗:`, yfError);
             }
-          } catch (yfError) {
-            console.warn(`[market-data] yfinanceバッチ補完も失敗:`, yfError);
           }
         }
       }
@@ -166,15 +301,25 @@ export async function fetchStockQuotesBatch(
       );
 
       if (options?.yfinanceFallback) {
-        // 立花バッチ全失敗 → yfinance で一括取得
-        console.warn(`[market-data] 立花APIバッチ全失敗、yfinanceにフォールバック`);
+        // 立花バッチ全失敗 → DB → yfinance の順でフォールバック
+        console.warn(`[market-data] 立花APIバッチ全失敗、DBにフォールバック`);
         try {
-          const fbResults = await yfFetchQuotesBatch(batch);
-          for (const r of fbResults) {
-            if (r && r.tickerCode) results.set(r.tickerCode, r as StockQuote);
+          const dbResults = await fetchQuotesBatchFromDB(batch);
+          for (const [k, v] of dbResults) results.set(k, v);
+        } catch (dbError) {
+          console.warn(`[market-data] DBバッチフォールバック失敗:`, dbError);
+        }
+        const stillFailed = batch.filter((s) => !results.has(s));
+        if (stillFailed.length > 0) {
+          console.warn(`[market-data] DB後も${stillFailed.length}銘柄未取得、yfinanceにフォールバック`);
+          try {
+            const fbResults = await yfFetchQuotesBatch(stillFailed);
+            for (const r of fbResults) {
+              if (r && r.tickerCode) results.set(r.tickerCode, r as StockQuote);
+            }
+          } catch (yfError) {
+            console.warn(`[market-data] yfinanceバッチフォールバックも失敗:`, yfError);
           }
-        } catch (yfError) {
-          console.warn(`[market-data] yfinanceバッチフォールバックも失敗:`, yfError);
         }
       } else {
         // フォールバックなし: 個別に立花APIで再試行
