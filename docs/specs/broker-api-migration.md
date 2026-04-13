@@ -372,7 +372,7 @@ trailingStopPrice 更新時 → ブローカーのSL注文を変更（modify ord
 
 - `src/core/broker-event-stream.ts` — WebSocket 接続・メッセージパース・イベントディスパッチ
 - `src/core/broker-fill-handler.ts` — EC イベント受信 → `CLMOrderListDetail` で詳細取得 → DB更新・ポジション操作
-- Worker 起動時に接続、セッション更新（30分毎）で自動再接続
+- Worker 起動時に接続、セッション切れ（sResultCode=2）で自動再接続。再ログイン間隔は6時間（30分では電話番号認証が要求されることが判明）
 - position-monitor の毎分ポーリングとの二重処理防止（`brokerStatus` チェック）
 
 ### 6. リコンシリエーション（整合性チェック）

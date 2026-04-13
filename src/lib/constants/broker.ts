@@ -21,8 +21,12 @@ export const TACHIBANA_API_URLS = {
 // ========================================
 
 export const TACHIBANA_SESSION = {
-  /** 自動再ログイン間隔（ミリ秒） - 30分 */
-  AUTO_REFRESH_INTERVAL_MS: 30 * 60 * 1000,
+  /** 自動再ログイン間隔（ミリ秒） - 6時間
+   * Tachibanaの公式セッション有効期限は未確認。30分で再ログインすると電話番号認証が
+   * 要求されることが判明したため、セッション切れ(sResultCode=2)検出時のreLoginOnce()に
+   * 任せる方針に変更。本タイマーはあくまで保険。
+   */
+  AUTO_REFRESH_INTERVAL_MS: 6 * 60 * 60 * 1000,
   /** リクエストタイムアウト（ミリ秒） */
   REQUEST_TIMEOUT_MS: 30_000,
 } as const;
