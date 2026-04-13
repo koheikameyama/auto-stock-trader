@@ -124,11 +124,12 @@ describe("TachibanaClient", () => {
 
     it("アカウントロック検出時にDBにログインロック状態を書き込む", async () => {
       // ロックチェック: nullなのでスルー
-      // ロック検出時のDB書き込み用config
+      // isActive=false 書き込み用 + ロック詳細書き込み用（2回）
       const mockConfig = { id: "config-1" };
       mockTradingConfigFindFirst
-        .mockResolvedValueOnce(null)      // ロックチェック
-        .mockResolvedValueOnce(mockConfig); // ロック書き込み用
+        .mockResolvedValueOnce(null)       // ロックチェック
+        .mockResolvedValueOnce(mockConfig) // isActive=false 書き込み用
+        .mockResolvedValueOnce(mockConfig); // ロック詳細書き込み用
 
       mockFetch.mockResolvedValueOnce(
         createMockResponse({
@@ -139,25 +140,31 @@ describe("TachibanaClient", () => {
         }),
       );
 
-      await expect(client.login()).rejects.toThrow("Tachibana account locked");
+      await expect(client.login()).rejects.toThrow("Tachibana login blocked (アカウントロック)");
 
-      expect(mockTradingConfigUpdate).toHaveBeenCalledWith({
+      // 1回目: isActive=false のみ（マイグレーション未適用でも確実に停止）
+      expect(mockTradingConfigUpdate).toHaveBeenNthCalledWith(1, {
+        where: { id: "config-1" },
+        data: { isActive: false },
+      });
+      // 2回目: ロック詳細
+      expect(mockTradingConfigUpdate).toHaveBeenNthCalledWith(2, {
         where: { id: "config-1" },
         data: expect.objectContaining({
           loginLockedUntil: expect.any(Date),
           loginLockReason: "アカウントロック",
-          isActive: false,
         }),
       });
     });
 
     it("電話番号認証要求(10089)検出時にDBにログインロック状態を書き込む", async () => {
       // ロックチェック: nullなのでスルー
-      // ロック書き込み用config
+      // isActive=false 書き込み用 + ロック詳細書き込み用（2回）
       const mockConfig = { id: "config-1" };
       mockTradingConfigFindFirst
-        .mockResolvedValueOnce(null)      // ロックチェック
-        .mockResolvedValueOnce(mockConfig); // ロック書き込み用
+        .mockResolvedValueOnce(null)       // ロックチェック
+        .mockResolvedValueOnce(mockConfig) // isActive=false 書き込み用
+        .mockResolvedValueOnce(mockConfig); // ロック詳細書き込み用
 
       mockFetch.mockResolvedValueOnce(
         createMockResponse({
@@ -168,14 +175,19 @@ describe("TachibanaClient", () => {
         }),
       );
 
-      await expect(client.login()).rejects.toThrow("Tachibana phone auth required");
+      await expect(client.login()).rejects.toThrow("Tachibana login blocked (電話番号認証が必要)");
 
-      expect(mockTradingConfigUpdate).toHaveBeenCalledWith({
+      // 1回目: isActive=false のみ（マイグレーション未適用でも確実に停止）
+      expect(mockTradingConfigUpdate).toHaveBeenNthCalledWith(1, {
+        where: { id: "config-1" },
+        data: { isActive: false },
+      });
+      // 2回目: ロック詳細
+      expect(mockTradingConfigUpdate).toHaveBeenNthCalledWith(2, {
         where: { id: "config-1" },
         data: expect.objectContaining({
           loginLockedUntil: expect.any(Date),
           loginLockReason: "電話番号認証が必要",
-          isActive: false,
         }),
       });
     });

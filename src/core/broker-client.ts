@@ -138,70 +138,51 @@ export class TachibanaClient {
 
     // アカウントロック検出（パスワード間違い規定回数超過）
     const orderResultCode = raw.sOrderResultCode as string | undefined;
-    if (orderResultCode === "10033") {
+    if (orderResultCode === "10033" || orderResultCode === "10089") {
       const lockedUntil = TachibanaClient.INDEFINITE_LOCK_DATE;
       this.loginLockedUntil = lockedUntil;
-      const errorMsg = (raw.sOrderResultText as string) || "アカウントがロックされています";
-      console.error(`[TachibanaClient] Account locked: ${errorMsg}`);
+      const isAccountLock = orderResultCode === "10033";
+      const reason = isAccountLock ? "アカウントロック" : "電話番号認証が必要";
+      const errorMsg = (raw.sOrderResultText as string) || reason;
+      console.error(`[TachibanaClient] ${reason}: ${errorMsg}`);
 
-      // DBに永続化
+      // isActive=false を最優先で書き込む（ロック列と分離してマイグレーション未適用でも確実に停止）
+      try {
+        const configToStop = await prisma.tradingConfig.findFirst({ orderBy: { createdAt: "desc" } });
+        if (configToStop) {
+          await prisma.tradingConfig.update({
+            where: { id: configToStop.id },
+            data: { isActive: false },
+          });
+        }
+      } catch (err) {
+        console.warn("[TachibanaClient] Failed to set isActive=false", err);
+      }
+
+      // ロック詳細を書き込む（loginLockedUntil 列が存在する場合のみ成功）
       try {
         const configToUpdate = await prisma.tradingConfig.findFirst({ orderBy: { createdAt: "desc" } });
         if (configToUpdate) {
           await prisma.tradingConfig.update({
             where: { id: configToUpdate.id },
-            data: { loginLockedUntil: lockedUntil, loginLockReason: "アカウントロック", loginLockOccurredAt: new Date(), isActive: false },
+            data: { loginLockedUntil: lockedUntil, loginLockReason: reason, loginLockOccurredAt: new Date() },
           });
-        } else {
-          console.warn("[TachibanaClient] TradingConfig not found, login lock not persisted to DB");
         }
       } catch (err) {
-        console.warn("[TachibanaClient] Failed to persist login lock to DB", err);
+        console.warn("[TachibanaClient] Failed to persist login lock details to DB", err);
       }
 
       if (!this.loginLockNotified) {
         this.loginLockNotified = true;
         notifyBrokerError(
-          "アカウントロック",
-          `立花証券のログインがロックされました。\n📞 サポートセンター: 03-3669-0777 ／ 電話認証: 050-3102-6575\n\nエラー: ${errorMsg}`,
+          reason,
+          isAccountLock
+            ? `立花証券のログインがロックされました。\n📞 サポートセンター: 03-3669-0777 ／ 電話認証: 050-3102-6575\n\nエラー: ${errorMsg}`
+            : `立花証券のログインに電話番号認証が必要です。\n登録の電話番号から認証番号へ電話後、ダッシュボードの「再開」ボタンを押してください。\n\nエラー: ${errorMsg}`,
         ).catch(() => {});
       }
 
-      throw new Error(`Tachibana account locked: ${errorMsg}`);
-    }
-
-    // 電話番号認証要求（10089）— 即通知してログインをスキップ
-    if (orderResultCode === "10089") {
-      const lockedUntil = TachibanaClient.INDEFINITE_LOCK_DATE;
-      this.loginLockedUntil = lockedUntil;
-      const errorMsg = (raw.sOrderResultText as string) || "電話番号認証が必要です";
-      console.error(`[TachibanaClient] Phone auth required: ${errorMsg}`);
-
-      // DBに永続化
-      try {
-        const configToUpdate = await prisma.tradingConfig.findFirst({ orderBy: { createdAt: "desc" } });
-        if (configToUpdate) {
-          await prisma.tradingConfig.update({
-            where: { id: configToUpdate.id },
-            data: { loginLockedUntil: lockedUntil, loginLockReason: "電話番号認証が必要", loginLockOccurredAt: new Date(), isActive: false },
-          });
-        } else {
-          console.warn("[TachibanaClient] TradingConfig not found, phone auth lock not persisted to DB");
-        }
-      } catch (err) {
-        console.warn("[TachibanaClient] Failed to persist phone auth lock to DB", err);
-      }
-
-      // 初回のみSlack通知（重複通知防止）
-      if (!this.loginLockNotified) {
-        this.loginLockNotified = true;
-        notifyBrokerError(
-          "電話番号認証が必要",
-          `立花証券のログインに電話番号認証が必要です。\n登録の電話番号から認証番号へ電話後、ダッシュボードの「再開」ボタンを押してください。\n\nエラー: ${errorMsg}`,
-        ).catch(() => {});
-      }
-
-      throw new Error(`Tachibana phone auth required: ${errorMsg}`);
+      throw new Error(`Tachibana login blocked (${reason}): ${errorMsg}`);
     }
 
     // ログインロック解除（正常ログイン成功時）
