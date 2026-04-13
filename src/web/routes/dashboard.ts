@@ -111,10 +111,10 @@ app.get("/", async (c) => {
   // Signal light logic
   const breadth = assessment?.breadth ? Number(assessment.breadth) : null;
   const breadthStatus: SignalStatus = breadth === null ? "warning"
-    : breadth >= 0.73 ? "ok"
+    : breadth >= 0.60 ? "ok"
     : breadth >= 0.50 ? "warning"
     : "danger";
-  const breadthText = breadth !== null ? `${(breadth * 100).toFixed(1)}% (≥73%)` : "N/A";
+  const breadthText = breadth !== null ? `${(breadth * 100).toFixed(1)}%` : "N/A";
 
   const vixStatus: SignalStatus = vix === null ? "warning"
     : vix < VIX_THRESHOLDS.NORMAL ? "ok"
@@ -245,7 +245,7 @@ app.get("/", async (c) => {
               <span style="margin-left:auto;font-size:13px;color:${sentimentColor}">${sentimentEmoji} ${sentimentLabel}</span>
             </div>
 
-            ${signalRow(tt("Breadth", "SMA25超の銘柄比率。73%以上でエントリー許可"), breadthText, breadthStatus)}
+            ${signalRow(tt("Breadth", "SMA25超の銘柄比率。60%以上でエントリー許可"), breadthText, breadthStatus)}
             ${signalRow(tt("VIX", "恐怖指数。20未満が通常、25超で警戒、30超で危機"), vixText, vixStatus)}
             ${signalRow(tt("CME乖離", "CME日経先物と前日終値の乖離率"), cmeText, cmeStatus)}
             ${signalRow(tt("ドローダウン", "週次5%/月次10%で取引停止"), ddText, ddStatus)}
