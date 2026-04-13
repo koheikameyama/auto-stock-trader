@@ -222,6 +222,17 @@ app.get("/", async (c) => {
             .then(function(r) { return r.json(); })
             .then(function(data) {
               if (!data.tickers) return;
+              if (data.global && data.global._error === 'broker_api_failed') {
+                var existing = document.getElementById('broker-error-toast');
+                if (!existing) {
+                  var toast = document.createElement('div');
+                  toast.id = 'broker-error-toast';
+                  toast.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#ef4444;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.3);';
+                  toast.textContent = '⚠ API接続エラー：株価を取得できませんでした';
+                  document.body.appendChild(toast);
+                  setTimeout(function() { toast.remove(); }, 5000);
+                }
+              }
 
               var guCount = 0, boCount = 0, wbCount = 0;
               var rowSortData = {};

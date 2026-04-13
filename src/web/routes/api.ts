@@ -21,7 +21,7 @@ import { BREAKOUT } from "../../lib/constants/breakout";
 import { GAPUP } from "../../lib/constants/gapup";
 import { getWatchlist } from "../../jobs/watchlist-builder";
 import { calculateVolumeSurgeRatio } from "../../core/breakout/volume-surge";
-import { getTodayForDB } from "../../lib/market-date";
+import { getTodayForDB, isMarketOpen } from "../../lib/market-date";
 import { getTachibanaClient } from "../../core/broker-client";
 import dayjs from "dayjs";
 import utcPlugin from "dayjs/plugin/utc.js";
@@ -285,10 +285,14 @@ app.get("/quotes", async (c) => {
   const tickers = tickersParam.split(",").filter(Boolean);
   if (tickers.length === 0) return c.json({});
 
-  const quotes = await fetchStockQuotesBatch(tickers, { yfinanceFallback: true });
+  const marketOpen = isMarketOpen();
+  const quotes = await fetchStockQuotesBatch(tickers, { yfinanceFallback: !marketOpen });
   const result: Record<string, { price: number }> = {};
   for (const [key, value] of quotes) {
     result[key] = { price: value.price };
+  }
+  if (marketOpen && quotes.size < tickers.length) {
+    return c.json({ ...result, _error: "broker_api_failed" });
   }
   return c.json(result);
 });
@@ -323,7 +327,7 @@ app.get("/watchlist/state", async (c) => {
       where: { date: getTodayForDB() },
       select: { shouldTrade: true },
     }),
-    fetchStockQuotesBatch(tickers, { yfinanceFallback: true }),
+    fetchStockQuotesBatch(tickers, { yfinanceFallback: !isMarketOpen() }),
   ]);
 
   const holdingTickers = new Set(holdings.map((h) => h.stock.tickerCode));
@@ -455,12 +459,15 @@ app.get("/watchlist/state", async (c) => {
   const current = hour * 60 + minute;
   const inTimeWindow = current >= eh * 60 + em && current <= lh * 60 + lm;
 
+  const brokerError = isMarketOpen() && quotes.size < tickers.length;
+
   return c.json({
     tickers: tickerData,
     global: {
       inTimeWindow,
       shouldTrade: todayAssessment?.shouldTrade ?? false,
       isFriday,
+      ...(brokerError && { _error: "broker_api_failed" }),
     },
   });
 });

@@ -147,6 +147,18 @@ export function adjustToTradingDay(date: Date): Date {
 }
 
 /**
+ * 現在時刻が東証の取引時間内かどうかを判定
+ * 前場: 9:00〜11:30 / 後場: 12:30〜15:30 JST（営業日のみ）
+ */
+export function isMarketOpen(): boolean {
+  const now = dayjs().tz(JST);
+  if (!isMarketDay(now.toDate())) return false;
+
+  const t = now.hour() * 60 + now.minute();
+  return (t >= 9 * 60 && t < 11 * 60 + 30) || (t >= 12 * 60 + 30 && t < 15 * 60 + 30);
+}
+
+/**
  * 次の営業日の日付を返す
  *
  * @param from 起点日（デフォルト: 現在のJST日付）

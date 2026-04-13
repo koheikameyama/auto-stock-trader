@@ -288,6 +288,18 @@ export function layout(
             switchNikkeiPeriod('1d');
           }
 
+          // API接続エラートースト
+          function showBrokerErrorToast() {
+            var existing = document.getElementById('broker-error-toast');
+            if (existing) return;
+            var toast = document.createElement('div');
+            toast.id = 'broker-error-toast';
+            toast.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#ef4444;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.3);';
+            toast.textContent = '⚠ API接続エラー：株価を取得できませんでした';
+            document.body.appendChild(toast);
+            setTimeout(function() { toast.remove(); }, 5000);
+          }
+
           // 株価を非同期取得してDOM更新（30秒ポーリング）
           (function() {
             var rows = document.querySelectorAll('[data-quote-row]');
@@ -318,6 +330,7 @@ export function layout(
               fetch('/api/quotes?tickers=' + encodeURIComponent(tickers.join(',')) + '&token=' + encodeURIComponent(token))
                 .then(function(r) { return r.json(); })
                 .then(function(quotes) {
+                  if (quotes._error === 'broker_api_failed') showBrokerErrorToast();
                   var portfolioInvested = 0;
                   var hasPortfolio = !!document.querySelector('[data-portfolio]');
 
