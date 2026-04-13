@@ -27,7 +27,6 @@ import { determineMarketRegime } from "../../core/market-regime";
 import { calculateDrawdownStatus } from "../../core/drawdown-manager";
 import { VIX_THRESHOLDS, CME_NIGHT_DIVERGENCE, DRAWDOWN } from "../../lib/constants";
 import { isTachibanaProduction } from "../../lib/constants/broker";
-import { getTachibanaClient } from "../../core/broker-client";
 import { COLORS } from "../views/styles";
 
 // jobState is injected from worker.ts
@@ -135,7 +134,12 @@ app.get("/", async (c) => {
   const ddText = `週${drawdown.weeklyDrawdownPct.toFixed(1)}% / 月${drawdown.monthlyDrawdownPct.toFixed(1)}%`;
 
   // Broker login lock status
-  const brokerLock = getTachibanaClient().getLoginLockStatus();
+  const now = new Date();
+  const brokerLock = {
+    isLocked: !!(config?.loginLockedUntil && now < config.loginLockedUntil),
+    lockedUntil: config?.loginLockedUntil ?? null,
+    reason: config?.loginLockReason ?? null,
+  };
 
   const overallEmoji = canTrade ? "\u{1F7E2}" : "\u{1F534}";
   const overallLabel = canTrade ? "トレード可" : "取引見送り";
@@ -157,6 +161,7 @@ app.get("/", async (c) => {
           <div style="font-size:13px;color:#fca5a5;margin-bottom:12px">
             立花証券のログインがロックされています。解除後、下のボタンを押してください。<br>
             📞 サポートセンター: <a href="tel:0336690777" style="color:#fca5a5">03-3669-0777</a> ／ 電話認証: <a href="tel:05031026575" style="color:#fca5a5">050-3102-6575</a>
+            ${brokerLock.reason ? html`<br>理由: ${brokerLock.reason}` : ""}
           </div>
           <button
             id="clearLockBtn"
