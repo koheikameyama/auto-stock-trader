@@ -13,6 +13,8 @@ import { html, raw } from "hono/html";
 import { prisma } from "../../lib/prisma";
 import { TIMEZONE } from "../../lib/constants";
 import { BREAKOUT } from "../../lib/constants/breakout";
+import { GAPUP } from "../../lib/constants/gapup";
+import { WEEKLY_BREAK } from "../../lib/constants/weekly-break";
 import { layout } from "../views/layout";
 import { tickerLink, tt } from "../views/components";
 import { getWatchlist } from "../../jobs/watchlist-builder";
@@ -165,10 +167,30 @@ app.get("/", async (c) => {
     <script>
       (function() {
         var POLL_INTERVAL = 30000;
-        var SURGE_HOT = ${BREAKOUT.VOLUME_SURGE.HOT_THRESHOLD};
-        var SURGE_TRIGGER = ${BREAKOUT.VOLUME_SURGE.TRIGGER_THRESHOLD};
+        var ATR_MULTIPLIER_GU = ${GAPUP.STOP_LOSS.ATR_MULTIPLIER};
+        var ATR_MULTIPLIER_WB = ${WEEKLY_BREAK.STOP_LOSS.ATR_MULTIPLIER};
         var rows = document.querySelectorAll('[data-quote-row]');
-        if (rows.length === 0) return;
+
+        var fmt = function(v) { return Number(v).toLocaleString('ja-JP', { maximumFractionDigits: 0 }); };
+
+        var STRATEGY_BADGE = {
+          GU: '<span class="badge badge-gapup" style="font-size: 10px; padding: 1px 5px;">GU</span>',
+          WB: '<span class="badge badge-wb" style="font-size: 10px; padding: 1px 5px;">WB</span>'
+        };
+
+        var STATUS_MAP = {
+          ordered: { cls: 'badge-triggered' },
+          holding: { label: '保有中', cls: 'badge-holding' },
+          watching: { label: '監視中', cls: 'badge-cold' }
+        };
+
+        if (rows.length === 0) {
+          var loadingEl0 = document.getElementById('loading-state');
+          if (loadingEl0) loadingEl0.style.display = 'none';
+          var emptyEl0 = document.getElementById('empty-state');
+          if (emptyEl0) emptyEl0.style.display = '';
+          return;
+        }
 
         var tickers = [];
         rows.forEach(function(row) {
@@ -181,19 +203,7 @@ app.get("/", async (c) => {
         var token = params.get('token') || '';
         var url = '/api/watchlist/state?tickers=' + encodeURIComponent(tickers.join(',')) + '&token=' + encodeURIComponent(token);
 
-        var fmt = function(v) { return Number(v).toLocaleString('ja-JP', { maximumFractionDigits: 0 }); };
-
-        var STRATEGY_BADGE = {
-          GU: '<span class="badge badge-gapup" style="font-size: 10px; padding: 1px 5px;">GU</span>',
-          BO: '<span class="badge badge-hot" style="font-size: 10px; padding: 1px 5px;">BO</span>',
-          WB: '<span class="badge badge-wb" style="font-size: 10px; padding: 1px 5px;">WB</span>'
-        };
-
-        var STATUS_MAP = {
-          ordered: { cls: 'badge-triggered' },
-          holding: { label: '保有中', cls: 'badge-holding' },
-          watching: { label: '監視中', cls: 'badge-cold' }
-        };
+        var isFirstPoll = true;
 
         function poll() {
           if (document.hidden) return;
@@ -213,13 +223,20 @@ app.get("/", async (c) => {
                 }
               }
 
-              var guCount = 0, boCount = 0, wbCount = 0;
+              var guCount = 0, wbCount = 0;
               var rowSortData = {};
 
               rows.forEach(function(row) {
                 var ticker = row.getAttribute('data-ticker');
                 var d = data.tickers[ticker];
                 if (!d) return;
+
+                // ---- 行の表示・非表示判定 ----
+                var isGapOk = d.gapup && d.gapup.isGapOk;
+                var isWbOk = d.wbDeviation != null && d.wbDeviation >= 0;
+                var isActive = d.status === 'ordered' || d.status === 'holding';
+                var shouldShow = isActive || isGapOk || isWbOk;
+                row.style.display = shouldShow ? '' : 'none';
 
                 // ソート用データを収集
                 var guAllMet = d.gapup && d.gapup.isGapOk && d.gapup.isCandleOk && d.gapup.isVolumeOk;
@@ -229,7 +246,7 @@ app.get("/", async (c) => {
                   status: d.status || 'watching'
                 };
 
-                // ステータスバッジ
+                // ---- ステータスバッジ ----
                 var badgeEl = row.querySelector('[data-status-badge]');
                 if (badgeEl && d.status) {
                   var s = STATUS_MAP[d.status];
@@ -242,8 +259,8 @@ app.get("/", async (c) => {
                   }
                 }
 
-                // 戦略バッジ
-                var stratEl = row.querySelector('[data-strategies]');
+                // ---- 戦略バッジ（data-strategy-badge） ----
+                var stratEl = row.querySelector('[data-strategy-badge]');
                 if (stratEl) {
                   var strats = d.strategies || [];
                   if (strats.length > 0) {
@@ -253,11 +270,10 @@ app.get("/", async (c) => {
                   }
                   // サマリー集計
                   if (strats.indexOf('GU') !== -1) guCount++;
-                  if (strats.indexOf('BO') !== -1) boCount++;
                   if (strats.indexOf('WB') !== -1) wbCount++;
                 }
 
-                // GU条件
+                // ---- GU条件（data-gapup-conditions） ----
                 var guEl = row.querySelector('[data-gapup-conditions]');
                 if (guEl) {
                   var gu = d.gapup;
@@ -280,33 +296,23 @@ app.get("/", async (c) => {
                   }
                 }
 
-                // サージ比率
-                var surgeEl = row.querySelector('[data-surge-ratio]');
-                if (surgeEl) {
-                  var ratio = d.surgeRatio;
-                  var txt = ratio != null ? ratio.toFixed(1) + 'x' : '-';
-                  var style = '';
-                  if (ratio != null && ratio >= SURGE_TRIGGER) style = 'color: #ef4444; font-weight: 600;';
-                  else if (ratio != null && ratio >= SURGE_HOT) style = 'color: #f59e0b; font-weight: 600;';
-                  surgeEl.innerHTML = '<span style="' + style + '">' + txt + '</span>';
-                }
-
-                // 価格
+                // ---- 現在価格（data-quote-price） ----
                 if (d.price != null) {
                   var priceEl = row.querySelector('[data-quote-price]');
                   if (priceEl) priceEl.innerHTML = '\u00a5' + fmt(d.price);
-
-                  var orderPrice = parseFloat(row.getAttribute('data-order-price') || '0');
-                  var devEl = row.querySelector('[data-quote-deviation]');
-                  if (devEl && orderPrice) {
-                    var dev = ((d.price - orderPrice) / orderPrice) * 100;
-                    var cls = dev >= 0 ? 'pnl-positive' : 'pnl-negative';
-                    var sign = dev >= 0 ? '+' : '';
-                    devEl.innerHTML = '<span class="' + cls + '">' + sign + dev.toFixed(2) + '%</span>';
-                  }
                 }
 
-                // WB乖離（金曜のみ）
+                // ---- 損切りライン（data-sl-price） ----
+                var slEl = row.querySelector('[data-sl-price]');
+                if (slEl && d.price != null) {
+                  var atr14 = parseFloat(row.getAttribute('data-atr14') || '0');
+                  var strats2 = d.strategies || [];
+                  var multiplier = strats2.indexOf('WB') !== -1 ? ATR_MULTIPLIER_WB : ATR_MULTIPLIER_GU;
+                  var slPrice = d.price - atr14 * multiplier;
+                  slEl.innerHTML = slPrice > 0 ? '\u00a5' + fmt(slPrice) : '-';
+                }
+
+                // ---- WB乖離（data-wb-deviation） ----
                 var wbDevEl = row.querySelector('[data-wb-deviation]');
                 if (wbDevEl) {
                   var wb = d.wbDeviation;
@@ -320,7 +326,44 @@ app.get("/", async (c) => {
                 }
               });
 
-              // 行をエントリー可能性順にソート（ステータス → GU全条件OK → サージ比率）
+              // ---- 初回ポーリング後: ローディング非表示 ----
+              if (isFirstPoll) {
+                isFirstPoll = false;
+                var loadingEl = document.getElementById('loading-state');
+                if (loadingEl) loadingEl.style.display = 'none';
+              }
+
+              // ---- 表示行数に応じてテーブル/空状態を切り替え ----
+              var visibleRows = Array.prototype.filter.call(rows, function(r) {
+                return r.style.display !== 'none';
+              });
+              var tableEl = document.getElementById('candidates-table');
+              var emptyEl = document.getElementById('empty-state');
+              if (tableEl) tableEl.style.display = visibleRows.length ? '' : 'none';
+              if (emptyEl) emptyEl.style.display = visibleRows.length ? 'none' : '';
+
+              // ---- サマリーバッジ更新 ----
+              var guSummaryEl = document.querySelector('[data-summary-gu]');
+              if (guSummaryEl) { guSummaryEl.textContent = 'GU: ' + guCount; guSummaryEl.style.opacity = guCount ? '0.7' : '0.3'; }
+              var wbSummaryEl = document.querySelector('[data-summary-wb]');
+              if (wbSummaryEl) { wbSummaryEl.textContent = 'WB: ' + wbCount; wbSummaryEl.style.opacity = wbCount ? '0.7' : '0.3'; }
+
+              // ---- グローバル条件更新 ----
+              var g = data.global;
+              if (g) {
+                var timeEl = document.querySelector('[data-global-time]');
+                if (timeEl) {
+                  timeEl.textContent = g.inTimeWindow ? '\u25cb' : '\u00d7';
+                  timeEl.style.color = g.inTimeWindow ? '#22c55e' : '#ef4444';
+                }
+                var marketEl = document.querySelector('[data-global-market]');
+                if (marketEl) {
+                  marketEl.textContent = g.shouldTrade ? '取引可' : '見送り';
+                  marketEl.style.color = g.shouldTrade ? '#22c55e' : '#ef4444';
+                }
+              }
+
+              // ---- 行ソート（ステータス → GU全条件OK → サージ比率） ----
               var statusOrder = { ordered: 0, holding: 1, watching: 2 };
               var tbody = document.querySelector('table tbody');
               if (tbody) {
@@ -337,29 +380,6 @@ app.get("/", async (c) => {
                   return db.surgeRatio - da.surgeRatio;
                 });
                 rowArr.forEach(function(row) { tbody.appendChild(row); });
-              }
-
-              // サマリーバッジ更新
-              var guEl = document.querySelector('[data-summary-gu]');
-              if (guEl) { guEl.textContent = 'GU: ' + guCount; guEl.style.opacity = guCount ? '0.7' : '0.3'; }
-              var boEl = document.querySelector('[data-summary-bo]');
-              if (boEl) { boEl.textContent = 'BO: ' + boCount; boEl.style.opacity = boCount ? '0.7' : '0.3'; }
-              var wbEl = document.querySelector('[data-summary-wb]');
-              if (wbEl) { wbEl.textContent = 'WB: ' + wbCount; wbEl.style.opacity = wbCount ? '0.7' : '0.3'; }
-
-              // グローバル条件
-              var g = data.global;
-              if (g) {
-                var timeEl = document.querySelector('[data-global-time]');
-                if (timeEl) {
-                  timeEl.textContent = g.inTimeWindow ? '\u25cb' : '\u00d7';
-                  timeEl.style.color = g.inTimeWindow ? '#22c55e' : '#ef4444';
-                }
-                var marketEl = document.querySelector('[data-global-market]');
-                if (marketEl) {
-                  marketEl.textContent = g.shouldTrade ? '取引可' : '見送り';
-                  marketEl.style.color = g.shouldTrade ? '#22c55e' : '#ef4444';
-                }
               }
             })
             .catch(function() { /* エラー時はスキップ */ });
