@@ -17,7 +17,6 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 import { main as runMonitor } from "./jobs/position-monitor";
-// import { main as runBreakoutMonitor } from "./jobs/breakout-monitor";
 import { main as runWeeklyBreakMonitor } from "./jobs/weekly-break-monitor";
 import { main as runGapupMonitor } from "./jobs/gapup-monitor";
 import { main as runBrokerReconciliation } from "./jobs/broker-reconciliation";
@@ -138,13 +137,6 @@ const schedules = [
   { cron: "30-59 12 * * 1-5", job: runMarketTick, name: "market-tick", requiresMarketDay: false },
   { cron: "* 13-14 * * 1-5", job: runMarketTick, name: "market-tick", requiresMarketDay: false },
   { cron: "0-30 15 * * 1-5", job: runMarketTick, name: "market-tick", requiresMarketDay: false },
-  // 9:00-11:30, 12:30-15:25 毎分 ブレイクアウト監視（WFでエッジ消失確認、cron停止中 2026-04-10）
-  // { cron: "0-59 9 * * 1-5", job: runBreakoutMonitor, name: "breakout-monitor", requiresMarketDay: true },
-  // { cron: "* 10 * * 1-5", job: runBreakoutMonitor, name: "breakout-monitor", requiresMarketDay: true },
-  // { cron: "0-30 11 * * 1-5", job: runBreakoutMonitor, name: "breakout-monitor", requiresMarketDay: true },
-  // { cron: "30-59 12 * * 1-5", job: runBreakoutMonitor, name: "breakout-monitor", requiresMarketDay: true },
-  // { cron: "* 13-14 * * 1-5", job: runBreakoutMonitor, name: "breakout-monitor", requiresMarketDay: true },
-  // { cron: "0-25 15 * * 1-5", job: runBreakoutMonitor, name: "breakout-monitor", requiresMarketDay: true },
   // 15:20-15:25 ギャップアップ監視（内部で1日1回制限）
   { cron: "20-25 15 * * 1-5", job: runGapupMonitor, name: "gapup-monitor", requiresMarketDay: true },
   // 15:20-15:25 週足ブレイク監視（内部で週末最終営業日のみ実行）
@@ -172,7 +164,6 @@ cronControl.register(
     for (const task of cronTasks) task.start();
     holidaySkipLogged.delete("position-monitor:inactive");
     holidaySkipLogged.delete("broker-reconciliation:inactive");
-    holidaySkipLogged.delete("breakout-monitor:inactive");
     console.log(`[${nowJST()}] cron タスク再開（${cronTasks.length}件）`);
   },
 );

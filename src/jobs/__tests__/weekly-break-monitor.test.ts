@@ -48,7 +48,7 @@ vi.mock("../../lib/constants/weekly-break", () => ({
   get WEEKLY_BREAK() { return mockWeeklyBreakConstants; },
 }));
 
-vi.mock("../watchlist-builder", () => ({ getWatchlist: mockGetWatchlist }));
+vi.mock("../watchlist-builder", () => ({ getGuWatchlist: mockGetWatchlist }));
 vi.mock("../../lib/tachibana-price-client", () => ({
   tachibanaFetchQuotesBatch: mockFetchQuotes,
 }));

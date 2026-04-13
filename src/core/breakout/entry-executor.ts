@@ -18,19 +18,16 @@ import { prisma } from "../../lib/prisma";
 import { getTodayForDB, adjustToTradingDay } from "../../lib/market-date";
 import { getCashBalance, getEffectiveCapital } from "../position-manager";
 import { canOpenPosition, getDynamicMaxPositionPct } from "../risk-manager";
-import { submitOrder as submitBrokerOrder, modifyOrder, cancelOrder } from "../broker-orders";
+import { submitOrder as submitBrokerOrder } from "../broker-orders";
 import { notifyOrderPlaced, notifySlack } from "../../lib/slack";
 import { STOP_LOSS, UNIT_SHARES, POSITION_SIZING, LOSING_STREAK } from "../../lib/constants";
 import { getLosingStreak } from "../drawdown-manager";
 import { checkLiquidity } from "../market-data";
 import { TIMEZONE } from "../../lib/constants/timezone";
-import { BREAKOUT } from "../../lib/constants/breakout";
 import { GAPUP } from "../../lib/constants/gapup";
 import { WEEKLY_BREAK } from "../../lib/constants/weekly-break";
 import { TACHIBANA_ORDER } from "../../lib/constants/broker";
 import { ORDER_EXPIRY } from "../../lib/constants/jobs";
-import type { BreakoutTrigger } from "./types";
-import type { QuoteData } from "./breakout-scanner";
 import type { GapUpTrigger } from "../gapup/gapup-scanner";
 import type { WeeklyBreakTrigger } from "../weekly-break/weekly-break-scanner";
 
@@ -46,14 +43,14 @@ export interface ExecutionResult {
 }
 
 /**
- * ブレイクアウト / ギャップアップトリガーのエントリー実行
+ * トリガーのエントリー実行（gapup / weekly-break）
  *
- * @param trigger ブレイクアウトまたはギャップアップトリガーイベント
- * @param strategy 戦略種別（デフォルト: "breakout"）
+ * @param trigger トリガーイベント
+ * @param strategy 戦略種別
  */
 export async function executeEntry(
-  trigger: BreakoutTrigger | GapUpTrigger | WeeklyBreakTrigger,
-  strategy: "breakout" | "gapup" | "weekly-break" = "breakout",
+  trigger: GapUpTrigger | WeeklyBreakTrigger,
+  strategy: "gapup" | "weekly-break" = "gapup",
 ): Promise<ExecutionResult> {
   const { ticker, currentPrice, atr14 } = trigger;
 
@@ -91,8 +88,7 @@ export async function executeEntry(
   // 3. SL価格 = currentPrice - ATR × multiplier（最大3%に制限）
   const slAtrMultiplier =
     strategy === "gapup" ? GAPUP.STOP_LOSS.ATR_MULTIPLIER
-    : strategy === "weekly-break" ? WEEKLY_BREAK.STOP_LOSS.ATR_MULTIPLIER
-    : BREAKOUT.STOP_LOSS.ATR_MULTIPLIER;
+    : WEEKLY_BREAK.STOP_LOSS.ATR_MULTIPLIER;
   const rawStopLoss = currentPrice - atr14 * slAtrMultiplier;
   const maxStopLoss = currentPrice * (1 - STOP_LOSS.MAX_LOSS_PCT);
   const stopLossPrice = Math.round(Math.max(rawStopLoss, maxStopLoss));
@@ -205,9 +201,7 @@ export async function executeEntry(
     : dayjs().tz(TIMEZONE).add(ORDER_EXPIRY.SWING_DAYS, "day").hour(15).minute(0).second(0).toDate();
   const reasoning = isWeeklyBreak
     ? `週足ブレイクトリガー: ${'weeklyHigh' in trigger ? trigger.weeklyHigh : 0}円を上抜け, 出来高サージ ${trigger.volumeSurgeRatio.toFixed(2)}x`
-    : isGapUp
-      ? `ギャップアップトリガー: 出来高サージ比率 ${trigger.volumeSurgeRatio.toFixed(2)}x, ギャップ3%以上`
-      : `ブレイクアウトトリガー: 出来高サージ比率 ${trigger.volumeSurgeRatio.toFixed(2)}x, 20日高値 ¥${'high20' in trigger ? trigger.high20 : ''} 突破`;
+    : `ギャップアップトリガー: 出来高サージ比率 ${trigger.volumeSurgeRatio.toFixed(2)}x, ギャップ3%以上`;
 
   // 7. ブローカー発注（DB保存前に実行）
   let brokerResult;
@@ -270,8 +264,7 @@ export async function executeEntry(
           ticker: trigger.ticker,
           currentPrice: trigger.currentPrice,
           volumeSurgeRatio: trigger.volumeSurgeRatio,
-          ...('high20' in trigger ? { high20: trigger.high20 } : {}),
-          ...('weeklyHigh' in trigger ? { weeklyHigh: trigger.weeklyHigh } : {}),
+          ...('weeklyHigh' in trigger ? { weeklyHigh: (trigger as WeeklyBreakTrigger).weeklyHigh } : {}),
           atr14: trigger.atr14,
           triggeredAt: trigger.triggeredAt.toISOString(),
         },
@@ -298,9 +291,7 @@ export async function executeEntry(
   // 8. Slack通知
   const slackReasoning = isWeeklyBreak
     ? `週足ブレイクトリガー: ${'weeklyHigh' in trigger ? trigger.weeklyHigh : 0}円上抜け / 出来高サージ ${trigger.volumeSurgeRatio.toFixed(2)}x`
-    : isGapUp
-      ? `ギャップアップトリガー: 出来高サージ ${trigger.volumeSurgeRatio.toFixed(2)}x / ギャップ3%以上`
-      : `ブレイクアウトトリガー: 出来高サージ ${trigger.volumeSurgeRatio.toFixed(2)}x / 20日高値 ¥${'high20' in trigger ? trigger.high20 : ''} 突破`;
+    : `ギャップアップトリガー: 出来高サージ ${trigger.volumeSurgeRatio.toFixed(2)}x / ギャップ3%以上`;
   await notifyOrderPlaced({
     tickerCode: ticker,
     name: stock.name,
@@ -314,209 +305,4 @@ export async function executeEntry(
   });
 
   return { success: true, orderId: newOrder.id };
-}
-
-/**
- * 既存pending買い注文の株数を現在の資金状況で再計算し、過大な場合は減株する
- *
- * 先着順（createdAt ASC）で残高を割り当て、後発の注文から優先的に減株される。
- */
-export async function resizePendingOrders(): Promise<void> {
-  const pendingOrders = await prisma.tradingOrder.findMany({
-    where: { side: "buy", status: "pending" },
-    include: { stock: { select: { tickerCode: true } } },
-    orderBy: { createdAt: "asc" },
-  });
-
-  if (pendingOrders.length === 0) return;
-
-  const [effectiveCapital, openPositions] = await Promise.all([
-    getEffectiveCapital(),
-    prisma.tradingPosition.findMany({ where: { status: "open" } }),
-  ]);
-
-  const investedAmount = openPositions.reduce(
-    (sum, pos) => sum + Number(pos.entryPrice) * pos.quantity,
-    0,
-  );
-
-  // 先着順で残高を割り当て
-  let remainingCash = effectiveCapital - investedAmount;
-
-  for (const order of pendingOrders) {
-    const limitPrice = Number(order.limitPrice);
-    const stopLossPrice = Number(order.stopLossPrice);
-
-    if (!limitPrice || !stopLossPrice || limitPrice <= stopLossPrice) {
-      remainingCash -= limitPrice * order.quantity;
-      continue;
-    }
-
-    // リスクベース株数（フラット2%）
-    const riskPerShare = limitPrice - stopLossPrice;
-    const riskPctForResize = POSITION_SIZING.RISK_PER_TRADE_PCT;
-    const riskAmount = effectiveCapital * (riskPctForResize / 100);
-    const riskBasedQty =
-      Math.floor(Math.floor(riskAmount / riskPerShare) / UNIT_SHARES) * UNIT_SHARES;
-
-    // 残高ベース株数
-    const cashBasedQty =
-      remainingCash > 0
-        ? Math.floor(Math.floor(remainingCash / limitPrice) / UNIT_SHARES) * UNIT_SHARES
-        : 0;
-
-    const newQuantity = Math.min(riskBasedQty, cashBasedQty);
-
-    if (newQuantity >= order.quantity) {
-      remainingCash -= limitPrice * order.quantity;
-      continue;
-    }
-
-    // 株数が0以下 → 注文キャンセル
-    if (newQuantity <= 0) {
-      if (order.brokerOrderId && order.brokerBusinessDay) {
-        const result = await cancelOrder(order.brokerOrderId, order.brokerBusinessDay, `${order.stock.tickerCode}: 資金割り当て不足のためキャンセル`);
-        if (!result.success) {
-          console.warn(
-            `[pending-resize] ${order.stock.tickerCode} ブローカー取消失敗: ${result.error}`,
-          );
-          remainingCash -= limitPrice * order.quantity;
-          continue;
-        }
-      }
-
-      await prisma.tradingOrder.update({
-        where: { id: order.id },
-        data: { status: "cancelled" },
-      });
-
-      console.log(
-        `[pending-resize] ${order.stock.tickerCode} 残高不足のためキャンセル（残高: ¥${Math.round(remainingCash).toLocaleString()}）`,
-      );
-
-      await notifySlack({
-        title: `注文キャンセル: ${order.stock.tickerCode}`,
-        message: `${order.quantity}株 → キャンセル（残高不足）`,
-        color: "warning",
-      });
-
-      continue;
-    }
-
-    // ブローカー訂正
-    if (order.brokerOrderId && order.brokerBusinessDay) {
-      const result = await modifyOrder(order.brokerOrderId, order.brokerBusinessDay, {
-        quantity: newQuantity,
-      });
-      if (!result.success) {
-        console.warn(
-          `[pending-resize] ${order.stock.tickerCode} ブローカー訂正失敗: ${result.error}`,
-        );
-        remainingCash -= limitPrice * order.quantity;
-        continue;
-      }
-    }
-
-    // DB更新
-    await prisma.tradingOrder.update({
-      where: { id: order.id },
-      data: { quantity: newQuantity },
-    });
-
-    console.log(
-      `[pending-resize] ${order.stock.tickerCode} 株数訂正: ${order.quantity} → ${newQuantity}株`,
-    );
-
-    await notifySlack({
-      title: `株数訂正: ${order.stock.tickerCode}`,
-      message: `${order.quantity}株 → ${newQuantity}株（資金変動による再計算）`,
-      color: "warning",
-    });
-
-    remainingCash -= limitPrice * newQuantity;
-  }
-}
-
-/**
- * ブレイクアウト前提が崩壊したpending買い注文をキャンセルする
- *
- * 以下のいずれかを満たした場合にキャンセル:
- * - 出来高萎縮: surgeRatio < COOL_DOWN_THRESHOLD (1.2)
- * - 高値割り込み: currentPrice <= entrySnapshot.trigger.high20（フェイクアウト）
- *
- * @param quotes breakout-monitorが取得済みの時価データ
- * @param surgeRatios scannerのlastSurgeRatiosマップ
- */
-export async function invalidateStalePendingOrders(
-  quotes: QuoteData[],
-  surgeRatios: ReadonlyMap<string, number>,
-): Promise<Set<string>> {
-  const cancelledTickers = new Set<string>();
-
-  const pendingOrders = await prisma.tradingOrder.findMany({
-    where: { side: "buy", status: "pending", strategy: "breakout" },
-    include: { stock: { select: { tickerCode: true } } },
-  });
-
-  if (pendingOrders.length === 0) return cancelledTickers;
-
-  const quoteMap = new Map(quotes.map((q) => [q.ticker, q]));
-
-  for (const order of pendingOrders) {
-    const ticker = order.stock.tickerCode;
-    const quote = quoteMap.get(ticker);
-    if (!quote) continue;
-
-    const surgeRatio = surgeRatios.get(ticker);
-    if (surgeRatio === undefined) continue;
-
-    const snapshot = order.entrySnapshot as { trigger?: { high20?: number } } | null;
-    const high20 = snapshot?.trigger?.high20;
-    if (high20 === undefined) continue;
-
-    const reasons: string[] = [];
-
-    if (surgeRatio < BREAKOUT.VOLUME_SURGE.COOL_DOWN_THRESHOLD) {
-      reasons.push(
-        `出来高萎縮（サージ比率 ${surgeRatio.toFixed(1)}x < ${BREAKOUT.VOLUME_SURGE.COOL_DOWN_THRESHOLD}x）`,
-      );
-    }
-
-    if (quote.price <= high20) {
-      reasons.push(
-        `高値割り込み（¥${quote.price.toLocaleString()} <= 20日高値 ¥${high20.toLocaleString()}）`,
-      );
-    }
-
-    if (reasons.length === 0) continue;
-
-    // ブローカー注文がある場合は取消
-    if (order.brokerOrderId && order.brokerBusinessDay) {
-      const result = await cancelOrder(order.brokerOrderId, order.brokerBusinessDay, `${ticker}: ${reasons.join('、')}`);
-      if (!result.success) {
-        console.warn(
-          `[invalidate-pending] ${ticker} ブローカー取消失敗: ${result.error}`,
-        );
-        continue;
-      }
-    }
-
-    await prisma.tradingOrder.update({
-      where: { id: order.id },
-      data: { status: "cancelled" },
-    });
-
-    cancelledTickers.add(ticker);
-
-    const reasonText = reasons.join(" / ");
-    console.log(`[invalidate-pending] ${ticker} 前提崩壊キャンセル: ${reasonText}`);
-
-    await notifySlack({
-      title: `前提崩壊キャンセル: ${ticker}`,
-      message: reasonText,
-      color: "warning",
-    });
-  }
-
-  return cancelledTickers;
 }

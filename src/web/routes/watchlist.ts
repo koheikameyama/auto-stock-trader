@@ -12,7 +12,6 @@ import { Hono } from "hono";
 import { html, raw } from "hono/html";
 import { prisma } from "../../lib/prisma";
 import { TIMEZONE } from "../../lib/constants";
-import { BREAKOUT } from "../../lib/constants/breakout";
 import { GAPUP } from "../../lib/constants/gapup";
 import { WEEKLY_BREAK } from "../../lib/constants/weekly-break";
 import { layout } from "../views/layout";
@@ -43,8 +42,8 @@ function statusBadgeHtml(status: WatchlistStatus, orderStrategy?: string) {
 /** グローバル条件: 時間帯チェック */
 function isInEntryTimeWindow(): boolean {
   const now = dayjs().tz(TIMEZONE);
-  const [eh, em] = BREAKOUT.GUARD.EARLIEST_ENTRY_TIME.split(":").map(Number);
-  const [lh, lm] = BREAKOUT.GUARD.LATEST_ENTRY_TIME.split(":").map(Number);
+  const [eh, em] = [9, 5]; // 市場エントリー開始 09:05
+  const [lh, lm] = [15, 25]; // 市場エントリー終了 15:25
   const current = now.hour() * 60 + now.minute();
   return current >= eh * 60 + em && current <= lh * 60 + lm;
 }
@@ -124,7 +123,7 @@ app.get("/", async (c) => {
         ${isFriday ? html`<span data-summary-wb class="badge badge-wb" style="opacity: 0.3;">WB: -</span>` : ""}
       </div>
       <div style="display: flex; gap: 12px; flex-wrap: wrap; color: #94a3b8; font-size: 11px; border-top: 1px solid #334155; padding-top: 6px;">
-        <span>${raw(`${tt("時間帯", `${BREAKOUT.GUARD.EARLIEST_ENTRY_TIME}〜${BREAKOUT.GUARD.LATEST_ENTRY_TIME}`)}: <span data-global-time style="color: ${inTimeWindow ? "#22c55e" : "#ef4444"};">${inTimeWindow ? "○" : "×"}</span>`)}</span>
+        <span>${raw(`${tt("時間帯", "09:05〜15:25")}: <span data-global-time style="color: ${inTimeWindow ? "#22c55e" : "#ef4444"};">${inTimeWindow ? "○" : "×"}</span>`)}</span>
         <span>${raw(`${tt("市場評価", "MarketAssessment.shouldTrade")}: <span data-global-market style="color: ${shouldTrade ? "#22c55e" : "#ef4444"};">${shouldTrade ? "取引可" : "見送り"}</span>`)}</span>
       </div>
     </div>

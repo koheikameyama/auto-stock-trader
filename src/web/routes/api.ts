@@ -17,9 +17,8 @@ import type { ModalAnalysis, ModalPositionInfo, ModalQuoteInfo } from "../views/
 import { yfFetchIndexChart } from "../../lib/yfinance-client";
 import { nikkeiChartBody } from "../views/components";
 import { NIKKEI_CHART_PERIODS, TIMEZONE } from "../../lib/constants";
-import { BREAKOUT } from "../../lib/constants/breakout";
 import { GAPUP } from "../../lib/constants/gapup";
-import { getWatchlist } from "../../jobs/watchlist-builder";
+import { getGuWatchlist } from "../../jobs/watchlist-builder";
 import { calculateVolumeSurgeRatio } from "../../core/breakout/volume-surge";
 import { getTodayForDB, isMarketOpen } from "../../lib/market-date";
 import { getTachibanaClient } from "../../core/broker-client";
@@ -314,7 +313,7 @@ app.get("/watchlist/state", async (c) => {
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const [watchlist, holdings, todayOrders, todayAssessment, quotes] = await Promise.all([
-    getWatchlist(),
+    getGuWatchlist(),
     prisma.tradingPosition.findMany({
       where: { status: "open" },
       select: { stock: { select: { tickerCode: true } } },
@@ -449,8 +448,8 @@ app.get("/watchlist/state", async (c) => {
   }
 
   // 時間帯チェック
-  const [eh, em] = BREAKOUT.GUARD.EARLIEST_ENTRY_TIME.split(":").map(Number);
-  const [lh, lm] = BREAKOUT.GUARD.LATEST_ENTRY_TIME.split(":").map(Number);
+  const [eh, em] = [9, 5]; // 市場エントリー開始 09:05
+  const [lh, lm] = [15, 25]; // 市場エントリー終了 15:25
   const current = hour * 60 + minute;
   const inTimeWindow = current >= eh * 60 + em && current <= lh * 60 + lm;
 
