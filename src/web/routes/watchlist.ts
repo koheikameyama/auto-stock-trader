@@ -230,8 +230,17 @@ app.get("/", async (c) => {
                 var d = data.tickers[ticker];
                 if (!d) return;
 
-                // ---- 行の表示 ----
+                // ---- 行の強調・減衰判定 ----
                 row.style.display = '';
+                var hasOpen = d.open != null && d.open > 0;
+                if (hasOpen) {
+                  var isGapOk = d.gapup && d.gapup.isGapOk;
+                  var isWbOk = d.wbDeviation != null && d.wbDeviation >= 0;
+                  var isActive = d.status === 'ordered' || d.status === 'holding';
+                  row.style.opacity = (isActive || isGapOk || isWbOk) ? '1' : '0.35';
+                } else {
+                  row.style.opacity = '1';
+                }
 
                 // ソート用データを収集
                 var guAllMet = d.gapup && d.gapup.isGapOk && d.gapup.isCandleOk && d.gapup.isVolumeOk;
