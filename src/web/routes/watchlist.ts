@@ -148,6 +148,7 @@ app.get("/", async (c) => {
                   <th>${tt("現在価格", "リアルタイム価格")}</th>
                   <th>${tt("20日高値", "ブレイクアウト基準価格")}</th>
                   <th>${tt("乖離", "現在価格と20日高値の差（%）")}</th>
+                  ${isFriday ? html`<th>${tt("WB乖離", "現在価格 vs 13週高値（金曜のみ）")}</th>` : ""}
                 </tr>
               </thead>
               <tbody>
@@ -162,6 +163,7 @@ app.get("/", async (c) => {
                       <td data-quote-price><span class="quote-loading">...</span></td>
                       <td>¥${formatYen(w.high20)}</td>
                       <td data-quote-deviation><span class="quote-loading">...</span></td>
+                      ${isFriday ? html`<td data-wb-deviation><span class="quote-loading">...</span></td>` : ""}
                     </tr>
                   `,
                 )}
@@ -304,6 +306,19 @@ app.get("/", async (c) => {
                     var cls = dev >= 0 ? 'pnl-positive' : 'pnl-negative';
                     var sign = dev >= 0 ? '+' : '';
                     devEl.innerHTML = '<span class="' + cls + '">' + sign + dev.toFixed(2) + '%</span>';
+                  }
+                }
+
+                // WB乖離（金曜のみ）
+                var wbDevEl = row.querySelector('[data-wb-deviation]');
+                if (wbDevEl) {
+                  var wb = d.wbDeviation;
+                  if (wb != null) {
+                    var wbSign = wb >= 0 ? '+' : '';
+                    var wbColor = wb >= 0 ? '#22c55e' : '#64748b';
+                    wbDevEl.innerHTML = '<span style="color:' + wbColor + '; font-weight:' + (wb >= 0 ? '600' : '400') + ';">' + wbSign + wb.toFixed(2) + '%</span>';
+                  } else {
+                    wbDevEl.innerHTML = '<span style="color: #475569;">-</span>';
                   }
                 }
               });

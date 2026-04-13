@@ -428,6 +428,7 @@ app.get("/watchlist/state", async (c) => {
     price: number | null;
     open: number | null;
     gapup: GapupConditions | null;
+    wbDeviation: number | null;
   }> = {};
 
   for (const ticker of tickers) {
@@ -441,6 +442,11 @@ app.get("/watchlist/state", async (c) => {
 
     const quoteData = quote ? { price: quote.price, open: quote.open, volume: quote.volume } : null;
 
+    // WB乖離: 金曜のみ、現在価格 vs 13週高値 (%)
+    const wbDeviation = isFriday && quote && wl?.weeklyHigh13
+      ? ((quote.price - wl.weeklyHigh13) / wl.weeklyHigh13) * 100
+      : null;
+
     tickerData[ticker] = {
       status,
       ...(orderStrategy && { orderStrategy }),
@@ -449,6 +455,7 @@ app.get("/watchlist/state", async (c) => {
       price: quote?.price ?? null,
       open: quote?.open ?? null,
       gapup: calcGapupConditions(ticker, quoteData),
+      wbDeviation,
     };
   }
 
