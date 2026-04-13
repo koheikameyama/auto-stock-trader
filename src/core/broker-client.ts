@@ -69,10 +69,8 @@ export class TachibanaClient {
   private loginLockedUntil: Date | null = null;
   /** ログインロックのSlack通知済みフラグ（重複通知防止） */
   private loginLockNotified = false;
-  /** ログインロック時のクールダウン（30分） */
-  private static readonly LOGIN_LOCK_COOLDOWN_MS = 30 * 60 * 1000;
-  /** 電話番号認証要求時のクールダウン（24時間・手動解除を促す） */
-  private static readonly PHONE_AUTH_LOCK_MS = 24 * 60 * 60 * 1000;
+  /** ログインロック：手動解除まで無期限停止（JS最大日時） */
+  private static readonly INDEFINITE_LOCK_DATE = new Date(8640000000000000);
   /**
    * リクエストのシリアライズ用ミューテックス
    * p_no採番〜HTTPレスポンス受信までをアトミックにし、
@@ -141,7 +139,7 @@ export class TachibanaClient {
     // アカウントロック検出（パスワード間違い規定回数超過）
     const orderResultCode = raw.sOrderResultCode as string | undefined;
     if (orderResultCode === "10033") {
-      const lockedUntil = new Date(Date.now() + TachibanaClient.LOGIN_LOCK_COOLDOWN_MS);
+      const lockedUntil = TachibanaClient.INDEFINITE_LOCK_DATE;
       this.loginLockedUntil = lockedUntil;
       const errorMsg = (raw.sOrderResultText as string) || "アカウントがロックされています";
       console.error(`[TachibanaClient] Account locked: ${errorMsg}`);
@@ -174,7 +172,7 @@ export class TachibanaClient {
 
     // 電話番号認証要求（10089）— 即通知してログインをスキップ
     if (orderResultCode === "10089") {
-      const lockedUntil = new Date(Date.now() + TachibanaClient.PHONE_AUTH_LOCK_MS);
+      const lockedUntil = TachibanaClient.INDEFINITE_LOCK_DATE;
       this.loginLockedUntil = lockedUntil;
       const errorMsg = (raw.sOrderResultText as string) || "電話番号認証が必要です";
       console.error(`[TachibanaClient] Phone auth required: ${errorMsg}`);
