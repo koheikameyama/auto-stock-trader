@@ -112,7 +112,7 @@
 - ログイン成功時にセッション固有の仮想URLが5つ発行される（REQUEST, MASTER, PRICE, EVENT, EVENT-WebSocket）
 - 以降のAPI呼び出しは全てこの仮想URLを使用
 - **セッション切れ**: `sResultCode` が `"2"` で検出。自動再ログインが必要
-- **自動リフレッシュ**: 30分ごとに再ログインしてセッションを更新（本システムの実装）
+- **自動リフレッシュ**: 30分ごとに再ログインしてセッションを更新（本システムの実装値。公式仕様での有効期限は未確認）
 - 再ログイン時はWebSocket接続のURLも更新が必要
 
 ### 1.2 ログアウト（CLMAuthLogoutRequest）
@@ -1088,7 +1088,7 @@ p_no\x011\x01p_cmd\x01KP
 6. **仮想URL**: ログイン成功時にセッション固有の仮想URLが発行される。以降のAPIは全てこの仮想URLを使用
 7. **金商法書面未読**: `sKinsyouhouMidokuFlg` が `"1"` の場合、仮想URLは発行されずAPI利用不可
 8. **セッション切れ検出**: `sResultCode` が `"2"` でセッション切れ。自動再ログインが必要
-9. **自動リフレッシュ**: 30分ごとに再ログインしてセッションを維持
+9. **自動リフレッシュ**: 30分ごとに再ログインしてセッションを維持（本システムの実装値。公式仕様での有効期限は未確認）
 
 ### 注文
 
@@ -1136,7 +1136,7 @@ p_no\x011\x01p_cmd\x01KP
 
 | ファイル | 役割 |
 |---------|------|
-| `src/core/broker-client.ts` | 認証・セッション管理（30分自動リフレッシュ） |
+| `src/core/broker-client.ts` | 認証・セッション管理（30分自動リフレッシュ、公式有効期限は未確認） |
 | `src/core/broker-orders.ts` | 注文・口座・保有情報API |
 | `src/core/broker-event-stream.ts` | WebSocket接続・約定通知受信 |
 | `src/core/broker-fill-handler.ts` | 約定処理（CLMOrderListDetailで詳細取得、加重平均価格算出） |
