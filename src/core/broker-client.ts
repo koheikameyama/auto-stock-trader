@@ -69,8 +69,8 @@ export class TachibanaClient {
   private loginLockedUntil: Date | null = null;
   /** ログインロックのSlack通知済みフラグ（重複通知防止） */
   private loginLockNotified = false;
-  /** ログインロック：手動解除まで無期限停止（JS最大日時） */
-  private static readonly INDEFINITE_LOCK_DATE = new Date(8640000000000000);
+  /** ログインロック：手動解除まで無期限停止（Prisma/PostgreSQL互換の遠未来日時） */
+  private static readonly INDEFINITE_LOCK_DATE = new Date("9999-12-31T23:59:59.999Z");
   /**
    * リクエストのシリアライズ用ミューテックス
    * p_no採番〜HTTPレスポンス受信までをアトミックにし、
