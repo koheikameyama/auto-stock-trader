@@ -127,13 +127,13 @@ app.get("/", async (c) => {
         <span>${raw(`${tt("市場評価", "MarketAssessment.shouldTrade")}: <span data-global-market style="color: ${shouldTrade ? "#22c55e" : "#ef4444"};">${shouldTrade ? "取引可" : "見送り"}</span>`)}</span>
       </div>
     </div>
-    <div id="loading-state" class="card" style="padding: 16px; text-align: center; color: #94a3b8; font-size: 13px;">
+    <div id="loading-state" class="card" style="${watchlist.length ? "display:none;" : ""}padding: 16px; text-align: center; color: #94a3b8; font-size: 13px;">
       読み込み中...
     </div>
     <div id="empty-state" class="card" style="display:none; padding: 16px; text-align: center; color: #94a3b8; font-size: 13px;">
       今日のエントリー候補はありません
     </div>
-    <div id="candidates-table" class="card table-wrap" style="display:none;">
+    <div id="candidates-table" class="card table-wrap" style="${watchlist.length ? "" : "display:none;"}">
       <table>
         <thead>
           <tr>
@@ -149,7 +149,7 @@ app.get("/", async (c) => {
         <tbody>
           ${watchlistWithStatus.map(
             (w) => html`
-              <tr data-quote-row data-ticker="${w.ticker}" data-atr14="${w.atr14}" style="display:none;">
+              <tr data-quote-row data-ticker="${w.ticker}" data-atr14="${w.atr14}">
                 <td data-strategy-badge><span style="color: #475569; font-size: 11px;">-</span></td>
                 <td>${tickerLink(w.ticker, `${w.ticker} ${nameMap.get(w.ticker) ?? w.ticker}`)}</td>
                 <td data-gapup-conditions style="font-size: 11px; white-space: nowrap;"><span class="quote-loading">...</span></td>
@@ -230,12 +230,8 @@ app.get("/", async (c) => {
                 var d = data.tickers[ticker];
                 if (!d) return;
 
-                // ---- 行の表示・非表示判定 ----
-                var isGapOk = d.gapup && d.gapup.isGapOk;
-                var isWbOk = d.wbDeviation != null && d.wbDeviation >= 0;
-                var isActive = d.status === 'ordered' || d.status === 'holding';
-                var shouldShow = isActive || isGapOk || isWbOk;
-                row.style.display = shouldShow ? '' : 'none';
+                // ---- 行の表示 ----
+                row.style.display = '';
 
                 // ソート用データを収集
                 var guAllMet = d.gapup && d.gapup.isGapOk && d.gapup.isCandleOk && d.gapup.isVolumeOk;
@@ -332,14 +328,11 @@ app.get("/", async (c) => {
                 if (loadingEl) loadingEl.style.display = 'none';
               }
 
-              // ---- 表示行数に応じてテーブル/空状態を切り替え ----
-              var visibleRows = Array.prototype.filter.call(rows, function(r) {
-                return r.style.display !== 'none';
-              });
+              // ---- テーブル/空状態を切り替え ----
               var tableEl = document.getElementById('candidates-table');
               var emptyEl = document.getElementById('empty-state');
-              if (tableEl) tableEl.style.display = visibleRows.length ? '' : 'none';
-              if (emptyEl) emptyEl.style.display = visibleRows.length ? 'none' : '';
+              if (tableEl) tableEl.style.display = rows.length ? '' : 'none';
+              if (emptyEl) emptyEl.style.display = rows.length ? 'none' : '';
 
               // ---- サマリーバッジ更新 ----
               var guSummaryEl = document.querySelector('[data-summary-gu]');
