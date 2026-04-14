@@ -34,6 +34,8 @@
     "walk-forward:earnings-gap": "tsx scripts/walk-forward-earnings-gap.ts",
     "backtest:squeeze-breakout": "tsx src/backtest/squeeze-breakout-run.ts",
     "walk-forward:squeeze-breakout": "tsx scripts/walk-forward-squeeze-breakout.ts",
+    "backtest:ma-pullback": "tsx src/backtest/ma-pullback-run.ts",
+    "walk-forward:ma-pullback": "tsx scripts/walk-forward-ma-pullback.ts",
     "data-cleanup": "tsx src/jobs/data-cleanup.ts",
     "news-collect": "tsx src/jobs/news-collect.ts",
     "db:generate": "prisma generate",
