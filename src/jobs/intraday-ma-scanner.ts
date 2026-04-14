@@ -95,8 +95,7 @@ export async function main(): Promise<void> {
   for (const ticker of targetTickers) {
     const currentPrice = priceResults.get(ticker);
     if (currentPrice == null) {
-      // 価格取得失敗済みのためスキップ
-      prevPriceMap.set(ticker, currentPrice ?? 0);
+      // 価格取得失敗済みのためスキップ（prevPriceMapは更新しない）
       continue;
     }
 
