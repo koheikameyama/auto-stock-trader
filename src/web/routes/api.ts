@@ -419,6 +419,8 @@ app.get("/watchlist/state", async (c) => {
     wbDeviation: number | null;
   }> = {};
 
+  const marketOpen = isMarketOpen();
+
   for (const ticker of tickers) {
     const { status, orderStrategy } = getStatus(ticker);
     const quote = quotes.get(ticker);
@@ -428,7 +430,8 @@ app.get("/watchlist/state", async (c) => {
       ? calculateVolumeSurgeRatio(quote.volume, wl.avgVolume25, hour, minute)
       : null;
 
-    const quoteData = quote ? { price: quote.price, open: quote.open, volume: quote.volume } : null;
+    // 市場クローズ中は前日データが混入するため open/gapup を null にする
+    const quoteData = marketOpen && quote ? { price: quote.price, open: quote.open, volume: quote.volume } : null;
 
     // WB乖離: 金曜のみ、現在価格 vs 13週高値 (%)
     const wbDeviation = isFriday && quote && wl?.weeklyHigh13
@@ -441,7 +444,7 @@ app.get("/watchlist/state", async (c) => {
       strategies: checkStrategies(ticker, quoteData),
       surgeRatio,
       price: quote?.price ?? null,
-      open: quote?.open ?? null,
+      open: marketOpen ? (quote?.open ?? null) : null,
       gapup: calcGapupConditions(ticker, quoteData),
       wbDeviation,
     };

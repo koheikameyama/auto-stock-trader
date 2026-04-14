@@ -230,24 +230,23 @@ app.get("/", async (c) => {
                 var d = data.tickers[ticker];
                 if (!d) return;
 
-                // ---- 行の強調・減衰判定 ----
-                row.style.display = '';
+                // ---- 表示判定（主条件を満たさない行は非表示） ----
+                var isActive = d.status === 'ordered' || d.status === 'holding';
+                var isGapOk = d.gapup && d.gapup.isGapOk;
+                var isWbOk = d.wbDeviation != null && d.wbDeviation >= 0;
                 var hasOpen = d.open != null && d.open > 0;
-                if (hasOpen) {
-                  var isGapOk = d.gapup && d.gapup.isGapOk;
-                  var isWbOk = d.wbDeviation != null && d.wbDeviation >= 0;
-                  var isActive = d.status === 'ordered' || d.status === 'holding';
-                  row.style.opacity = (isActive || isGapOk || isWbOk) ? '1' : '0.35';
-                } else {
-                  row.style.opacity = '1';
-                }
+                var shouldShow = isActive || isGapOk || isWbOk || !hasOpen;
+                row.style.display = shouldShow ? '' : 'none';
+                row.style.opacity = '1';
 
                 // ソート用データを収集
                 var guAllMet = d.gapup && d.gapup.isGapOk && d.gapup.isCandleOk && d.gapup.isVolumeOk;
                 var wbMet = d.wbDeviation != null && d.wbDeviation >= 0;
                 var isEntryCandidate = (guAllMet || wbMet) ? 1 : 0;
+                var isVisible = shouldShow ? 1 : 0;
                 rowSortData[ticker] = {
                   isEntryCandidate: isEntryCandidate,
+                  isVisible: isVisible,
                   guAllMet: guAllMet ? 1 : 0,
                   surgeRatio: d.surgeRatio || 0,
                   status: d.status || 'watching'
@@ -382,10 +381,13 @@ app.get("/", async (c) => {
                   // 1. エントリー候補（GU全条件OK or WB条件OK）を最上位
                   var entryDiff = db.isEntryCandidate - da.isEntryCandidate;
                   if (entryDiff !== 0) return entryDiff;
-                  // 2. ステータス: 注文済 → 保有中 → 監視中
+                  // 2. 減衰しない行を優先（active or isGapOk or isWbOk）
+                  var visibleDiff = db.isVisible - da.isVisible;
+                  if (visibleDiff !== 0) return visibleDiff;
+                  // 3. ステータス: 注文済 → 保有中 → 監視中
                   var statusDiff = (statusOrder[da.status] != null ? statusOrder[da.status] : 2) - (statusOrder[db.status] != null ? statusOrder[db.status] : 2);
                   if (statusDiff !== 0) return statusDiff;
-                  // 3. サージ比率（出来高が多い順）
+                  // 4. サージ比率（出来高が多い順）
                   return db.surgeRatio - da.surgeRatio;
                 });
                 rowArr.forEach(function(row) { tbody.appendChild(row); });
