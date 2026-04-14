@@ -24,7 +24,7 @@ import { main as runIntradayMaScanner } from "./jobs/intraday-ma-scanner";
 import { app } from "./web/app";
 import { setJobState } from "./web/routes/dashboard";
 import { prisma } from "./lib/prisma";
-import { notifySlack, notifyBrokerError } from "./lib/slack";
+import { notifySlack } from "./lib/slack";
 import { isMarketDay } from "./lib/market-date";
 import { TIMEZONE } from "./lib/constants";
 import { cronControl } from "./lib/cron-control";
