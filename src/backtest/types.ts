@@ -260,6 +260,9 @@ export interface GapUpBacktestConfig {
 
   /** 1日あたりの最大エントリー件数。省略時=無制限 */
   maxDailyEntries?: number;
+
+  /** シグナルソート方法。"gapvol"=gapPct×vol(デフォルト), "rr"=RR比, "volume"=出来高サージ */
+  signalSortMethod?: "gapvol" | "rr" | "volume";
 }
 
 export interface GapUpBacktestResult {

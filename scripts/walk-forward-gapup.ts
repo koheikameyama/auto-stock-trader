@@ -152,6 +152,10 @@ async function main() {
   const useRobust = !args.includes("--max-pf");
   const maxDailyEntriesArg = args.find((a) => a.startsWith("--max-daily-entries="));
   const maxDailyEntries = maxDailyEntriesArg ? parseInt(maxDailyEntriesArg.split("=")[1], 10) : undefined;
+  const sortMethodArg = args.find((a) => a.startsWith("--sort-method="));
+  const signalSortMethod = sortMethodArg
+    ? (sortMethodArg.split("=")[1] as "gapvol" | "rr" | "volume")
+    : undefined;
   const endDate = dayjs().format("YYYY-MM-DD");
   const startDate = dayjs().subtract(TOTAL_MONTHS, "month").format("YYYY-MM-DD");
 
@@ -162,6 +166,7 @@ async function main() {
   console.log(`IS: ${IS_MONTHS}ヶ月 / OOS: ${OOS_MONTHS}ヶ月 / スライド: ${SLIDE_MONTHS}ヶ月`);
   console.log(`ウィンドウ数: ${NUM_WINDOWS}`);
   console.log(`選択方式: ${useRobust ? "ロバスト（近傍中央値PF）" : "最大PF"}`);
+  if (signalSortMethod) console.log(`シグナルソート: ${signalSortMethod}`);
   if (maxDailyEntries != null) console.log(`1日最大エントリー: ${maxDailyEntries}件`);
 
   const paramCombos = generateGapUpParameterCombinations();
@@ -192,7 +197,9 @@ async function main() {
   console.log("");
 
   const windows = generateWindows(startDate);
-  const filterCfg = GAPUP_BACKTEST_DEFAULTS;
+  const filterCfg = signalSortMethod
+    ? { ...GAPUP_BACKTEST_DEFAULTS, signalSortMethod }
+    : GAPUP_BACKTEST_DEFAULTS;
   const vixArg = vixData.size > 0 ? vixData : undefined;
   const indexArg = indexData.size > 0 ? indexData : undefined;
 
@@ -229,6 +236,7 @@ async function main() {
         endDate: isEnd,
         verbose: false,
         ...(maxDailyEntries != null ? { maxDailyEntries } : {}),
+        ...(signalSortMethod ? { signalSortMethod } : {}),
       };
       const result = runGapUpBacktest(config, allData, vixArg, indexArg, isPrecomputed, isSignals);
       if (result.metrics.totalTrades < 3) continue;
@@ -279,6 +287,7 @@ async function main() {
       endDate: oosEnd,
       verbose: false,
       ...(maxDailyEntries != null ? { maxDailyEntries } : {}),
+      ...(signalSortMethod ? { signalSortMethod } : {}),
     };
     const oosResult = runGapUpBacktest(oosConfig, allData, vixArg, indexArg, oosPrecomputed, oosSignals);
 

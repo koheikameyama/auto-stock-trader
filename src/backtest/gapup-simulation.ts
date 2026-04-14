@@ -52,7 +52,7 @@ export function precomputeGapUpDailySignals(
     | "maxPrice" | "minAtrPct" | "minAvgVolume25" | "minTurnover" | "minPrice"
     | "gapMinPct" | "volSurgeRatio"
     | "marketTrendFilter" | "marketTrendThreshold" | "indexTrendFilter"
-    | "maxLossPct"
+    | "maxLossPct" | "signalSortMethod"
   >,
   allData: Map<string, OHLCVData[]>,
   precomputed: PrecomputedSimData,
@@ -130,8 +130,35 @@ export function precomputeGapUpDailySignals(
     }
 
     if (daySignals.length > 0) {
-      // ギャップ率 × 出来高サージでソート（降順）
-      daySignals.sort((a, b) => (b.gapPct * b.volumeSurgeRatio) - (a.gapPct * a.volumeSurgeRatio));
+      const sortMethod = config.signalSortMethod ?? "gapvol";
+      if (sortMethod === "rr") {
+        // RR比→SL%→出来高サージ（ライブスキャナーと同一ロジック）
+        const slAtrMul = 1.0; // GAPUP.STOP_LOSS.ATR_MULTIPLIER 固定
+        const maxLossPct = config.maxLossPct; // 0.03
+        daySignals.sort((a, b) => {
+          const aRawSL = a.entryPrice - a.atr14 * slAtrMul;
+          const aMaxSL = a.entryPrice * (1 - maxLossPct);
+          const aRisk = a.entryPrice - Math.max(aRawSL, aMaxSL);
+          const aRR = aRisk > 0 ? (a.atr14 * 5.0) / aRisk : 0;
+          const aSlPct = aRisk / a.entryPrice;
+
+          const bRawSL = b.entryPrice - b.atr14 * slAtrMul;
+          const bMaxSL = b.entryPrice * (1 - maxLossPct);
+          const bRisk = b.entryPrice - Math.max(bRawSL, bMaxSL);
+          const bRR = bRisk > 0 ? (b.atr14 * 5.0) / bRisk : 0;
+          const bSlPct = bRisk / b.entryPrice;
+
+          if (Math.abs(bRR - aRR) >= 0.1) return bRR - aRR;
+          if (Math.abs(aSlPct - bSlPct) >= 0.001) return aSlPct - bSlPct;
+          return b.volumeSurgeRatio - a.volumeSurgeRatio;
+        });
+      } else if (sortMethod === "volume") {
+        // 出来高サージ降順のみ
+        daySignals.sort((a, b) => b.volumeSurgeRatio - a.volumeSurgeRatio);
+      } else {
+        // デフォルト: gapPct × volumeSurgeRatio 降順
+        daySignals.sort((a, b) => (b.gapPct * b.volumeSurgeRatio) - (a.gapPct * a.volumeSurgeRatio));
+      }
       result.set(today, daySignals);
     }
   }
