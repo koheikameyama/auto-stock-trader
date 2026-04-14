@@ -12,8 +12,6 @@ import { Hono } from "hono";
 import { html, raw } from "hono/html";
 import { prisma } from "../../lib/prisma";
 import { TIMEZONE } from "../../lib/constants";
-import { GAPUP } from "../../lib/constants/gapup";
-import { WEEKLY_BREAK } from "../../lib/constants/weekly-break";
 import { layout } from "../views/layout";
 import { tickerLink, tt } from "../views/components";
 import { getGuWatchlist } from "../../jobs/watchlist-builder";
@@ -139,10 +137,8 @@ app.get("/", async (c) => {
           <tr>
             <th>戦略</th>
             <th>銘柄</th>
-            <th>${tt("GU条件", "Gap≥3% / 陽線 / 出来高≥1.5x")}</th>
-            <th>${tt("始値", "当日始値")}</th>
             <th>${tt("現在価格", "リアルタイム価格")}</th>
-            <th>${tt("損切りライン", "ATRベース (entry - ATR × 1.0)")}</th>
+            <th>${tt("始値", "当日始値")}</th>
             ${isFriday ? html`<th>${tt("WB乖離", "現在価格 vs 13週高値（金曜のみ）")}</th>` : ""}
             <th>${tt("状態", "保有中/注文済/監視中")}</th>
           </tr>
@@ -153,10 +149,8 @@ app.get("/", async (c) => {
               <tr data-quote-row data-ticker="${w.ticker}" data-atr14="${w.atr14}">
                 <td data-strategy-badge><span style="color: #475569; font-size: 11px;">-</span></td>
                 <td>${tickerLink(w.ticker, `${w.ticker} ${nameMap.get(w.ticker) ?? w.ticker}`)}</td>
-                <td data-gapup-conditions style="font-size: 11px; white-space: nowrap;"><span class="quote-loading">...</span></td>
-                <td data-open-price><span class="quote-loading">...</span></td>
                 <td data-quote-price><span class="quote-loading">...</span></td>
-                <td data-sl-price><span class="quote-loading">...</span></td>
+                <td data-open-price><span class="quote-loading">...</span></td>
                 ${isFriday ? html`<td data-wb-deviation><span class="quote-loading">...</span></td>` : ""}
                 <td data-status-badge>${statusBadgeHtml(w.status, w.orderStrategy)}</td>
               </tr>
@@ -168,8 +162,6 @@ app.get("/", async (c) => {
     <script>
       (function() {
         var POLL_INTERVAL = 30000;
-        var ATR_MULTIPLIER_GU = ${GAPUP.STOP_LOSS.ATR_MULTIPLIER};
-        var ATR_MULTIPLIER_WB = ${WEEKLY_BREAK.STOP_LOSS.ATR_MULTIPLIER};
         var rows = document.querySelectorAll('[data-quote-row]');
 
         var fmt = function(v) { return Number(v).toLocaleString('ja-JP', { maximumFractionDigits: 0 }); };
@@ -276,45 +268,15 @@ app.get("/", async (c) => {
                 }
 
                 // ---- 戦略バッジ（data-strategy-badge） ----
+                var strats = d.strategies || [];
                 var stratEl = row.querySelector('[data-strategy-badge]');
                 if (stratEl) {
-                  var strats = d.strategies || [];
-                  if (strats.length > 0) {
-                    stratEl.innerHTML = strats.map(function(s) { return STRATEGY_BADGE[s] || s; }).join(' ');
-                  } else {
-                    stratEl.innerHTML = '<span style="color: #475569; font-size: 11px;">-</span>';
-                  }
-                  // サマリー集計
-                  if (strats.indexOf('GU') !== -1) guCount++;
-                  if (strats.indexOf('WB') !== -1) wbCount++;
+                  stratEl.innerHTML = strats.length > 0
+                    ? strats.map(function(s) { return STRATEGY_BADGE[s] || s; }).join(' ')
+                    : '<span style="color: #475569; font-size: 11px;">-</span>';
                 }
-
-                // ---- GU条件（data-gapup-conditions） ----
-                var guEl = row.querySelector('[data-gapup-conditions]');
-                if (guEl) {
-                  var gu = d.gapup;
-                  if (gu) {
-                    var gapSign = gu.gapPct >= 0 ? '+' : '';
-                    var gapColor = gu.isGapOk ? '#22c55e' : (gu.gapPct >= 1.5 ? '#f59e0b' : '#64748b');
-                    var candleColor = gu.isCandleOk ? '#22c55e' : '#ef4444';
-                    var candleLabel = gu.isCandleOk ? '\u25cb' : '\u00d7';
-                    var volColor = gu.isVolumeOk ? '#22c55e' : '#64748b';
-                    var allMet = gu.isGapOk && gu.isCandleOk && gu.isVolumeOk;
-                    guEl.innerHTML =
-                      '<span style="color:' + gapColor + ';">' + gapSign + gu.gapPct.toFixed(1) + '%</span>' +
-                      '<span style="color:#475569; margin: 0 2px;">|</span>' +
-                      '<span style="color:' + candleColor + ';">' + candleLabel + '</span>' +
-                      '<span style="color:#475569; margin: 0 2px;">|</span>' +
-                      '<span style="color:' + volColor + ';">' + d.surgeRatio.toFixed(1) + 'x</span>' +
-                      (allMet ? ' <span style="color:#22c55e; font-weight:600;">\u2714</span>' : '');
-                  } else {
-                    guEl.innerHTML = '<span style="color: #475569;">-</span>';
-                  }
-                }
-
-                // ---- 始値（data-open-price） ----
-                var openEl = row.querySelector('[data-open-price]');
-                if (openEl) openEl.innerHTML = d.open != null ? '\u00a5' + fmt(d.open) : '-';
+                if (strats.indexOf('GU') !== -1) guCount++;
+                if (strats.indexOf('WB') !== -1) wbCount++;
 
                 // ---- 現在価格（data-quote-price） ----
                 if (d.price != null) {
@@ -322,15 +284,9 @@ app.get("/", async (c) => {
                   if (priceEl) priceEl.innerHTML = '\u00a5' + fmt(d.price);
                 }
 
-                // ---- 損切りライン（data-sl-price） ----
-                var slEl = row.querySelector('[data-sl-price]');
-                if (slEl && d.price != null) {
-                  var atr14 = parseFloat(row.getAttribute('data-atr14') || '0');
-                  var strats2 = d.strategies || [];
-                  var multiplier = strats2.indexOf('WB') !== -1 ? ATR_MULTIPLIER_WB : ATR_MULTIPLIER_GU;
-                  var slPrice = d.price - atr14 * multiplier;
-                  slEl.innerHTML = slPrice > 0 ? '\u00a5' + fmt(slPrice) : '-';
-                }
+                // ---- 始値（data-open-price） ----
+                var openEl = row.querySelector('[data-open-price]');
+                if (openEl) openEl.innerHTML = d.open != null ? '\u00a5' + fmt(d.open) : '-';
 
                 // ---- WB乖離（data-wb-deviation） ----
                 var wbDevEl = row.querySelector('[data-wb-deviation]');
