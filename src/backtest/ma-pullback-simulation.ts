@@ -404,7 +404,7 @@ export function runMaPullbackBacktest(
           takeProfitPrice,
           stopLossPrice,
           quantity: finalQuantity,
-          volumeSurgeRatio: signal.maProximity,
+          volumeSurgeRatio: signal.maProximity, // MA押し目戦略ではmaProximityを流用（volumeSurgeRatioフィールドの意味は異なる）
           regime: todayRegime,
           maxHighDuringHold: signal.entryPrice,
           trailingStopPrice: null,
