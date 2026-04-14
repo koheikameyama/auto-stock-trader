@@ -18,3 +18,4 @@ export * from "./weekly-break";
 export * from "./momentum";
 export * from "./earnings-gap";
 export * from "./squeeze-breakout";
+export * from "./ma-pullback";
