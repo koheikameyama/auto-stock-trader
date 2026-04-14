@@ -1,9 +1,8 @@
-name: "[cron-job.org] Unfilled Order Follow-Up"
+name: "[停止中] Unfilled Order Follow-Up"
+# 現在gapup戦略のみで未約定が発生しないため停止（2026-04-14）
+# 指値を使う戦略を追加した場合に復活させる
 
 on:
-  # schedule:
-  #   # 16:30 JST = 07:30 UTC
-  #   - cron: "30 7 * * 1-5"
   workflow_dispatch:
     inputs:
       skip_market_day_check:
