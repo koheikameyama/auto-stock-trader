@@ -12,6 +12,7 @@ import { Hono } from "hono";
 import { html, raw } from "hono/html";
 import { prisma } from "../../lib/prisma";
 import { TIMEZONE } from "../../lib/constants";
+import { GAPUP } from "../../lib/constants/gapup";
 import { layout } from "../views/layout";
 import { tickerLink, tt } from "../views/components";
 import { getGuWatchlist } from "../../jobs/watchlist-builder";
@@ -137,6 +138,7 @@ app.get("/", async (c) => {
           <tr>
             <th>戦略</th>
             <th>銘柄</th>
+            <th>${tt("GU条件", "Gap≥3% / 陽線 / 出来高≥1.5x")}</th>
             <th>${tt("現在価格", "リアルタイム価格")}</th>
             <th>${tt("始値", "当日始値")}</th>
             ${isFriday ? html`<th>${tt("WB乖離", "現在価格 vs 13週高値（金曜のみ）")}</th>` : ""}
@@ -149,6 +151,7 @@ app.get("/", async (c) => {
               <tr data-quote-row data-ticker="${w.ticker}" data-atr14="${w.atr14}">
                 <td data-strategy-badge><span style="color: #475569; font-size: 11px;">-</span></td>
                 <td>${tickerLink(w.ticker, `${w.ticker} ${nameMap.get(w.ticker) ?? w.ticker}`)}</td>
+                <td data-gapup-conditions style="font-size: 11px; white-space: nowrap;"><span class="quote-loading">...</span></td>
                 <td data-quote-price><span class="quote-loading">...</span></td>
                 <td data-open-price><span class="quote-loading">...</span></td>
                 ${isFriday ? html`<td data-wb-deviation><span class="quote-loading">...</span></td>` : ""}
@@ -162,6 +165,7 @@ app.get("/", async (c) => {
     <script>
       (function() {
         var POLL_INTERVAL = 30000;
+        var ATR_MULTIPLIER_GU = ${GAPUP.STOP_LOSS.ATR_MULTIPLIER};
         var rows = document.querySelectorAll('[data-quote-row]');
 
         var fmt = function(v) { return Number(v).toLocaleString('ja-JP', { maximumFractionDigits: 0 }); };
@@ -277,6 +281,29 @@ app.get("/", async (c) => {
                 }
                 if (strats.indexOf('GU') !== -1) guCount++;
                 if (strats.indexOf('WB') !== -1) wbCount++;
+
+                // ---- GU条件（data-gapup-conditions） ----
+                var guEl = row.querySelector('[data-gapup-conditions]');
+                if (guEl) {
+                  var gu = d.gapup;
+                  if (gu) {
+                    var gapSign = gu.gapPct >= 0 ? '+' : '';
+                    var gapColor = gu.isGapOk ? '#22c55e' : (gu.gapPct >= 1.5 ? '#f59e0b' : '#64748b');
+                    var candleColor = gu.isCandleOk ? '#22c55e' : '#ef4444';
+                    var candleLabel = gu.isCandleOk ? '\u25cb' : '\u00d7';
+                    var volColor = gu.isVolumeOk ? '#22c55e' : '#64748b';
+                    var allMet = gu.isGapOk && gu.isCandleOk && gu.isVolumeOk;
+                    guEl.innerHTML =
+                      '<span style="color:' + gapColor + ';">' + gapSign + gu.gapPct.toFixed(1) + '%</span>' +
+                      '<span style="color:#475569; margin: 0 2px;">|</span>' +
+                      '<span style="color:' + candleColor + ';">' + candleLabel + '</span>' +
+                      '<span style="color:#475569; margin: 0 2px;">|</span>' +
+                      '<span style="color:' + volColor + ';">' + (d.surgeRatio != null ? d.surgeRatio.toFixed(1) : '-') + 'x</span>' +
+                      (allMet ? ' <span style="color:#22c55e; font-weight:600;">\u2714</span>' : '');
+                  } else {
+                    guEl.innerHTML = '<span style="color: #475569;">-</span>';
+                  }
+                }
 
                 // ---- 現在価格（data-quote-price） ----
                 if (d.price != null) {
