@@ -209,7 +209,15 @@ export async function fetchStockQuote(
 
   try {
     const result = await providerFetchQuote(symbol);
-    return result as StockQuote;
+    // 立花APIは取引時間外に price=0 を返すため、フォールバック対象とする
+    if (result && result.price > 0) {
+      return result as StockQuote;
+    }
+    if (!options?.yfinanceFallback) {
+      return result as StockQuote;
+    }
+    // price=0 → フォールバックへ（throwしてcatch節で処理）
+    throw new Error(`Price is zero for ${symbol}, falling back`);
   } catch (error) {
     if (options?.yfinanceFallback) {
       console.warn(
@@ -263,9 +271,12 @@ export async function fetchStockQuotesBatch(
         }
       }
 
-      // 立花APIで null だった銘柄を yfinance→DB で補完
+      // 立花APIで取得できなかった or price=0 の銘柄を yfinance→DB で補完
       if (options?.yfinanceFallback) {
-        const failedSymbols = batch.filter((s) => !results.has(s));
+        const failedSymbols = batch.filter((s) => {
+          const q = results.get(s);
+          return !q || q.price <= 0;
+        });
         if (failedSymbols.length > 0) {
           // 1st fallback: yfinance
           console.warn(
@@ -279,8 +290,11 @@ export async function fetchStockQuotesBatch(
           } catch (yfError) {
             console.warn(`[market-data] yfinanceバッチ補完失敗:`, yfError);
           }
-          // 2nd fallback: DB（yfinance でも取れなかった銘柄のみ）
-          const stillFailed = failedSymbols.filter((s) => !results.has(s));
+          // 2nd fallback: DB（yfinance でも取れなかった or price=0 の銘柄のみ）
+          const stillFailed = failedSymbols.filter((s) => {
+            const q = results.get(s);
+            return !q || q.price <= 0;
+          });
           if (stillFailed.length > 0) {
             console.warn(
               `[market-data] yfinance後も${stillFailed.length}銘柄未取得、DBで補完`,
