@@ -59,8 +59,9 @@ export const GAPUP_BACKTEST_DEFAULTS: Omit<GapUpBacktestConfig, "startDate" | "e
 /** 1トレードあたりリスク（%） */
 export const GAPUP_RISK_PER_TRADE_PCT = POSITION_SIZING.RISK_PER_TRADE_PCT; // 2
 
-/** walk-forward パラメータグリッド（エグジット系のみ、27通り） */
+/** walk-forward パラメータグリッド（gap率 + エグジット系、81通り） */
 export const GAPUP_PARAMETER_GRID = {
+  gapMinPct: [0.01, 0.02, 0.03],
   atrMultiplier: [0.8, 1.0, 1.2],
   beActivationMultiplier: [0.3, 0.5, 0.8],
   trailMultiplier: [0.3, 0.5, 0.8],
@@ -70,14 +71,17 @@ export const GAPUP_PARAMETER_GRID = {
 export function generateGapUpParameterCombinations(): Array<Partial<GapUpBacktestConfig>> {
   const combos: Array<Partial<GapUpBacktestConfig>> = [];
 
-  for (const atrMultiplier of GAPUP_PARAMETER_GRID.atrMultiplier) {
-    for (const beActivationMultiplier of GAPUP_PARAMETER_GRID.beActivationMultiplier) {
-      for (const trailMultiplier of GAPUP_PARAMETER_GRID.trailMultiplier) {
-        combos.push({
-          atrMultiplier,
-          beActivationMultiplier,
-          trailMultiplier,
-        });
+  for (const gapMinPct of GAPUP_PARAMETER_GRID.gapMinPct) {
+    for (const atrMultiplier of GAPUP_PARAMETER_GRID.atrMultiplier) {
+      for (const beActivationMultiplier of GAPUP_PARAMETER_GRID.beActivationMultiplier) {
+        for (const trailMultiplier of GAPUP_PARAMETER_GRID.trailMultiplier) {
+          combos.push({
+            gapMinPct,
+            atrMultiplier,
+            beActivationMultiplier,
+            trailMultiplier,
+          });
+        }
       }
     }
   }

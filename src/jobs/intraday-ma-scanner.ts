@@ -132,9 +132,6 @@ export async function main(): Promise<void> {
     const maDistance = Math.abs(currentPrice - ma20) / ma20;
     const isInMaZone = maDistance <= MA_PULLBACK.ENTRY.MA_TOUCH_BUFFER;
 
-    // 前回ゾーン状態
-    const wasInZone = inMaZoneMap.get(ticker) ?? false;
-
     // 上昇判定（初回ポーリングは通過させる）
     const isRising = prevPrice === undefined || currentPrice > prevPrice;
 
