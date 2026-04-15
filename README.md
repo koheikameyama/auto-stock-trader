@@ -1,4 +1,4 @@
-# Stock Buddy
+# Auto Stock Trader
 
 期待値で勝つ自動株式トレードツール。
 
