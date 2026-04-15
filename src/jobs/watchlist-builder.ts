@@ -74,13 +74,13 @@ async function saveGuWatchlistToDB(entries: GuWatchlistEntry[]): Promise<void> {
   }
 }
 
-let cachedGuWatchlist: GuWatchlistEntry[] | null = null;
-let guCacheExpiry = 0;
+let cachedAllWatchlist: GuWatchlistEntry[] | null = null;
+let allCacheExpiry = 0;
 
-export async function getGuWatchlist(): Promise<GuWatchlistEntry[]> {
+async function getAllWatchlistEntries(): Promise<GuWatchlistEntry[]> {
   const now = dayjs().valueOf();
-  if (cachedGuWatchlist !== null && now < guCacheExpiry) {
-    return cachedGuWatchlist;
+  if (cachedAllWatchlist !== null && now < allCacheExpiry) {
+    return cachedAllWatchlist;
   }
   const today = getTodayForDB();
   const rows = await prisma.watchlistEntry.findMany({ where: { date: today } });
@@ -93,9 +93,20 @@ export async function getGuWatchlist(): Promise<GuWatchlistEntry[]> {
     weeklyHigh13: r.weeklyHigh13 ?? undefined,
     momentum5d: r.momentum5d,
   }));
-  cachedGuWatchlist = entries;
-  guCacheExpiry = now + CACHE_TTL_MS;
+  cachedAllWatchlist = entries;
+  allCacheExpiry = now + CACHE_TTL_MS;
   return entries;
+}
+
+/** GUエントリー候補: momentum5d > 0 の銘柄のみ */
+export async function getGuWatchlist(): Promise<GuWatchlistEntry[]> {
+  const all = await getAllWatchlistEntries();
+  return all.filter((e) => e.momentum5d > 0);
+}
+
+/** PSCエントリー候補: momentum5d の正負に関わらず全銘柄 */
+export async function getPscWatchlist(): Promise<GuWatchlistEntry[]> {
+  return getAllWatchlistEntries();
 }
 
 export async function main(): Promise<void> {

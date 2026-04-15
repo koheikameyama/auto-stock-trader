@@ -12,7 +12,7 @@ import timezone from "dayjs/plugin/timezone.js";
 import { prisma } from "../lib/prisma";
 import { getTodayForDB } from "../lib/market-date";
 import { tachibanaFetchQuotesBatch } from "../lib/tachibana-price-client";
-import { getGuWatchlist } from "./watchlist-builder";
+import { getPscWatchlist } from "./watchlist-builder";
 import { executeEntry } from "../core/breakout/entry-executor";
 import { notifySlack } from "../lib/slack";
 import { TIMEZONE } from "../lib/constants";
@@ -62,7 +62,7 @@ export async function main(): Promise<void> {
 
   lastScanDate = today;
 
-  const watchlist = await getGuWatchlist();
+  const watchlist = await getPscWatchlist();
   if (!watchlist.length) {
     console.log(`${tag} スキップ: ウォッチリスト空`);
     return;

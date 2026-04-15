@@ -226,7 +226,7 @@ export async function buildGuWatchlist(): Promise<GuWatchlistBuildResult> {
         continue;
       }
 
-      // 直近5日モメンタムフィルター
+      // 直近5日モメンタム計算（データ取得）
       // データはnewest-first: index0が最新、index4が5営業日前
       const latestClose = historical[0]?.close;
       const close5dAgo = historical[4]?.close;
@@ -237,10 +237,9 @@ export async function buildGuWatchlist(): Promise<GuWatchlistBuildResult> {
       }
 
       const momentum5d = (latestClose - close5dAgo) / close5dAgo;
-      if (momentum5d <= 0) {
-        skipMomentum++;
-        continue;
-      }
+      // momentum5d フィルターはここでは行わない。
+      // GU候補は getGuWatchlist() の取得時に momentum5d > 0 でフィルタリングする。
+      // PSC候補はフィルターなしで全エントリーを使う。
 
       // atr14 が null の場合はスキップ
       if (summary.atr14 == null) {

@@ -142,11 +142,10 @@ describe("buildGuWatchlist", () => {
     expect(entries[0].momentum5d).toBeGreaterThan(0);
   });
 
-  it("直近5日リターンがゼロ以下の銘柄は除外する", async () => {
+  it("直近5日リターンがゼロ以下の銘柄も候補に含める（momentum5d値は記録する）", async () => {
     // 週足上昇トレンドを維持しつつ、直近5日だけわずかに下落するケース
     // 価格は810→1205と全体的に上昇（週足SMA13チェック通過）
     // i=0(最新)=1180, i=4=1205（5日前より低い）→ momentum5d < 0
-    // ※ 既存テスト「ゲート通過 + 週足SMA13以上 → ウォッチリストに入る」と同じ上昇基調データを使用
     const bars = makeBars(80, {
       override: (i) => {
         const basePrice = 800 + (80 - i) * 5 + 5; // i=0→1205, i=79→810
@@ -161,8 +160,11 @@ describe("buildGuWatchlist", () => {
 
     const { entries, stats } = await buildGuWatchlist();
 
-    expect(entries.length).toBe(0);
-    expect(stats.skipMomentum).toBe(1);
+    // momentum5d <= 0 でも除外しない（GUモニター側でフィルタリングする）
+    expect(entries.length).toBe(1);
+    expect(entries[0].ticker).toBe("2222");
+    expect(entries[0].momentum5d).toBeLessThan(0);
+    expect(stats.skipMomentum).toBe(0);
   });
 
   it("high20フィルターは適用しない（high20を超えている銘柄も候補にする）", async () => {
