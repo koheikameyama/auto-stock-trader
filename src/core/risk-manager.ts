@@ -73,12 +73,16 @@ export async function canOpenPosition(
   });
 
   // 1. オープンポジション数チェック（戦略別独立）
-  const strategyKey = strategy === "gapup" ? "gapup" : strategy === "weekly-break" ? "weekly-break" : "breakout";
-  const maxPositions = strategyKey === "gapup"
-    ? TRADING_DEFAULTS.MAX_POSITIONS_GU
-    : strategyKey === "weekly-break"
-      ? TRADING_DEFAULTS.MAX_POSITIONS_WB
-      : TRADING_DEFAULTS.MAX_POSITIONS_BO;
+  const strategyKey =
+    strategy === "gapup" ? "gapup"
+    : strategy === "weekly-break" ? "weekly-break"
+    : strategy === "post-surge-consolidation" ? "post-surge-consolidation"
+    : "breakout";
+  const maxPositions =
+    strategyKey === "gapup" ? TRADING_DEFAULTS.MAX_POSITIONS_GU
+    : strategyKey === "weekly-break" ? TRADING_DEFAULTS.MAX_POSITIONS_WB
+    : strategyKey === "post-surge-consolidation" ? TRADING_DEFAULTS.MAX_POSITIONS_PSC
+    : TRADING_DEFAULTS.MAX_POSITIONS_BO;
   const strategyPositions = openPositions.filter((p) => (p.strategy ?? "breakout") === strategyKey);
   if (strategyPositions.length >= maxPositions) {
     return {

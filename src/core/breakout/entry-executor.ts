@@ -26,10 +26,12 @@ import { checkLiquidity } from "../market-data";
 import { TIMEZONE } from "../../lib/constants/timezone";
 import { GAPUP } from "../../lib/constants/gapup";
 import { WEEKLY_BREAK } from "../../lib/constants/weekly-break";
+import { POST_SURGE_CONSOLIDATION } from "../../lib/constants/post-surge-consolidation";
 import { TACHIBANA_ORDER } from "../../lib/constants/broker";
 import { ORDER_EXPIRY } from "../../lib/constants/jobs";
 import type { GapUpTrigger } from "../gapup/gapup-scanner";
 import type { WeeklyBreakTrigger } from "../weekly-break/weekly-break-scanner";
+import type { PostSurgeConsolidationTrigger } from "../post-surge-consolidation/psc-scanner";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -49,8 +51,8 @@ export interface ExecutionResult {
  * @param strategy 戦略種別
  */
 export async function executeEntry(
-  trigger: GapUpTrigger | WeeklyBreakTrigger,
-  strategy: "gapup" | "weekly-break" = "gapup",
+  trigger: GapUpTrigger | WeeklyBreakTrigger | PostSurgeConsolidationTrigger,
+  strategy: "gapup" | "weekly-break" | "post-surge-consolidation" = "gapup",
 ): Promise<ExecutionResult> {
   const { ticker, currentPrice, atr14 } = trigger;
 
@@ -88,7 +90,8 @@ export async function executeEntry(
   // 3. SL価格 = currentPrice - ATR × multiplier（最大3%に制限）
   const slAtrMultiplier =
     strategy === "gapup" ? GAPUP.STOP_LOSS.ATR_MULTIPLIER
-    : WEEKLY_BREAK.STOP_LOSS.ATR_MULTIPLIER;
+    : strategy === "weekly-break" ? WEEKLY_BREAK.STOP_LOSS.ATR_MULTIPLIER
+    : POST_SURGE_CONSOLIDATION.STOP_LOSS.ATR_MULTIPLIER;
   const rawStopLoss = currentPrice - atr14 * slAtrMultiplier;
   const maxStopLoss = currentPrice * (1 - STOP_LOSS.MAX_LOSS_PCT);
   const stopLossPrice = Math.round(Math.max(rawStopLoss, maxStopLoss));
@@ -195,12 +198,15 @@ export async function executeEntry(
   // 6. 変数の準備
   const isGapUp = strategy === "gapup";
   const isWeeklyBreak = strategy === "weekly-break";
-  const isCloseOrder = isGapUp || isWeeklyBreak;
+  const isPSC = strategy === "post-surge-consolidation";
+  const isCloseOrder = isGapUp || isWeeklyBreak || isPSC;
   const expiresAt = isCloseOrder
     ? dayjs().tz(TIMEZONE).hour(15).minute(30).second(0).toDate()
     : dayjs().tz(TIMEZONE).add(ORDER_EXPIRY.SWING_DAYS, "day").hour(15).minute(0).second(0).toDate();
   const reasoning = isWeeklyBreak
     ? `週足ブレイクトリガー: ${'weeklyHigh' in trigger ? trigger.weeklyHigh : 0}円を上抜け, 出来高サージ ${trigger.volumeSurgeRatio.toFixed(2)}x`
+    : isPSC
+    ? `高騰後押し目トリガー: モメンタム ${(('momentumReturn' in trigger ? trigger.momentumReturn : 0) * 100).toFixed(1)}%, 出来高サージ ${trigger.volumeSurgeRatio.toFixed(2)}x`
     : `ギャップアップトリガー: 出来高サージ比率 ${trigger.volumeSurgeRatio.toFixed(2)}x, ギャップ3%以上`;
 
   // 7. ブローカー発注（DB保存前に実行）
@@ -265,6 +271,7 @@ export async function executeEntry(
           currentPrice: trigger.currentPrice,
           volumeSurgeRatio: trigger.volumeSurgeRatio,
           ...('weeklyHigh' in trigger ? { weeklyHigh: (trigger as WeeklyBreakTrigger).weeklyHigh } : {}),
+          ...('momentumReturn' in trigger ? { momentumReturn: (trigger as PostSurgeConsolidationTrigger).momentumReturn } : {}),
           atr14: trigger.atr14,
           triggeredAt: trigger.triggeredAt.toISOString(),
         },
@@ -291,6 +298,8 @@ export async function executeEntry(
   // 8. Slack通知
   const slackReasoning = isWeeklyBreak
     ? `週足ブレイクトリガー: ${'weeklyHigh' in trigger ? trigger.weeklyHigh : 0}円上抜け / 出来高サージ ${trigger.volumeSurgeRatio.toFixed(2)}x`
+    : isPSC
+    ? `高騰後押し目トリガー: モメンタム ${(('momentumReturn' in trigger ? trigger.momentumReturn : 0) * 100).toFixed(1)}% / 出来高サージ ${trigger.volumeSurgeRatio.toFixed(2)}x`
     : `ギャップアップトリガー: 出来高サージ ${trigger.volumeSurgeRatio.toFixed(2)}x / ギャップ3%以上`;
   await notifyOrderPlaced({
     tickerCode: ticker,
