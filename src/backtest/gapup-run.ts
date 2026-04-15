@@ -6,6 +6,7 @@
  *   npm run backtest:gapup -- --start 2025-04-01 --end 2026-03-25
  *   npm run backtest:gapup -- --verbose
  *   npm run backtest:gapup -- --compare-entry
+ *   npm run backtest:gapup -- --compare-exit
  */
 
 import dayjs from "dayjs";
@@ -74,6 +75,54 @@ function runEntryComparison(
   console.log("");
 }
 
+interface ExitComparisonRow {
+  label: string;
+  exitMode: NonNullable<GapUpBacktestConfig["exitMode"]>;
+}
+
+const EXIT_COMPARISON_GRID: ExitComparisonRow[] = [
+  { label: "trail (current)",  exitMode: "trail" },
+  { label: "next_open",        exitMode: "next_open" },
+  { label: "next_close",       exitMode: "next_close" },
+  { label: "day2_close",       exitMode: "day2_close" },
+];
+
+function runExitComparison(
+  baseConfig: GapUpBacktestConfig,
+  allData: Map<string, OHLCVData[]>,
+  vixData: Map<string, number> | undefined,
+  indexData: Map<string, number> | undefined,
+): void {
+  console.log("\n=== Exit Mode Comparison ===");
+  console.log(
+    `${"ExitMode".padEnd(18)}| ${"Trades".padStart(6)} | ${"WinRate".padStart(7)} | ${"PF".padStart(5)} | ${"Expect".padStart(8)} | ${"AvgWin".padStart(7)} | ${"AvgLoss".padStart(8)} | ${"MaxDD".padStart(7)} | ${"AvgHold".padStart(7)}`,
+  );
+  console.log("-".repeat(98));
+
+  const rows: { label: string; expectancy: number; pf: number }[] = [];
+  for (const row of EXIT_COMPARISON_GRID) {
+    const config: GapUpBacktestConfig = {
+      ...baseConfig,
+      exitMode: row.exitMode,
+      verbose: false,
+    };
+    const result = runGapUpBacktest(config, allData, vixData, indexData);
+    const m = result.metrics;
+    const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
+    console.log(
+      `${row.label.padEnd(18)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(6)}% | ${m.profitFactor.toFixed(2).padStart(5)} | ${expectStr.padStart(8)} | +${m.avgWinPct.toFixed(2).padStart(5)}% | ${m.avgLossPct.toFixed(2).padStart(7)}% | ${m.maxDrawdown.toFixed(1).padStart(6)}% | ${m.avgHoldingDays.toFixed(1).padStart(6)}d`,
+    );
+    rows.push({ label: row.label, expectancy: m.expectancy, pf: m.profitFactor });
+  }
+
+  const bestExpect = rows.reduce((b, r) => r.expectancy > b.expectancy ? r : b, rows[0]);
+  const bestPF = rows.reduce((b, r) => r.pf > b.pf ? r : b, rows[0]);
+  console.log("");
+  console.log(`期待値最大: ${bestExpect.label} (${bestExpect.expectancy >= 0 ? "+" : ""}${bestExpect.expectancy.toFixed(2)}%)`);
+  console.log(`PF最大:     ${bestPF.label} (PF=${bestPF.pf.toFixed(2)})`);
+  console.log("");
+}
+
 function printResult(result: { metrics: PerformanceMetrics; trades: { exitReason: string | null }[] }, label: string): void {
   const m = result.metrics;
   console.log(`\n=== ${label} ===`);
@@ -99,6 +148,7 @@ async function main() {
   const budget = Number(getArg(args, "--budget") ?? GAPUP_BACKTEST_DEFAULTS.initialBudget);
   const verbose = args.includes("--verbose");
   const compareEntry = args.includes("--compare-entry");
+  const compareExit = args.includes("--compare-exit");
   const noPositionCap = args.includes("--no-position-cap");
   const gapMinPctArg = getArg(args, "--gap-min-pct");
   const gapMinPct = gapMinPctArg != null ? parseFloat(gapMinPctArg) / 100 : undefined;
@@ -149,6 +199,13 @@ async function main() {
   // エントリーパラメータ比較モード
   if (compareEntry) {
     runEntryComparison(baseConfig, allData, vixArg, indexArg);
+    await prisma.$disconnect();
+    return;
+  }
+
+  // 出口モード比較
+  if (compareExit) {
+    runExitComparison(baseConfig, allData, vixArg, indexArg);
     await prisma.$disconnect();
     return;
   }

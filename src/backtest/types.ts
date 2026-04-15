@@ -268,6 +268,17 @@ export interface GapUpBacktestConfig {
   gapRelaxVolThreshold?: number;
   /** gapRelaxVolThreshold 超時の緩和 gap 閾値。省略時=gapMinPct と同値 */
   gapMinPctRelaxed?: number;
+
+  /**
+   * 出口モード。
+   * - "trail" (default): 既存のBE/トレール+タイムストップ
+   * - "next_open": エントリー翌営業日の始値で無条件クローズ
+   * - "next_close": エントリー翌営業日の終値で無条件クローズ
+   * - "day2_close": エントリー2営業日後の終値で無条件クローズ
+   *
+   * 固定モードでも初日のSL（ATR/maxLossPct）は有効。BE・トレール・タイムストップは無効化。
+   */
+  exitMode?: "trail" | "next_open" | "next_close" | "day2_close";
 }
 
 export interface GapUpBacktestResult {

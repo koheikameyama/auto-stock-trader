@@ -250,6 +250,57 @@ export function runGapUpBacktest(
         continue;
       }
 
+      const exitMode = config.exitMode ?? "trail";
+
+      // 固定クローズモード（next_open / next_close / day2_close）
+      if (exitMode !== "trail") {
+        let fixedExitPrice: number | null = null;
+        let fixedExitReason: SimulatedPosition["exitReason"] = null;
+
+        // SL判定（gap-down時はopen、それ以外はSL価格）
+        if (todayBar.open <= pos.stopLossPrice) {
+          fixedExitPrice = todayBar.open;
+          fixedExitReason = "stop_loss";
+        } else if (todayBar.low <= pos.stopLossPrice) {
+          fixedExitPrice = pos.stopLossPrice;
+          fixedExitReason = "stop_loss";
+        }
+
+        // 値幅制限シミュレーション
+        if (config.priceLimitEnabled && fixedExitPrice != null && fixedExitReason === "stop_loss") {
+          const prevBarIdx = dayIdx > 0 ? dateIndexMap.get(pos.ticker)?.get(tradingDays[dayIdx - 1]) : undefined;
+          const prevBar = prevBarIdx != null ? bars[prevBarIdx] : null;
+          if (prevBar) {
+            const limitDown = getLimitDownPrice(prevBar.close);
+            if (todayBar.open <= limitDown && todayBar.low <= limitDown && todayBar.close <= limitDown) {
+              fixedExitPrice = null;
+              fixedExitReason = null;
+              pos.limitLockDays++;
+            } else if (fixedExitPrice < limitDown) {
+              fixedExitPrice = limitDown;
+            }
+          }
+        }
+
+        // 強制クローズ判定
+        if (fixedExitPrice == null) {
+          const targetHoldingDay = exitMode === "day2_close" ? 2 : 1;
+          if (holdingDays >= targetHoldingDay) {
+            fixedExitPrice = exitMode === "next_open" ? todayBar.open : todayBar.close;
+            fixedExitReason = "time_stop";
+          }
+        }
+
+        if (fixedExitPrice != null && fixedExitReason != null) {
+          closePosition(pos, fixedExitPrice, fixedExitReason, dayIdx, closedTrades, tradingDays, config);
+          toClose.push(i);
+          const proceeds = fixedExitPrice * pos.quantity - (pos.exitCommission ?? 0) - (pos.tax ?? 0);
+          pendingSettlement.push({ amount: proceeds, availableDayIdx: dayIdx + 2 });
+          lastExitDayIdx.set(pos.ticker, dayIdx);
+        }
+        continue;
+      }
+
       const exitResult = checkPositionExit(
         {
           entryPrice: pos.entryPrice,
