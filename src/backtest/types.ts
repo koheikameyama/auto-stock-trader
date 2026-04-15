@@ -616,3 +616,59 @@ export interface GapDownReversalBacktestResult {
   equityCurve: DailyEquity[];
   metrics: PerformanceMetrics;
 }
+
+// ──────────────────────────────────────────
+// 高騰後押し目バックテスト設定
+// ──────────────────────────────────────────
+
+export interface PostSurgeConsolidationBacktestConfig {
+  startDate: string;
+  endDate: string;
+  initialBudget: number;
+  maxPositions: number;
+
+  /** 急騰フィルター: 直近20日リターン閾値 */
+  momentumMinReturn: number;
+  /** 干上がり: 高値からの最大乖離率 */
+  maxHighDistancePct: number;
+  /** 再加速: 出来高サージ倍率 */
+  volSurgeRatio: number;
+
+  atrMultiplier: number;
+  maxLossPct: number;
+
+  beActivationMultiplier: number;
+  trailMultiplier: number;
+
+  maxHoldingDays: number;
+  maxExtendedHoldingDays: number;
+
+  maxPrice: number;
+  minAvgVolume25: number;
+  minAtrPct: number;
+  minTurnover: number;
+  minPrice: number;
+
+  costModelEnabled: boolean;
+  priceLimitEnabled: boolean;
+
+  cooldownDays: number;
+
+  marketTrendFilter?: boolean;
+  marketTrendThreshold?: number;
+  indexTrendFilter?: boolean;
+  indexTrendSmaPeriod?: number;
+  indexTrendOffBufferPct?: number;
+  indexTrendOnBufferPct?: number;
+
+  verbose: boolean;
+  positionCapEnabled?: boolean;
+  maxDailyEntries?: number;
+}
+
+export interface PostSurgeConsolidationBacktestResult {
+  config: PostSurgeConsolidationBacktestConfig;
+  trades: SimulatedPosition[];
+  equityCurve: DailyEquity[];
+  metrics: PerformanceMetrics;
+}
