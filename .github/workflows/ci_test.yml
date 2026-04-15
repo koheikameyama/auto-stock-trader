@@ -6,6 +6,12 @@ on:
     branches: [main, develop]
   push:
     branches: [main, develop]
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "prisma/**"
+      - "package*.json"
+      - ".github/workflows/ci_test.yml"
 
 concurrency:
   group: test-${{ github.ref }}
@@ -15,9 +21,9 @@ env:
   YFINANCE_PROXY: ${{ secrets.YFINANCE_PROXY }}
 
 jobs:
-  lint:
+  lint-and-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -27,24 +33,12 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - run: npm run lint
-
-  test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version-file: ".tool-versions"
-          cache: "npm"
-      - run: npm ci
-      - run: npx prisma generate
       - name: Start yfinance sidecar
         uses: ./.github/actions/start-yfinance
       - run: npm test
 
   notify-failure:
-    needs: [lint, test]
+    needs: [lint-and-test]
     if: failure()
     runs-on: ubuntu-latest
     steps:
