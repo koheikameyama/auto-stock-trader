@@ -65,6 +65,7 @@ export class TachibanaClient {
   private baseUrl: string;
   /** 再ログイン中の Promise（同時多発再ログインを防ぐ） */
   private reLoginPromise: Promise<void> | null = null;
+  private ensureSessionPromise: Promise<void> | null = null;
   /** ログインロック検出時刻（nullなら正常） */
   private loginLockedUntil: Date | null = null;
   /** ログインロックのSlack通知済みフラグ（重複通知防止） */
@@ -698,9 +699,18 @@ export class TachibanaClient {
   }
 
   private async ensureSession(): Promise<void> {
-    if (!this.session) {
-      await this.restoreOrLogin();
+    if (this.session) return;
+    if (!this.ensureSessionPromise) {
+      this.ensureSessionPromise = this.restoreOrLogin()
+        .then(() => {
+          this.ensureSessionPromise = null;
+        })
+        .catch((e) => {
+          this.ensureSessionPromise = null;
+          throw e;
+        });
     }
+    await this.ensureSessionPromise;
   }
 
   private nextRequestNo(): string {
