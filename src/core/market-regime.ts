@@ -197,7 +197,7 @@ export function applyNikkeiFilter(
   };
 }
 
-export type TradingStrategy = "breakout" | "gapup" | "momentum" | "earnings-gap" | "weekly-break" | "squeeze-breakout" | "ma-pullback";
+export type TradingStrategy = "breakout" | "gapup" | "momentum" | "earnings-gap" | "weekly-break" | "squeeze-breakout" | "ma-pullback" | "gapdown-reversal";
 
 export interface StrategyDecision {
   strategy: TradingStrategy;

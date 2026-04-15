@@ -38,9 +38,10 @@ export const BREAK_EVEN_STOP = {
     "weekly-break": 0.5,    // WF最適値: be=0.5（6窓中4窓で選択）
     "squeeze-breakout": 0.5,
     "ma-pullback": 0.5,
+    "gapdown-reversal": 0.3,
   },
   // ATR不明時のフォールバック（%ベース）
-  ACTIVATION_PCT: { breakout: 0.02, gapup: 0.005, momentum: 0.02, "earnings-gap": 0.005, "weekly-break": 0.015, "squeeze-breakout": 0.01, "ma-pullback": 0.015 },
+  ACTIVATION_PCT: { breakout: 0.02, gapup: 0.005, momentum: 0.02, "earnings-gap": 0.005, "weekly-break": 0.015, "squeeze-breakout": 0.01, "ma-pullback": 0.015, "gapdown-reversal": 0.005 },
 } as const;
 
 // トレーリングストップ
@@ -54,10 +55,11 @@ export const TRAILING_STOP = {
     "weekly-break": 0.8,    // WF最適値: trail=0.8（直近2窓で安定）
     "squeeze-breakout": 0.5,
     "ma-pullback": 0.8,
+    "gapdown-reversal": 0.3,
   },
   // ATR不明時のフォールバック（%ベース）
-  ACTIVATION_PCT: { breakout: 0.03, gapup: 0.008, momentum: 0.02, "earnings-gap": 0.008, "weekly-break": 0.015, "squeeze-breakout": 0.02, "ma-pullback": 0.015 },
-  TRAIL_PCT: { breakout: 0.02, gapup: 0.005, momentum: 0.02, "earnings-gap": 0.005, "weekly-break": 0.015, "squeeze-breakout": 0.01, "ma-pullback": 0.015 },
+  ACTIVATION_PCT: { breakout: 0.03, gapup: 0.008, momentum: 0.02, "earnings-gap": 0.008, "weekly-break": 0.015, "squeeze-breakout": 0.02, "ma-pullback": 0.015, "gapdown-reversal": 0.008 },
+  TRAIL_PCT: { breakout: 0.02, gapup: 0.005, momentum: 0.02, "earnings-gap": 0.005, "weekly-break": 0.015, "squeeze-breakout": 0.01, "ma-pullback": 0.015, "gapdown-reversal": 0.005 },
 } as const;
 
 
