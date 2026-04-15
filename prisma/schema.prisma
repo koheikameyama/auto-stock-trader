@@ -470,16 +470,19 @@ model BrokerSession {
 }
 
 model IntraDayMaPullbackSignal {
-  id            Int      @id @default(autoincrement())
-  date          DateTime @db.Date
-  tickerCode    String
-  detectedAt    DateTime
-  ma20          Float
-  detectedPrice Float
-  closePrice    Float?
-  stopLossPrice Float
-  atr14         Float
-  createdAt     DateTime @default(now())
+  id             Int       @id @default(autoincrement())
+  date           DateTime  @db.Date
+  tickerCode     String
+  detectedAt     DateTime
+  ma20           Float
+  detectedPrice  Float
+  closePrice     Float?
+  stopLossPrice  Float
+  atr14          Float
+  touchCount     Int       @default(1)
+  lastTouchAt    DateTime?
+  lastTouchPrice Float?
+  createdAt      DateTime  @default(now())
 
   @@index([date(sort: Desc)])
   @@unique([date, tickerCode])

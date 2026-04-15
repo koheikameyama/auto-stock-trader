@@ -2,6 +2,7 @@
  * イントラデイ MA シグナルページ（GET /intraday-ma-signals）
  *
  * IntraDayMaPullbackSignal のフォワードテスト結果を一覧表示。
+ * リタッチ対応: タッチ回数・最新タッチ価格を表示し、PnLは最新タッチ価格ベースで計算。
  */
 
 import dayjs from "dayjs";
@@ -19,21 +20,31 @@ const app = new Hono();
 
 const TIMEZONE = "Asia/Tokyo";
 
+/** エントリー価格を決定（リタッチがあれば最新タッチ価格を使用） */
+function getEntryPrice(
+  detectedPrice: number,
+  lastTouchPrice: number | null,
+): number {
+  return lastTouchPrice ?? detectedPrice;
+}
+
 /** PnL を計算して文字列と色で返す */
 function calcPnl(
   detectedPrice: number,
+  lastTouchPrice: number | null,
   closePrice: number | null,
   stopLossPrice: number,
 ): { text: string; color: string } | null {
   if (closePrice === null) {
     return null; // 結果待ち
   }
+  const entryPrice = getEntryPrice(detectedPrice, lastTouchPrice);
   let pct: number;
   if (closePrice < stopLossPrice) {
     // SL 発動: 負の PnL
-    pct = -((stopLossPrice - detectedPrice) / detectedPrice) * 100;
+    pct = -((stopLossPrice - entryPrice) / entryPrice) * 100;
   } else {
-    pct = ((closePrice - detectedPrice) / detectedPrice) * 100;
+    pct = ((closePrice - entryPrice) / entryPrice) * 100;
   }
   const sign = pct >= 0 ? "+" : "";
   const color = pct >= 0 ? "#22c55e" : "#ef4444";
@@ -106,9 +117,10 @@ app.get("/", async (c) => {
                 <tr>
                   <th>日付</th>
                   <th>銘柄</th>
-                  <th>検知時刻</th>
+                  <th>タッチ</th>
+                  <th>初回時刻</th>
                   <th>MA20</th>
-                  <th>検知値</th>
+                  <th>エントリー</th>
                   <th>終値</th>
                   <th>仮想PnL</th>
                   <th>仮想SL</th>
@@ -119,10 +131,22 @@ app.get("/", async (c) => {
                   const dateStr = dayjs(s.date).tz(TIMEZONE).format("YYYY-MM-DD");
                   const detectedAtStr = dayjs(s.detectedAt).tz(TIMEZONE).format("HH:mm");
                   const ma20 = Math.round(s.ma20);
-                  const detectedPrice = Math.round(s.detectedPrice);
+                  const entryPrice = getEntryPrice(s.detectedPrice, s.lastTouchPrice);
                   const closePrice = s.closePrice !== null ? Math.round(s.closePrice) : null;
                   const stopLossPrice = Math.round(s.stopLossPrice);
-                  const pnl = calcPnl(s.detectedPrice, s.closePrice, s.stopLossPrice);
+                  const pnl = calcPnl(s.detectedPrice, s.lastTouchPrice, s.closePrice, s.stopLossPrice);
+
+                  // タッチ回数バッジ: 2回以上は強調表示
+                  const touchBadge =
+                    s.touchCount >= 2
+                      ? html`<span style="background: #22c55e20; color: #22c55e; padding: 1px 6px; border-radius: 8px; font-size: 11px; font-weight: 600;">${s.touchCount}</span>`
+                      : html`<span style="color: #64748b; font-size: 11px;">1</span>`;
+
+                  // エントリー価格: リタッチありなら最新タッチ時刻も表示
+                  const entryCell =
+                    s.lastTouchPrice != null && s.lastTouchAt != null
+                      ? html`${Math.round(entryPrice)}<br /><span style="font-size: 10px; color: #94a3b8;">${dayjs(s.lastTouchAt).tz(TIMEZONE).format("HH:mm")} 更新</span>`
+                      : String(Math.round(entryPrice));
 
                   const closePriceCell =
                     closePrice !== null
@@ -138,9 +162,10 @@ app.get("/", async (c) => {
                     <tr>
                       <td data-label="日付" style="white-space: nowrap;">${dateStr}</td>
                       <td data-label="銘柄">${s.tickerCode}</td>
-                      <td data-label="検知時刻" style="white-space: nowrap;">${detectedAtStr}</td>
+                      <td data-label="タッチ" style="text-align: center;">${touchBadge}</td>
+                      <td data-label="初回時刻" style="white-space: nowrap;">${detectedAtStr}</td>
                       <td data-label="MA20">${ma20}</td>
-                      <td data-label="検知値">${detectedPrice}</td>
+                      <td data-label="エントリー">${entryCell}</td>
                       <td data-label="終値">${closePriceCell}</td>
                       <td data-label="仮想PnL">${pnlCell}</td>
                       <td data-label="仮想SL">${stopLossPrice}</td>
