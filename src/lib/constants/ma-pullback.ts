@@ -18,6 +18,10 @@ export const MA_PULLBACK = {
     /** 最低ATR%（ボラティリティフィルター） */
     MIN_ATR_PCT: 1.5,
   },
+  RETOUCH: {
+    /** リタッチ判定の最低間隔（ミリ秒）: 前回タッチから5分以上空いていること */
+    MIN_INTERVAL_MS: 5 * 60 * 1000,
+  },
   STOP_LOSS: {
     ATR_MULTIPLIER: 1.0,
   },
