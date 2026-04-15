@@ -22,6 +22,7 @@ import { main as runGapupMonitor } from "./jobs/gapup-monitor";
 import { main as runPSCMonitor } from "./jobs/post-surge-consolidation-monitor";
 import { main as runBrokerReconciliation } from "./jobs/broker-reconciliation";
 import { main as runIntradayMaScanner } from "./jobs/intraday-ma-scanner";
+import { main as runSessionHealthCheck } from "./jobs/session-health-check";
 import { app } from "./web/app";
 import { setJobState } from "./web/routes/dashboard";
 import { prisma } from "./lib/prisma";
@@ -154,6 +155,10 @@ const schedules = [
   { cron: "20-25 15 * * 1-5", job: runWeeklyBreakMonitor, name: "weekly-break-monitor", requiresMarketDay: true },
   // 15:20-15:25 高騰後押し目監視（ENTRY_ENABLED=false の間は内部でスキップ）
   { cron: "20-25 15 * * 1-5", job: runPSCMonitor, name: "psc-monitor", requiresMarketDay: true },
+  // 8:50 プレマーケット セッション確認（電話番号認証の早期検出）
+  { cron: "50 8 * * 1-5", job: runSessionHealthCheck, name: "session-health-check", requiresMarketDay: true },
+  // 14:50 プレクローズ セッション確認（15:20のモニター前に最終確認）
+  { cron: "50 14 * * 1-5", job: runSessionHealthCheck, name: "session-health-check", requiresMarketDay: true },
 ];
 
 // cron 登録
