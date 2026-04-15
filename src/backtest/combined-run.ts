@@ -15,6 +15,7 @@ import { prisma } from "../lib/prisma";
 import { BREAKOUT_BACKTEST_DEFAULTS } from "./breakout-config";
 import { GAPUP_BACKTEST_DEFAULTS } from "./gapup-config";
 import { WEEKLY_BREAK_BACKTEST_DEFAULTS } from "./weekly-break-config";
+import { PSC_BACKTEST_DEFAULTS } from "./post-surge-consolidation-config";
 import { getMaxBuyablePrice } from "../core/risk-manager";
 import {
   precomputeSimData,
@@ -22,6 +23,7 @@ import {
 } from "./breakout-simulation";
 import { precomputeGapUpDailySignals } from "./gapup-simulation";
 import { precomputeWeeklyBreakSignals } from "./weekly-break-simulation";
+import { precomputePSCDailySignals } from "./post-surge-consolidation-simulation";
 import { fetchHistoricalFromDB, fetchVixFromDB, fetchIndexFromDB } from "./data-fetcher";
 import { calculateCapitalUtilization } from "./metrics";
 import { saveBacktestResult } from "./db-saver";
@@ -30,6 +32,7 @@ import type {
   BreakoutBacktestConfig,
   GapUpBacktestConfig,
   WeeklyBreakBacktestConfig,
+  PostSurgeConsolidationBacktestConfig,
   PerformanceMetrics,
 } from "./types";
 
@@ -133,24 +136,36 @@ async function main() {
   const boConfig: BreakoutBacktestConfig = { ...BREAKOUT_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const wbConfig: WeeklyBreakBacktestConfig = { ...WEEKLY_BREAK_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
+  const pscConfig: PostSurgeConsolidationBacktestConfig = {
+    ...PSC_BACKTEST_DEFAULTS,
+    startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice,
+    verbose: !quietMode && verbose,
+    // WF最適パラメータ
+    atrMultiplier: 0.8,
+    beActivationMultiplier: 0.3,
+    trailMultiplier: 0.5,
+  };
   if (maxPriceOverride) {
     boConfig.maxPrice = Number(maxPriceOverride);
     guConfig.maxPrice = Number(maxPriceOverride);
     wbConfig.maxPrice = Number(maxPriceOverride);
+    pscConfig.maxPrice = Number(maxPriceOverride);
   }
   if (minPriceOverride !== undefined) {
     boConfig.minPrice = Number(minPriceOverride);
     guConfig.minPrice = Number(minPriceOverride);
     wbConfig.minPrice = Number(minPriceOverride);
+    pscConfig.minPrice = Number(minPriceOverride);
   }
   if (minTurnoverOverride !== undefined) {
     boConfig.minTurnover = Number(minTurnoverOverride);
     guConfig.minTurnover = Number(minTurnoverOverride);
     wbConfig.minTurnover = Number(minTurnoverOverride);
+    pscConfig.minTurnover = Number(minTurnoverOverride);
   }
 
   console.log("=".repeat(60));
-  console.log("統合バックテスト（Breakout + GapUp + WeeklyBreak）");
+  console.log("統合バックテスト（Breakout + GapUp + WeeklyBreak + PSC）");
   console.log("=".repeat(60));
   console.log(`期間: ${startDate} → ${endDate}`);
   console.log(`初期資金: ¥${budget.toLocaleString()}`);
@@ -193,11 +208,12 @@ async function main() {
   const breakoutSignals = precomputeDailySignals(boConfig, allData, precomputed);
   const gapupSignals = precomputeGapUpDailySignals(guConfig, allData, precomputed);
   const weeklyBreakSignals = precomputeWeeklyBreakSignals(wbConfig, allData, precomputed);
+  const pscSignals = precomputePSCDailySignals(pscConfig, allData, precomputed);
 
-  const ctx = { boConfig, guConfig, wbConfig, budget, verbose: !quietMode && verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData: vixData.size > 0 ? vixData : undefined, monthlyAddAmount, equityCurveSmaPeriod: 20 };
+  const ctx = { boConfig, guConfig, wbConfig, pscConfig, pscSignals, budget, verbose: !quietMode && verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData: vixData.size > 0 ? vixData : undefined, monthlyAddAmount, equityCurveSmaPeriod: 20 };
 
   // デフォルトポジション制限（breakoutは無効化中）
-  const defaultLimits: PositionLimits = { boMax: 0, guMax: 3, wbMax: 2 };
+  const defaultLimits: PositionLimits = { boMax: 0, guMax: 3, wbMax: 2, pscMax: 2 };
 
   // 資金比較モード
   if (compareBudget) {
@@ -553,7 +569,7 @@ async function main() {
   }
 
   // 通常実行（breakoutは無効化中のためboMax=0）
-  console.log(`ポジション枠: GU${defaultLimits.guMax} + WB${defaultLimits.wbMax}${defaultLimits.totalMax ? ` (合計上限${defaultLimits.totalMax})` : ""}`);
+  console.log(`ポジション枠: GU${defaultLimits.guMax} + WB${defaultLimits.wbMax} + PSC${defaultLimits.pscMax}${defaultLimits.totalMax ? ` (合計上限${defaultLimits.totalMax})` : ""}`);
   const result = runCombinedSimulation(ctx, defaultLimits);
 
   console.log("\n" + "=".repeat(60));
@@ -569,6 +585,7 @@ async function main() {
   printMetrics(result.boMetrics, "Breakout");
   printMetrics(result.guMetrics, "GapUp");
   printMetrics(result.wbMetrics, "WeeklyBreak");
+  printMetrics(result.pscMetrics, "PostSurgeConsolidation");
 
   const exitReasons = new Map<string, number>();
   for (const t of result.allTrades) {

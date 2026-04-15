@@ -9,9 +9,11 @@ import dayjs from "dayjs";
 import { RISK_PER_TRADE_PCT } from "./breakout-config";
 import { GAPUP_RISK_PER_TRADE_PCT } from "./gapup-config";
 import { WEEKLY_BREAK_RISK_PER_TRADE_PCT } from "./weekly-break-config";
+import { PSC_RISK_PER_TRADE_PCT } from "./post-surge-consolidation-config";
 import { type PrecomputedSimData, precomputeDailySignals } from "./breakout-simulation";
 import { precomputeGapUpDailySignals } from "./gapup-simulation";
 import type { PrecomputedWeeklyBreakSignals } from "./weekly-break-simulation";
+import type { PrecomputedPSCSignals } from "./post-surge-consolidation-simulation";
 import { checkPositionExit } from "../core/exit-checker";
 import { calculateCommission, calculateTax } from "../core/trading-costs";
 import { getLimitDownPrice } from "../lib/constants/price-limits";
@@ -22,6 +24,7 @@ import type {
   BreakoutBacktestConfig,
   GapUpBacktestConfig,
   WeeklyBreakBacktestConfig,
+  PostSurgeConsolidationBacktestConfig,
   SimulatedPosition,
   DailyEquity,
   PerformanceMetrics,
@@ -36,6 +39,8 @@ export interface SimContext {
   boConfig: BreakoutBacktestConfig;
   guConfig: GapUpBacktestConfig;
   wbConfig?: WeeklyBreakBacktestConfig;
+  pscConfig?: PostSurgeConsolidationBacktestConfig;
+  pscSignals?: PrecomputedPSCSignals;
   budget: number;
   verbose: boolean;
   allData: Map<string, OHLCVData[]>;
@@ -59,6 +64,7 @@ export interface SimResult {
   boMetrics: PerformanceMetrics;
   guMetrics: PerformanceMetrics;
   wbMetrics: PerformanceMetrics;
+  pscMetrics: PerformanceMetrics;
   equityCurve: DailyEquity[];
   allTrades: SimulatedPosition[];
   /** 累計入金額（初期資金 + 月次追加の合計） */
@@ -128,7 +134,7 @@ function closePosition(
 function processExits(
   positions: SimulatedPosition[],
   config: { beActivationMultiplier: number; trailMultiplier: number; maxExtendedHoldingDays: number; maxHoldingDays: number; priceLimitEnabled: boolean; costModelEnabled: boolean },
-  strategy: "breakout" | "gapup" | "weekly-break",
+  strategy: "breakout" | "gapup" | "weekly-break" | "post-surge-consolidation",
   dayIdx: number,
   today: string,
   tradingDays: string[],
@@ -369,6 +375,8 @@ export interface PositionLimits {
   guMax: number;
   /** 週足レンジブレイク戦略の最大ポジション数 */
   wbMax?: number;
+  /** Post-Surge Consolidation戦略の最大ポジション数 */
+  pscMax?: number;
   /** 全戦略合算の最大ポジション数（undefined = 制限なし） */
   totalMax?: number;
 }
@@ -379,15 +387,17 @@ export function runCombinedSimulation(
 ): SimResult {
   const limits: PositionLimits =
     typeof maxPositions === "number"
-      ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, totalMax: maxPositions }
+      ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel } = ctx;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
 
   const boConfigLocal = { ...boConfig };
   const guConfigLocal = { ...guConfig };
   const wbConfigLocal = wbConfig ? { ...wbConfig } : null;
+  const pscConfigLocal = pscConfig ? { ...pscConfig } : null;
   const wbMaxPos = limits.wbMax ?? 0;
+  const pscMaxPos = limits.pscMax ?? 0;
 
   let cash = budget;
   let totalCapitalAdded = budget;
@@ -396,9 +406,11 @@ export function runCombinedSimulation(
   const boPositions: SimulatedPosition[] = [];
   const guPositions: SimulatedPosition[] = [];
   const wbPositions: SimulatedPosition[] = [];
+  const pscPositions: SimulatedPosition[] = [];
   const boClosedTrades: SimulatedPosition[] = [];
   const guClosedTrades: SimulatedPosition[] = [];
   const wbClosedTrades: SimulatedPosition[] = [];
+  const pscClosedTrades: SimulatedPosition[] = [];
   const lastExitDayIdx = new Map<string, number>();
   const equityCurve: DailyEquity[] = [];
 
@@ -439,12 +451,18 @@ export function runCombinedSimulation(
     if (wbConfigLocal) {
       processExits(wbPositions, wbConfigLocal, "weekly-break", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, wbClosedTrades, lastExitDayIdx, verbose);
     }
+    if (pscConfigLocal) {
+      processExits(pscPositions, pscConfigLocal, "post-surge-consolidation", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, pscClosedTrades, lastExitDayIdx, verbose);
+    }
 
     // ── 1.5 ディフェンシブモード ──
     processDefensive(boPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, boClosedTrades, lastExitDayIdx, boConfigLocal.costModelEnabled, verbose);
     processDefensive(guPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, guClosedTrades, lastExitDayIdx, guConfigLocal.costModelEnabled, verbose);
     if (wbConfigLocal) {
       processDefensive(wbPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, wbClosedTrades, lastExitDayIdx, wbConfigLocal.costModelEnabled, verbose);
+    }
+    if (pscConfigLocal) {
+      processDefensive(pscPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, pscClosedTrades, lastExitDayIdx, pscConfigLocal.costModelEnabled, verbose);
     }
 
     // ── 1.6 ドローダウンハルト判定（全戦略に適用） ──
@@ -477,10 +495,11 @@ export function runCombinedSimulation(
       ...boPositions.map((p) => p.ticker),
       ...guPositions.map((p) => p.ticker),
       ...wbPositions.map((p) => p.ticker),
+      ...pscPositions.map((p) => p.ticker),
     ]);
 
     // ── 2a. Breakout エントリー ──
-    const totalPositions = () => boPositions.length + guPositions.length + wbPositions.length;
+    const totalPositions = () => boPositions.length + guPositions.length + wbPositions.length + pscPositions.length;
     const totalUnderLimit = () => limits.totalMax === undefined || totalPositions() < limits.totalMax;
     if (boShouldTrade && !shouldSkipByVixRegime(todayRegime, boVixSkipLevel) && boPositions.length < limits.boMax && totalUnderLimit() && cash > 0) {
       const rawSignals = breakoutSignals.get(today) ?? [];
@@ -601,9 +620,49 @@ export function runCombinedSimulation(
       }
     }
 
+    // ── 2d. PSC エントリー ──
+    if (pscConfigLocal && pscSignals && guShouldTrade && todayRegime !== "crisis" && pscPositions.length < pscMaxPos && totalUnderLimit() && cash > 0) {
+      const signals = pscSignals.get(today) ?? [];
+      for (const signal of signals) {
+        if (pscPositions.length >= pscMaxPos || !totalUnderLimit()) break;
+        if (allOpenTickers.has(signal.ticker)) continue;
+
+        const lastExit = lastExitDayIdx.get(signal.ticker);
+        if (lastExit != null && dayIdx - lastExit < pscConfigLocal.cooldownDays) continue;
+
+        const rawSL = signal.entryPrice - signal.atr14 * pscConfigLocal.atrMultiplier;
+        const maxSL = signal.entryPrice * (1 - pscConfigLocal.maxLossPct);
+        const stopLossPrice = Math.round(Math.max(rawSL, maxSL));
+        if (stopLossPrice >= signal.entryPrice) continue;
+
+        const riskPerShare = signal.entryPrice - stopLossPrice;
+        if (riskPerShare <= 0) continue;
+        const riskAmount = cash * (PSC_RISK_PER_TRADE_PCT / 100);
+        const rawQuantity = Math.floor(riskAmount / riskPerShare);
+        let quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
+        if (todayRegime === "elevated") quantity = Math.floor(quantity / 2 / UNIT_SHARES) * UNIT_SHARES;
+        if (quantity <= 0) continue;
+        if (signal.entryPrice * quantity > cash) continue;
+
+        const tradeValue = signal.entryPrice * quantity;
+        const entryCommission = pscConfigLocal.costModelEnabled ? calculateCommission(tradeValue) : 0;
+        cash -= tradeValue + entryCommission;
+
+        pscPositions.push({
+          ticker: signal.ticker, entryDate: today, entryPrice: signal.entryPrice,
+          takeProfitPrice: Math.round(signal.entryPrice + signal.atr14 * 5), stopLossPrice, quantity,
+          volumeSurgeRatio: signal.volumeSurgeRatio, regime: todayRegime,
+          maxHighDuringHold: signal.entryPrice, trailingStopPrice: null, entryAtr: signal.atr14,
+          exitDate: null, exitPrice: null, exitReason: null, pnl: null, pnlPct: null, holdingDays: null,
+          limitLockDays: 0, entryCommission, exitCommission: null, totalCost: null, tax: null, grossPnl: null, netPnl: null,
+        });
+        allOpenTickers.add(signal.ticker);
+      }
+    }
+
     // ── 3. エクイティスナップショット ──
     let positionsValue = 0;
-    for (const pos of [...boPositions, ...guPositions, ...wbPositions]) {
+    for (const pos of [...boPositions, ...guPositions, ...wbPositions, ...pscPositions]) {
       const eqBarIdx = dateIndexMap.get(pos.ticker)?.get(today);
       const markPrice = eqBarIdx != null ? allData.get(pos.ticker)![eqBarIdx].close : pos.entryPrice;
       positionsValue += markPrice * pos.quantity;
@@ -615,23 +674,25 @@ export function runCombinedSimulation(
       cash: Math.round(cash),
       positionsValue: Math.round(positionsValue),
       totalEquity: Math.round(cash + positionsValue + pendingTotal),
-      openPositionCount: boPositions.length + guPositions.length + wbPositions.length,
+      openPositionCount: boPositions.length + guPositions.length + wbPositions.length + pscPositions.length,
       ...(capitalAddedToday > 0 ? { capitalAdded: capitalAddedToday } : {}),
     });
   }
 
-  for (const pos of [...boPositions, ...guPositions, ...wbPositions]) pos.exitReason = "still_open";
+  for (const pos of [...boPositions, ...guPositions, ...wbPositions, ...pscPositions]) pos.exitReason = "still_open";
 
-  const allTrades = [...boClosedTrades, ...guClosedTrades, ...wbClosedTrades, ...boPositions, ...guPositions, ...wbPositions];
+  const allTrades = [...boClosedTrades, ...guClosedTrades, ...wbClosedTrades, ...pscClosedTrades, ...boPositions, ...guPositions, ...wbPositions, ...pscPositions];
   const boAllTrades = [...boClosedTrades, ...boPositions.filter((p) => p.exitReason === "still_open")];
   const guAllTrades = [...guClosedTrades, ...guPositions.filter((p) => p.exitReason === "still_open")];
   const wbAllTrades = [...wbClosedTrades, ...wbPositions.filter((p) => p.exitReason === "still_open")];
+  const pscAllTrades = [...pscClosedTrades, ...pscPositions.filter((p) => p.exitReason === "still_open")];
 
   return {
     totalMetrics: calculateMetrics(allTrades, equityCurve, budget),
     boMetrics: calculateMetrics(boAllTrades, equityCurve, budget),
     guMetrics: calculateMetrics(guAllTrades, equityCurve, budget),
     wbMetrics: calculateMetrics(wbAllTrades, equityCurve, budget),
+    pscMetrics: calculateMetrics(pscAllTrades, equityCurve, budget),
     equityCurve,
     allTrades,
     totalCapitalAdded,
