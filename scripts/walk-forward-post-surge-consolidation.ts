@@ -45,7 +45,7 @@ interface ComboResult {
 }
 
 function paramComboKey(params: Partial<PostSurgeConsolidationBacktestConfig>): string {
-  return `${params.atrMultiplier}_${params.beActivationMultiplier}_${params.trailMultiplier}`;
+  return `atr${params.atrMultiplier}_be${params.beActivationMultiplier}_trail${params.trailMultiplier}`;
 }
 
 function selectByMaxPF(comboResults: Map<string, ComboResult>): ComboResult | null {
