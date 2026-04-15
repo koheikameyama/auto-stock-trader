@@ -174,7 +174,7 @@ export const SPREAD_FILTER = {
 // ========================================
 
 export const YAHOO_FINANCE = {
-  HISTORICAL_DAYS: 800, // 一時的に拡張（WF7ウィンドウ用バックフィル目的、完了後200に戻す）
+  HISTORICAL_DAYS: 200, // データポイント数（週足トレンド分析対応）
   BATCH_SIZE: 50, // バッチクォート取得サイズ（1リクエストで複数銘柄）
   RATE_LIMIT_DELAY_MS: 2000, // レート制限用ディレイ
 } as const;

@@ -22,7 +22,7 @@ import type { OHLCVData } from "../src/core/technical-analysis";
 const IS_MONTHS = 6;
 const OOS_MONTHS = 3;
 const SLIDE_MONTHS = 3;
-const NUM_WINDOWS = 6;
+const NUM_WINDOWS = 7;
 const TOTAL_MONTHS = IS_MONTHS + OOS_MONTHS + SLIDE_MONTHS * (NUM_WINDOWS - 1);
 
 /** IS最低PFゲート */
