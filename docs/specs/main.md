@@ -114,3 +114,4 @@ Dockerfile               # Railwayデプロイ用
 | [backtest.md](backtest.md) | バックテスト（ロジック層シミュレーション・感度分析） |
 | [broker-api-migration.md](broker-api-migration.md) | 立花証券API移行ガイド（シミュレーション → リアル取引） |
 | [tachibana-api-reference.md](tachibana-api-reference.md) | 立花証券 e支店 API リファレンス（v4r8） |
+| [multi-broker-api-comparison.md](multi-broker-api-comparison.md) | 証券会社API比較・移行戦略（立花証券 / Webull証券 / Interactive Brokers） |

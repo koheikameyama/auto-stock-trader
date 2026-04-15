@@ -121,6 +121,7 @@
 | [backtest-gapup.md](docs/specs/backtest-gapup.md) | ギャップアップバックテスト（当日終値エントリー・短期決戦） |
 | [broker-api-migration.md](docs/specs/broker-api-migration.md) | 立花証券API移行ガイド（シミュレーション → リアル取引） |
 | [tachibana-api-reference.md](docs/specs/tachibana-api-reference.md) | 立花証券 e支店 API リファレンス（v4r8） |
+| [multi-broker-api-comparison.md](docs/specs/multi-broker-api-comparison.md) | 証券会社API比較・移行戦略（立花証券 / Webull証券 / Interactive Brokers） |
 
 詳細は `.claude/rules/` 配下を参照してください。
 
