@@ -128,7 +128,6 @@ app.get("/", async (c) => {
       </div>
     </div>
     <div style="display: flex; gap: 4px; margin-bottom: 8px;">
-      <button id="tab-all" onclick="switchTab('all')" style="padding: 5px 14px; font-size: 12px; border-radius: 6px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; cursor: pointer;">全て</button>
       <button id="tab-gu" onclick="switchTab('gu')" style="padding: 5px 14px; font-size: 12px; border-radius: 6px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; cursor: pointer;">GU</button>
       ${isFriday ? html`<button id="tab-wb" onclick="switchTab('wb')" style="padding: 5px 14px; font-size: 12px; border-radius: 6px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; cursor: pointer;">WB</button>` : ""}
       <button id="tab-psc" onclick="switchTab('psc')" style="padding: 5px 14px; font-size: 12px; border-radius: 6px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; cursor: pointer;">PSC</button>
@@ -143,7 +142,6 @@ app.get("/", async (c) => {
       <table>
         <thead>
           <tr>
-            <th>戦略</th>
             <th>銘柄</th>
             <th class="col-gu" style="display:none;">${tt("GU条件", "Gap≥3% / 陽線 / 出来高≥1.5x")}</th>
             <th class="col-psc" style="display:none;">${tt("PSC条件", "mom5d / 陽線 / 出来高≥1.5x")}</th>
@@ -157,7 +155,6 @@ app.get("/", async (c) => {
           ${watchlistWithStatus.map(
             (w) => html`
               <tr data-quote-row data-ticker="${w.ticker}" data-atr14="${w.atr14}">
-                <td data-strategy-badge><span style="color: #475569; font-size: 11px;">-</span></td>
                 <td>${tickerLink(w.ticker, `${w.ticker} ${nameMap.get(w.ticker) ?? w.ticker}`)}</td>
                 <td class="col-gu" data-gapup-conditions style="display:none; font-size: 11px; white-space: nowrap;"><span class="quote-loading">...</span></td>
                 <td class="col-psc" data-psc-conditions style="display:none; font-size: 11px; white-space: nowrap;"><span class="quote-loading">...</span></td>
@@ -172,11 +169,31 @@ app.get("/", async (c) => {
       </table>
     </div>
     <script>
-      var currentTab = 'all';
+      var currentTab = 'gu';
+      var currentMarketPhase = 'pre'; // 'pre' | 'intra' | 'post'
+      var rowFilterData = {}; // ticker → { isGapOk }
+
+      function applyRowFilter(tab) {
+        var allRows = document.querySelectorAll('[data-quote-row]');
+        allRows.forEach(function(row) {
+          var ticker = row.getAttribute('data-ticker');
+          var d = rowFilterData[ticker] || {};
+          row.style.display = '';
+          if (tab === 'gu' && currentMarketPhase !== 'pre') {
+            // GUタブ・場中/場後: gap条件を満たさない行を減衰表示
+            row.style.opacity = d.isGapOk ? '1' : '0.3';
+          } else if (tab === 'psc') {
+            // PSCタブ: mom条件を満たさない行を減衰表示
+            row.style.opacity = d.isMomentumOk ? '1' : '0.3';
+          } else {
+            row.style.opacity = '1';
+          }
+        });
+      }
 
       function switchTab(tab) {
         currentTab = tab;
-        var tabs = ['all', 'gu', 'wb', 'psc'];
+        var tabs = ['gu', 'wb', 'psc'];
         tabs.forEach(function(t) {
           var el = document.getElementById('tab-' + t);
           if (!el) return;
@@ -198,10 +215,12 @@ app.get("/", async (c) => {
         colGuEls.forEach(function(el) { el.style.display = tab === 'gu' ? '' : 'none'; });
         colPscEls.forEach(function(el) { el.style.display = tab === 'psc' ? '' : 'none'; });
         colWbEls.forEach(function(el) { el.style.display = tab === 'wb' ? '' : 'none'; });
+
+        applyRowFilter(tab);
       }
 
       // 初期タブをアクティブ表示
-      switchTab('all');
+      switchTab('gu');
 
       (function() {
         var POLL_INTERVAL = 30000;
@@ -209,12 +228,6 @@ app.get("/", async (c) => {
         var rows = document.querySelectorAll('[data-quote-row]');
 
         var fmt = function(v) { return Number(v).toLocaleString('ja-JP', { maximumFractionDigits: 0 }); };
-
-        var STRATEGY_BADGE = {
-          GU: '<span class="badge badge-gapup" style="font-size: 10px; padding: 1px 5px;">GU</span>',
-          WB: '<span class="badge badge-wb" style="font-size: 10px; padding: 1px 5px;">WB</span>',
-          PSC: '<span class="badge badge-psc" style="font-size: 10px; padding: 1px 5px;">PSC</span>'
-        };
 
         var STATUS_MAP = {
           ordered: { cls: 'badge-triggered' },
@@ -287,6 +300,12 @@ app.get("/", async (c) => {
                   status: d.status || 'watching'
                 };
 
+                // フィルター用データを収集
+                rowFilterData[ticker] = {
+                  isGapOk: !!(d.gapup && d.gapup.isGapOk),
+                  isMomentumOk: !!(d.psc && d.psc.isMomentumOk)
+                };
+
                 // ---- ステータスバッジ ----
                 var badgeEl = row.querySelector('[data-status-badge]');
                 if (badgeEl) {
@@ -304,14 +323,7 @@ app.get("/", async (c) => {
                   }
                 }
 
-                // ---- 戦略バッジ（data-strategy-badge） ----
                 var strats = d.strategies || [];
-                var stratEl = row.querySelector('[data-strategy-badge]');
-                if (stratEl) {
-                  stratEl.innerHTML = strats.length > 0
-                    ? strats.map(function(s) { return STRATEGY_BADGE[s] || s; }).join(' ')
-                    : '<span style="color: #475569; font-size: 11px;">-</span>';
-                }
                 if (strats.indexOf('GU') !== -1) guCount++;
                 if (strats.indexOf('WB') !== -1) wbCount++;
                 if (strats.indexOf('PSC') !== -1) pscCount++;
@@ -416,6 +428,7 @@ app.get("/", async (c) => {
               // ---- グローバル条件更新 ----
               var g = data.global;
               if (g) {
+                if (g.marketPhase) currentMarketPhase = g.marketPhase;
                 var timeEl = document.querySelector('[data-global-time]');
                 if (timeEl) {
                   timeEl.textContent = g.inTimeWindow ? '\u25cb' : '\u00d7';
@@ -438,7 +451,21 @@ app.get("/", async (c) => {
                   var tb = b.getAttribute('data-ticker');
                   var da = rowSortData[ta] || { isEntryCandidate: 0, guAllMet: 0, surgeRatio: 0, status: 'watching' };
                   var db = rowSortData[tb] || { isEntryCandidate: 0, guAllMet: 0, surgeRatio: 0, status: 'watching' };
-                  // 1. エントリー候補（GU全条件OK or WB条件OK）を最上位
+                  // 1. GUタブ・場中/場後: gap条件OK行を最上位
+                  if (currentTab === 'gu' && currentMarketPhase !== 'pre') {
+                    var fa = rowFilterData[ta] || {};
+                    var fb = rowFilterData[tb] || {};
+                    var gapDiff = (fb.isGapOk ? 1 : 0) - (fa.isGapOk ? 1 : 0);
+                    if (gapDiff !== 0) return gapDiff;
+                  }
+                  // 1b. PSCタブ: mom条件OK行を最上位
+                  if (currentTab === 'psc') {
+                    var fa = rowFilterData[ta] || {};
+                    var fb = rowFilterData[tb] || {};
+                    var momDiff = (fb.isMomentumOk ? 1 : 0) - (fa.isMomentumOk ? 1 : 0);
+                    if (momDiff !== 0) return momDiff;
+                  }
+                  // 1b. その他: エントリー候補（GU全条件OK or WB条件OK）を最上位
                   var entryDiff = db.isEntryCandidate - da.isEntryCandidate;
                   if (entryDiff !== 0) return entryDiff;
                   // 2. ステータス: 注文済 → 保有中 → 監視中

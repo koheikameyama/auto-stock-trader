@@ -456,6 +456,13 @@ app.get("/watchlist/state", async (c) => {
 
   const marketOpen = isMarketOpen();
 
+  // 市場フェーズ判定（場前: pre / 場中: intra / 場後: post）
+  const currentMinutes = hour * 60 + minute;
+  const marketPhase: "pre" | "intra" | "post" =
+    currentMinutes < 9 * 60 ? "pre"
+    : marketOpen ? "intra"
+    : "post";
+
   for (const ticker of tickers) {
     const { status, orderStrategy } = getStatus(ticker);
     const quote = quotes.get(ticker);
@@ -465,8 +472,9 @@ app.get("/watchlist/state", async (c) => {
       ? calculateVolumeSurgeRatio(quote.volume, wl.avgVolume25, hour, minute)
       : null;
 
-    // 市場クローズ中は前日データが混入するため open/gapup を null にする
-    const quoteData = marketOpen && quote ? { price: quote.price, open: quote.open, volume: quote.volume } : null;
+    // 場前は前日データが混入するため open/gapup を null にする
+    // 場中・場後は当日データが取得できるため gapup 計算を行う
+    const quoteData = marketPhase !== "pre" && quote ? { price: quote.price, open: quote.open, volume: quote.volume } : null;
 
     // WB乖離: 金曜のみ、現在価格 vs 13週高値 (%)
     const wbDeviation = isFriday && quote && wl?.weeklyHigh13
@@ -479,7 +487,7 @@ app.get("/watchlist/state", async (c) => {
       strategies: checkStrategies(ticker, quoteData),
       surgeRatio,
       price: quote?.price ?? null,
-      open: marketOpen ? (quote?.open ?? null) : null,
+      open: marketPhase !== "pre" ? (quote?.open ?? null) : null,
       gapup: calcGapupConditions(ticker, quoteData),
       psc: calcPscConditions(ticker, quoteData),
       wbDeviation,
@@ -500,6 +508,7 @@ app.get("/watchlist/state", async (c) => {
       inTimeWindow,
       shouldTrade: todayAssessment?.shouldTrade ?? false,
       isFriday,
+      marketPhase,
       ...(brokerError && { _error: "broker_api_failed" }),
     },
   });
