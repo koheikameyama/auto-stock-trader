@@ -127,6 +127,12 @@ app.get("/", async (c) => {
         <span>${raw(`${tt("市場評価", "MarketAssessment.shouldTrade")}: <span data-global-market style="color: ${shouldTrade ? "#22c55e" : "#ef4444"};">${shouldTrade ? "取引可" : "見送り"}</span>`)}</span>
       </div>
     </div>
+    <div style="display: flex; gap: 4px; margin-bottom: 8px;">
+      <button id="tab-all" onclick="switchTab('all')" style="padding: 5px 14px; font-size: 12px; border-radius: 6px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; cursor: pointer;">全て</button>
+      <button id="tab-gu" onclick="switchTab('gu')" style="padding: 5px 14px; font-size: 12px; border-radius: 6px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; cursor: pointer;">GU</button>
+      ${isFriday ? html`<button id="tab-wb" onclick="switchTab('wb')" style="padding: 5px 14px; font-size: 12px; border-radius: 6px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; cursor: pointer;">WB</button>` : ""}
+      <button id="tab-psc" onclick="switchTab('psc')" style="padding: 5px 14px; font-size: 12px; border-radius: 6px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; cursor: pointer;">PSC</button>
+    </div>
     <div id="loading-state" class="card" style="${watchlist.length ? "display:none;" : ""}padding: 16px; text-align: center; color: #94a3b8; font-size: 13px;">
       読み込み中...
     </div>
@@ -139,10 +145,11 @@ app.get("/", async (c) => {
           <tr>
             <th>戦略</th>
             <th>銘柄</th>
-            <th>${tt("GU条件", "Gap≥3% / 陽線 / 出来高≥1.5x")}</th>
+            <th class="col-gu" style="display:none;">${tt("GU条件", "Gap≥3% / 陽線 / 出来高≥1.5x")}</th>
+            <th class="col-psc" style="display:none;">${tt("PSC条件", "mom5d / 陽線 / 出来高≥1.5x")}</th>
             <th>${tt("現在価格", "リアルタイム価格")}</th>
-            <th>${tt("始値", "当日始値")}</th>
-            ${isFriday ? html`<th>${tt("WB乖離", "現在価格 vs 13週高値（金曜のみ）")}</th>` : ""}
+            <th class="col-gu col-psc" style="display:none;">${tt("始値", "当日始値")}</th>
+            ${isFriday ? html`<th class="col-wb" style="display:none;">${tt("WB乖離", "現在価格 vs 13週高値（金曜のみ）")}</th>` : ""}
             <th>${tt("状態", "保有中/注文済/監視中")}</th>
           </tr>
         </thead>
@@ -152,10 +159,11 @@ app.get("/", async (c) => {
               <tr data-quote-row data-ticker="${w.ticker}" data-atr14="${w.atr14}">
                 <td data-strategy-badge><span style="color: #475569; font-size: 11px;">-</span></td>
                 <td>${tickerLink(w.ticker, `${w.ticker} ${nameMap.get(w.ticker) ?? w.ticker}`)}</td>
-                <td data-gapup-conditions style="font-size: 11px; white-space: nowrap;"><span class="quote-loading">...</span></td>
+                <td class="col-gu" data-gapup-conditions style="display:none; font-size: 11px; white-space: nowrap;"><span class="quote-loading">...</span></td>
+                <td class="col-psc" data-psc-conditions style="display:none; font-size: 11px; white-space: nowrap;"><span class="quote-loading">...</span></td>
                 <td data-quote-price><span class="quote-loading">...</span></td>
-                <td data-open-price><span class="quote-loading">...</span></td>
-                ${isFriday ? html`<td data-wb-deviation><span class="quote-loading">...</span></td>` : ""}
+                <td class="col-gu col-psc" data-open-price style="display:none;"><span class="quote-loading">...</span></td>
+                ${isFriday ? html`<td class="col-wb" data-wb-deviation style="display:none;"><span class="quote-loading">...</span></td>` : ""}
                 <td data-status-badge>${statusBadgeHtml(w.status, w.orderStrategy)}</td>
               </tr>
             `,
@@ -164,6 +172,37 @@ app.get("/", async (c) => {
       </table>
     </div>
     <script>
+      var currentTab = 'all';
+
+      function switchTab(tab) {
+        currentTab = tab;
+        var tabs = ['all', 'gu', 'wb', 'psc'];
+        tabs.forEach(function(t) {
+          var el = document.getElementById('tab-' + t);
+          if (!el) return;
+          if (t === tab) {
+            el.style.background = '#334155';
+            el.style.borderColor = '#64748b';
+            el.style.color = '#f1f5f9';
+          } else {
+            el.style.background = '#1e293b';
+            el.style.borderColor = '#334155';
+            el.style.color = '#e2e8f0';
+          }
+        });
+
+        // 列の表示切り替え（同じクラスを持つ要素を一括制御）
+        var colGuEls = document.querySelectorAll('.col-gu');
+        var colPscEls = document.querySelectorAll('.col-psc');
+        var colWbEls = document.querySelectorAll('.col-wb');
+        colGuEls.forEach(function(el) { el.style.display = tab === 'gu' ? '' : 'none'; });
+        colPscEls.forEach(function(el) { el.style.display = tab === 'psc' ? '' : 'none'; });
+        colWbEls.forEach(function(el) { el.style.display = tab === 'wb' ? '' : 'none'; });
+      }
+
+      // 初期タブをアクティブ表示
+      switchTab('all');
+
       (function() {
         var POLL_INTERVAL = 30000;
         var ATR_MULTIPLIER_GU = ${GAPUP.STOP_LOSS.ATR_MULTIPLIER};
@@ -300,6 +339,29 @@ app.get("/", async (c) => {
                   }
                 }
 
+                // ---- PSC条件（data-psc-conditions） ----
+                var pscEl = row.querySelector('[data-psc-conditions]');
+                if (pscEl) {
+                  var psc = d.psc;
+                  if (psc) {
+                    var momSign = psc.momentum5d >= 0 ? '+' : '';
+                    var momColor = psc.isMomentumOk ? '#22c55e' : '#64748b';
+                    var pscCandleColor = psc.isCandleOk ? '#22c55e' : '#ef4444';
+                    var pscCandleLabel = psc.isCandleOk ? '\u25cb' : '\u00d7';
+                    var pscVolColor = psc.isVolumeOk ? '#22c55e' : '#64748b';
+                    var pscAllMet = psc.isMomentumOk && psc.isCandleOk && psc.isVolumeOk;
+                    pscEl.innerHTML =
+                      '<span style="color:' + momColor + ';">' + momSign + (psc.momentum5d * 100).toFixed(1) + '%</span>' +
+                      '<span style="color:#475569; margin: 0 2px;">|</span>' +
+                      '<span style="color:' + pscCandleColor + ';">' + pscCandleLabel + '</span>' +
+                      '<span style="color:#475569; margin: 0 2px;">|</span>' +
+                      '<span style="color:' + pscVolColor + ';">' + (d.surgeRatio != null ? d.surgeRatio.toFixed(1) : '-') + 'x</span>' +
+                      (pscAllMet ? ' <span style="color:#22c55e; font-weight:600;">\u2714</span>' : '');
+                  } else {
+                    pscEl.innerHTML = '<span style="color: #475569;">-</span>';
+                  }
+                }
+
                 // ---- 現在価格（data-quote-price） ----
                 if (d.price != null) {
                   var priceEl = row.querySelector('[data-quote-price]');
@@ -387,6 +449,9 @@ app.get("/", async (c) => {
                 });
                 rowArr.forEach(function(row) { tbody.appendChild(row); });
               }
+
+              // ---- タブ表示状態を再適用（ポーリング後も維持） ----
+              switchTab(currentTab);
             })
             .catch(function() { /* エラー時はスキップ */ });
         }

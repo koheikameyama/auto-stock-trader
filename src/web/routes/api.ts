@@ -417,6 +417,30 @@ app.get("/watchlist/state", async (c) => {
     };
   }
 
+  // PSC条件詳細を計算
+  type PscConditions = {
+    momentum5d: number;      // 5日モメンタム（押し目インジケータ）
+    isMomentumOk: boolean;   // momentum5d <= 0（押し目フェーズ）
+    isCandleOk: boolean;     // 陽線（price >= open）
+    isVolumeOk: boolean;     // 出来高サージ >= 1.5x
+  };
+
+  function calcPscConditions(ticker: string, quote: { price: number; open: number; volume: number } | null): PscConditions | null {
+    const wl = wlMap.get(ticker);
+    if (!wl) return null;
+
+    const surgeRatio = quote
+      ? calculateVolumeSurgeRatio(quote.volume, wl.avgVolume25, hour, minute)
+      : 0;
+
+    return {
+      momentum5d: wl.momentum5d,
+      isMomentumOk: wl.momentum5d <= 0,
+      isCandleOk: quote ? quote.price >= quote.open : false,
+      isVolumeOk: surgeRatio >= POST_SURGE_CONSOLIDATION.ENTRY.VOL_SURGE_RATIO,
+    };
+  }
+
   // ティッカーごとのデータ
   const tickerData: Record<string, {
     status: WatchlistStatus;
@@ -426,6 +450,7 @@ app.get("/watchlist/state", async (c) => {
     price: number | null;
     open: number | null;
     gapup: GapupConditions | null;
+    psc: PscConditions | null;
     wbDeviation: number | null;
   }> = {};
 
@@ -456,6 +481,7 @@ app.get("/watchlist/state", async (c) => {
       price: quote?.price ?? null,
       open: marketOpen ? (quote?.open ?? null) : null,
       gapup: calcGapupConditions(ticker, quoteData),
+      psc: calcPscConditions(ticker, quoteData),
       wbDeviation,
     };
   }
