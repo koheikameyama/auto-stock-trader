@@ -2,12 +2,12 @@
  * 統合バックテスト（Breakout + GapUp 共有資金プール）
  *
  * Usage:
- *   npm run backtest
- *   npm run backtest -- --start 2025-04-01 --end 2026-03-25
- *   npm run backtest -- --budget 1000000
- *   npm run backtest -- --verbose
- *   npm run backtest -- --compare-positions
- *   npm run backtest -- --compare-split-positions
+ *   npm run backtest:combined
+ *   npm run backtest:combined -- --start 2025-04-01 --end 2026-03-25
+ *   npm run backtest:combined -- --budget 1000000
+ *   npm run backtest:combined -- --verbose
+ *   npm run backtest:combined -- --compare-positions
+ *   npm run backtest:combined -- --compare-split-positions
  */
 
 import dayjs from "dayjs";
@@ -131,6 +131,7 @@ async function main() {
   const comparePriceTurnover = args.includes("--compare-price-turnover");
   const minPriceOverride = getArg(args, "--min-price");
   const minTurnoverOverride = getArg(args, "--min-turnover");
+  const saveResult = args.includes("--save");
 
   const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareVixFilter || compareBudget || compareHolding || compareTurnover || comparePrice || comparePriceTurnover;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
@@ -609,28 +610,30 @@ async function main() {
     printMonthlyEquitySummary(result.equityCurve, result.totalCapitalAdded, budget);
   }
 
-  // DBに保存
-  try {
-    const id = await saveBacktestResult(
-      {
-        config: { startDate, endDate, maxPositions: defaultLimits.totalMax ?? 3, initialBudget: budget },
-        trades: result.allTrades,
-        equityCurve: result.equityCurve,
-        metrics: {
-          ...result.totalMetrics,
-          breakdown: {
-            bo: result.boMetrics,
-            gu: result.guMetrics,
-            wb: result.wbMetrics,
-            psc: result.pscMetrics,
-          } satisfies Record<BreakdownKey, PerformanceMetrics>,
-        },
-      } as unknown as Parameters<typeof saveBacktestResult>[0],
-      "combined",
-    );
-    console.log(`[db] BacktestRun 保存完了: ${id}`);
-  } catch (err) {
-    console.error("[db] BacktestRun 保存失敗:", err);
+  // DBに保存（--save フラグがある場合のみ）
+  if (saveResult) {
+    try {
+      const id = await saveBacktestResult(
+        {
+          config: { startDate, endDate, maxPositions: defaultLimits.totalMax ?? 3, initialBudget: budget },
+          trades: result.allTrades,
+          equityCurve: result.equityCurve,
+          metrics: {
+            ...result.totalMetrics,
+            breakdown: {
+              bo: result.boMetrics,
+              gu: result.guMetrics,
+              wb: result.wbMetrics,
+              psc: result.pscMetrics,
+            } satisfies Record<BreakdownKey, PerformanceMetrics>,
+          },
+        } as unknown as Parameters<typeof saveBacktestResult>[0],
+        "combined",
+      );
+      console.log(`[db] BacktestRun 保存完了: ${id}`);
+    } catch (err) {
+      console.error("[db] BacktestRun 保存失敗:", err);
+    }
   }
 
   await prisma.$disconnect();
