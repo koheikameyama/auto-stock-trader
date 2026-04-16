@@ -70,9 +70,9 @@ export async function main(): Promise<void> {
 
   const tickers = watchlist.map((e) => e.ticker);
 
-  // 保有ポジション取得
+  // 保有・注文中ポジション取得（二重発注防止のため ordered も除外）
   const openPositions = await prisma.tradingPosition.findMany({
-    where: { status: "open" },
+    where: { status: { in: ["open", "ordered"] } },
     include: { stock: { select: { tickerCode: true } } },
   });
   const holdingTickers = new Set(openPositions.map((p) => p.stock.tickerCode));
