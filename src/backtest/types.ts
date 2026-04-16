@@ -153,6 +153,13 @@ export interface BreakoutBacktestResult {
 }
 
 // ──────────────────────────────────────────
+// Combined バックテスト 戦略キー
+// ──────────────────────────────────────────
+
+export const BREAKDOWN_KEYS = ["bo", "gu", "wb", "psc"] as const;
+export type BreakdownKey = (typeof BREAKDOWN_KEYS)[number];
+
+// ──────────────────────────────────────────
 // パフォーマンス指標
 // ──────────────────────────────────────────
 

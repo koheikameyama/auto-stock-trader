@@ -34,6 +34,7 @@ import type {
   WeeklyBreakBacktestConfig,
   PostSurgeConsolidationBacktestConfig,
   PerformanceMetrics,
+  BreakdownKey,
 } from "./types";
 
 function getArg(args: string[], flag: string): string | undefined {
@@ -615,8 +616,16 @@ async function main() {
         config: { startDate, endDate, maxPositions: defaultLimits.totalMax ?? 3, initialBudget: budget },
         trades: result.allTrades,
         equityCurve: result.equityCurve,
-        metrics: result.totalMetrics,
-      } as Parameters<typeof saveBacktestResult>[0],
+        metrics: {
+          ...result.totalMetrics,
+          breakdown: {
+            bo: result.boMetrics,
+            gu: result.guMetrics,
+            wb: result.wbMetrics,
+            psc: result.pscMetrics,
+          } satisfies Record<BreakdownKey, PerformanceMetrics>,
+        },
+      } as unknown as Parameters<typeof saveBacktestResult>[0],
       "combined",
     );
     console.log(`[db] BacktestRun 保存完了: ${id}`);

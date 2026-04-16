@@ -20,7 +20,8 @@ import {
   equityCurveChart,
   pnlPercent,
 } from "../views/components";
-import type { PerformanceMetrics, SimulatedPosition, DailyEquity } from "../../backtest/types";
+import type { PerformanceMetrics, SimulatedPosition, DailyEquity, BreakdownKey } from "../../backtest/types";
+import { BREAKDOWN_KEYS } from "../../backtest/types";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -45,6 +46,7 @@ app.get("/", async (c) => {
       winRate: true,
       netReturnPct: true,
       totalTrades: true,
+      strategy: true,
     },
   });
 
@@ -54,7 +56,13 @@ app.get("/", async (c) => {
     ? await prisma.backtestRun.findUnique({ where: { id: targetId } })
     : null;
 
-  const metrics = run ? (run.metricsJson as unknown as PerformanceMetrics) : null;
+  const breakdownLabel: Record<BreakdownKey, string> = {
+    bo: "ブレイクアウト (BO)",
+    gu: "ギャップアップ (GU)",
+    wb: "週足ブレイク (WB)",
+    psc: "高騰後押し目 (PSC)",
+  };
+  const metrics = run ? (run.metricsJson as unknown as PerformanceMetrics & { breakdown?: Partial<Record<BreakdownKey, PerformanceMetrics>> }) : null;
   const equityCurve = run ? (run.equityCurveJson as unknown as DailyEquity[]) : [];
   const trades = run
     ? (run.tradesJson as unknown as SimulatedPosition[]).filter(
@@ -69,6 +77,16 @@ app.get("/", async (c) => {
     take_profit: "TP",
     time_stop: "タイム",
     defensive_exit: "防御",
+  };
+
+  const strategyLabel: Record<string, string> = {
+    breakout: "ブレイクアウト",
+    gapup: "ギャップアップ",
+    "weekly-break": "週足ブレイク",
+    "post-surge-consolidation": "高騰後押し目",
+    "gapdown-reversal": "GDリバーサル",
+    "squeeze-breakout": "スクイーズBO",
+    combined: "Combined",
   };
 
   const pfColor = (pf: number) => {
@@ -92,7 +110,10 @@ app.get("/", async (c) => {
                 href="/backtest?id=${h.id}"
                 style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1e293b;text-decoration:none;color:inherit;${h.id === targetId ? "font-weight:bold;" : ""}"
               >
-                <span style="font-size:13px">${dayjs(h.runAt).tz(TIMEZONE).format("MM/DD HH:mm")}</span>
+                <span style="display:flex;flex-direction:column;gap:2px">
+                  <span style="font-size:13px">${dayjs(h.runAt).tz(TIMEZONE).format("MM/DD HH:mm")}</span>
+                  <span style="font-size:11px;color:#64748b">${strategyLabel[h.strategy] ?? h.strategy}</span>
+                </span>
                 <span style="display:flex;gap:12px;font-size:12px">
                   <span style="color:${pfColor(h.profitFactor)}">PF ${fmtPf(h.profitFactor)}</span>
                   ${pnlPercent(h.netReturnPct)}
@@ -125,6 +146,27 @@ app.get("/", async (c) => {
               ${detailRow("平均保有日数", `${run.avgHoldingDays}日`)}
             </div>
           </div>
+
+          <!-- Combined 内訳 -->
+          ${metrics.breakdown
+            ? html`
+              <p class="section-title">戦略内訳</p>
+              <div class="grid-2">
+                ${BREAKDOWN_KEYS
+                  .filter((key) => (metrics.breakdown![key]?.totalTrades ?? 0) > 0)
+                  .map((key) => {
+                    const m = metrics.breakdown![key]!;
+                    const pf = m.profitFactor >= 9999 ? 9999 : m.profitFactor;
+                    return html`<div class="card">
+                      <p style="font-size:12px;color:#94a3b8;margin:0 0 8px">${breakdownLabel[key]}</p>
+                      ${detailRow("PF", html`<span style="color:${pfColor(pf)};font-weight:bold">${fmtPf(pf)}</span>`)}
+                      ${detailRow("勝率", `${m.winRate}%`)}
+                      ${detailRow("期待値", pnlPercent(m.expectancy))}
+                      ${detailRow("トレード数", `${m.totalTrades}件`)}
+                    </div>`;
+                  })}
+              </div>`
+            : ""}
 
           <!-- エクイティカーブ -->
           <p class="section-title">エクイティカーブ</p>
