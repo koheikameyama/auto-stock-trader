@@ -301,9 +301,12 @@ app.get("/", async (c) => {
                 };
 
                 // フィルター用データを収集
+                var pscAllMetFlag = !!(d.psc && d.psc.isMomentumOk && d.psc.isCandleOk && d.psc.isVolumeOk);
                 rowFilterData[ticker] = {
                   isGapOk: !!(d.gapup && d.gapup.isGapOk),
-                  isMomentumOk: !!(d.psc && d.psc.isMomentumOk)
+                  guAllMet: !!(guAllMet),
+                  isMomentumOk: !!(d.psc && d.psc.isMomentumOk),
+                  pscAllMet: pscAllMetFlag
                 };
 
                 // ---- ステータスバッジ ----
@@ -451,21 +454,26 @@ app.get("/", async (c) => {
                   var tb = b.getAttribute('data-ticker');
                   var da = rowSortData[ta] || { isEntryCandidate: 0, guAllMet: 0, surgeRatio: 0, status: 'watching' };
                   var db = rowSortData[tb] || { isEntryCandidate: 0, guAllMet: 0, surgeRatio: 0, status: 'watching' };
-                  // 1. GUタブ・場中/場後: gap条件OK行を最上位
-                  if (currentTab === 'gu' && currentMarketPhase !== 'pre') {
-                    var fa = rowFilterData[ta] || {};
-                    var fb = rowFilterData[tb] || {};
-                    var gapDiff = (fb.isGapOk ? 1 : 0) - (fa.isGapOk ? 1 : 0);
-                    if (gapDiff !== 0) return gapDiff;
+                  var fa = rowFilterData[ta] || {};
+                  var fb = rowFilterData[tb] || {};
+                  // 1. GUタブ: ✔（全条件OK）を最上位
+                  if (currentTab === 'gu') {
+                    var guAllDiff = (fb.guAllMet ? 1 : 0) - (fa.guAllMet ? 1 : 0);
+                    if (guAllDiff !== 0) return guAllDiff;
+                    // 場中/場後: gap条件OK行を次に
+                    if (currentMarketPhase !== 'pre') {
+                      var gapDiff = (fb.isGapOk ? 1 : 0) - (fa.isGapOk ? 1 : 0);
+                      if (gapDiff !== 0) return gapDiff;
+                    }
                   }
-                  // 1b. PSCタブ: mom条件OK行を最上位
+                  // 1b. PSCタブ: ✔（全条件OK）を最上位、次にmom条件OK
                   if (currentTab === 'psc') {
-                    var fa = rowFilterData[ta] || {};
-                    var fb = rowFilterData[tb] || {};
+                    var pscAllDiff = (fb.pscAllMet ? 1 : 0) - (fa.pscAllMet ? 1 : 0);
+                    if (pscAllDiff !== 0) return pscAllDiff;
                     var momDiff = (fb.isMomentumOk ? 1 : 0) - (fa.isMomentumOk ? 1 : 0);
                     if (momDiff !== 0) return momDiff;
                   }
-                  // 1b. その他: エントリー候補（GU全条件OK or WB条件OK）を最上位
+                  // 1c. その他: エントリー候補（GU全条件OK or WB条件OK）を最上位
                   var entryDiff = db.isEntryCandidate - da.isEntryCandidate;
                   if (entryDiff !== 0) return entryDiff;
                   // 2. ステータス: 注文済 → 保有中 → 監視中
