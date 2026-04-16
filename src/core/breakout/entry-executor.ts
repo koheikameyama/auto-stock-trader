@@ -36,6 +36,41 @@ import type { PostSurgeConsolidationTrigger } from "../post-surge-consolidation/
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
+/** スキップ理由を追跡対象ラベルに変換する。null = 追跡しない */
+function getRejectedLabel(reason: string): string | null {
+  if (/予算不足|残高不足|現金残高不足/.test(reason)) return "残高不足";
+  if (/集中率上限|投資比率上限/.test(reason)) return "集中率上限";
+  if (/最大同時保有数/.test(reason)) return "ポジション数上限";
+  if (/流動性/.test(reason)) return "流動性不足";
+  if (/セクター/.test(reason)) return "セクター集中";
+  if (/連敗クールダウン/.test(reason)) return "連敗クールダウン";
+  return null;
+}
+
+/** RejectedSignal を非同期で保存（エラーは握りつぶしてメイン処理を止めない） */
+async function saveRejectedSignal(params: {
+  ticker: string;
+  strategy: string;
+  reason: string;
+  reasonLabel: string;
+  entryPrice: number;
+}): Promise<void> {
+  try {
+    await prisma.rejectedSignal.create({
+      data: {
+        ticker: params.ticker,
+        strategy: params.strategy,
+        rejectedAt: new Date(),
+        reason: params.reason,
+        reasonLabel: params.reasonLabel,
+        entryPrice: params.entryPrice,
+      },
+    });
+  } catch (err) {
+    console.error("[entry-executor] RejectedSignal 保存失敗:", err);
+  }
+}
+
 export interface ExecutionResult {
   success: boolean;
   orderId?: string;
@@ -129,6 +164,10 @@ export async function executeEntry(
   if (quantity === 0) {
     const reason = `予算不足でポジションサイズが0（余力: ¥${cashBalance.toLocaleString()}, リスク額: ¥${riskAmount.toLocaleString()}, リスク%: ${riskPct}%）`;
     console.log(`[entry-executor] ${ticker} スキップ: ${reason}`);
+    const label = getRejectedLabel(reason);
+    if (label) {
+      await saveRejectedSignal({ ticker, strategy, reason, reasonLabel: label, entryPrice: currentPrice });
+    }
     return { success: false, reason, retryable: true };
   }
 
@@ -138,6 +177,10 @@ export async function executeEntry(
     if (maxByBalance === 0) {
       const reason = `残高不足（必要: ¥${(currentPrice * quantity).toLocaleString()}, 残高: ¥${cashBalance.toLocaleString()}）`;
       console.log(`[entry-executor] ${ticker} スキップ: ${reason}`);
+      const label = getRejectedLabel(reason);
+      if (label) {
+        await saveRejectedSignal({ ticker, strategy, reason, reasonLabel: label, entryPrice: currentPrice });
+      }
       return { success: false, reason, retryable: true };
     }
     console.log(`[entry-executor] ${ticker} 残高上限で縮小: ${quantity}株 → ${maxByBalance}株（残高: ¥${cashBalance.toLocaleString()}）`);
@@ -155,6 +198,10 @@ export async function executeEntry(
     if (maxByConcentration <= 0) {
       const reason = `集中率上限（${maxPositionPct}%）を超えるためスキップ（既存投資額: ¥${existingAmountForStock.toLocaleString()}）`;
       console.log(`[entry-executor] ${ticker} スキップ: ${reason}`);
+      const label = getRejectedLabel(reason);
+      if (label) {
+        await saveRejectedSignal({ ticker, strategy, reason, reasonLabel: label, entryPrice: currentPrice });
+      }
       return { success: false, reason, retryable: false };
     }
     console.log(`[entry-executor] ${ticker} 集中率上限で縮小: ${quantity}株 → ${maxByConcentration}株（上限: ${maxPositionPct}%）`);
@@ -176,6 +223,10 @@ export async function executeEntry(
   );
   if (!riskCheck.allowed) {
     console.log(`[entry-executor] ${ticker} リスクチェック不可: ${riskCheck.reason}`);
+    const label = getRejectedLabel(riskCheck.reason);
+    if (label) {
+      await saveRejectedSignal({ ticker, strategy, reason: riskCheck.reason, reasonLabel: label, entryPrice: currentPrice });
+    }
     return { success: false, reason: riskCheck.reason, retryable: riskCheck.retryable ?? false };
   }
 
@@ -186,8 +237,13 @@ export async function executeEntry(
     quantity,
   );
   if (!liquidityCheck.isLiquid) {
-    console.log(`[entry-executor] ${ticker} 流動性不足: ${liquidityCheck.reason}`);
-    return { success: false, reason: liquidityCheck.reason, retryable: true };
+    const liquidityReason = liquidityCheck.reason ?? "流動性不足";
+    console.log(`[entry-executor] ${ticker} 流動性不足: ${liquidityReason}`);
+    const label = getRejectedLabel(liquidityReason);
+    if (label) {
+      await saveRejectedSignal({ ticker, strategy, reason: liquidityReason, reasonLabel: label, entryPrice: currentPrice });
+    }
+    return { success: false, reason: liquidityReason, retryable: true };
   }
   if (liquidityCheck.riskFlags.length > 0) {
     console.log(
