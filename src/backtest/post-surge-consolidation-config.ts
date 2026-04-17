@@ -1,5 +1,5 @@
 /**
- * 高騰後の出来高干上がり押し目バックテスト設定 & パラメータグリッド
+ * 高騰後押し目バックテスト設定 & パラメータグリッド
  */
 
 import { POST_SURGE_CONSOLIDATION } from "../lib/constants/post-surge-consolidation";

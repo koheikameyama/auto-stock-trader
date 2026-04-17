@@ -197,7 +197,6 @@ export async function main(): Promise<void> {
  * PSCシグナル判定に必要な直近履歴データをバッチ取得する
  * - close20DaysAgo: 20営業日前の終値
  * - high20: 直近20営業日の最高終値
- * - prevVolume: 前日出来高
  */
 async function fetchPSCHistoricalData(tickers: string[]): Promise<Map<string, PSCHistoricalData>> {
   const LOOKBACK_DAYS = 25; // 必要な営業日数（余裕を持たせるため50日分取得）
@@ -205,18 +204,18 @@ async function fetchPSCHistoricalData(tickers: string[]): Promise<Map<string, PS
 
   const bars = await prisma.stockDailyBar.findMany({
     where: { tickerCode: { in: tickers }, date: { gte: cutoff } },
-    select: { tickerCode: true, close: true, volume: true },
+    select: { tickerCode: true, close: true },
     orderBy: [{ tickerCode: "asc" }, { date: "asc" }],
   });
 
-  const tickerBars = new Map<string, Array<{ close: number; volume: number }>>();
+  const tickerBars = new Map<string, Array<{ close: number }>>();
   for (const bar of bars) {
     let arr = tickerBars.get(bar.tickerCode);
     if (!arr) {
       arr = [];
       tickerBars.set(bar.tickerCode, arr);
     }
-    arr.push({ close: bar.close, volume: Number(bar.volume) });
+    arr.push({ close: bar.close });
   }
 
   const result = new Map<string, PSCHistoricalData>();
@@ -224,11 +223,10 @@ async function fetchPSCHistoricalData(tickers: string[]): Promise<Map<string, PS
     if (barList.length < LOOKBACK_DAYS) continue;
 
     const recent = barList.slice(-LOOKBACK_DAYS); // 直近25営業日
-    const prevVolume = recent[recent.length - 1].volume; // 最終バー = 昨日
     const close20DaysAgo = recent[recent.length - 20].close; // 20営業日前
     const high20 = Math.max(...recent.slice(-20).map((b) => b.close)); // 直近20日の最高終値
 
-    result.set(ticker, { close20DaysAgo, high20, prevVolume });
+    result.set(ticker, { close20DaysAgo, high20 });
   }
 
   return result;

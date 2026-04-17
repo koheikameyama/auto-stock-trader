@@ -4,9 +4,8 @@
  * 条件:
  * 1. 急騰フィルター: close / close20DaysAgo - 1 >= momentumMinReturn
  * 2. 高値圏維持: close >= high20 * (1 - maxHighDistancePct)
- * 3. 前日出来高干上がり: prevVolume < avgVolume25
- * 4. 当日陽線: close > open
- * 5. 当日出来高サージ: volume >= avgVolume25 * volSurgeRatio
+ * 3. 当日陽線: close > open
+ * 4. 当日出来高サージ: volume >= avgVolume25 * volSurgeRatio
  */
 
 export function isPostSurgeConsolidationSignal(params: {
@@ -14,7 +13,6 @@ export function isPostSurgeConsolidationSignal(params: {
   close: number;
   close20DaysAgo: number;
   high20: number;
-  prevVolume: number;
   volume: number;
   avgVolume25: number;
   momentumMinReturn: number;
@@ -26,7 +24,6 @@ export function isPostSurgeConsolidationSignal(params: {
     close,
     close20DaysAgo,
     high20,
-    prevVolume,
     volume,
     avgVolume25,
     momentumMinReturn,
@@ -42,13 +39,10 @@ export function isPostSurgeConsolidationSignal(params: {
   // 2. 高値圏維持
   if (close < high20 * (1 - maxHighDistancePct)) return false;
 
-  // 3. 前日出来高干上がり
-  if (avgVolume25 > 0 && prevVolume >= avgVolume25) return false;
-
-  // 4. 当日陽線
+  // 3. 当日陽線
   if (close <= open) return false;
 
-  // 5. 当日出来高サージ
+  // 4. 当日出来高サージ
   if (avgVolume25 > 0 && volume < avgVolume25 * volSurgeRatio) return false;
 
   return true;

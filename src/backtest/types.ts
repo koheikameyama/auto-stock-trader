@@ -653,7 +653,7 @@ export interface PostSurgeConsolidationBacktestConfig {
 
   /** 急騰フィルター: 直近20日リターン閾値 */
   momentumMinReturn: number;
-  /** 干上がり: 高値からの最大乖離率 */
+  /** 高値圏維持: 高値からの最大乖離率 */
   maxHighDistancePct: number;
   /** 再加速: 出来高サージ倍率 */
   volSurgeRatio: number;

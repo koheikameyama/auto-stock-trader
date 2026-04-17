@@ -327,7 +327,6 @@ app.get("/quotes", async (c) => {
 type PSCHistoricalData = {
   close20DaysAgo: number;
   high20: number;
-  prevVolume: number;
 };
 
 /** PSC用履歴データをバッチ取得 */
@@ -337,18 +336,18 @@ async function fetchPSCHistoricalData(tickers: string[]): Promise<Map<string, PS
 
   const bars = await prisma.stockDailyBar.findMany({
     where: { tickerCode: { in: tickers }, date: { gte: cutoff } },
-    select: { tickerCode: true, close: true, volume: true },
+    select: { tickerCode: true, close: true },
     orderBy: [{ tickerCode: "asc" }, { date: "asc" }],
   });
 
-  const tickerBars = new Map<string, Array<{ close: number; volume: number }>>();
+  const tickerBars = new Map<string, Array<{ close: number }>>();
   for (const bar of bars) {
     let arr = tickerBars.get(bar.tickerCode);
     if (!arr) {
       arr = [];
       tickerBars.set(bar.tickerCode, arr);
     }
-    arr.push({ close: bar.close, volume: Number(bar.volume) });
+    arr.push({ close: bar.close });
   }
 
   const result = new Map<string, PSCHistoricalData>();
@@ -356,11 +355,10 @@ async function fetchPSCHistoricalData(tickers: string[]): Promise<Map<string, PS
     if (barList.length < LOOKBACK_DAYS) continue;
 
     const recent = barList.slice(-LOOKBACK_DAYS);
-    const prevVolume = recent[recent.length - 1].volume;
     const close20DaysAgo = recent[recent.length - 20].close;
     const high20 = Math.max(...recent.slice(-20).map((b) => b.close));
 
-    result.set(ticker, { close20DaysAgo, high20, prevVolume });
+    result.set(ticker, { close20DaysAgo, high20 });
   }
 
   return result;
@@ -445,17 +443,15 @@ app.get("/watchlist/state", async (c) => {
       strategies.push("GU");
     }
 
-    // PSC: 全5条件を満たす場合のみ
+    // PSC: 全4条件を満たす場合のみ
     const pscHist = pscHistMap.get(ticker);
     if (pscHist) {
       const momentum20d = pscHist.close20DaysAgo > 0 ? quote.price / pscHist.close20DaysAgo - 1 : 0;
       const highDistancePct = pscHist.high20 > 0 ? quote.price / pscHist.high20 - 1 : -1;
-      const isPrevVolDry = wl.avgVolume25 > 0 && pscHist.prevVolume < wl.avgVolume25;
 
       if (
         momentum20d >= POST_SURGE_CONSOLIDATION.ENTRY.MOMENTUM_MIN_RETURN &&
         highDistancePct >= -POST_SURGE_CONSOLIDATION.ENTRY.MAX_HIGH_DISTANCE_PCT &&
-        isPrevVolDry &&
         quote.price >= quote.open &&
         surgeRatio >= POST_SURGE_CONSOLIDATION.ENTRY.VOL_SURGE_RATIO
       ) {
@@ -512,7 +508,6 @@ app.get("/watchlist/state", async (c) => {
     isMomentum20dOk: boolean;  // 20日モメンタム >= 15%
     highDistancePct: number;   // 高値からの乖離 (%)
     isHighDistanceOk: boolean; // 高値から-5%以内
-    isPrevVolDryOk: boolean;   // 前日出来高干上がり（< avgVolume25）
     isCandleOk: boolean;       // 陽線（price >= open）
     isVolumeOk: boolean;       // 出来高サージ >= 1.5x
   };
@@ -533,7 +528,6 @@ app.get("/watchlist/state", async (c) => {
     const currentPrice = quote?.price ?? wl.latestClose;
     const close20DaysAgo = pscHist?.close20DaysAgo ?? 0;
     const high20 = pscHist?.high20 ?? 0;
-    const prevVolume = pscHist?.prevVolume ?? 0;
 
     const momentum20d = close20DaysAgo > 0 ? (currentPrice / close20DaysAgo - 1) : 0;
     const highDistancePct = high20 > 0 ? (currentPrice / high20 - 1) : 0;
@@ -543,7 +537,6 @@ app.get("/watchlist/state", async (c) => {
       isMomentum20dOk: momentum20d >= POST_SURGE_CONSOLIDATION.ENTRY.MOMENTUM_MIN_RETURN,
       highDistancePct,
       isHighDistanceOk: highDistancePct >= -POST_SURGE_CONSOLIDATION.ENTRY.MAX_HIGH_DISTANCE_PCT,
-      isPrevVolDryOk: wl.avgVolume25 > 0 ? prevVolume < wl.avgVolume25 : false,
       isCandleOk: quote ? quote.price >= quote.open : false,
       isVolumeOk: surgeRatio >= POST_SURGE_CONSOLIDATION.ENTRY.VOL_SURGE_RATIO,
     };

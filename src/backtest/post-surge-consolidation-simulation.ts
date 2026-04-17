@@ -1,5 +1,5 @@
 /**
- * 高騰後の出来高干上がり押し目バックテスト・シミュレーションエンジン
+ * 高騰後押し目バックテスト・シミュレーションエンジン
  *
  * 日次ループでPSCシグナルを検出し、当日終値でエントリー。
  * エグジットは既存の checkPositionExit() を再利用。
@@ -112,17 +112,12 @@ export function precomputePSCDailySignals(
       const recentBars = bars.slice(Math.max(0, todayIdx - 19), todayIdx + 1);
       const high20 = Math.max(...recentBars.map(b => b.high));
 
-      // 前日バー（出来高干上がり確認用）
-      const prevBar = bars[todayIdx - 1];
-      if (!prevBar) continue;
-
       // PSCシグナル判定
       if (!isPostSurgeConsolidationSignal({
         open: todayBar.open,
         close: todayBar.close,
         close20DaysAgo: bar20DaysAgo.close,
         high20,
-        prevVolume: prevBar.volume,
         volume: todayBar.volume,
         avgVolume25,
         momentumMinReturn: POST_SURGE_CONSOLIDATION.ENTRY.MOMENTUM_MIN_RETURN,

@@ -141,7 +141,7 @@ app.get("/", async (c) => {
           <tr>
             <th>銘柄</th>
             <th class="col-gu" style="display:none;">${tt("GU条件", "始値Gap≥3% / 終値Gap維持 / 陽線 / 出来高≥1.5x（4x以上でGap1%に緩和）")}</th>
-            <th class="col-psc" style="display:none;">${tt("PSC条件", "mom20d≥15% / 高値-5%以内 / 前日Vol干上がり / 陽線 / 出来高≥1.5x")}</th>
+            <th class="col-psc" style="display:none;">${tt("PSC条件", "mom20d≥15% / 高値-5%以内 / 陽線 / 出来高≥1.5x")}</th>
             <th>${tt("現在価格", "リアルタイム価格")}</th>
             <th class="col-gu col-psc" style="display:none;">${tt("始値", "当日始値")}</th>
             <th>${tt("状態", "保有中/注文済/監視中")}</th>
@@ -295,16 +295,15 @@ app.get("/", async (c) => {
                   if (d.gapup.isVolumeOk) guConditionsMet++;
                 }
 
-                // PSC条件達成数（0〜5）
+                // PSC条件達成数（0〜4）
                 var pscConditionsMet = 0;
                 var pscAllMetFlag = false;
                 if (d.psc) {
                   if (d.psc.isMomentum20dOk) pscConditionsMet++;
                   if (d.psc.isHighDistanceOk) pscConditionsMet++;
-                  if (d.psc.isPrevVolDryOk) pscConditionsMet++;
                   if (d.psc.isCandleOk) pscConditionsMet++;
                   if (d.psc.isVolumeOk) pscConditionsMet++;
-                  pscAllMetFlag = pscConditionsMet === 5;
+                  pscAllMetFlag = pscConditionsMet === 4;
                 }
 
                 rowSortData[ticker] = {
@@ -393,21 +392,16 @@ app.get("/", async (c) => {
                     // 2. 高値圏維持（-5%以内）
                     var highDistSign = psc.highDistancePct >= 0 ? '+' : '';
                     var highDistColor = psc.isHighDistanceOk ? '#22c55e' : '#64748b';
-                    // 3. 前日出来高干上がり
-                    var prevVolDryColor = psc.isPrevVolDryOk ? '#22c55e' : '#64748b';
-                    var prevVolDryLabel = psc.isPrevVolDryOk ? '\u25cb' : '\u00d7';
-                    // 4. 陽線
+                    // 3. 陽線
                     var pscCandleColor = psc.isCandleOk ? '#22c55e' : '#ef4444';
                     var pscCandleLabel = psc.isCandleOk ? '\u25cb' : '\u00d7';
-                    // 5. 出来高サージ
+                    // 4. 出来高サージ
                     var pscVolColor = psc.isVolumeOk ? '#22c55e' : '#64748b';
-                    var pscAllMet = psc.isMomentum20dOk && psc.isHighDistanceOk && psc.isPrevVolDryOk && psc.isCandleOk && psc.isVolumeOk;
+                    var pscAllMet = psc.isMomentum20dOk && psc.isHighDistanceOk && psc.isCandleOk && psc.isVolumeOk;
                     pscEl.innerHTML =
                       '<span style="color:' + mom20Color + ';" title="20日モメンタム (≥15%)">' + mom20Sign + (psc.momentum20d * 100).toFixed(1) + '%</span>' +
                       '<span style="color:#475569; margin: 0 2px;">|</span>' +
                       '<span style="color:' + highDistColor + ';" title="高値乖離 (≥-5%)">' + highDistSign + (psc.highDistancePct * 100).toFixed(1) + '%</span>' +
-                      '<span style="color:#475569; margin: 0 2px;">|</span>' +
-                      '<span style="color:' + prevVolDryColor + ';" title="前日Vol干上がり">' + prevVolDryLabel + '</span>' +
                       '<span style="color:#475569; margin: 0 2px;">|</span>' +
                       '<span style="color:' + pscCandleColor + ';" title="陽線">' + pscCandleLabel + '</span>' +
                       '<span style="color:#475569; margin: 0 2px;">|</span>' +

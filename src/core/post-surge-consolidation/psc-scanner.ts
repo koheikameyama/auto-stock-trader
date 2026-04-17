@@ -15,8 +15,6 @@ export interface PSCHistoricalData {
   close20DaysAgo: number;
   /** 直近20営業日の最高終値 */
   high20: number;
-  /** 前日出来高 */
-  prevVolume: number;
 }
 
 /** PSCトリガーイベント */
@@ -71,7 +69,6 @@ export class PostSurgeConsolidationScanner {
         close: quote.price,
         close20DaysAgo: hist.close20DaysAgo,
         high20: hist.high20,
-        prevVolume: hist.prevVolume,
         volume: quote.volume,
         avgVolume25: entry.avgVolume25,
         momentumMinReturn: POST_SURGE_CONSOLIDATION.ENTRY.MOMENTUM_MIN_RETURN,
