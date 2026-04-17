@@ -370,7 +370,7 @@ async function fetchPSCHistoricalData(tickers: string[]): Promise<Map<string, PS
  * GET /api/watchlist/state?tickers=7203,8306 - ウォッチリスト状態（ポーリング用）
  *
  * breakout-monitor 依存を排除し、ライブ時価から直接サージ比率を計算。
- * GU/WB/PSC 戦略ごとの条件チェック結果を返す。
+ * GU/PSC 戦略ごとの条件チェック結果を返す。
  */
 app.get("/watchlist/state", async (c) => {
   const tickersParam = c.req.query("tickers");
@@ -413,7 +413,6 @@ app.get("/watchlist/state", async (c) => {
   const now = dayjs().tz(TIMEZONE);
   const hour = now.hour();
   const minute = now.minute();
-  const isFriday = now.day() === 5;
 
   // ステータス判定
   type WatchlistStatus = "ordered" | "holding" | "watching";
@@ -444,11 +443,6 @@ app.get("/watchlist/state", async (c) => {
       surgeRatio >= GAPUP.ENTRY.VOL_SURGE_RATIO
     ) {
       strategies.push("GU");
-    }
-
-    // WB: price > weeklyHigh13（金曜のみ）
-    if (isFriday && wl.weeklyHigh13 != null && quote.price > wl.weeklyHigh13) {
-      strategies.push("WB");
     }
 
     // PSC: 全5条件を満たす場合のみ
@@ -565,7 +559,6 @@ app.get("/watchlist/state", async (c) => {
     open: number | null;
     gapup: GapupConditions | null;
     psc: PscConditions | null;
-    wbDeviation: number | null;
   }> = {};
 
   const marketOpen = isMarketOpen();
@@ -590,11 +583,6 @@ app.get("/watchlist/state", async (c) => {
     // 場中・場後は当日データが取得できるため gapup 計算を行う
     const quoteData = marketPhase !== "pre" && quote ? { price: quote.price, open: quote.open, volume: quote.volume } : null;
 
-    // WB乖離: 金曜のみ、現在価格 vs 13週高値 (%)
-    const wbDeviation = isFriday && quote && wl?.weeklyHigh13
-      ? ((quote.price - wl.weeklyHigh13) / wl.weeklyHigh13) * 100
-      : null;
-
     tickerData[ticker] = {
       status,
       ...(orderStrategy && { orderStrategy }),
@@ -604,7 +592,6 @@ app.get("/watchlist/state", async (c) => {
       open: marketPhase !== "pre" ? (quote?.open ?? null) : null,
       gapup: calcGapupConditions(ticker, quoteData),
       psc: calcPscConditions(ticker, quoteData, pscHistMap.get(ticker)),
-      wbDeviation,
     };
   }
 
@@ -621,7 +608,6 @@ app.get("/watchlist/state", async (c) => {
     global: {
       inTimeWindow,
       shouldTrade: todayAssessment?.shouldTrade ?? false,
-      isFriday,
       marketPhase,
       ...(brokerError && { _error: "broker_api_failed" }),
     },

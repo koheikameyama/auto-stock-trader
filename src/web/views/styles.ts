@@ -110,7 +110,6 @@ export const CSS = `
   .badge-crisis { background: rgba(220,38,38,0.15); color: ${COLORS.crisis}; }
   .badge-breakout { background: rgba(59,130,246,0.15); color: ${COLORS.accent}; }
   .badge-gapup { background: rgba(168,85,247,0.15); color: #a855f7; }
-  .badge-wb { background: rgba(6,182,212,0.15); color: #06b6d4; }
   .badge-psc { background: rgba(251,146,60,0.15); color: #fb923c; }
   .badge-hot { background: rgba(245,158,11,0.15); color: #f59e0b; }
   .badge-triggered { background: rgba(59,130,246,0.15); color: ${COLORS.accent}; }
