@@ -112,10 +112,32 @@ function printMonthlyEquitySummary(
   console.log(`  資金増加率: ${sign}${growthPct.toFixed(1)}%`);
 }
 
+interface RegimeDef {
+  key: string;
+  label: string;
+  startDate: string;
+  endDate: string;
+  note: string;
+}
+
+const REGIME_DEFS: RegimeDef[] = [
+  { key: "A", label: "A:平穏ボックス", startDate: "2024-03-01", endDate: "2024-07-31", note: "暴落前4万円前後持ち合い" },
+  { key: "B", label: "B:ブラマン＋余震", startDate: "2024-08-01", endDate: "2024-12-31", note: "8/5暴落→V字回復" },
+  { key: "C", label: "C:関税ショック",  startDate: "2025-02-01", endDate: "2025-04-30", note: "MaxDD-26%、4/7底" },
+  { key: "D", label: "D:大強気相場",    startDate: "2025-05-01", endDate: "2026-02-28", note: "+60%超の上昇トレンド" },
+  { key: "E", label: "E:直近急落",      startDate: "2026-03-01", endDate: "2026-04-16", note: "58,850→51,064 -12%" },
+];
+
 async function main() {
   const args = process.argv.slice(2);
-  const endDate = getArg(args, "--end") ?? dayjs().format("YYYY-MM-DD");
-  const startDate = getArg(args, "--start") ?? dayjs(endDate).subtract(12, "month").format("YYYY-MM-DD");
+  const compareRegimes = args.includes("--compare-regimes");
+  // compare-regimes時はフルレンジでデータをロード
+  const endDate = compareRegimes
+    ? "2026-04-16"
+    : (getArg(args, "--end") ?? dayjs().format("YYYY-MM-DD"));
+  const startDate = compareRegimes
+    ? "2024-03-01"
+    : (getArg(args, "--start") ?? dayjs(endDate).subtract(12, "month").format("YYYY-MM-DD"));
   const budget = Number(getArg(args, "--budget") ?? 500_000);
   const monthlyAddAmount = Number(getArg(args, "--monthly-add") ?? 0);
   const maxPriceOverride = getArg(args, "--max-price");
@@ -136,7 +158,7 @@ async function main() {
   const compareWbEntry = args.includes("--compare-wb-entry");
   const compareWbHalfsize = args.includes("--compare-wb-halfsize");
 
-  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareVixFilter || compareBudget || compareHolding || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareWbEntry || compareWbHalfsize;
+  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareVixFilter || compareBudget || compareHolding || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareWbEntry || compareWbHalfsize || compareRegimes;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
   const boConfig: BreakoutBacktestConfig = { ...BREAKOUT_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
@@ -431,6 +453,77 @@ async function main() {
           `${v.label.padEnd(26)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(5)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(8)} | ${m.maxDrawdown.toFixed(1).padStart(6)}% | ${m.netReturnPct.toFixed(1).padStart(7)}% | ${String(wm.totalTrades).padStart(5)} | ${wbPfStr.padStart(6)} | ${wbExpStr.padStart(8)} | ${wbAvgH.padStart(8)}`,
         );
       }
+    }
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // レジーム別比較モード
+  if (compareRegimes) {
+    console.log("\n=== レジーム別比較 (現行パラメータ: GU3+PSC2, maxPrice=dyn, budget=¥500,000) ===");
+    console.log(
+      `${"レジーム".padEnd(20)}| ${"期間".padEnd(23)} | ${"Trades".padStart(6)} | ${"WinR".padStart(6)} | ${"PF".padStart(5)} | ${"Expect".padStart(8)} | ${"MaxDD".padStart(7)} | ${"NetRet".padStart(8)} | ${"Calmar".padStart(7)} | ${"稼働率".padStart(6)}`,
+    );
+    console.log("-".repeat(130));
+
+    for (const rg of REGIME_DEFS) {
+      const bc: BreakoutBacktestConfig = { ...boConfig, startDate: rg.startDate, endDate: rg.endDate };
+      const gc: GapUpBacktestConfig = { ...guConfig, startDate: rg.startDate, endDate: rg.endDate };
+      const wc: WeeklyBreakBacktestConfig = { ...wbConfig, startDate: rg.startDate, endDate: rg.endDate };
+      const pc: PostSurgeConsolidationBacktestConfig = { ...pscConfig, startDate: rg.startDate, endDate: rg.endDate };
+
+      // レジーム期間で precompute を作り直す（ウォームアップ用の日数は allData に既に含まれる）
+      const rgPrecomputed = precomputeSimData(
+        rg.startDate, rg.endDate, allData,
+        true, true,
+        boConfig.indexTrendSmaPeriod ?? 50,
+        indexData.size > 0 ? indexData : undefined,
+        boConfig.indexMomentumFilter ?? false,
+        boConfig.indexMomentumDays ?? 60,
+        boConfig.indexTrendOffBufferPct ?? 0,
+        boConfig.indexTrendOnBufferPct ?? 0,
+      );
+      const rgBoSig = precomputeDailySignals(bc, allData, rgPrecomputed);
+      const rgGuSig = precomputeGapUpDailySignals(gc, allData, rgPrecomputed);
+      const rgWbSig = precomputeWeeklyBreakSignals(wc, allData, rgPrecomputed);
+      const rgPscSig = precomputePSCDailySignals(pc, allData, rgPrecomputed);
+
+      const result = runCombinedSimulation(
+        { ...ctx, boConfig: bc, guConfig: gc, wbConfig: wc, pscConfig: pc,
+          precomputed: rgPrecomputed,
+          breakoutSignals: rgBoSig, gapupSignals: rgGuSig, weeklyBreakSignals: rgWbSig, pscSignals: rgPscSig },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const gm = result.guMetrics;
+      const pm = result.pscMetrics;
+      const util = calculateCapitalUtilization(result.equityCurve);
+      const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
+      const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
+
+      // Calmar比 = 年率NetRet / MaxDD
+      const days = dayjs(rg.endDate).diff(dayjs(rg.startDate), "day");
+      const years = Math.max(days / 365.25, 0.0001);
+      const annualizedRet = Math.pow(1 + m.netReturnPct / 100, 1 / years) - 1;
+      const calmar = m.maxDrawdown > 0 ? (annualizedRet * 100) / m.maxDrawdown : 0;
+      const calmarStr = m.maxDrawdown > 0 && m.totalTrades > 0 ? calmar.toFixed(2) : "-";
+
+      const periodStr = `${rg.startDate}〜${rg.endDate.substring(5)}`;
+      console.log(
+        `${rg.label.padEnd(20)}| ${periodStr.padEnd(23)} | ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(5)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(8)} | ${m.maxDrawdown.toFixed(1).padStart(6)}% | ${m.netReturnPct.toFixed(1).padStart(7)}% | ${calmarStr.padStart(7)} | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
+      );
+      // 戦略別内訳
+      const gmPf = gm.profitFactor === Infinity ? "∞" : gm.profitFactor.toFixed(2);
+      const pmPf = pm.profitFactor === Infinity ? "∞" : pm.profitFactor.toFixed(2);
+      const gmExp = (gm.expectancy >= 0 ? "+" : "") + gm.expectancy.toFixed(2) + "%";
+      const pmExp = (pm.expectancy >= 0 ? "+" : "") + pm.expectancy.toFixed(2) + "%";
+      console.log(
+        `${("  └GU " + rg.note).padEnd(44)} | ${String(gm.totalTrades).padStart(6)} | ${gm.winRate.toFixed(1).padStart(5)}% | ${gmPf.padStart(5)} | ${gmExp.padStart(8)} |        |          |         |       `,
+      );
+      console.log(
+        `${"  └PSC".padEnd(44)} | ${String(pm.totalTrades).padStart(6)} | ${pm.winRate.toFixed(1).padStart(5)}% | ${pmPf.padStart(5)} | ${pmExp.padStart(8)} |        |          |         |       `,
+      );
     }
     console.log("");
     await prisma.$disconnect();
