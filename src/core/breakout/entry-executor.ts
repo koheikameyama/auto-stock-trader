@@ -262,8 +262,8 @@ export async function executeEntry(
   const reasoning = isWeeklyBreak
     ? `週足ブレイクトリガー: ${'weeklyHigh' in trigger ? trigger.weeklyHigh : 0}円を上抜け, 出来高サージ ${trigger.volumeSurgeRatio.toFixed(2)}x`
     : isPSC
-    ? `高騰後押し目トリガー: モメンタム ${(('momentumReturn' in trigger ? trigger.momentumReturn : 0) * 100).toFixed(1)}%, 出来高サージ ${trigger.volumeSurgeRatio.toFixed(2)}x`
-    : `ギャップアップトリガー: 出来高サージ比率 ${trigger.volumeSurgeRatio.toFixed(2)}x, ギャップ3%以上`;
+    ? `PSCトリガー: モメンタム ${(('momentumReturn' in trigger ? trigger.momentumReturn : 0) * 100).toFixed(1)}%, 出来高サージ ${trigger.volumeSurgeRatio.toFixed(2)}x`
+    : `GUトリガー: 出来高サージ比率 ${trigger.volumeSurgeRatio.toFixed(2)}x, ギャップ3%以上`;
 
   // 7. ブローカー発注（DB保存前に実行）
   let brokerResult;
@@ -363,8 +363,8 @@ export async function executeEntry(
   const slackReasoning = isWeeklyBreak
     ? `週足ブレイクトリガー: ${'weeklyHigh' in trigger ? trigger.weeklyHigh : 0}円上抜け / 出来高サージ ${trigger.volumeSurgeRatio.toFixed(2)}x`
     : isPSC
-    ? `高騰後押し目トリガー: モメンタム ${(('momentumReturn' in trigger ? trigger.momentumReturn : 0) * 100).toFixed(1)}% / 出来高サージ ${trigger.volumeSurgeRatio.toFixed(2)}x`
-    : `ギャップアップトリガー: 出来高サージ ${trigger.volumeSurgeRatio.toFixed(2)}x / ギャップ3%以上`;
+    ? `PSCトリガー: モメンタム ${(('momentumReturn' in trigger ? trigger.momentumReturn : 0) * 100).toFixed(1)}% / 出来高サージ ${trigger.volumeSurgeRatio.toFixed(2)}x`
+    : `GUトリガー: 出来高サージ ${trigger.volumeSurgeRatio.toFixed(2)}x / ギャップ3%以上`;
   await notifyOrderPlaced({
     tickerCode: ticker,
     name: stock.name,

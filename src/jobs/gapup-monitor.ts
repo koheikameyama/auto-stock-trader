@@ -139,7 +139,7 @@ export async function main(): Promise<void> {
             .join("\n")
         : "シグナルなし";
     await notifySlack({
-      title: `[gapup] スキャン完了: ${gapupTriggers.length}件`,
+      title: `[GU] スキャン完了: ${gapupTriggers.length}件`,
       message: `スキャン対象: ${gapupQuotes.length}銘柄 / breadth: ${(breadth * 100).toFixed(1)}%\n${triggerLines}`,
       color: gapupTriggers.length > 0 ? "good" : undefined,
     });
@@ -168,7 +168,7 @@ export async function main(): Promise<void> {
             );
           } else {
             await notifySlack({
-              title: `[gapup] エントリー失敗: ${trigger.ticker}`,
+              title: `[GU] エントリー失敗: ${trigger.ticker}`,
               message: `理由: ${result.reason ?? "不明"}\n価格: ¥${trigger.currentPrice.toLocaleString()} / 出来高サージ: ${trigger.volumeSurgeRatio.toFixed(2)}x`,
               color: "warning",
             });
@@ -191,7 +191,7 @@ export async function main(): Promise<void> {
     // 時価取得や breadth 計算等の例外（フラグ未セット → 次分リトライ）
     console.error(`${tag} スキャンエラー:`, err);
     await notifySlack({
-      title: `[gapup] スキャンエラー（リトライ待機）`,
+      title: `[GU] スキャンエラー（リトライ待機）`,
       message: `${err instanceof Error ? err.message : String(err)}`,
       color: "warning",
     });

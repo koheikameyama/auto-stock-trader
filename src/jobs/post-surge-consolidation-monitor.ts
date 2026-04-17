@@ -136,7 +136,7 @@ export async function main(): Promise<void> {
             .join("\n")
         : "シグナルなし";
     await notifySlack({
-      title: `[psc] スキャン完了: ${triggers.length}件`,
+      title: `[PSC] スキャン完了: ${triggers.length}件`,
       message: `スキャン対象: ${quotes.length}銘柄 / breadth: ${(breadth * 100).toFixed(1)}%\n${triggerLines}`,
       color: triggers.length > 0 ? "good" : undefined,
     });
@@ -165,7 +165,7 @@ export async function main(): Promise<void> {
             );
           } else {
             await notifySlack({
-              title: `[psc] エントリー失敗: ${trigger.ticker}`,
+              title: `[PSC] エントリー失敗: ${trigger.ticker}`,
               message: `理由: ${result.reason ?? "不明"}\n価格: ¥${trigger.currentPrice.toLocaleString()} / モメンタム: ${(trigger.momentumReturn * 100).toFixed(1)}%`,
               color: "warning",
             });
@@ -186,7 +186,7 @@ export async function main(): Promise<void> {
     // 時価取得や DB クエリ等の例外（フラグ未セット → 次分リトライ）
     console.error(`${tag} スキャンエラー:`, err);
     await notifySlack({
-      title: `[psc] スキャンエラー（リトライ待機）`,
+      title: `[PSC] スキャンエラー（リトライ待機）`,
       message: `${err instanceof Error ? err.message : String(err)}`,
       color: "warning",
     });

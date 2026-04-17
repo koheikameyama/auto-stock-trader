@@ -192,7 +192,7 @@ async function main() {
   }
 
   console.log("=".repeat(60));
-  console.log("統合バックテスト（Breakout + GapUp + WeeklyBreak + PSC）");
+  console.log("統合バックテスト（Breakout + GU + WeeklyBreak + PSC）");
   console.log("=".repeat(60));
   console.log(`期間: ${startDate} → ${endDate}`);
   console.log(`初期資金: ¥${budget.toLocaleString()}`);
@@ -862,9 +862,9 @@ async function main() {
   console.log(`  資金稼働率: ${util.capitalUtilizationPct.toFixed(1)}%`);
 
   printMetrics(result.boMetrics, "Breakout");
-  printMetrics(result.guMetrics, "GapUp");
+  printMetrics(result.guMetrics, "GU");
   printMetrics(result.wbMetrics, "WeeklyBreak");
-  printMetrics(result.pscMetrics, "PostSurgeConsolidation");
+  printMetrics(result.pscMetrics, "PSC");
 
   const exitReasons = new Map<string, number>();
   for (const t of result.allTrades) {

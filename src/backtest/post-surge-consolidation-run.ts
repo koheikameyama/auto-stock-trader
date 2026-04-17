@@ -49,7 +49,7 @@ async function main() {
   const noPositionCap = args.includes("--no-position-cap");
 
   console.log("=".repeat(60));
-  console.log("高騰後押し目（Post-Surge Consolidation）バックテスト");
+  console.log("PSC（高騰後押し目）バックテスト");
   console.log("=".repeat(60));
   console.log(`期間: ${startDate} → ${endDate}`);
   console.log(`初期資金: ¥${budget.toLocaleString()}`);
@@ -92,7 +92,7 @@ async function main() {
 
   // デフォルト実行
   const result = runPSCBacktest(baseConfig, allData, vixArg, indexArg);
-  printResult(result, "高騰後押し目（Post-Surge Consolidation）戦略");
+  printResult(result, "PSC（高騰後押し目）戦略");
 
   // 資本効率
   const util = calculateCapitalUtilization(result.equityCurve);
@@ -111,6 +111,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("高騰後押し目（PSC）BTエラー:", err);
+  console.error("PSC BTエラー:", err);
   process.exit(1);
 });

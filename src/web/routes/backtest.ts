@@ -58,9 +58,9 @@ app.get("/", async (c) => {
 
   const breakdownLabel: Record<BreakdownKey, string> = {
     bo: "ブレイクアウト (BO)",
-    gu: "ギャップアップ (GU)",
+    gu: "GU（ギャップアップ）",
     wb: "週足ブレイク (WB)",
-    psc: "高騰後押し目 (PSC)",
+    psc: "PSC（高騰後押し目）",
   };
   const metrics = run ? (run.metricsJson as unknown as PerformanceMetrics & { breakdown?: Partial<Record<BreakdownKey, PerformanceMetrics>> }) : null;
   const equityCurve = run ? (run.equityCurveJson as unknown as DailyEquity[]) : [];
@@ -81,9 +81,9 @@ app.get("/", async (c) => {
 
   const strategyLabel: Record<string, string> = {
     breakout: "ブレイクアウト",
-    gapup: "ギャップアップ",
+    gapup: "GU（ギャップアップ）",
     "weekly-break": "週足ブレイク",
-    "post-surge-consolidation": "高騰後押し目",
+    "post-surge-consolidation": "PSC（高騰後押し目）",
     "gapdown-reversal": "GDリバーサル",
     "squeeze-breakout": "スクイーズBO",
     combined: "Combined",

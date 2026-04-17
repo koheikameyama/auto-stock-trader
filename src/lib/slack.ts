@@ -891,7 +891,7 @@ export async function notifyBreakoutBacktest(data: BacktestNotifyData): Promise<
 }
 
 export async function notifyGapUpBacktest(data: BacktestNotifyData): Promise<void> {
-  await notifySlack(formatBacktestNotification("ギャップアップ", data));
+  await notifySlack(formatBacktestNotification("GU（ギャップアップ）", data));
 }
 
 export async function notifyCombinedBacktest(data: BacktestNotifyData): Promise<void> {

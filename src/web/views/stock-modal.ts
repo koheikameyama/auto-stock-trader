@@ -102,7 +102,7 @@ function priceDisplay(q: ModalQuoteInfo): HtmlContent {
 function positionBanner(pos: ModalPositionInfo): HtmlContent {
   const strategyLabels: Record<string, string> = {
     breakout: "ブレイクアウト",
-    gapup: "ギャップアップ",
+    gapup: "GU（ギャップアップ）",
   };
   const pnlColor = (pos.unrealizedPnl ?? 0) >= 0 ? "#22c55e" : "#ef4444";
   const pnlSign = (pos.unrealizedPnl ?? 0) >= 0 ? "+" : "";

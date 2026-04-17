@@ -154,7 +154,7 @@ async function main() {
   const gapMinPct = gapMinPctArg != null ? parseFloat(gapMinPctArg) / 100 : undefined;
 
   console.log("=".repeat(60));
-  console.log("ギャップアップ バックテスト");
+  console.log("GU（ギャップアップ）バックテスト");
   console.log("=".repeat(60));
   console.log(`期間: ${startDate} → ${endDate}`);
   console.log(`初期資金: ¥${budget.toLocaleString()}`);
@@ -212,7 +212,7 @@ async function main() {
 
   // デフォルト実行
   const result = runGapUpBacktest(baseConfig, allData, vixArg, indexArg);
-  printResult(result, "ギャップアップ戦略");
+  printResult(result, "GU（ギャップアップ）戦略");
 
   // 資本効率
   const util = calculateCapitalUtilization(result.equityCurve);
@@ -231,6 +231,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("ギャップアップBTエラー:", err);
+  console.error("GU BTエラー:", err);
   process.exit(1);
 });

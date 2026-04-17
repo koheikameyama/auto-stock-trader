@@ -171,7 +171,7 @@ async function main() {
   const startDate = dayjs().subtract(TOTAL_MONTHS, "month").format("YYYY-MM-DD");
 
   console.log("=".repeat(70));
-  console.log("ギャップアップ戦略 Walk-Forward 分析");
+  console.log("GU（ギャップアップ）戦略 Walk-Forward 分析");
   console.log("=".repeat(70));
   console.log(`分析期間: ${startDate} → ${endDate} (${TOTAL_MONTHS}ヶ月)`);
   console.log(`IS: ${IS_MONTHS}ヶ月 / OOS: ${OOS_MONTHS}ヶ月 / スライド: ${SLIDE_MONTHS}ヶ月`);
