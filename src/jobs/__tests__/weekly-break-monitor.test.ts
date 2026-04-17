@@ -226,10 +226,10 @@ describe("weekly-break-monitor main()", () => {
     );
   });
 
-  it("エントリー失敗→Slack warning", async () => {
+  it("エントリー失敗（非リトライ）→Slack warning", async () => {
     setupDefaults();
     mockWBScan.mockReturnValue([makeTrigger("7203")]);
-    mockExecuteEntry.mockResolvedValue({ success: false, reason: "残高不足" });
+    mockExecuteEntry.mockResolvedValue({ success: false, reason: "残高不足", retryable: false });
     await main();
     expect(mockNotifySlack).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -239,20 +239,39 @@ describe("weekly-break-monitor main()", () => {
     );
   });
 
-  it("エントリー例外→Slack danger", async () => {
+  it("エントリー失敗（リトライ可能）→ 次回呼び出しで再実行", async () => {
     setupDefaults();
     mockWBScan.mockReturnValue([makeTrigger("7203")]);
-    mockExecuteEntry.mockRejectedValue(new Error("接続エラー"));
+    mockExecuteEntry.mockResolvedValue({
+      success: false,
+      reason: "Tachibana API timeout",
+      retryable: true,
+    });
     await main();
-    expect(mockNotifySlack).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: expect.stringContaining("エントリー例外"),
-        color: "danger",
-      }),
-    );
+    // フラグ未セット → 再実行される
+    vi.clearAllMocks();
+    setupDefaults();
+    mockWBScan.mockReturnValue([makeTrigger("7203")]);
+    mockExecuteEntry.mockResolvedValue({ success: true });
+    await main();
+    expect(mockExecuteEntry).toHaveBeenCalled();
   });
 
-  it("スキャン処理全体のエラー→Slack danger", async () => {
+  it("エントリー例外→リトライ扱い（次回呼び出しで再実行）", async () => {
+    setupDefaults();
+    mockWBScan.mockReturnValue([makeTrigger("7203")]);
+    mockExecuteEntry.mockRejectedValueOnce(new Error("接続エラー"));
+    await main();
+    // フラグ未セット → 次分で再実行される
+    vi.clearAllMocks();
+    setupDefaults();
+    mockWBScan.mockReturnValue([makeTrigger("7203")]);
+    mockExecuteEntry.mockResolvedValue({ success: true });
+    await main();
+    expect(mockExecuteEntry).toHaveBeenCalled();
+  });
+
+  it("スキャン処理全体のエラー→Slack warning（リトライ待機）", async () => {
     setupDefaults();
     // breadth用(1回目)は正常、daily bars用(2回目)はエラー
     mockDailyBarFindMany
@@ -262,9 +281,14 @@ describe("weekly-break-monitor main()", () => {
     expect(mockNotifySlack).toHaveBeenCalledWith(
       expect.objectContaining({
         title: expect.stringContaining("スキャンエラー"),
-        color: "danger",
+        color: "warning",
       }),
     );
+    // フラグ未セット → 次分で再実行される
+    vi.clearAllMocks();
+    setupDefaults();
+    await main();
+    expect(mockDailyBarFindMany).toHaveBeenCalled();
   });
 
   it("resetScannerで1日1回制限が解除される", async () => {

@@ -180,10 +180,10 @@ describe("gapup-monitor main()", () => {
     expect(mockExecuteEntry).toHaveBeenCalledWith(trigger, "gapup");
   });
 
-  it("エントリー失敗→Slack warning", async () => {
+  it("エントリー失敗（非リトライ）→Slack warning", async () => {
     setupDefaults();
     mockGapUpScan.mockReturnValue([makeTrigger("7203")]);
-    mockExecuteEntry.mockResolvedValue({ success: false, reason: "残高不足" });
+    mockExecuteEntry.mockResolvedValue({ success: false, reason: "残高不足", retryable: false });
     await main();
     expect(mockNotifySlack).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -193,17 +193,69 @@ describe("gapup-monitor main()", () => {
     );
   });
 
-  it("エントリー例外→Slack danger", async () => {
+  it("エントリー失敗（リトライ可能）→ Slack通知なし・次回呼び出しでリトライ", async () => {
     setupDefaults();
     mockGapUpScan.mockReturnValue([makeTrigger("7203")]);
-    mockExecuteEntry.mockRejectedValue(new Error("接続エラー"));
+    mockExecuteEntry.mockResolvedValue({
+      success: false,
+      reason: "Tachibana API timeout",
+      retryable: true,
+    });
+    await main();
+    // エントリー失敗通知は送らない（スキャン完了通知のみ）
+    const entryFailCalls = mockNotifySlack.mock.calls.filter((c) =>
+      String(c[0]?.title ?? "").includes("エントリー失敗"),
+    );
+    expect(entryFailCalls).toHaveLength(0);
+    // 再度呼び出すと executeEntry が再実行される（フラグ未セット）
+    vi.clearAllMocks();
+    setupDefaults();
+    mockGapUpScan.mockReturnValue([makeTrigger("7203")]);
+    mockExecuteEntry.mockResolvedValue({ success: true });
+    await main();
+    expect(mockExecuteEntry).toHaveBeenCalled();
+  });
+
+  it("エントリー例外→リトライ扱い（次回呼び出しで再実行）", async () => {
+    setupDefaults();
+    mockGapUpScan.mockReturnValue([makeTrigger("7203")]);
+    mockExecuteEntry.mockRejectedValueOnce(new Error("接続エラー"));
+    await main();
+    // フラグ未セット → 次分で再実行される
+    vi.clearAllMocks();
+    setupDefaults();
+    mockGapUpScan.mockReturnValue([makeTrigger("7203")]);
+    mockExecuteEntry.mockResolvedValue({ success: true });
+    await main();
+    expect(mockExecuteEntry).toHaveBeenCalled();
+  });
+
+  it("OHLCV取得0件→フラグ未セット・次分でリトライ", async () => {
+    setupDefaults();
+    mockFetchQuotes.mockResolvedValueOnce([null]);
+    await main();
+    // 次分で再実行されることを確認（時価が復活したケース）
+    vi.clearAllMocks();
+    setupDefaults();
+    await main();
+    expect(mockFetchQuotes).toHaveBeenCalled();
+  });
+
+  it("時価取得例外→フラグ未セット・Slack warning", async () => {
+    setupDefaults();
+    mockFetchQuotes.mockRejectedValueOnce(new Error("全銘柄の時価取得に失敗"));
     await main();
     expect(mockNotifySlack).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: expect.stringContaining("エントリー例外"),
-        color: "danger",
+        title: expect.stringContaining("スキャンエラー"),
+        color: "warning",
       }),
     );
+    // 次分で再実行される
+    vi.clearAllMocks();
+    setupDefaults();
+    await main();
+    expect(mockFetchQuotes).toHaveBeenCalled();
   });
 
   it("resetScannerで1日1回制限が解除される", async () => {

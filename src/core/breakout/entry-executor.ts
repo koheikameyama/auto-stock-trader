@@ -280,24 +280,31 @@ export async function executeEntry(
     console.error(`[entry-executor] ブローカーエラー ${ticker}:`, brokerErr);
     const errorMsg = brokerErr instanceof Error ? brokerErr.message : String(brokerErr);
     await notifySlack({
-      title: `ブローカー発注失敗: ${ticker}`,
+      title: `ブローカー発注失敗: ${ticker}（リトライ待機）`,
       message: errorMsg,
-      color: "danger",
+      color: "warning",
     });
-    return { success: false, reason: errorMsg, retryable: false };
+    // 例外（ネットワーク/セッション障害など）はリトライ可能とする
+    return { success: false, reason: errorMsg, retryable: true };
   }
 
   if (!brokerResult.success || !brokerResult.orderNumber) {
     const errorMsg = brokerResult.success
       ? "注文番号が取得できませんでした"
       : (brokerResult.error ?? "Unknown error");
-    console.warn(`[entry-executor] ブローカー発注失敗: ${ticker}: ${errorMsg}`);
+    // サブコード（"[sub:"プレフィックス）は業務ロジック上のリジェクト（資金不足、口座種別不一致など） → 非リトライ
+    // それ以外（sResultCode エラー、注文番号未返却）はトランスポート/セッション起因 → リトライ可能
+    const isBusinessRejection = errorMsg.startsWith("[sub:");
+    const retryable = !isBusinessRejection;
+    console.warn(
+      `[entry-executor] ブローカー発注失敗: ${ticker}: ${errorMsg} (retryable=${retryable})`,
+    );
     await notifySlack({
-      title: `ブローカー発注失敗: ${ticker}`,
+      title: `ブローカー発注失敗: ${ticker}${retryable ? "（リトライ待機）" : ""}`,
       message: errorMsg,
-      color: "danger",
+      color: retryable ? "warning" : "danger",
     });
-    return { success: false, reason: errorMsg, retryable: false };
+    return { success: false, reason: errorMsg, retryable };
   }
 
   console.log(

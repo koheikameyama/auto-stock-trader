@@ -50,7 +50,7 @@ export async function main(): Promise<void> {
     return;
   }
 
-  // MarketAssessment 確認
+  // MarketAssessment 確認（shouldTrade=false は当日確定 → フラグセット）
   const todayAssessment = await prisma.marketAssessment.findUnique({
     where: { date: getTodayForDB() },
   });
@@ -60,111 +60,141 @@ export async function main(): Promise<void> {
     return;
   }
 
-  lastScanDate = today;
-
   const watchlist = await getGuWatchlist();
   if (!watchlist.length) {
     console.log(`${tag} スキップ: ウォッチリスト空`);
+    lastScanDate = today;
     return;
   }
 
   const tickers = watchlist.map((e) => e.ticker);
 
-  // 保有・注文中ポジション取得（二重発注防止のため ordered も除外）
-  const openPositions = await prisma.tradingPosition.findMany({
-    where: { status: { in: ["open", "ordered"] } },
-    include: { stock: { select: { tickerCode: true } } },
-  });
-  const holdingTickers = new Set(openPositions.map((p) => p.stock.tickerCode));
+  try {
+    // 保有・注文中ポジション取得（二重発注防止のため ordered も除外）
+    const openPositions = await prisma.tradingPosition.findMany({
+      where: { status: { in: ["open", "ordered"] } },
+      include: { stock: { select: { tickerCode: true } } },
+    });
+    const holdingTickers = new Set(openPositions.map((p) => p.stock.tickerCode));
 
-  // リアルタイム時価を一括取得
-  const quotesRaw = await tachibanaFetchQuotesBatch(tickers);
-  const quotesNonNull = quotesRaw.filter(
-    (q): q is NonNullable<typeof q> => q !== null && q.open > 0 && q.volume > 0,
-  );
-
-  if (quotesNonNull.length === 0) {
-    console.log(`${tag} スキップ: OHLCV取得0件`);
-    return;
-  }
-
-  // breadthフィルター
-  const livePriceMap = new Map(quotesNonNull.map((q) => [q.tickerCode, q.price]));
-  const breadth = await calculateLiveBreadth(tickers, livePriceMap);
-  console.log(`${tag} breadth=${(breadth * 100).toFixed(1)}%`);
-
-  if (breadth < GAPUP.MARKET_FILTER.BREADTH_THRESHOLD) {
-    console.log(
-      `${tag} スキップ: breadth=${(breadth * 100).toFixed(1)}% < ${GAPUP.MARKET_FILTER.BREADTH_THRESHOLD * 100}%`,
+    // リアルタイム時価を一括取得
+    const quotesRaw = await tachibanaFetchQuotesBatch(tickers);
+    const quotesNonNull = quotesRaw.filter(
+      (q): q is NonNullable<typeof q> => q !== null && q.open > 0 && q.volume > 0,
     );
-    return;
-  }
 
-  console.log(`${tag} gapupスキャン開始`);
-
-  const gapupQuotes: GapUpQuoteData[] = quotesNonNull.map((q) => ({
-    ticker: q.tickerCode,
-    open: q.open,
-    price: q.price,
-    high: q.high,
-    low: q.low,
-    volume: q.volume,
-  }));
-
-  const gapupScanner = new GapUpScanner(watchlist);
-  const gapupTriggers = gapupScanner.scan(gapupQuotes, holdingTickers);
-
-  // トリガーに板情報を付与
-  const rawQuoteMap = new Map(quotesNonNull.map((q) => [q.tickerCode, q]));
-  for (const t of gapupTriggers) {
-    const raw = rawQuoteMap.get(t.ticker);
-    if (raw) {
-      t.askPrice = raw.askPrice;
-      t.bidPrice = raw.bidPrice;
-      t.askSize = raw.askSize;
-      t.bidSize = raw.bidSize;
+    if (quotesNonNull.length === 0) {
+      // 時価取得ゼロ件（API障害の可能性）→ 次分リトライ待機（フラグ未セット）
+      console.log(`${tag} スキップ: OHLCV取得0件（次分リトライ）`);
+      return;
     }
-  }
 
-  console.log(
-    `${tag} スキャン完了: 時価=${gapupQuotes.length} トリガー=${gapupTriggers.length}`,
-  );
+    // breadthフィルター
+    const livePriceMap = new Map(quotesNonNull.map((q) => [q.tickerCode, q.price]));
+    const breadth = await calculateLiveBreadth(tickers, livePriceMap);
+    console.log(`${tag} breadth=${(breadth * 100).toFixed(1)}%`);
 
-  const triggerLines =
-    gapupTriggers.length > 0
-      ? gapupTriggers
-          .map((t) => `• ${t.ticker} ¥${t.currentPrice.toLocaleString()} 出来高サージ ${t.volumeSurgeRatio.toFixed(2)}x`)
-          .join("\n")
-      : "シグナルなし";
-  await notifySlack({
-    title: `[gapup] スキャン完了: ${gapupTriggers.length}件`,
-    message: `スキャン対象: ${gapupQuotes.length}銘柄 / breadth: ${(breadth * 100).toFixed(1)}%\n${triggerLines}`,
-    color: gapupTriggers.length > 0 ? "good" : undefined,
-  });
+    if (breadth < GAPUP.MARKET_FILTER.BREADTH_THRESHOLD) {
+      console.log(
+        `${tag} スキップ: breadth=${(breadth * 100).toFixed(1)}% < ${GAPUP.MARKET_FILTER.BREADTH_THRESHOLD * 100}%`,
+      );
+      lastScanDate = today;
+      return;
+    }
 
-  // 1日1件制限: RR降順ソート済みの先頭シグナルのみエントリー（WF検証済み: PF 2.45→2.73）
-  const topTriggers = gapupTriggers.slice(0, 1);
-  for (const trigger of topTriggers) {
-    console.log(
-      `${tag} トリガー発火: ${trigger.ticker} 価格=¥${trigger.currentPrice} 出来高サージ=${trigger.volumeSurgeRatio.toFixed(2)}x`,
-    );
-    try {
-      const result = await executeEntry(trigger, "gapup");
-      if (!result.success) {
-        await notifySlack({
-          title: `[gapup] エントリー失敗: ${trigger.ticker}`,
-          message: `理由: ${result.reason ?? "不明"}\n価格: ¥${trigger.currentPrice.toLocaleString()} / 出来高サージ: ${trigger.volumeSurgeRatio.toFixed(2)}x`,
-          color: "warning",
-        });
+    console.log(`${tag} gapupスキャン開始`);
+
+    const gapupQuotes: GapUpQuoteData[] = quotesNonNull.map((q) => ({
+      ticker: q.tickerCode,
+      open: q.open,
+      price: q.price,
+      high: q.high,
+      low: q.low,
+      volume: q.volume,
+    }));
+
+    const gapupScanner = new GapUpScanner(watchlist);
+    const gapupTriggers = gapupScanner.scan(gapupQuotes, holdingTickers);
+
+    // トリガーに板情報を付与
+    const rawQuoteMap = new Map(quotesNonNull.map((q) => [q.tickerCode, q]));
+    for (const t of gapupTriggers) {
+      const raw = rawQuoteMap.get(t.ticker);
+      if (raw) {
+        t.askPrice = raw.askPrice;
+        t.bidPrice = raw.bidPrice;
+        t.askSize = raw.askSize;
+        t.bidSize = raw.bidSize;
       }
-    } catch (err) {
-      console.error(`${tag} エントリーエラー: ${trigger.ticker}`, err);
-      await notifySlack({
-        title: `[gapup] エントリー例外: ${trigger.ticker}`,
-        message: `${err instanceof Error ? err.message : String(err)}`,
-        color: "danger",
-      });
     }
+
+    console.log(
+      `${tag} スキャン完了: 時価=${gapupQuotes.length} トリガー=${gapupTriggers.length}`,
+    );
+
+    const triggerLines =
+      gapupTriggers.length > 0
+        ? gapupTriggers
+            .map((t) => `• ${t.ticker} ¥${t.currentPrice.toLocaleString()} 出来高サージ ${t.volumeSurgeRatio.toFixed(2)}x`)
+            .join("\n")
+        : "シグナルなし";
+    await notifySlack({
+      title: `[gapup] スキャン完了: ${gapupTriggers.length}件`,
+      message: `スキャン対象: ${gapupQuotes.length}銘柄 / breadth: ${(breadth * 100).toFixed(1)}%\n${triggerLines}`,
+      color: gapupTriggers.length > 0 ? "good" : undefined,
+    });
+
+    // 1日1件制限: RR降順ソート済みの先頭シグナルのみエントリー（WF検証済み: PF 2.45→2.73）
+    const topTriggers = gapupTriggers.slice(0, 1);
+
+    // トリガー0件 → 当日はシグナルなしで確定 → フラグセット
+    if (topTriggers.length === 0) {
+      lastScanDate = today;
+      return;
+    }
+
+    let anyRetryable = false;
+    for (const trigger of topTriggers) {
+      console.log(
+        `${tag} トリガー発火: ${trigger.ticker} 価格=¥${trigger.currentPrice} 出来高サージ=${trigger.volumeSurgeRatio.toFixed(2)}x`,
+      );
+      try {
+        const result = await executeEntry(trigger, "gapup");
+        if (!result.success) {
+          if (result.retryable) {
+            anyRetryable = true;
+            console.log(
+              `${tag} エントリー失敗（リトライ可能）: ${trigger.ticker} / ${result.reason ?? "不明"}`,
+            );
+          } else {
+            await notifySlack({
+              title: `[gapup] エントリー失敗: ${trigger.ticker}`,
+              message: `理由: ${result.reason ?? "不明"}\n価格: ¥${trigger.currentPrice.toLocaleString()} / 出来高サージ: ${trigger.volumeSurgeRatio.toFixed(2)}x`,
+              color: "warning",
+            });
+          }
+        }
+      } catch (err) {
+        console.error(`${tag} エントリーエラー: ${trigger.ticker}`, err);
+        // エントリー処理中の例外はリトライ可能扱い（ネットワーク/DB等の一時障害）
+        anyRetryable = true;
+      }
+    }
+
+    // リトライ不要（成功 or 非リトライエラー）でのみフラグをセット
+    if (!anyRetryable) {
+      lastScanDate = today;
+    } else {
+      console.log(`${tag} 発注失敗（リトライ可能）: 次分の cron で再試行します`);
+    }
+  } catch (err) {
+    // 時価取得や breadth 計算等の例外（フラグ未セット → 次分リトライ）
+    console.error(`${tag} スキャンエラー:`, err);
+    await notifySlack({
+      title: `[gapup] スキャンエラー（リトライ待機）`,
+      message: `${err instanceof Error ? err.message : String(err)}`,
+      color: "warning",
+    });
   }
 }
 

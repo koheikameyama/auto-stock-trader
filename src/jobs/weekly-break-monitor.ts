@@ -60,7 +60,7 @@ export async function main(): Promise<void> {
     return;
   }
 
-  // 週末最終営業日チェック
+  // 週末最終営業日チェック（当日確定 → フラグセット）
   const nonTradingDaysAhead = countNonTradingDaysAhead();
   const isLastDayOfWeek = nonTradingDaysAhead >= 2;
   if (!isLastDayOfWeek) {
@@ -68,7 +68,7 @@ export async function main(): Promise<void> {
     return;
   }
 
-  // MarketAssessment 確認
+  // MarketAssessment 確認（当日確定 → フラグセット）
   const todayAssessment = await prisma.marketAssessment.findUnique({
     where: { date: getTodayForDB() },
   });
@@ -79,56 +79,58 @@ export async function main(): Promise<void> {
   }
 
   console.log(`${tag} 週末最終営業日: WBスキャン開始`);
-  lastScanDate = today;
 
   const watchlist = await getAllWatchlist();
   if (!watchlist.length) {
     console.log(`${tag} スキップ: ウォッチリスト空`);
+    lastScanDate = today;
     return;
   }
 
   const tickers = watchlist.map((e) => e.ticker);
 
-  // 保有・注文中ポジション取得（二重発注防止のため ordered も除外）
-  const openPositions = await prisma.tradingPosition.findMany({
-    where: { status: { in: ["open", "ordered"] } },
-    include: { stock: { select: { tickerCode: true } } },
-  });
-  const holdingTickers = new Set(openPositions.map((p) => p.stock.tickerCode));
-
-  // リアルタイム時価を一括取得
-  const quotesRaw = await tachibanaFetchQuotesBatch(tickers);
-  const quotesNonNull = quotesRaw.filter(
-    (q): q is NonNullable<typeof q> => q !== null && q.open > 0 && q.volume > 0,
-  );
-
-  const quoteData: GapUpQuoteData[] = quotesNonNull.map((q) => ({
-    ticker: q.tickerCode,
-    open: q.open,
-    price: q.price,
-    high: q.high,
-    low: q.low,
-    volume: q.volume,
-  }));
-
-  if (quoteData.length === 0) {
-    console.log(`${tag} スキップ: OHLCV取得0件`);
-    return;
-  }
-
-  // breadthフィルター
-  const livePriceMap = new Map(quotesNonNull.map((q) => [q.tickerCode, q.price]));
-  const breadth = await calculateLiveBreadth(tickers, livePriceMap);
-  console.log(`${tag} breadth=${(breadth * 100).toFixed(1)}%`);
-
-  if (breadth < WEEKLY_BREAK.MARKET_FILTER.BREADTH_THRESHOLD) {
-    console.log(
-      `${tag} スキップ: breadth=${(breadth * 100).toFixed(1)}% < ${WEEKLY_BREAK.MARKET_FILTER.BREADTH_THRESHOLD * 100}%`,
-    );
-    return;
-  }
-
   try {
+    // 保有・注文中ポジション取得（二重発注防止のため ordered も除外）
+    const openPositions = await prisma.tradingPosition.findMany({
+      where: { status: { in: ["open", "ordered"] } },
+      include: { stock: { select: { tickerCode: true } } },
+    });
+    const holdingTickers = new Set(openPositions.map((p) => p.stock.tickerCode));
+
+    // リアルタイム時価を一括取得
+    const quotesRaw = await tachibanaFetchQuotesBatch(tickers);
+    const quotesNonNull = quotesRaw.filter(
+      (q): q is NonNullable<typeof q> => q !== null && q.open > 0 && q.volume > 0,
+    );
+
+    const quoteData: GapUpQuoteData[] = quotesNonNull.map((q) => ({
+      ticker: q.tickerCode,
+      open: q.open,
+      price: q.price,
+      high: q.high,
+      low: q.low,
+      volume: q.volume,
+    }));
+
+    if (quoteData.length === 0) {
+      // 時価取得ゼロ件（API障害の可能性）→ 次分リトライ待機（フラグ未セット）
+      console.log(`${tag} スキップ: OHLCV取得0件（次分リトライ）`);
+      return;
+    }
+
+    // breadthフィルター
+    const livePriceMap = new Map(quotesNonNull.map((q) => [q.tickerCode, q.price]));
+    const breadth = await calculateLiveBreadth(tickers, livePriceMap);
+    console.log(`${tag} breadth=${(breadth * 100).toFixed(1)}%`);
+
+    if (breadth < WEEKLY_BREAK.MARKET_FILTER.BREADTH_THRESHOLD) {
+      console.log(
+        `${tag} スキップ: breadth=${(breadth * 100).toFixed(1)}% < ${WEEKLY_BREAK.MARKET_FILTER.BREADTH_THRESHOLD * 100}%`,
+      );
+      lastScanDate = today;
+      return;
+    }
+
     // 1. 日足データ一括フェッチ（過去100日）
     const cutoff = dayjs().tz(TIMEZONE).subtract(100, "day").format("YYYY-MM-DD");
     const dailyBars = await prisma.stockDailyBar.findMany({
@@ -189,7 +191,14 @@ export async function main(): Promise<void> {
       color: wbTriggers.length > 0 ? "good" : undefined,
     });
 
+    // トリガー0件 → 当日はシグナルなしで確定 → フラグセット
+    if (wbTriggers.length === 0) {
+      lastScanDate = today;
+      return;
+    }
+
     // 5. エントリー実行
+    let anyRetryable = false;
     for (const trigger of wbTriggers) {
       console.log(
         `${tag} トリガー発火: ${trigger.ticker} 価格=¥${trigger.currentPrice} 週高値=¥${trigger.weeklyHigh} サージ=${trigger.volumeSurgeRatio.toFixed(2)}x`,
@@ -197,27 +206,37 @@ export async function main(): Promise<void> {
       try {
         const result = await executeEntry(trigger, "weekly-break");
         if (!result.success) {
-          await notifySlack({
-            title: `[weekly-break] エントリー失敗: ${trigger.ticker}`,
-            message: `理由: ${result.reason ?? "不明"}\n価格: ¥${trigger.currentPrice.toLocaleString()} / 出来高サージ: ${trigger.volumeSurgeRatio.toFixed(2)}x`,
-            color: "warning",
-          });
+          if (result.retryable) {
+            anyRetryable = true;
+            console.log(
+              `${tag} エントリー失敗（リトライ可能）: ${trigger.ticker} / ${result.reason ?? "不明"}`,
+            );
+          } else {
+            await notifySlack({
+              title: `[weekly-break] エントリー失敗: ${trigger.ticker}`,
+              message: `理由: ${result.reason ?? "不明"}\n価格: ¥${trigger.currentPrice.toLocaleString()} / 出来高サージ: ${trigger.volumeSurgeRatio.toFixed(2)}x`,
+              color: "warning",
+            });
+          }
         }
       } catch (err) {
         console.error(`${tag} エントリーエラー: ${trigger.ticker}`, err);
-        await notifySlack({
-          title: `[weekly-break] エントリー例外: ${trigger.ticker}`,
-          message: `${err instanceof Error ? err.message : String(err)}`,
-          color: "danger",
-        });
+        anyRetryable = true;
       }
     }
+
+    if (!anyRetryable) {
+      lastScanDate = today;
+    } else {
+      console.log(`${tag} 発注失敗（リトライ可能）: 次分の cron で再試行します`);
+    }
   } catch (err) {
+    // 時価取得や DB クエリ等の例外（フラグ未セット → 次分リトライ）
     console.error(`${tag} スキャンエラー:`, err);
     await notifySlack({
-      title: `[weekly-break] スキャンエラー`,
+      title: `[weekly-break] スキャンエラー（リトライ待機）`,
       message: `${err instanceof Error ? err.message : String(err)}`,
-      color: "danger",
+      color: "warning",
     });
   }
 }
