@@ -362,6 +362,8 @@ model TradingOrder {
   brokerBusinessDay     String?
   brokerOrderId         String?
   brokerStatus          String?
+  referencePrice        Decimal?               @db.Decimal(10, 2)
+  slippageBps           Int?
   position              TradingPosition?       @relation(fields: [positionId], references: [id])
   stock                 Stock                  @relation(fields: [stockId], references: [id])
   unfilledFollowUp      UnfilledOrderFollowUp?

@@ -808,6 +808,41 @@ const hitBaseLimitWithNoProfit = holdingBusinessDays >= baseLimit && !inProfit; 
 
 既存のオープンポジションについても、position-monitorの監視ループ内で同様のチェックを行い、3%ルール違反を自動修正する。
 
+### 約定品質ロギング（引け成行注文）
+
+引け成行で執行される戦略（gapup / weekly-break / PSC）について、シグナル検出時の現在値（基準価格）と実際の約定価格（終値）の差をスリッページとして記録する。引け板寄せでの約定品質を運用後追いで検証するため。
+
+#### 計測内容
+
+`TradingOrder` に2カラム追加:
+
+| カラム | 型 | 説明 |
+|---|---|---|
+| `referencePrice` | Decimal? | 基準価格（`entrySnapshot.trigger.currentPrice`、スキャン時刻=15:20付近の現在値） |
+| `slippageBps` | Int? | スリッページ（bps、符号付き）= `(filledPrice - referencePrice) / referencePrice × 10000` |
+
+- 正値 = 基準より高く約定（買いに不利）
+- 負値 = 基準より安く約定（買いに有利）
+- breakout（指値注文）は構造上スリッページなしのため記録対象外
+
+#### 異常値Slack通知
+
+|sliopageBps| が閾値を超えたら通知する:
+
+| 閾値 | レベル |
+|---|---|
+| 100 bps（1.0%）超 | warning |
+| 200 bps（2.0%）超 | danger |
+
+PSC銘柄は前日比+15%超の急騰銘柄のため値動きが荒く、初期閾値はやや緩めに設定。1〜2週間の運用データでp95を見て調整する。
+
+#### 実装ファイル
+
+| ファイル | 内容 |
+|---|---|
+| [src/core/broker-fill-handler.ts](../../src/core/broker-fill-handler.ts) | `computeExecutionQuality()`, `notifyExecutionQualityIfAnomaly()` |
+| [prisma/schema.prisma](../../prisma/schema.prisma) | `TradingOrder.referencePrice`, `slippageBps` |
+
 ### RRフィルタ（エントリー前）
 
 エントリー条件算出時にリスクリワード比（RR）を計算し、RR < 1.5 の場合はエントリーを見送る（quantity = 0）。これにより、リスクに見合わないトレードを事前に排除する。

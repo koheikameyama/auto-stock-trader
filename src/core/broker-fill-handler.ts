@@ -206,6 +206,7 @@ async function handleBuyFill(
     id: string;
     stockId: string;
     strategy: string;
+    orderType: string;
     quantity: number;
     takeProfitPrice: unknown;
     stopLossPrice: unknown;
@@ -258,10 +259,24 @@ async function handleBuyFill(
     entryAtr,
   );
 
-  // ポジションIDを注文に紐付け
+  // 約定品質ロギング: 引け成行注文（gapup/weekly-break/PSC）のみ
+  // 基準価格 = スキャン時のcurrentPrice（entrySnapshot.trigger.currentPrice）
+  // スリッページ = (約定価格 - 基準価格) / 基準価格 × 10000 [bps]
+  const executionQuality = computeExecutionQuality(
+    order.orderType,
+    order.entrySnapshot,
+    filledPrice,
+  );
+
+  // ポジションIDを注文に紐付け（+ 約定品質）
   await prisma.tradingOrder.update({
     where: { id: order.id },
-    data: { positionId: position.id },
+    data: {
+      positionId: position.id,
+      ...(executionQuality
+        ? { referencePrice: executionQuality.referencePrice, slippageBps: executionQuality.slippageBps }
+        : {}),
+    },
   });
 
   // SL 逆指値注文をブローカーに発注（エラーはbroker-sl-manager内で処理）
@@ -281,6 +296,17 @@ async function handleBuyFill(
     filledPrice,
     quantity: order.quantity,
   });
+
+  // 約定品質: 異常値Slack通知
+  if (executionQuality) {
+    await notifyExecutionQualityIfAnomaly({
+      ticker: order.stock.tickerCode,
+      strategy: order.strategy,
+      referencePrice: executionQuality.referencePrice,
+      filledPrice,
+      slippageBps: executionQuality.slippageBps,
+    });
+  }
 }
 
 // ========================================
@@ -334,6 +360,65 @@ function extractAtrFromSnapshot(snapshot: unknown): number | null {
   const s = snapshot as Record<string, unknown>;
   const technicals = s.technicals as Record<string, unknown> | undefined;
   return technicals?.atr14 != null ? Number(technicals.atr14) : null;
+}
+
+/**
+ * 引け成行注文の約定品質を計算する
+ * 基準価格 = entrySnapshot.trigger.currentPrice（スキャン時の現在値）
+ * limit注文（breakout）は構造上スリッページなしなので null を返す
+ */
+function computeExecutionQuality(
+  orderType: string,
+  snapshot: unknown,
+  filledPrice: number,
+): { referencePrice: number; slippageBps: number } | null {
+  if (orderType !== "market") return null;
+  if (!snapshot || typeof snapshot !== "object") return null;
+
+  const trigger = (snapshot as Record<string, unknown>).trigger as
+    | Record<string, unknown>
+    | undefined;
+  if (!trigger?.currentPrice) return null;
+
+  const referencePrice = Number(trigger.currentPrice);
+  if (!Number.isFinite(referencePrice) || referencePrice <= 0) return null;
+
+  const slippageBps = Math.round(((filledPrice - referencePrice) / referencePrice) * 10000);
+  return { referencePrice, slippageBps };
+}
+
+/**
+ * スリッページが閾値を超えたら Slack 通知する
+ * - |slip| > 200bps (2%): danger
+ * - |slip| > 100bps (1%): warning
+ */
+async function notifyExecutionQualityIfAnomaly(params: {
+  ticker: string;
+  strategy: string;
+  referencePrice: number;
+  filledPrice: number;
+  slippageBps: number;
+}): Promise<void> {
+  const { ticker, strategy, referencePrice, filledPrice, slippageBps } = params;
+  const absBps = Math.abs(slippageBps);
+
+  let color: "warning" | "danger";
+  if (absBps > 200) color = "danger";
+  else if (absBps > 100) color = "warning";
+  else return;
+
+  const slipPct = (slippageBps / 100).toFixed(2);
+  const direction = slippageBps > 0 ? "高く" : "安く";
+
+  await notifySlack({
+    title: `[execution-quality] ${ticker} 引け成行スリッページ ${slipPct}%`,
+    message:
+      `戦略: ${strategy}\n` +
+      `基準価格(スキャン時): ¥${referencePrice.toLocaleString()}\n` +
+      `約定価格(終値): ¥${filledPrice.toLocaleString()}\n` +
+      `→ 基準より ${slipPct}% ${direction}約定`,
+    color,
+  }).catch(() => {});
 }
 
 /**
