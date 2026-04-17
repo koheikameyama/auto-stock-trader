@@ -76,6 +76,7 @@ app.get("/status", async (c) => {
 
 /**
  * POST /api/trading/toggle - 取引の有効/無効を切り替え（緊急停止/再開）
+ * 再開時は armLogin + login を同期実行し、電話番号認証後のログイン確定まで一括で行う。
  */
 app.post("/trading/toggle", async (c) => {
   const body = await c.req.json<{ active: boolean }>();
@@ -92,64 +93,57 @@ app.post("/trading/toggle", async (c) => {
     return c.json({ error: "TradingConfig not found" }, 404);
   }
 
+  if (!body.active) {
+    await prisma.tradingConfig.update({
+      where: { id: config.id },
+      data: { isActive: false, loginLockReason: "手動停止", loginLockedUntil: null },
+    });
+    cronControl.stop();
+    console.log(`[${new Date().toISOString()}] Trading DISABLED via API`);
+    await notifySlack({
+      title: "🔴 システムを緊急停止しました",
+      message: "ダッシュボードから手動で緊急停止されました",
+      color: "danger",
+    }).catch(() => {});
+    return c.json({ success: true, isActive: false });
+  }
+
+  // 再開フロー: ロック状態クリア → armLogin → login を同期実行
+  const client = getTachibanaClient();
   await prisma.tradingConfig.update({
     where: { id: config.id },
-    data: body.active
-      // 再開時はブローカーロック状態もクリア（次のcron tickで自動ログイン）
-      ? { isActive: true, loginLockedUntil: null, loginLockReason: null }
-      : { isActive: false, loginLockReason: "手動停止", loginLockedUntil: null },
+    data: { isActive: true, loginLockedUntil: null, loginLockReason: null },
   });
+  await client.clearLoginLock().catch(() => {});
 
-  // cron タスク自体を停止/再開（スケジュール発火を根本から止める）
-  if (body.active) {
-    // インメモリのロック状態もクリア
-    getTachibanaClient().clearLoginLock().catch(() => {});
-    cronControl.start();
-  } else {
-    cronControl.stop();
+  try {
+    await client.armLogin();
+    await client.login();
+  } catch (err) {
+    // ログイン失敗時は isActive を戻し、cron は起動しない
+    const msg = err instanceof Error ? err.message : String(err);
+    await prisma.tradingConfig.update({
+      where: { id: config.id },
+      data: { isActive: false, loginLockReason: `再開失敗: ${msg}` },
+    });
+    console.error(`[${new Date().toISOString()}] Resume login failed: ${msg}`);
+    await notifySlack({
+      title: "❌ システム再開に失敗しました",
+      message: `ログイン試行でエラー:\n${msg}`,
+      color: "danger",
+    }).catch(() => {});
+    return c.json({ error: msg }, 500);
   }
 
-  const action = body.active ? "再開" : "緊急停止";
-  console.log(`[${new Date().toISOString()}] Trading ${body.active ? "ENABLED" : "DISABLED"} via API`);
-
+  cronControl.start();
+  console.log(`[${new Date().toISOString()}] Trading ENABLED via API (login confirmed)`);
   await notifySlack({
-    title: body.active ? "🟢 システムを再開しました" : "🔴 システムを緊急停止しました",
-    message: `ダッシュボードから手動で${action}されました`,
-    color: body.active ? "good" : "danger",
+    title: "🟢 システムを再開しました",
+    message: "ダッシュボードから手動で再開され、立花証券へのログインに成功しました",
+    color: "good",
   }).catch(() => {});
 
-  return c.json({ success: true, isActive: body.active });
-});
-
-/**
- * POST /api/broker/login/arm - ログイン承認（指定TTLの間 login() を許可）
- */
-app.post("/broker/login/arm", async (c) => {
-  try {
-    const until = await getTachibanaClient().armLogin();
-    await notifySlack({
-      title: "🟢 立花証券ログインを承認しました",
-      message: `有効期限: ${dayjs(until).tz(TIMEZONE).format("YYYY-MM-DD HH:mm:ss")}`,
-      color: "good",
-    }).catch(() => {});
-    return c.json({ success: true, armedUntil: until.toISOString() });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return c.json({ error: msg }, 500);
-  }
-});
-
-/**
- * POST /api/broker/login/disarm - ログイン承認を解除
- */
-app.post("/broker/login/disarm", async (c) => {
-  try {
-    await getTachibanaClient().disarmLogin();
-    return c.json({ success: true });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return c.json({ error: msg }, 500);
-  }
+  return c.json({ success: true, isActive: true });
 });
 
 /**

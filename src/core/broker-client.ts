@@ -549,17 +549,32 @@ export class TachibanaClient {
     const armedUntil = await this.readLoginArmedUntil();
     if (armedUntil && new Date() < armedUntil) return;
 
-    // 未承認 → 通知とスロー
+    // 未承認 → システム停止 + Slack通知 + throw
+    const reason = armedUntil ? "承認の有効期限切れ" : "ログイン承認待ち";
+    try {
+      const config = await prisma.tradingConfig.findFirst({ orderBy: { createdAt: "desc" } });
+      if (config?.isActive) {
+        await prisma.tradingConfig.update({
+          where: { id: config.id },
+          data: {
+            isActive: false,
+            loginLockReason: reason,
+            loginLockOccurredAt: new Date(),
+          },
+        });
+      }
+    } catch (err) {
+      console.warn("[TachibanaClient] Failed to set isActive=false for login arm", err);
+    }
+
     const now = Date.now();
     const throttleMs = 5 * 60 * 1000;
     if (now - this.lastArmRequiredNotifiedAt > throttleMs) {
       this.lastArmRequiredNotifiedAt = now;
-      notifyBrokerLoginArmRequired({
-        reason: armedUntil ? "承認の有効期限切れ" : "未承認",
-      }).catch(() => {});
+      notifyBrokerLoginArmRequired({ reason }).catch(() => {});
     }
     throw new Error(
-      "Tachibana login is not armed. Press 'ログイン承認' on the dashboard before login.",
+      "Tachibana login is not armed. Press 'システム再開' on the dashboard before login.",
     );
   }
 
@@ -601,39 +616,6 @@ export class TachibanaClient {
     this.lastArmRequiredNotifiedAt = 0; // 次回未承認時に即通知できるようリセット
     console.log(`[TachibanaClient] Login armed until ${until.toISOString()}`);
     return until;
-  }
-
-  /** ログイン承認を解除 */
-  async disarmLogin(): Promise<void> {
-    const config = await prisma.tradingConfig.findFirst({ orderBy: { createdAt: "desc" } });
-    if (!config) return;
-    await prisma.tradingConfig.update({
-      where: { id: config.id },
-      data: { loginArmedUntil: null },
-    });
-    console.log("[TachibanaClient] Login disarmed");
-  }
-
-  /** ログイン承認状態を取得 */
-  async getLoginArmStatus(): Promise<{
-    required: boolean;
-    armed: boolean;
-    armedUntil: Date | null;
-    armedAt: Date | null;
-  }> {
-    const required = this.isLoginArmRequired();
-    const config = await prisma.tradingConfig.findFirst({
-      orderBy: { createdAt: "desc" },
-      select: { loginArmedUntil: true, loginArmedAt: true },
-    });
-    const armedUntil = config?.loginArmedUntil ?? null;
-    const armed = !!(armedUntil && new Date() < armedUntil);
-    return {
-      required,
-      armed,
-      armedUntil,
-      armedAt: config?.loginArmedAt ?? null,
-    };
   }
 
   // ========================================
