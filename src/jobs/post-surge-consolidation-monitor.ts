@@ -89,13 +89,12 @@ export async function main(): Promise<void> {
       return;
     }
 
-    // breadthフィルター（gapupと同一ロジック）
-    const livePriceMap = new Map(quotesNonNull.map((q) => [q.tickerCode, q.price]));
-    const breadth = await calculateLiveBreadth(tickers, livePriceMap);
-    console.log(`${tag} breadth=${(breadth * 100).toFixed(1)}%`);
+    // breadthフィルター（MarketAssessmentの全銘柄SMA25 breadthを使用 — バックテストと同一基準）
+    const breadth = todayAssessment.breadth != null ? Number(todayAssessment.breadth) : null;
+    console.log(`${tag} breadth=${breadth != null ? (breadth * 100).toFixed(1) + "%" : "N/A"}`);
 
-    if (breadth < GAPUP.MARKET_FILTER.BREADTH_THRESHOLD) {
-      console.log(`${tag} スキップ: breadth=${(breadth * 100).toFixed(1)}% < ${GAPUP.MARKET_FILTER.BREADTH_THRESHOLD * 100}%`);
+    if (breadth == null || breadth < GAPUP.MARKET_FILTER.BREADTH_THRESHOLD) {
+      console.log(`${tag} スキップ: breadth=${breadth != null ? (breadth * 100).toFixed(1) + "%" : "N/A"} < ${GAPUP.MARKET_FILTER.BREADTH_THRESHOLD * 100}%`);
       lastScanDate = today;
       return;
     }
@@ -232,45 +231,6 @@ async function fetchPSCHistoricalData(tickers: string[]): Promise<Map<string, PS
   return result;
 }
 
-/**
- * ウォッチリスト銘柄のSMA25上回り比率（breadth）を計算する
- */
-async function calculateLiveBreadth(
-  tickers: string[],
-  livePrices: Map<string, number>,
-): Promise<number> {
-  const SMA_LEN = 25;
-  const cutoff = dayjs().tz(TIMEZONE).subtract(45, "day").toDate();
-  const bars = await prisma.stockDailyBar.findMany({
-    where: { tickerCode: { in: tickers }, date: { gte: cutoff } },
-    select: { tickerCode: true, close: true },
-    orderBy: [{ tickerCode: "asc" }, { date: "asc" }],
-  });
-
-  const tickerCloses = new Map<string, number[]>();
-  for (const bar of bars) {
-    let arr = tickerCloses.get(bar.tickerCode);
-    if (!arr) {
-      arr = [];
-      tickerCloses.set(bar.tickerCode, arr);
-    }
-    arr.push(bar.close);
-  }
-
-  let above = 0;
-  let total = 0;
-  for (const ticker of tickers) {
-    const historical = tickerCloses.get(ticker);
-    const livePrice = livePrices.get(ticker);
-    if (!historical || !livePrice || historical.length < SMA_LEN - 1) continue;
-
-    const closes = [...historical.slice(-(SMA_LEN - 1)), livePrice];
-    const sma = closes.reduce((s, c) => s + c, 0) / closes.length;
-    total++;
-    if (livePrice > sma) above++;
-  }
-  return total > 0 ? above / total : 0;
-}
 
 /**
  * スキャン済みフラグをリセットする（テスト用）
