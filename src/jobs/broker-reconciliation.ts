@@ -1,15 +1,18 @@
 /**
- * ブローカー照合ジョブ（毎分・市場時間中）
+ * ブローカー照合ジョブ（毎分・市場時間中のみ）
  *
  * DBとブローカー実態の差異を検出・自動修正する。
  * position-monitor より先に実行されることを前提とする。
  *
- * Phase 1: 注文ステータス同期    (syncBrokerOrderStatuses から移管)
+ * 場外（立会終了後〜翌日注文受付時間帯）は立花APIの getOrders/getHoldings が
+ * 0件を返す仕様のため、このジョブは場中のみ実行する。場外のSL発注は
+ * ensure-broker-sl ジョブが担当する。
+ *
+ * Phase 1: 注文ステータス同期
  * Phase 1.5: SL注文状態・値の整合性チェック (取消/失効 + トリガー価格/数量の乖離検出)
- * Phase 1.6: SL未発注ポジションへの発注 (slBrokerOrderId=null に対して DBのstopLossPriceで発注)
- * Phase 2: 見逃し約定リカバリ   (recoverMissedFills から移管)
- * Phase 3: 保有株数照合         ブローカー保有 vs DBオープンポジション
- * Phase 4: 孤立買い注文キャンセル DBに記録のないブローカー買い注文を自動キャンセル
+ * Phase 2: 見逃し約定リカバリ
+ * Phase 3: 保有株数照合（立花保有 vs DBオープンポジション）
+ * Phase 4: 孤立買い注文キャンセル
  */
 
 import { prisma } from "../lib/prisma";
@@ -18,7 +21,7 @@ import { syncBrokerOrderStatuses, getHoldings, getOrderDetail, getOrders } from 
 import { recoverMissedFills } from "../core/broker-fill-handler";
 import { TACHIBANA_ORDER, TACHIBANA_ORDER_STATUS, isTachibanaProduction } from "../lib/constants/broker";
 import { closePosition } from "../core/position-manager";
-import { submitBrokerSL, cancelBrokerSL } from "../core/broker-sl-manager";
+import { cancelBrokerSL } from "../core/broker-sl-manager";
 
 // 約定直後はブローカーの保有反映が遅れるためスキップする猶予期間
 const HOLDINGS_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5分
@@ -38,13 +41,6 @@ export async function main(): Promise<void> {
     await syncBrokerSLStatuses();
   } catch (e) {
     console.warn("[broker-reconciliation] syncBrokerSLStatuses error (ignored):", e);
-  }
-
-  // Phase 1.6: SL未発注ポジションへの発注
-  try {
-    await reconcileMissingSL();
-  } catch (e) {
-    console.warn("[broker-reconciliation] reconcileMissingSL error (ignored):", e);
   }
 
   // Phase 2: 見逃し約定リカバリ
@@ -197,40 +193,6 @@ function extractOrderQuantity(detail: Record<string, unknown>): number | null {
     if (Number.isFinite(n) && n > 0) return n;
   }
   return null;
-}
-
-/**
- * SL未発注ポジション（slBrokerOrderId=null）に対して DB の stopLossPrice を
- * 使って逆指値売り注文を発注する。
- *
- * Phase 1.5 でクリアされたもの、または buy約定時に発注失敗したもの、
- * 取引時間外で初回発注待ちのポジションを拾う。quote 不要・trail 再計算なし。
- */
-async function reconcileMissingSL(): Promise<void> {
-  const targets = await prisma.tradingPosition.findMany({
-    where: { status: "open", slBrokerOrderId: null },
-    include: { stock: { select: { tickerCode: true } } },
-  });
-
-  if (!targets.length) return;
-
-  console.log(`[broker-reconciliation] SL未発注ポジション ${targets.length}件を処理`);
-
-  for (const pos of targets) {
-    if (!pos.stopLossPrice) {
-      console.warn(
-        `[broker-reconciliation] ${pos.stock.tickerCode} (${pos.id}): stopLossPrice が未設定のためスキップ`,
-      );
-      continue;
-    }
-    await submitBrokerSL({
-      positionId: pos.id,
-      ticker: pos.stock.tickerCode,
-      quantity: pos.quantity,
-      stopTriggerPrice: Number(pos.stopLossPrice),
-      strategy: pos.strategy,
-    });
-  }
 }
 
 /**

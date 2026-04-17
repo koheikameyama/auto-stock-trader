@@ -23,6 +23,7 @@ import { main as runPSCMonitor } from "./jobs/post-surge-consolidation-monitor";
 import { main as runBrokerReconciliation } from "./jobs/broker-reconciliation";
 import { main as runIntradayMaScanner } from "./jobs/intraday-ma-scanner";
 import { main as runSessionHealthCheck } from "./jobs/session-health-check";
+import { main as runEnsureBrokerSL } from "./jobs/ensure-broker-sl";
 import { app } from "./web/app";
 import { setJobState } from "./web/routes/dashboard";
 import { prisma } from "./lib/prisma";
@@ -159,11 +160,12 @@ const schedules = [
   { cron: "50 8 * * 1-5", job: runSessionHealthCheck, name: "session-health-check", requiresMarketDay: true },
   // 14:50 プレクローズ セッション確認（15:20のモニター前に最終確認）
   { cron: "50 14 * * 1-5", job: runSessionHealthCheck, name: "session-health-check", requiresMarketDay: true },
-  // 取引時間外の broker-reconciliation: SL取消検出 + SL未発注への発注を担当
+  // 取引時間外のSL未発注ポジションへの発注（broker-reconciliation は getOrders/getHoldings が
+  // 0件を返す場外では誤判定リスクがあるため走らせない。場外は発注のみの ensure-broker-sl で安全）
   // 17:00〜 は翌日注文受付開始（16時台は 11102 受付時間外エラーが出るため除外）
   // 7:00-8:55 は前場開始前のバックアップ
-  { cron: "*/5 17 * * 1-5", job: runBrokerReconciliation, name: "broker-reconciliation-offhours", requiresMarketDay: false },
-  { cron: "*/5 7-8 * * 1-5", job: runBrokerReconciliation, name: "broker-reconciliation-offhours", requiresMarketDay: false },
+  { cron: "*/5 17 * * 1-5", job: runEnsureBrokerSL, name: "ensure-broker-sl", requiresMarketDay: false },
+  { cron: "*/5 7-8 * * 1-5", job: runEnsureBrokerSL, name: "ensure-broker-sl", requiresMarketDay: false },
 ];
 
 // cron 登録
