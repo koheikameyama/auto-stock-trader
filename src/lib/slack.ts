@@ -17,13 +17,15 @@ interface SlackNotifyOptions {
   message: string;
   color?: SlackColor;
   fields?: SlackField[];
+  webhookUrl?: string;
 }
 
 /**
  * Slackにメッセージを送信
  */
 export async function notifySlack(options: SlackNotifyOptions): Promise<void> {
-  if (!SLACK_WEBHOOK_URL) {
+  const url = options.webhookUrl ?? SLACK_WEBHOOK_URL;
+  if (!url) {
     console.log(
       "⚠️  SLACK_WEBHOOK_URL not configured, skipping notification",
     );
@@ -44,7 +46,7 @@ export async function notifySlack(options: SlackNotifyOptions): Promise<void> {
   };
 
   try {
-    const response = await fetch(SLACK_WEBHOOK_URL, {
+    const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -933,5 +935,6 @@ export async function notifyHealthCheck(data: {
     message: lines.join("\n"),
     color: hasIssue ? (data.strategies.some((s) => s.status === "degraded") ? "danger" : "warning") : "good",
     fields: [{ title: "Date", value: data.date, short: true }],
+    webhookUrl: process.env.SLACK_WEBHOOK_HEALTH_CHECK,
   });
 }

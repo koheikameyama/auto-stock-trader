@@ -13,6 +13,7 @@ concurrency:
 env:
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  SLACK_WEBHOOK_HEALTH_CHECK: ${{ secrets.SLACK_WEBHOOK_HEALTH_CHECK }}
 
 jobs:
   run-health-check:
