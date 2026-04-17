@@ -68,11 +68,6 @@ function makeQuote(ticker: string, price = 1000) {
   };
 }
 
-/** SMA25 用の日足モックデータ */
-function makeDailyBars(ticker: string, close: number, count = 25) {
-  return Array.from({ length: count }, () => ({ tickerCode: ticker, close }));
-}
-
 function makeTrigger(ticker: string) {
   return {
     ticker,
@@ -88,13 +83,12 @@ function makeTrigger(ticker: string) {
 /** 標準セットアップ: 15:30 JST, shouldTrade=true, WL=1銘柄, breadth=100% */
 function setupDefaults() {
   vi.setSystemTime(new Date("2026-04-10T06:30:00Z")); // 15:30 JST
-  mockAssessmentFindUnique.mockResolvedValue({ shouldTrade: true });
+  mockAssessmentFindUnique.mockResolvedValue({ shouldTrade: true, breadth: 0.65 });
   mockGetWatchlist.mockResolvedValue([
     { ticker: "7203", avgVolume25: 100_000, high20: 1000, atr14: 20, latestClose: 980 },
   ]);
   mockFetchQuotes.mockResolvedValue([makeQuote("7203")]);
-  // close=900, livePrice=1000 → SMA≈904 → breadth=100%
-  mockDailyBarFindMany.mockResolvedValue(makeDailyBars("7203", 900));
+  mockDailyBarFindMany.mockResolvedValue([]);
 }
 
 // ========================================
@@ -156,8 +150,7 @@ describe("gapup-monitor main()", () => {
 
   it("breadth < threshold → スキップ", async () => {
     setupDefaults();
-    // close=1100, livePrice=1000 → SMA≈1096 → breadth=0%
-    mockDailyBarFindMany.mockResolvedValue(makeDailyBars("7203", 1100));
+    mockAssessmentFindUnique.mockResolvedValue({ shouldTrade: true, breadth: 0.5 });
     await main();
     expect(mockGapUpScan).not.toHaveBeenCalled();
   });
