@@ -313,9 +313,11 @@ app.get("/", async (c) => {
                   isEntryCandidate: isEntryCandidate,
                   guAllMet: guAllMet ? 1 : 0,
                   guConditionsMet: guConditionsMet,
+                  isGapOk: !!(d.gapup && d.gapup.isGapOk) ? 1 : 0,
                   gapPct: d.gapup ? d.gapup.gapPct : -999,
                   pscAllMet: pscAllMetFlag ? 1 : 0,
                   pscConditionsMet: pscConditionsMet,
+                  isMomentumOk: !!(d.psc && d.psc.isMomentum20dOk) ? 1 : 0,
                   momentum20d: d.psc ? d.psc.momentum20d : -999,
                   surgeRatio: d.surgeRatio || 0,
                   status: d.status || 'watching'
@@ -475,11 +477,16 @@ app.get("/", async (c) => {
                 rowArr.sort(function(a, b) {
                   var ta = a.getAttribute('data-ticker');
                   var tb = b.getAttribute('data-ticker');
-                  var da = rowSortData[ta] || { isEntryCandidate: 0, guAllMet: 0, guConditionsMet: 0, gapPct: -999, pscAllMet: 0, pscConditionsMet: 0, momentum20d: -999, surgeRatio: 0, status: 'watching' };
-                  var db = rowSortData[tb] || { isEntryCandidate: 0, guAllMet: 0, guConditionsMet: 0, gapPct: -999, pscAllMet: 0, pscConditionsMet: 0, momentum20d: -999, surgeRatio: 0, status: 'watching' };
+                  var da = rowSortData[ta] || { isEntryCandidate: 0, guAllMet: 0, guConditionsMet: 0, isGapOk: 0, gapPct: -999, pscAllMet: 0, pscConditionsMet: 0, isMomentumOk: 0, momentum20d: -999, surgeRatio: 0, status: 'watching' };
+                  var db = rowSortData[tb] || { isEntryCandidate: 0, guAllMet: 0, guConditionsMet: 0, isGapOk: 0, gapPct: -999, pscAllMet: 0, pscConditionsMet: 0, isMomentumOk: 0, momentum20d: -999, surgeRatio: 0, status: 'watching' };
 
-                  // GUタブ: ✔ → 条件達成数 → Gap% → 出来高サージ
+                  // GUタブ: (減衰なし=Gap OK) → ✔ → 条件達成数 → Gap% → 出来高サージ
                   if (currentTab === 'gu') {
+                    // 0. 場中/場後は減衰表示されない行（isGapOk=true）を最上位
+                    if (currentMarketPhase !== 'pre') {
+                      var guDecayDiff = db.isGapOk - da.isGapOk;
+                      if (guDecayDiff !== 0) return guDecayDiff;
+                    }
                     // 1. ✔（全条件OK）を最上位
                     var guAllDiff = db.guAllMet - da.guAllMet;
                     if (guAllDiff !== 0) return guAllDiff;
@@ -493,8 +500,11 @@ app.get("/", async (c) => {
                     return db.surgeRatio - da.surgeRatio;
                   }
 
-                  // PSCタブ: ✔ → 条件達成数 → momentum20d% → 出来高サージ
+                  // PSCタブ: (減衰なし=Momentum OK) → ✔ → 条件達成数 → momentum20d% → 出来高サージ
                   if (currentTab === 'psc') {
+                    // 0. 減衰表示されない行（isMomentumOk=true）を最上位
+                    var pscDecayDiff = db.isMomentumOk - da.isMomentumOk;
+                    if (pscDecayDiff !== 0) return pscDecayDiff;
                     // 1. ✔（全条件OK）を最上位
                     var pscAllDiff = db.pscAllMet - da.pscAllMet;
                     if (pscAllDiff !== 0) return pscAllDiff;
