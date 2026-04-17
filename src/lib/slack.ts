@@ -839,6 +839,25 @@ export async function notifyBrokerError(
   });
 }
 
+/**
+ * 立花証券ログイン承認要求通知
+ * 未承認状態で login() が呼ばれたときに送る。利用者はダッシュボードの
+ * 「ログイン承認」ボタンを押してから、電話番号認証(10089)に備えて手元で待機する。
+ */
+export async function notifyBrokerLoginArmRequired(data: {
+  reason: string;
+}): Promise<void> {
+  await notifySlack({
+    title: "🔐 立花証券ログイン承認が必要です",
+    message: [
+      `理由: ${data.reason}`,
+      "ダッシュボードの「ログイン承認」ボタンを押してからAPIログインを再試行します。",
+      "電話番号認証が要求された場合は、登録電話番号から 050-3102-6575 に発信してください。",
+    ].join("\n"),
+    color: "warning",
+  });
+}
+
 interface BacktestNotifyData {
   period: string;
   profitFactor: number;

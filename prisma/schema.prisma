@@ -320,6 +320,8 @@ model TradingConfig {
   loginLockedUntil    DateTime? // ロック解除予定時刻（nullなら正常）
   loginLockReason     String?   // ロック理由メッセージ
   loginLockOccurredAt DateTime? // ロック発生日時（パターン分析用・クリアしない）
+  loginArmedUntil     DateTime? // ログイン承認の有効期限（この時刻までに login() が走ればAPI呼び出しを許可）
+  loginArmedAt        DateTime? // 承認ボタン押下日時（監査・デバッグ用）
 }
 
 model TradingDailySummary {

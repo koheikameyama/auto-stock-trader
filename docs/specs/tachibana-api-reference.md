@@ -114,6 +114,7 @@
 - **セッション切れ**: `sResultCode` が `"2"` で検出。自動再ログインが必要
 - **自動リフレッシュ**: 6時間ごとに再ログイン（保険用）。30分間隔では再ログイン時に電話番号認証が要求されることが判明（2026-04-13確認）。セッション切れは `sResultCode=2` → `reLoginOnce()` で対応。公式仕様での有効期限は未確認。
 - 再ログイン時はWebSocket接続のURLも更新が必要
+- **ログイン承認ゲート（arm）**: production環境では `login()` を呼ぶ前にダッシュボードの「ログイン承認」ボタン押下が必須。`TradingConfig.loginArmedUntil > now` の間のみ login() を通す（デフォルトTTL 10分）。未承認で login() が呼ばれるとSlack通知を送ってエラーを投げる。目的は、電話番号認証(10089)が誘発された場合に利用者が即座に 050-3102-6575 へ発信できる状態を保証すること。demo環境および `TACHIBANA_REQUIRE_LOGIN_ARM=false` ではスキップ
 
 ### 1.2 ログアウト（CLMAuthLogoutRequest）
 

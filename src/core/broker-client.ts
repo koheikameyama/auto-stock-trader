@@ -16,7 +16,7 @@ import {
 } from "../lib/constants/broker";
 import { mapNumericKeys } from "../lib/tachibana-key-map";
 import { TIMEZONE } from "../lib/constants";
-import { notifyBrokerError } from "../lib/slack";
+import { notifyBrokerError, notifyBrokerLoginArmRequired } from "../lib/slack";
 import { prisma } from "../lib/prisma";
 
 dayjs.extend(utc);
@@ -70,6 +70,8 @@ export class TachibanaClient {
   private loginLockedUntil: Date | null = null;
   /** ログインロックのSlack通知済みフラグ（重複通知防止） */
   private loginLockNotified = false;
+  /** 最後に「arm 必要」Slack通知を送った時刻（スパム防止） */
+  private lastArmRequiredNotifiedAt: number = 0;
   /** ログインロック：手動解除まで無期限停止（Prisma/PostgreSQL互換の遠未来日時） */
   private static readonly INDEFINITE_LOCK_DATE = new Date("9999-12-31T23:59:59.999Z");
   /**
@@ -112,6 +114,9 @@ export class TachibanaClient {
         `Tachibana login is locked until ${dbLockedUntil.toISOString()}. Call the support center to unlock.`,
       );
     }
+
+    // ログイン承認（arm）ゲート — productionではダッシュボードでのボタン押下が必須
+    await this.requireLoginArm();
 
     const userId = process.env.TACHIBANA_USER_ID;
     const password = process.env.TACHIBANA_PASSWORD;
@@ -523,6 +528,112 @@ export class TachibanaClient {
         data: { loginLockedUntil: null, loginLockReason: null },
       });
     }
+  }
+
+  // ========================================
+  // ログイン承認（arm）
+  // ========================================
+
+  /**
+   * ログイン承認ゲート。production ではダッシュボードでの承認ボタン押下が必須。
+   * 電話番号認証(10089)が login() で誘発されても利用者が対応できる状態を保証する。
+   *
+   * 有効時: loginArmedUntil > now の間 login() を通す（複数回のログインを許可）。
+   * 無効時: Slack通知（スロットル付き）を送ってエラーを投げる。
+   *
+   * demo環境または `TACHIBANA_REQUIRE_LOGIN_ARM=false` ではスキップ。
+   */
+  private async requireLoginArm(): Promise<void> {
+    if (!this.isLoginArmRequired()) return;
+
+    const armedUntil = await this.readLoginArmedUntil();
+    if (armedUntil && new Date() < armedUntil) return;
+
+    // 未承認 → 通知とスロー
+    const now = Date.now();
+    const throttleMs = 5 * 60 * 1000;
+    if (now - this.lastArmRequiredNotifiedAt > throttleMs) {
+      this.lastArmRequiredNotifiedAt = now;
+      notifyBrokerLoginArmRequired({
+        reason: armedUntil ? "承認の有効期限切れ" : "未承認",
+      }).catch(() => {});
+    }
+    throw new Error(
+      "Tachibana login is not armed. Press 'ログイン承認' on the dashboard before login.",
+    );
+  }
+
+  /** production 環境かつ opt-out されていなければ arm 必須 */
+  private isLoginArmRequired(): boolean {
+    if (process.env.TACHIBANA_REQUIRE_LOGIN_ARM === "false") return false;
+    if (process.env.TACHIBANA_REQUIRE_LOGIN_ARM === "true") return true;
+    return this.env === "production";
+  }
+
+  private async readLoginArmedUntil(): Promise<Date | null> {
+    try {
+      const config = await prisma.tradingConfig.findFirst({
+        orderBy: { createdAt: "desc" },
+        select: { loginArmedUntil: true },
+      });
+      return config?.loginArmedUntil ?? null;
+    } catch (err) {
+      console.warn("[TachibanaClient] Failed to read loginArmedUntil", err);
+      return null;
+    }
+  }
+
+  /**
+   * ログインを承認する — 指定時間（ミリ秒）だけ login() を許可する。
+   * TTL 超過後は再度 arm が必要。
+   */
+  async armLogin(ttlMs: number = TACHIBANA_SESSION.LOGIN_ARM_TTL_MS): Promise<Date> {
+    const now = new Date();
+    const until = new Date(now.getTime() + ttlMs);
+    const config = await prisma.tradingConfig.findFirst({ orderBy: { createdAt: "desc" } });
+    if (!config) {
+      throw new Error("TradingConfig not found — cannot arm login.");
+    }
+    await prisma.tradingConfig.update({
+      where: { id: config.id },
+      data: { loginArmedUntil: until, loginArmedAt: now },
+    });
+    this.lastArmRequiredNotifiedAt = 0; // 次回未承認時に即通知できるようリセット
+    console.log(`[TachibanaClient] Login armed until ${until.toISOString()}`);
+    return until;
+  }
+
+  /** ログイン承認を解除 */
+  async disarmLogin(): Promise<void> {
+    const config = await prisma.tradingConfig.findFirst({ orderBy: { createdAt: "desc" } });
+    if (!config) return;
+    await prisma.tradingConfig.update({
+      where: { id: config.id },
+      data: { loginArmedUntil: null },
+    });
+    console.log("[TachibanaClient] Login disarmed");
+  }
+
+  /** ログイン承認状態を取得 */
+  async getLoginArmStatus(): Promise<{
+    required: boolean;
+    armed: boolean;
+    armedUntil: Date | null;
+    armedAt: Date | null;
+  }> {
+    const required = this.isLoginArmRequired();
+    const config = await prisma.tradingConfig.findFirst({
+      orderBy: { createdAt: "desc" },
+      select: { loginArmedUntil: true, loginArmedAt: true },
+    });
+    const armedUntil = config?.loginArmedUntil ?? null;
+    const armed = !!(armedUntil && new Date() < armedUntil);
+    return {
+      required,
+      armed,
+      armedUntil,
+      armedAt: config?.loginArmedAt ?? null,
+    };
   }
 
   // ========================================

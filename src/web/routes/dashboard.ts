@@ -32,6 +32,7 @@ import { determineMarketRegime } from "../../core/market-regime";
 import { calculateDrawdownStatus } from "../../core/drawdown-manager";
 import { VIX_THRESHOLDS, CME_NIGHT_DIVERGENCE, DRAWDOWN, TIMEZONE } from "../../lib/constants";
 import { isTachibanaProduction } from "../../lib/constants/broker";
+import { getTachibanaClient } from "../../core/broker-client";
 import { COLORS } from "../views/styles";
 
 // jobState is injected from worker.ts
@@ -63,6 +64,7 @@ app.get("/", async (c) => {
     latestSummary,
     cashBalance,
     drawdown,
+    loginArm,
   ] = await Promise.all([
     prisma.tradingConfig.findFirst({ orderBy: { createdAt: "desc" } }),
     prisma.marketAssessment.findFirst({ orderBy: { date: "desc" } }),
@@ -74,6 +76,9 @@ app.get("/", async (c) => {
       weeklyDrawdownPct: number; monthlyDrawdownPct: number; shouldHaltTrading: boolean;
     } => ({
       weeklyDrawdownPct: 0, monthlyDrawdownPct: 0, shouldHaltTrading: false,
+    })),
+    getTachibanaClient().getLoginArmStatus().catch(() => ({
+      required: false, armed: false, armedUntil: null, armedAt: null,
     })),
   ]);
 
@@ -205,6 +210,22 @@ app.get("/", async (c) => {
             const occurredStr = brokerLock.occurredAt ? ` (${dayjs(brokerLock.occurredAt).tz(TIMEZONE).format("MM/DD HH:mm")})` : "";
             return html`<span style="color:#fca5a5">${reason}${occurredStr}</span>`;
           })())
+        : ""}
+      ${loginArm.required
+        ? html`
+          <div class="detail-row">
+            <span class="detail-label">立花ログイン承認</span>
+            <span style="display:flex;align-items:center;gap:8px">
+              ${loginArm.armed
+                ? html`<span style="color:#22c55e">承認中</span>
+                    <span style="color:#94a3b8;font-size:12px">
+                      〜${loginArm.armedUntil ? dayjs(loginArm.armedUntil).tz(TIMEZONE).format("HH:mm") : ""}
+                    </span>
+                    <button class="btn-toggle btn-danger" onclick="disarmBrokerLogin()">解除</button>`
+                : html`<span style="color:#f59e0b">未承認</span>
+                    <button class="btn-toggle btn-success" onclick="armBrokerLogin()">ログイン承認</button>`}
+            </span>
+          </div>`
         : ""}
       ${detailRow("実行中ジョブ", `${jobState.running.size > 0 ? [...jobState.running].join(", ") : "なし"}`)}
       ${detailRow(tt("オープンポジション", "現在保有中の建玉"), `${openPositions.length}`)}
@@ -354,6 +375,36 @@ app.get("/", async (c) => {
         });
       }
 
+
+      function armBrokerLogin() {
+        if (!confirm('立花証券のログインを承認しますか？\n電話番号認証が要求された場合は登録電話番号から 050-3102-6575 に発信してください。')) return;
+        var params = new URLSearchParams(window.location.search);
+        var token = params.get('token') || '';
+        fetch('/api/broker/login/arm?token=' + encodeURIComponent(token), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        })
+        .then(function(res) {
+          if (!res.ok) throw new Error('Failed');
+          location.reload();
+        })
+        .catch(function() { alert('承認に失敗しました'); });
+      }
+
+      function disarmBrokerLogin() {
+        if (!confirm('承認を解除しますか？次回ログイン時に再度ボタン押下が必要になります。')) return;
+        var params = new URLSearchParams(window.location.search);
+        var token = params.get('token') || '';
+        fetch('/api/broker/login/disarm?token=' + encodeURIComponent(token), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        })
+        .then(function(res) {
+          if (!res.ok) throw new Error('Failed');
+          location.reload();
+        })
+        .catch(function() { alert('解除に失敗しました'); });
+      }
 
       function editBudget(current) {
         var input = prompt('新しい予算（入金額）を入力してください（円）:', current);

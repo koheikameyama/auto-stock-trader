@@ -122,6 +122,37 @@ app.post("/trading/toggle", async (c) => {
 });
 
 /**
+ * POST /api/broker/login/arm - ログイン承認（指定TTLの間 login() を許可）
+ */
+app.post("/broker/login/arm", async (c) => {
+  try {
+    const until = await getTachibanaClient().armLogin();
+    await notifySlack({
+      title: "🟢 立花証券ログインを承認しました",
+      message: `有効期限: ${dayjs(until).tz(TIMEZONE).format("YYYY-MM-DD HH:mm:ss")}`,
+      color: "good",
+    }).catch(() => {});
+    return c.json({ success: true, armedUntil: until.toISOString() });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return c.json({ error: msg }, 500);
+  }
+});
+
+/**
+ * POST /api/broker/login/disarm - ログイン承認を解除
+ */
+app.post("/broker/login/disarm", async (c) => {
+  try {
+    await getTachibanaClient().disarmLogin();
+    return c.json({ success: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return c.json({ error: msg }, 500);
+  }
+});
+
+/**
  * POST /api/config/budget - 予算（入金額）を更新
  */
 app.post("/config/budget", async (c) => {
