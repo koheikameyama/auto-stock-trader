@@ -48,6 +48,13 @@ export const PSC_BACKTEST_DEFAULTS: Omit<PostSurgeConsolidationBacktestConfig, "
   positionCapEnabled: true,
 };
 
+/** 本番パラメータ（WF最適値、combined-run / AI評価で参照） */
+export const PSC_PRODUCTION_PARAMS = {
+  atrMultiplier: 0.8,
+  beActivationMultiplier: 0.3,
+  trailMultiplier: 0.5,
+};
+
 /** 1トレードあたりリスク（%） */
 export const PSC_RISK_PER_TRADE_PCT = POSITION_SIZING.RISK_PER_TRADE_PCT;
 

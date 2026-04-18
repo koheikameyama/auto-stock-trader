@@ -15,7 +15,7 @@ import { prisma } from "../src/lib/prisma";
 import { fetchHistoricalFromDB, fetchVixFromDB, fetchIndexFromDB } from "../src/backtest/data-fetcher";
 import { precomputeSimData } from "../src/backtest/breakout-simulation";
 import { runPSCBacktest, precomputePSCDailySignals } from "../src/backtest/post-surge-consolidation-simulation";
-import { PSC_BACKTEST_DEFAULTS, generatePSCParameterCombinations } from "../src/backtest/post-surge-consolidation-config";
+import { PSC_BACKTEST_DEFAULTS, PSC_PRODUCTION_PARAMS, generatePSCParameterCombinations } from "../src/backtest/post-surge-consolidation-config";
 import type { PostSurgeConsolidationBacktestConfig, PerformanceMetrics } from "../src/backtest/types";
 import type { OHLCVData } from "../src/core/technical-analysis";
 import { getMaxBuyablePrice } from "../src/core/risk-manager";
@@ -334,6 +334,12 @@ function printSummary(results: WindowResult[]): void {
     const stability = uniqueValues.length === 1 ? "安定" : uniqueValues.length <= 2 ? "やや安定" : "不安定";
     console.log(`  ${key}: ${uniqueValues.join(", ")} → ${stability}`);
   }
+
+  // 本番パラメータ（AI評価プロンプト用）
+  console.log("\n[本番パラメータ]");
+  console.log(`  atrMultiplier: ${PSC_PRODUCTION_PARAMS.atrMultiplier}`);
+  console.log(`  beActivationMultiplier: ${PSC_PRODUCTION_PARAMS.beActivationMultiplier}`);
+  console.log(`  trailMultiplier: ${PSC_PRODUCTION_PARAMS.trailMultiplier}`);
 }
 
 main().catch((err) => {

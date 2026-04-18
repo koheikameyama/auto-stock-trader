@@ -16,7 +16,7 @@ import { fetchHistoricalFromDB, fetchVixFromDB, fetchIndexFromDB } from "../src/
 import { fetchSP500FromDB } from "../src/backtest/us/us-data-fetcher";
 import { precomputeSimData } from "../src/backtest/breakout-simulation";
 import { runGapUpBacktest, precomputeGapUpDailySignals } from "../src/backtest/gapup-simulation";
-import { GAPUP_BACKTEST_DEFAULTS, generateGapUpParameterCombinations, GAPUP_PARAMETER_GRID, GAPUP_RELAXED_GAP_MIN_PCT } from "../src/backtest/gapup-config";
+import { GAPUP_BACKTEST_DEFAULTS, GAPUP_PRODUCTION_PARAMS, generateGapUpParameterCombinations, GAPUP_PARAMETER_GRID, GAPUP_RELAXED_GAP_MIN_PCT } from "../src/backtest/gapup-config";
 import type { GapUpBacktestConfig, PerformanceMetrics } from "../src/backtest/types";
 import type { OHLCVData } from "../src/core/technical-analysis";
 import { getMaxBuyablePrice } from "../src/core/risk-manager";
@@ -467,6 +467,12 @@ function printSummary(results: WindowResult[]): void {
     const stability = uniqueValues.length === 1 ? "安定" : uniqueValues.length <= 2 ? "やや安定" : "不安定";
     console.log(`  ${key}: ${uniqueValues.join(", ")} → ${stability}`);
   }
+
+  // 本番パラメータ（AI評価プロンプト用）
+  console.log("\n[本番パラメータ]");
+  console.log(`  atrMultiplier: ${GAPUP_PRODUCTION_PARAMS.atrMultiplier}`);
+  console.log(`  beActivationMultiplier: ${GAPUP_PRODUCTION_PARAMS.beActivationMultiplier}`);
+  console.log(`  trailMultiplier: ${GAPUP_PRODUCTION_PARAMS.trailMultiplier}`);
 }
 
 main().catch((err) => {

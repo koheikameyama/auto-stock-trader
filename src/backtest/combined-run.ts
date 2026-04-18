@@ -14,7 +14,7 @@
 import dayjs from "dayjs";
 import { prisma } from "../lib/prisma";
 import { GAPUP_BACKTEST_DEFAULTS } from "./gapup-config";
-import { PSC_BACKTEST_DEFAULTS } from "./post-surge-consolidation-config";
+import { PSC_BACKTEST_DEFAULTS, PSC_PRODUCTION_PARAMS } from "./post-surge-consolidation-config";
 import { getMaxBuyablePrice } from "../core/risk-manager";
 import {
   precomputeSimData,
@@ -132,10 +132,8 @@ async function main() {
     ...PSC_BACKTEST_DEFAULTS,
     startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice,
     verbose: !quietMode && verbose,
-    // WF最適パラメータ
-    atrMultiplier: 0.8,
-    beActivationMultiplier: 0.3,
-    trailMultiplier: 0.5,
+    // WF最適パラメータ（config/production-params から参照）
+    ...PSC_PRODUCTION_PARAMS,
   };
   if (maxPriceOverride) {
     guConfig.maxPrice = Number(maxPriceOverride);

@@ -56,6 +56,13 @@ export const GAPUP_BACKTEST_DEFAULTS: Omit<GapUpBacktestConfig, "startDate" | "e
   signalSortMethod: "gapvol",
 };
 
+/** 本番パラメータ（WF最適値、combined-run / AI評価で参照） */
+export const GAPUP_PRODUCTION_PARAMS = {
+  atrMultiplier: GAPUP_BACKTEST_DEFAULTS.atrMultiplier,
+  beActivationMultiplier: GAPUP_BACKTEST_DEFAULTS.beActivationMultiplier,
+  trailMultiplier: GAPUP_BACKTEST_DEFAULTS.trailMultiplier,
+};
+
 /** 1トレードあたりリスク（%） */
 export const GAPUP_RISK_PER_TRADE_PCT = POSITION_SIZING.RISK_PER_TRADE_PCT; // 2
 

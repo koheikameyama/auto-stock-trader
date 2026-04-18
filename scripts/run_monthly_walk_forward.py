@@ -92,9 +92,19 @@ def parse_wf_result(stdout: str) -> dict:
         info["window_table"] = m.group(1).strip()
 
     # パラメータ安定性
-    m = re.search(r"(\[パラメータ安定性\].*?)$", stdout, re.DOTALL)
+    m = re.search(r"(\[パラメータ安定性\].*?)\[本番パラメータ\]", stdout, re.DOTALL)
     if m:
         info["param_stability"] = m.group(1).strip()
+    else:
+        # フォールバック（本番パラメータセクションがない場合）
+        m = re.search(r"(\[パラメータ安定性\].*?)$", stdout, re.DOTALL)
+        if m:
+            info["param_stability"] = m.group(1).strip()
+
+    # 本番パラメータ
+    m = re.search(r"\[本番パラメータ\](.*?)$", stdout, re.DOTALL)
+    if m:
+        info["production_params"] = m.group(1).strip()
 
     return info
 
@@ -127,24 +137,21 @@ def generate_ai_review(results: list[dict]) -> str:
 
     wf_data = "\n\n".join(data_sections)
 
+    # 本番パラメータをプロンプトテンプレートに注入
+    production_params_lines: list[str] = []
+    for r in results:
+        if r["success"] and "production_params" in r["info"]:
+            production_params_lines.append(f"- {r['strategy']}: {r['info']['production_params']}")
+    production_params_text = "\n".join(production_params_lines) if production_params_lines else "（取得失敗）"
+
+    prompt_path = os.path.join(os.path.dirname(__file__), "..", "prompts", "walk-forward-evaluation.txt")
+    with open(prompt_path, encoding="utf-8") as f:
+        system_prompt = f.read().replace("{production_params}", production_params_text)
+
     messages = [
         {
             "role": "system",
-            "content": (
-                "あなたはプロの株式トレーダー兼クオンツアナリストです。\n"
-                "Walk-Forward分析の結果を評価し、運用判断の助言を行います。\n\n"
-                "現在の運用状況:\n"
-                "- gapup + PSC（高騰後押し目）の2本柱で運用中\n"
-                "- breakout・weekly-break・momentumはエッジなしで無効化済み\n"
-                "- 月次でWFを実行し、アクティブ戦略のエッジを監視している\n\n"
-                "以下の観点で評価してください:\n"
-                "1. 各戦略の健全性（PF、IS/OOS乖離、パラメータ安定性）\n"
-                "2. gapupのエッジが維持されているか、劣化の兆候はないか\n"
-                "3. PSCのエッジが維持されているか、劣化の兆候はないか\n"
-                "4. 運用上のアクション提案（パラメータ変更、戦略停止等）\n\n"
-                "JSON形式で回答してください:\n"
-                '{"review": "評価テキスト（3-5文、日本語）", "action": "推奨アクション（1文）"}'
-            ),
+            "content": system_prompt,
         },
         {
             "role": "user",
