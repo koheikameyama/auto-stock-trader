@@ -102,7 +102,7 @@ jobs:
           SLACK_FOOTER: "Auto Stock Trader"
 
   notify-failure:
-    needs: [stock-data, corporate-events, trading-config]
+    needs: [check-market-day, stock-data, corporate-events, trading-config]
     if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     steps:

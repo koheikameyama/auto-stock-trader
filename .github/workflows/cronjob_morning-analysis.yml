@@ -171,7 +171,7 @@ jobs:
   #     - run: npm run stock-scan
 
   notify-failure:
-    needs: [news-collect, market-assessment, watchlist-builder]
+    needs: [check-market-day, news-collect, market-assessment, watchlist-builder]
     if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     steps:

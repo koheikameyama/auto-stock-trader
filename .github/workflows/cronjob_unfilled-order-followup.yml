@@ -72,8 +72,8 @@ jobs:
       - run: npm run unfilled-followup
 
   notify-failure:
-    needs: unfilled-order-followup
-    if: failure()
+    needs: [check-market-day, unfilled-order-followup]
+    if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     steps:
       - name: Notify Slack on failure

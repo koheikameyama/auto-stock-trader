@@ -88,8 +88,8 @@ jobs:
       - run: npm run news-collect
 
   notify-failure:
-    needs: [end-of-day, news-collect]
-    if: failure()
+    needs: [check-market-day, end-of-day, news-collect]
+    if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     steps:
       - name: Notify Slack on failure

@@ -73,8 +73,8 @@ jobs:
       - run: npm run defensive-followup
 
   notify-failure:
-    needs: defensive-exit-followup
-    if: failure()
+    needs: [check-market-day, defensive-exit-followup]
+    if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     steps:
       - name: Notify Slack on failure
