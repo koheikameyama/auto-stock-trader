@@ -15,7 +15,7 @@ import { tachibanaFetchQuotesBatch } from "../lib/tachibana-price-client";
 import { getAllWatchlist } from "./watchlist-builder";
 import { executeEntry } from "../core/breakout/entry-executor";
 import { notifySlack } from "../lib/slack";
-import { TIMEZONE } from "../lib/constants";
+import { TIMEZONE, MARKET_BREADTH } from "../lib/constants";
 import { GAPUP } from "../lib/constants/gapup";
 import { POST_SURGE_CONSOLIDATION } from "../lib/constants/post-surge-consolidation";
 import { PostSurgeConsolidationScanner } from "../core/post-surge-consolidation/psc-scanner";
@@ -93,8 +93,8 @@ export async function main(): Promise<void> {
     const breadth = todayAssessment.breadth != null ? Number(todayAssessment.breadth) : null;
     console.log(`${tag} breadth=${breadth != null ? (breadth * 100).toFixed(1) + "%" : "N/A"}`);
 
-    if (breadth == null || breadth < GAPUP.MARKET_FILTER.BREADTH_THRESHOLD) {
-      console.log(`${tag} スキップ: breadth=${breadth != null ? (breadth * 100).toFixed(1) + "%" : "N/A"} < ${GAPUP.MARKET_FILTER.BREADTH_THRESHOLD * 100}%`);
+    if (breadth == null || breadth < MARKET_BREADTH.THRESHOLD) {
+      console.log(`${tag} スキップ: breadth=${breadth != null ? (breadth * 100).toFixed(1) + "%" : "N/A"} < ${MARKET_BREADTH.THRESHOLD * 100}%`);
       lastScanDate = today;
       return;
     }

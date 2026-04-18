@@ -21,9 +21,4 @@ export const GAPUP = {
     SCAN_HOUR: 15,
     SCAN_MINUTE: 24,
   },
-  /** マーケットフィルター（ライブ用） */
-  MARKET_FILTER: {
-    /** breadth閾値（ウォッチリスト銘柄のSMA25上回り比率）— バックテストの marketTrendThreshold と同値 */
-    BREADTH_THRESHOLD: 0.6,
-  },
 } as const;

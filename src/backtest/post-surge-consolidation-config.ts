@@ -4,7 +4,7 @@
 
 import { POST_SURGE_CONSOLIDATION } from "../lib/constants/post-surge-consolidation";
 import { STOP_LOSS, POSITION_SIZING } from "../lib/constants/scoring";
-import { BREAK_EVEN_STOP, TRAILING_STOP, SCREENING } from "../lib/constants";
+import { BREAK_EVEN_STOP, TRAILING_STOP, SCREENING, MARKET_BREADTH } from "../lib/constants";
 import { getMaxBuyablePrice } from "../core/risk-manager";
 import type { PostSurgeConsolidationBacktestConfig } from "./types";
 
@@ -38,7 +38,7 @@ export const PSC_BACKTEST_DEFAULTS: Omit<PostSurgeConsolidationBacktestConfig, "
   cooldownDays: 3,
 
   marketTrendFilter: true,
-  marketTrendThreshold: 0.6,
+  marketTrendThreshold: MARKET_BREADTH.THRESHOLD,
   indexTrendFilter: true,
   indexTrendSmaPeriod: 50,
   indexTrendOffBufferPct: 0,

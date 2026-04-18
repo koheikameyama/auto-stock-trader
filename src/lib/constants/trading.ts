@@ -51,6 +51,12 @@ export const MARKET_INDEX = {
   NIKKEI_CRISIS_THRESHOLD: -3, // 日経平均キルスイッチ（前日比%で全取引停止）
 } as const;
 
+/** 市場breadthフィルター（全戦略共通） */
+export const MARKET_BREADTH = {
+  /** breadth閾値（全銘柄のSMA25上回り比率）— この値未満の日はエントリーをスキップ */
+  THRESHOLD: 0.6,
+} as const;
+
 // CME日経先物の取引時間（JST基準）
 export const CME_TRADING_HOURS = {
   DAILY_BREAK_START_HOUR_JST: 6,

@@ -8,6 +8,7 @@
  *   npm run backtest:combined -- --verbose
  *   npm run backtest:combined -- --compare-positions
  *   npm run backtest:combined -- --compare-split-positions
+ *   npm run backtest:combined -- --compare-breadth
  */
 
 import dayjs from "dayjs";
@@ -122,8 +123,9 @@ async function main() {
   const minPriceOverride = getArg(args, "--min-price");
   const minTurnoverOverride = getArg(args, "--min-turnover");
   const compareEfficiency = args.includes("--compare-efficiency");
+  const compareBreadth = args.includes("--compare-breadth");
 
-  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency;
+  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const pscConfig: PostSurgeConsolidationBacktestConfig = {
@@ -281,6 +283,54 @@ async function main() {
       const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
       console.log(
         `${row.label.padEnd(16)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(6)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(8)} | ${m.maxDrawdown.toFixed(1).padStart(6)}% | ${m.netReturnPct.toFixed(1).padStart(7)}% | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
+      );
+    }
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // breadthフィルター比較モード
+  if (compareBreadth) {
+    const grid: { label: string; threshold: number; filterOn: boolean }[] = [
+      { label: "OFF (0%)", threshold: 0, filterOn: false },
+      { label: "40%", threshold: 0.4, filterOn: true },
+      { label: "50%", threshold: 0.5, filterOn: true },
+      { label: "60% (現状)", threshold: 0.6, filterOn: true },
+      { label: "70%", threshold: 0.7, filterOn: true },
+      { label: "80%", threshold: 0.8, filterOn: true },
+    ];
+
+    console.log("\n=== breadthフィルター比較 ===");
+    console.log(
+      `${"閾値".padEnd(16)}| ${"Trades".padStart(6)} | ${"WinRate".padStart(7)} | ${"PF".padStart(5)} | ${"Expect".padStart(8)} | ${"MaxDD".padStart(7)} | ${"NetRet".padStart(8)} | ${"稼働率".padStart(6)}`,
+    );
+    console.log("-".repeat(82));
+
+    for (const row of grid) {
+      const gc: GapUpBacktestConfig = { ...guConfig, marketTrendFilter: row.filterOn, marketTrendThreshold: row.threshold };
+      const pc: PostSurgeConsolidationBacktestConfig = { ...pscConfig, marketTrendFilter: row.filterOn, marketTrendThreshold: row.threshold };
+      const guSig = precomputeGapUpDailySignals(gc, allData, precomputed);
+      const pSig = precomputePSCDailySignals(pc, allData, precomputed);
+      const result = runCombinedSimulation(
+        { ...ctx, guConfig: gc, pscConfig: pc, gapupSignals: guSig, pscSignals: pSig },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const util = calculateCapitalUtilization(result.equityCurve);
+      const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
+      const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
+      console.log(
+        `${row.label.padEnd(16)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(6)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(8)} | ${m.maxDrawdown.toFixed(1).padStart(6)}% | ${m.netReturnPct.toFixed(1).padStart(7)}% | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
+      );
+      // 戦略別内訳
+      const gm = result.guMetrics;
+      const pm = result.pscMetrics;
+      console.log(
+        `${"  GU".padEnd(16)}| ${String(gm.totalTrades).padStart(6)} | ${gm.winRate.toFixed(1).padStart(6)}% | ${(gm.profitFactor === Infinity ? "∞" : gm.profitFactor.toFixed(2)).padStart(5)} | ${((gm.expectancy >= 0 ? "+" : "") + gm.expectancy.toFixed(2) + "%").padStart(8)}`,
+      );
+      console.log(
+        `${"  PSC".padEnd(16)}| ${String(pm.totalTrades).padStart(6)} | ${pm.winRate.toFixed(1).padStart(6)}% | ${(pm.profitFactor === Infinity ? "∞" : pm.profitFactor.toFixed(2)).padStart(5)} | ${((pm.expectancy >= 0 ? "+" : "") + pm.expectancy.toFixed(2) + "%").padStart(8)}`,
       );
     }
     console.log("");
