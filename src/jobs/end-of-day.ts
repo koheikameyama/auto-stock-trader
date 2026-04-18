@@ -28,8 +28,8 @@ async function forceClosePositions(
 ) {
   for (const position of positions) {
     const stock = (position as typeof position & { stock: { tickerCode: string; name: string } }).stock;
-    const quote = await fetchStockQuote(stock.tickerCode);
-    const exitPrice = quote?.price ?? Number(position.entryPrice);
+    const quote = await fetchStockQuote(stock.tickerCode, { yfinanceFallback: true });
+    const exitPrice = (quote?.price && quote.price > 0) ? quote.price : Number(position.entryPrice);
 
     console.log(
       `  → ${stock.tickerCode}: ${exitReason} @ ¥${exitPrice.toLocaleString()}`,
@@ -311,8 +311,8 @@ export async function main() {
 
   const priceMap = new Map<string, number>();
   for (const pos of openPositions) {
-    const quote = await fetchStockQuote(pos.stock.tickerCode);
-    if (quote) {
+    const quote = await fetchStockQuote(pos.stock.tickerCode, { yfinanceFallback: true });
+    if (quote && quote.price > 0) {
       priceMap.set(pos.stockId, quote.price);
     }
   }
