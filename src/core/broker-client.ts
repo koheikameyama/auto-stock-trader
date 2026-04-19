@@ -681,11 +681,15 @@ export class TachibanaClient {
 
     if (!this.loginLockNotified) {
       this.loginLockNotified = true;
+      const appUrl = process.env.APP_URL?.replace(/\/$/, "");
+      const resumeLink = appUrl
+        ? `\nシステム再開: <${appUrl}/api/trading/resume|${appUrl}/api/trading/resume>`
+        : "";
       notifyBrokerError(
         reason,
         isAccountLock
-          ? `立花証券のログインがロックされました。\n📞 サポートセンター: 03-3669-0777 ／ 電話認証: 050-3102-6575\n\nエラー: ${errorMsg}`
-          : `立花証券のログインに電話番号認証が必要です。\n登録の電話番号から認証番号へ電話後、ダッシュボードの「再開」ボタンを押してください。\n\nエラー: ${errorMsg}`,
+          ? `立花証券のログインがロックされました。\n📞 サポートセンター: <tel:0336690777|03-3669-0777> ／ 電話認証: <tel:0120286592|0120-286-592>\n\nエラー: ${errorMsg}`
+          : `立花証券のログインに電話番号認証が必要です。\n登録の電話番号から <tel:0120286592|0120-286-592> に発信後、ダッシュボードの「再開」ボタンを押してください。${resumeLink}\n\nエラー: ${errorMsg}`,
       ).catch(() => {});
     }
 

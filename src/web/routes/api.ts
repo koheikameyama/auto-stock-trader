@@ -75,6 +75,52 @@ app.get("/status", async (c) => {
 });
 
 /**
+ * トレーディング再開処理（armLogin + login を同期実行）
+ * POST /trading/toggle と GET /trading/resume の共通ロジック。
+ * @returns 成功時は null、失敗時はエラーメッセージ
+ */
+async function resumeTrading(source: string): Promise<string | null> {
+  const config = await prisma.tradingConfig.findFirst({
+    orderBy: { createdAt: "desc" },
+  });
+  if (!config) return "TradingConfig not found";
+
+  const client = getTachibanaClient();
+  await prisma.tradingConfig.update({
+    where: { id: config.id },
+    data: { isActive: true, loginLockedUntil: null, loginLockReason: null },
+  });
+  await client.clearLoginLock().catch(() => {});
+
+  try {
+    await client.armLogin();
+    await client.login();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await prisma.tradingConfig.update({
+      where: { id: config.id },
+      data: { isActive: false, loginLockReason: `再開失敗: ${msg}` },
+    });
+    console.error(`[${new Date().toISOString()}] Resume login failed (${source}): ${msg}`);
+    await notifySlack({
+      title: "❌ システム再開に失敗しました",
+      message: `ログイン試行でエラー (${source}):\n${msg}`,
+      color: "danger",
+    }).catch(() => {});
+    return msg;
+  }
+
+  cronControl.start();
+  console.log(`[${new Date().toISOString()}] Trading ENABLED via ${source} (login confirmed)`);
+  await notifySlack({
+    title: "🟢 システムを再開しました",
+    message: `${source}から再開され、立花証券へのログインに成功しました`,
+    color: "good",
+  }).catch(() => {});
+  return null;
+}
+
+/**
  * POST /api/trading/toggle - 取引の有効/無効を切り替え（緊急停止/再開）
  * 再開時は armLogin + login を同期実行し、電話番号認証後のログイン確定まで一括で行う。
  */
@@ -108,42 +154,30 @@ app.post("/trading/toggle", async (c) => {
     return c.json({ success: true, isActive: false });
   }
 
-  // 再開フロー: ロック状態クリア → armLogin → login を同期実行
-  const client = getTachibanaClient();
-  await prisma.tradingConfig.update({
-    where: { id: config.id },
-    data: { isActive: true, loginLockedUntil: null, loginLockReason: null },
-  });
-  await client.clearLoginLock().catch(() => {});
-
-  try {
-    await client.armLogin();
-    await client.login();
-  } catch (err) {
-    // ログイン失敗時は isActive を戻し、cron は起動しない
-    const msg = err instanceof Error ? err.message : String(err);
-    await prisma.tradingConfig.update({
-      where: { id: config.id },
-      data: { isActive: false, loginLockReason: `再開失敗: ${msg}` },
-    });
-    console.error(`[${new Date().toISOString()}] Resume login failed: ${msg}`);
-    await notifySlack({
-      title: "❌ システム再開に失敗しました",
-      message: `ログイン試行でエラー:\n${msg}`,
-      color: "danger",
-    }).catch(() => {});
-    return c.json({ error: msg }, 500);
-  }
-
-  cronControl.start();
-  console.log(`[${new Date().toISOString()}] Trading ENABLED via API (login confirmed)`);
-  await notifySlack({
-    title: "🟢 システムを再開しました",
-    message: "ダッシュボードから手動で再開され、立花証券へのログインに成功しました",
-    color: "good",
-  }).catch(() => {});
-
+  const err = await resumeTrading("ダッシュボード");
+  if (err) return c.json({ error: err }, 500);
   return c.json({ success: true, isActive: true });
+});
+
+/**
+ * GET /api/trading/resume - システム再開（Slackリンク等のブラウザアクセス用）
+ * POST /trading/toggle (active=true) と同じ再開処理を行い、HTML ページを返す。
+ */
+app.get("/trading/resume", async (c) => {
+  const err = await resumeTrading("Slackリンク");
+  const escape = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const success = err === null;
+  const title = success ? "✅ システムを再開しました" : "❌ システム再開に失敗しました";
+  const color = success ? "#22c55e" : "#ef4444";
+  const bodyMsg = success
+    ? "立花証券へのログインに成功し、自動売買を再開しました。"
+    : `エラー: ${escape(err ?? "不明")}`;
+
+  return c.html(
+    `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>システム再開</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:24px;display:flex;justify-content:center;align-items:center;min-height:100vh}.card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:32px;max-width:480px;width:100%}.title{font-size:20px;font-weight:700;color:${color};margin-bottom:16px}.msg{font-size:14px;line-height:1.6;color:#cbd5e1;margin-bottom:24px;white-space:pre-wrap}.link{display:inline-block;background:#3b82f6;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600}.link:hover{background:#2563eb}</style></head><body><div class="card"><div class="title">${title}</div><div class="msg">${bodyMsg}</div><a class="link" href="/">ダッシュボードへ</a></div></body></html>`,
+    success ? 200 : 500,
+  );
 });
 
 /**

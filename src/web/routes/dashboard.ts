@@ -168,7 +168,7 @@ app.get("/", async (c) => {
         <div style="background:#78350f;border:1px solid #f59e0b;border-radius:12px;padding:16px;margin-bottom:16px">
           <div style="font-weight:700;font-size:15px;margin-bottom:8px">📞 立花証券の電話番号認証が必要</div>
           <div style="font-size:13px;color:#fcd34d">
-            登録電話番号から <a href="tel:05031026575" style="color:#fcd34d">050-3102-6575</a> に発信して認証してください。<br>
+            登録電話番号から <a href="tel:0120286592" style="color:#fcd34d">0120-286-592</a> に発信して認証してください。<br>
             認証完了後、システム再開ボタンを押すとログインが実行されます。
             ${brokerLock.occurredAt ? html`<br>発生日時: ${dayjs(brokerLock.occurredAt).tz(TIMEZONE).format("YYYY-MM-DD HH:mm")}` : ""}
           </div>
@@ -178,7 +178,7 @@ app.get("/", async (c) => {
           <div style="font-weight:700;font-size:15px;margin-bottom:8px">🚨 ブローカーログインロック中（システム自動停止済み）</div>
           <div style="font-size:13px;color:#fca5a5">
             立花証券のログインがロックされています。手続き後にシステム再開ボタンを押してください。<br>
-            📞 サポートセンター: <a href="tel:0336690777" style="color:#fca5a5">03-3669-0777</a>
+            📞 サポートセンター: <a href="tel:0336690777" style="color:#fca5a5">03-3669-0777</a> ／ 電話認証: <a href="tel:0120286592" style="color:#fca5a5">0120-286-592</a>
             ${brokerLock.reason ? html`<br>理由: ${brokerLock.reason}` : ""}
             ${brokerLock.occurredAt ? html`<br>発生日時: ${dayjs(brokerLock.occurredAt).tz(TIMEZONE).format("YYYY-MM-DD HH:mm")}` : ""}
           </div>
@@ -346,7 +346,7 @@ app.get("/", async (c) => {
         var btn = document.getElementById('toggleTrading');
         if (!btn) return;
         var msg = active
-          ? 'システムを再開しますか？\\n\\n⚠️ 立花証券のログインに電話番号認証が必要な場合は、先に登録電話番号から 050-3102-6575 に発信して認証を完了してください。\\n再開ボタン押下でログインが実行されます。'
+          ? 'システムを再開しますか？\\n\\n⚠️ 立花証券のログインに電話番号認証が必要な場合は、先に登録電話番号から 0120-286-592 に発信して認証を完了してください。\\n再開ボタン押下でログインが実行されます。'
           : 'システムを緊急停止しますか？';
         if (!confirm(msg)) return;
         btn.disabled = true;
