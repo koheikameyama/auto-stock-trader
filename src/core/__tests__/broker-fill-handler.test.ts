@@ -12,6 +12,7 @@ vi.mock("../../lib/prisma", () => ({
     },
     tradingPosition: {
       findFirst: vi.fn(),
+      findUnique: vi.fn(),
     },
   },
 }));
@@ -47,7 +48,7 @@ vi.mock("../risk-manager", () => ({
 
 vi.mock("../../lib/slack", () => ({
   notifyOrderFilled: vi.fn(),
-  notifySlack: vi.fn(),
+  notifySlack: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { handleBrokerFill } from "../broker-fill-handler";
@@ -271,6 +272,9 @@ describe("handleBrokerFill", () => {
       mockPrisma.tradingOrder.findFirst.mockResolvedValue(
         makeOrder({ side: "sell", positionId: "pos-456" }) as never,
       );
+      mockPrisma.tradingPosition.findUnique.mockResolvedValue(
+        { entryPrice: 1000, exitSnapshot: null } as never,
+      );
       mockGetOrderDetail.mockResolvedValue(makeOrderDetail() as never);
 
       await handleBrokerFill(makeEvent());
@@ -312,6 +316,9 @@ describe("handleBrokerFill", () => {
     it("複数回に分けて約定した場合の加重平均を計算する", async () => {
       mockPrisma.tradingOrder.findFirst.mockResolvedValue(
         makeOrder({ side: "sell", positionId: "pos-789" }) as never,
+      );
+      mockPrisma.tradingPosition.findUnique.mockResolvedValue(
+        { entryPrice: 1000, exitSnapshot: null } as never,
       );
       mockGetOrderDetail.mockResolvedValue(
         makeOrderDetail({
