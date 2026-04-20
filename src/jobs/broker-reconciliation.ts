@@ -119,11 +119,11 @@ async function syncBrokerSLStatuses(): Promise<void> {
         data: { slBrokerOrderId: null, slBrokerBusinessDay: null },
       });
       console.log(
-        `[broker-reconciliation] ${pos.stock.tickerCode}: SL注文 ${pos.slBrokerOrderId} が${label}済み → slBrokerOrderId クリア（Phase 1.6 が再発注）`,
+        `[broker-reconciliation] ${pos.stock.tickerCode}: SL注文 ${pos.slBrokerOrderId} が${label}済み → slBrokerOrderId クリア`,
       );
       await notifySlack({
         title: `⚠️ SL注文${label}検出: ${pos.stock.tickerCode}`,
-        message: `SL注文 ${pos.slBrokerOrderId} が立花側で${label}されたため、次サイクルでSLを再発注します`,
+        message: `SL注文 ${pos.slBrokerOrderId} が立花側で${label}されました\n手動でSL注文を確認・再発注してください\npositionId: ${pos.id}`,
         color: "warning",
       }).catch(() => {});
       continue;
@@ -272,6 +272,7 @@ async function handleMissingHolding(position: {
   id: string;
   quantity: number;
   strategy: string;
+  entryPrice: unknown;
   stopLossPrice: unknown;
   trailingStopPrice: unknown;
   slBrokerOrderId: string | null;
@@ -301,6 +302,9 @@ async function handleMissingHolding(position: {
           for (const exec of execList) {
             const price = Number(exec.sYakuzyouPrice ?? exec.sExecPrice ?? 0);
             const qty = Number(exec.sYakuzyouSuryou ?? exec.sExecQuantity ?? 0);
+            console.log(
+              `[broker-reconciliation] ${ticker}: raw exec data: price=${price}, qty=${qty}, raw=${JSON.stringify(exec)}`,
+            );
             totalAmount += price * qty;
             totalQuantity += qty;
           }
@@ -308,6 +312,20 @@ async function handleMissingHolding(position: {
         }
 
         if (filledPrice > 0) {
+          // 約定価格の異常値チェック: エントリー価格の50%未満は明らかにおかしい
+          const entryPrice = Number(position.entryPrice ?? 0);
+          if (entryPrice > 0 && filledPrice < entryPrice * 0.5) {
+            console.error(
+              `[broker-reconciliation] ${ticker}: SL約定価格が異常 (¥${filledPrice} << エントリー¥${entryPrice}) → 自動クローズ中止`,
+            );
+            await notifySlack({
+              title: `🚨 SL約定価格異常: ${ticker}`,
+              message: `SL注文 ${position.slBrokerOrderId} の約定価格が異常です\n約定価格: ¥${filledPrice.toLocaleString()}\nエントリー価格: ¥${entryPrice.toLocaleString()}\n自動クローズを中止しました。手動で確認してください\npositionId: ${position.id}`,
+              color: "danger",
+            }).catch(() => {});
+            return;
+          }
+
           await closePosition(position.id, filledPrice, {
             exitReason: "SL約定（ブローカー自律執行・照合リカバリ）",
             exitPrice: filledPrice,

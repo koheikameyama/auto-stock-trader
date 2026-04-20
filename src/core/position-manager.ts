@@ -6,14 +6,13 @@
 
 import { prisma } from "../lib/prisma";
 import type { TradingConfig, TradingPosition } from "@prisma/client";
-import { calculateTradeCosts } from "./trading-costs";
 import { getBuyingPower } from "./broker-orders";
 import { isTachibanaProduction } from "../lib/constants/broker";
 
 /**
- * ポジション単体の確定損益を算出する（手数料・税込み）
+ * ポジション単体の確定損益を算出する（粗損益）
  *
- * entryPrice, exitPrice, quantity から calculateTradeCosts で計算。
+ * 手数料・税金はブローカー側で徴収されるため、プログラム側では計算しない。
  * exitPrice が null（void等）の場合は 0 を返す。
  */
 export function getPositionPnl(pos: {
@@ -24,8 +23,7 @@ export function getPositionPnl(pos: {
   if (!pos.exitPrice) return 0;
   const entry = typeof pos.entryPrice === "number" ? pos.entryPrice : Number(pos.entryPrice);
   const exit = typeof pos.exitPrice === "number" ? pos.exitPrice : Number(pos.exitPrice);
-  const costs = calculateTradeCosts(entry, exit, pos.quantity);
-  return costs.netPnl;
+  return Math.round((exit - entry) * pos.quantity);
 }
 
 /**
