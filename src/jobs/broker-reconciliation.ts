@@ -19,7 +19,7 @@ import { prisma } from "../lib/prisma";
 import { notifySlack } from "../lib/slack";
 import { syncBrokerOrderStatuses, getHoldings, getOrderDetail, getOrders } from "../core/broker-orders";
 import { recoverMissedFills } from "../core/broker-fill-handler";
-import { TACHIBANA_ORDER, TACHIBANA_ORDER_STATUS, isTachibanaProduction } from "../lib/constants/broker";
+import { TACHIBANA_ORDER, TACHIBANA_ORDER_STATUS, BROKER_RECONCILIATION, isTachibanaProduction } from "../lib/constants/broker";
 import { closePosition } from "../core/position-manager";
 import { cancelBrokerSL } from "../core/broker-sl-manager";
 
@@ -312,9 +312,9 @@ async function handleMissingHolding(position: {
         }
 
         if (filledPrice > 0) {
-          // 約定価格の異常値チェック: SL最大損失3%なので-10%超はデータ異常
+          // 約定価格の異常値チェック
           const entryPrice = Number(position.entryPrice ?? 0);
-          if (entryPrice > 0 && filledPrice < entryPrice * 0.9) {
+          if (entryPrice > 0 && filledPrice < entryPrice * BROKER_RECONCILIATION.MIN_FILL_PRICE_RATIO) {
             console.error(
               `[broker-reconciliation] ${ticker}: SL約定価格が異常 (¥${filledPrice} << エントリー¥${entryPrice}) → 自動クローズ中止`,
             );
