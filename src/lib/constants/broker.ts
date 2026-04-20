@@ -190,6 +190,10 @@ export const BROKER_RECONCILIATION = {
   /** SL約定価格の正常範囲下限（エントリー価格に対する比率）
    * SL最大損失3%なので、-10%超の乖離はデータ異常と判定する */
   MIN_FILL_PRICE_RATIO: 0.9,
+  /** 保有照合（Phase 3）を開始するJST時刻（分）
+   * 9:00丁度は立花APIの保有データが未反映の可能性があるため、
+   * 9:05以降から照合を開始する */
+  HOLDINGS_CHECK_START_MINUTE_JST: 9 * 60 + 5, // 09:05 JST
 } as const;
 
 // ========================================

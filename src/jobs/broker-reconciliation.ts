@@ -207,6 +207,14 @@ async function reconcileHoldings(): Promise<void> {
     return;
   }
 
+  // 9:05 JST以前は立花APIの保有データが未反映の可能性があるためスキップ
+  const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000); // UTC→JST
+  const currentMinuteJST = nowJST.getUTCHours() * 60 + nowJST.getUTCMinutes();
+  if (currentMinuteJST < BROKER_RECONCILIATION.HOLDINGS_CHECK_START_MINUTE_JST) {
+    console.log("[broker-reconciliation] 保有照合: 9:05 JST以前のためスキップ");
+    return;
+  }
+
   const [brokerHoldings, openPositions] = await Promise.all([
     getHoldings(),
     prisma.tradingPosition.findMany({
