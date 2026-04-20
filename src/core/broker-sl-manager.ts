@@ -73,10 +73,42 @@ export async function submitBrokerSL(params: {
       console.log(
         `[broker-sl] SL order submitted: ${result.orderNumber} @ trigger ¥${params.stopTriggerPrice} (${params.ticker})`,
       );
+
+      // 通知用にポジション詳細を取得
+      const pos = await prisma.tradingPosition.findUnique({
+        where: { id: params.positionId },
+        select: {
+          entryPrice: true,
+          stock: { select: { name: true } },
+        },
+      }).catch(() => null);
+
+      const entryPrice = pos ? Number(pos.entryPrice) : null;
+      const lossPct = entryPrice
+        ? ((params.stopTriggerPrice - entryPrice) / entryPrice * 100).toFixed(2)
+        : null;
+      const lossAmt = entryPrice
+        ? Math.round((params.stopTriggerPrice - entryPrice) * params.quantity)
+        : null;
+      const stockName = pos?.stock?.name ?? "";
+      const nameLabel = stockName ? ` ${stockName}` : "";
+
+      const fields: Array<{ title: string; value: string; short: boolean }> = [
+        { title: "エントリー", value: entryPrice ? `¥${entryPrice.toLocaleString()}` : "N/A", short: true },
+        { title: "SLトリガー", value: `¥${params.stopTriggerPrice.toLocaleString()}`, short: true },
+        { title: "損失率", value: lossPct ? `${lossPct}%` : "N/A", short: true },
+        { title: "想定損失額", value: lossAmt != null ? `¥${lossAmt.toLocaleString()}` : "N/A", short: true },
+        { title: "数量", value: `${params.quantity}株`, short: true },
+        { title: "戦略", value: params.strategy, short: true },
+        { title: "注文番号", value: result.orderNumber, short: true },
+        { title: "有効期限", value: `${expireDay.slice(0, 4)}/${expireDay.slice(4, 6)}/${expireDay.slice(6)}`, short: true },
+      ];
+
       await notifySlack({
-        title: `✅ SL注文発注: ${params.ticker}`,
-        message: `注文番号: ${result.orderNumber}\nトリガー: ¥${params.stopTriggerPrice.toLocaleString()}\n数量: ${params.quantity}株`,
+        title: `✅ SL注文発注: ${params.ticker}${nameLabel}`,
+        message: `逆指値 ¥${params.stopTriggerPrice.toLocaleString()} で売り注文を発注しました`,
         color: "good",
+        fields,
       }).catch(() => {});
     } else if (!result.success) {
       console.error(
