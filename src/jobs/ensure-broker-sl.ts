@@ -1,24 +1,24 @@
 /**
- * SL未発注ポジション検出ジョブ（通知のみ）
+ * SL未発注ポジション保険ジョブ
  *
- * status="open" かつ slBrokerOrderId=null のポジションを検出し、
- * Slack通知で手動確認を促す。
+ * status="open" かつ slBrokerOrderId=null のポジションに対し、
+ * DBの stopLossPrice を使って逆指値売り注文をブローカーに発注する。
  *
- * 以前は自動再発注していたが、ブローカー側でSLが取消された場合に
- * 自動再発注 → 再取消 のループが発生し、誤った約定データで
- * ポジションが自動クローズされる事故が発生した（2026-04-20 7730.T ¥100事件）。
+ * 立会終了後〜翌朝前場開始前の「翌日注文受付時間帯」をカバーする目的。
+ * position-monitor は取引時間内のみ動作するため、その時間帯はこのジョブが
+ * SL抜けを防ぐ。quote を使わず trail再計算もしないため、取引時間外でも安全。
  *
- * SLの初回発注は broker-fill-handler が担当する。
- * SLの更新（トレーリングストップ変更）は position-monitor が担当する。
- * このジョブは検出と通知のみ。再発注が必要な場合は手動で対応する。
+ * リトライ上限（MAX_SL_RETRIES）を設け、超過時は自動再発注を停止し通知のみにする。
+ * これにより、ブローカー側で繰り返しSLが取消される場合の無限ループを防止する。
  */
 
 import { prisma } from "../lib/prisma";
+import { submitBrokerSL } from "../core/broker-sl-manager";
 import { notifySlack } from "../lib/slack";
 
-// 同一ポジションへの通知を30分間スロットリング
-const SL_MISSING_NOTIFY_THROTTLE_MS = 30 * 60 * 1000;
-const lastNotifiedAt = new Map<string, number>();
+/** 同一ポジションのSL再発注上限（プロセスライフタイム内） */
+const MAX_SL_RETRIES = 3;
+const retryCount = new Map<string, number>();
 
 export async function main(): Promise<void> {
   const tag = "[ensure-broker-sl]";
@@ -30,7 +30,7 @@ export async function main(): Promise<void> {
 
   if (!targets.length) return;
 
-  console.log(`${tag} SL未発注ポジション ${targets.length}件を検出`);
+  console.log(`${tag} SL未発注ポジション ${targets.length}件を処理`);
 
   for (const pos of targets) {
     if (!pos.stopLossPrice) {
@@ -40,18 +40,35 @@ export async function main(): Promise<void> {
       continue;
     }
 
-    const now = Date.now();
-    const last = lastNotifiedAt.get(pos.id);
-    if (last && now - last < SL_MISSING_NOTIFY_THROTTLE_MS) continue;
-    lastNotifiedAt.set(pos.id, now);
+    const count = retryCount.get(pos.id) ?? 0;
+    if (count >= MAX_SL_RETRIES) {
+      console.warn(
+        `${tag} ${pos.stock.tickerCode} (${pos.id}): リトライ上限(${MAX_SL_RETRIES})到達 → 通知のみ`,
+      );
+      await notifySlack({
+        title: `🚨 SL再発注リトライ上限: ${pos.stock.tickerCode}`,
+        message: `SL注文の自動再発注が${MAX_SL_RETRIES}回失敗しました\npositionId: ${pos.id}\nSLトリガー: ¥${Number(pos.stopLossPrice).toLocaleString()}\n手動でSL注文を確認・再発注してください`,
+        color: "danger",
+      }).catch(() => {});
+      continue;
+    }
 
-    console.warn(
-      `${tag} ${pos.stock.tickerCode} (${pos.id}): SL未発注 → 通知のみ（自動再発注は停止中）`,
-    );
-    await notifySlack({
-      title: `⚠️ SL未発注検出: ${pos.stock.tickerCode}`,
-      message: `SL注文がブローカーに存在しません\npositionId: ${pos.id}\nSLトリガー: ¥${Number(pos.stopLossPrice).toLocaleString()}\n手動でSL注文を確認・再発注してください`,
-      color: "warning",
-    }).catch(() => {});
+    retryCount.set(pos.id, count + 1);
+
+    if (count > 0) {
+      await notifySlack({
+        title: `⚠️ SL自動再発注 (${count + 1}/${MAX_SL_RETRIES}): ${pos.stock.tickerCode}`,
+        message: `SL注文を自動再発注します\npositionId: ${pos.id}\nSLトリガー: ¥${Number(pos.stopLossPrice).toLocaleString()}`,
+        color: "warning",
+      }).catch(() => {});
+    }
+
+    await submitBrokerSL({
+      positionId: pos.id,
+      ticker: pos.stock.tickerCode,
+      quantity: pos.quantity,
+      stopTriggerPrice: Number(pos.stopLossPrice),
+      strategy: pos.strategy,
+    });
   }
 }

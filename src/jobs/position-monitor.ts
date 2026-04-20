@@ -286,11 +286,19 @@ export async function main() {
           tickerCode: order.stock.tickerCode,
           name: order.stock.name,
           side: "buy",
+          strategy: order.strategy,
           filledPrice,
           quantity: order.quantity,
+          stopLossPrice,
         });
       } else {
         // 売り約定通知
+        const sellPosition = order.positionId
+          ? await prisma.tradingPosition.findUnique({
+              where: { id: order.positionId },
+              select: { entryPrice: true },
+            })
+          : null;
         const pnl = order.positionId
           ? await calculatePnlForOrder(order.positionId, filledPrice)
           : undefined;
@@ -299,8 +307,10 @@ export async function main() {
           tickerCode: order.stock.tickerCode,
           name: order.stock.name,
           side: "sell",
+          strategy: order.strategy,
           filledPrice,
           quantity: order.quantity,
+          entryPrice: sellPosition ? Number(sellPosition.entryPrice) : undefined,
           pnl,
         });
       }
@@ -518,8 +528,10 @@ export async function main() {
         tickerCode: position.stock.tickerCode,
         name: position.stock.name,
         side: "sell",
+        strategy: position.strategy,
         filledPrice: exitPrice,
         quantity: position.quantity,
+        entryPrice: Number(position.entryPrice),
         pnl: getPositionPnl(closedPosition),
         exitReason,
       });
@@ -646,8 +658,10 @@ export async function main() {
       tickerCode: position.stock.tickerCode,
       name: position.stock.name,
       side: "sell",
+      strategy: position.strategy,
       filledPrice: quote.price,
       quantity: position.quantity,
+      entryPrice: Number(position.entryPrice),
       pnl: getPositionPnl(closed),
       exitReason: earningsReason,
     });
@@ -719,8 +733,10 @@ export async function main() {
       tickerCode: position.stock.tickerCode,
       name: position.stock.name,
       side: "sell",
+      strategy: position.strategy,
       filledPrice: quote.price,
       quantity: position.quantity,
+      entryPrice: Number(position.entryPrice),
       pnl: getPositionPnl(closed),
       exitReason: supervisionReason,
     });
@@ -821,8 +837,10 @@ export async function main() {
           tickerCode: position.stock.tickerCode,
           name: position.stock.name,
           side: "sell",
+          strategy: position.strategy,
           filledPrice: quote.price,
           quantity: position.quantity,
+          entryPrice: Number(position.entryPrice),
           pnl: getPositionPnl(closed),
           exitReason: defensiveReason,
         });

@@ -289,12 +289,19 @@ async function handleBuyFill(
   });
 
   // Slack 通知
+  const triggerSnapshot = (order.entrySnapshot as Record<string, unknown>)?.trigger as Record<string, unknown> | undefined;
+  const buyReasoning = triggerSnapshot
+    ? `出来高サージ ${Number(triggerSnapshot.volumeSurgeRatio ?? 0).toFixed(2)}x`
+    : undefined;
   await notifyOrderFilled({
     tickerCode: order.stock.tickerCode,
     name: order.stock.name,
     side: "buy",
+    strategy: order.strategy,
     filledPrice,
     quantity: order.quantity,
+    stopLossPrice,
+    reasoning: buyReasoning,
   });
 
   // 約定品質: 異常値Slack通知
@@ -317,14 +324,24 @@ async function handleSellFill(
   order: {
     id: string;
     positionId: string | null;
+    strategy: string;
     stock: { tickerCode: string; name: string };
     quantity: number;
   },
   filledPrice: number,
 ): Promise<void> {
   let pnl = 0;
+  let entryPrice: number | undefined;
+  let exitReason: string | undefined;
 
   if (order.positionId) {
+    // エントリー価格を取得
+    const position = await prisma.tradingPosition.findUnique({
+      where: { id: order.positionId },
+      select: { entryPrice: true, exitSnapshot: true },
+    });
+    entryPrice = position ? Number(position.entryPrice) : undefined;
+
     // ポジションをクローズ
     const exitSnapshot = {
       exitReason: "ブローカー約定（WebSocket）",
@@ -338,6 +355,9 @@ async function handleSellFill(
       exitSnapshot as object,
     );
     pnl = getPositionPnl(closed);
+
+    // 決済理由を判定（SL約定 = 逆指値発動）
+    exitReason = "SL約定";
   }
 
   // Slack 通知
@@ -345,9 +365,12 @@ async function handleSellFill(
     tickerCode: order.stock.tickerCode,
     name: order.stock.name,
     side: "sell",
+    strategy: order.strategy,
     filledPrice,
     quantity: order.quantity,
+    entryPrice,
     pnl,
+    exitReason,
   });
 }
 

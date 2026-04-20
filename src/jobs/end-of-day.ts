@@ -58,9 +58,12 @@ async function forceClosePositions(
       tickerCode: stock.tickerCode,
       name: stock.name,
       side: "sell",
+      strategy: position.strategy,
       filledPrice: exitPrice,
       quantity: position.quantity,
+      entryPrice: Number(position.entryPrice),
       pnl: getPositionPnl(closed),
+      exitReason,
     });
   }
 }

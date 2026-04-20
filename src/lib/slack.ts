@@ -151,24 +151,21 @@ export async function notifyOrderPlaced(data: {
   reasoning: string;
 }): Promise<void> {
   const emoji = data.side === "buy" ? "📥" : "📤";
+  const totalAmount = data.limitPrice * data.quantity;
   const fields: SlackField[] = [
-    { title: "指値", value: `¥${data.limitPrice.toLocaleString()}`, short: true },
+    { title: "価格", value: `¥${data.limitPrice.toLocaleString()}`, short: true },
     { title: "数量", value: `${data.quantity}株`, short: true },
+    { title: "投資額", value: `¥${totalAmount.toLocaleString()}`, short: true },
     { title: "戦略", value: data.strategy, short: true },
   ];
 
-  if (data.takeProfitPrice) {
-    fields.push({
-      title: "利確",
-      value: `¥${data.takeProfitPrice.toLocaleString()}`,
-      short: true,
-    });
-  }
   if (data.stopLossPrice) {
+    const riskAmt = (data.limitPrice - data.stopLossPrice) * data.quantity;
+    const riskPct = ((data.limitPrice - data.stopLossPrice) / data.limitPrice * 100).toFixed(1);
     fields.push({
-      title: "損切り",
-      value: `¥${data.stopLossPrice.toLocaleString()}`,
-      short: true,
+      title: "SL",
+      value: `¥${data.stopLossPrice.toLocaleString()} (−${riskPct}% / −¥${riskAmt.toLocaleString()})`,
+      short: false,
     });
   }
 
@@ -185,12 +182,17 @@ export async function notifyOrderFilled(data: {
   tickerCode: string;
   name?: string;
   side: string;
+  strategy?: string;
   filledPrice: number;
   quantity: number;
+  entryPrice?: number;
+  stopLossPrice?: number;
   pnl?: number;
   exitReason?: string;
+  reasoning?: string;
 }): Promise<void> {
   const emoji = data.side === "buy" ? "✅" : "💰";
+  const totalAmount = data.filledPrice * data.quantity;
   const fields: SlackField[] = [
     {
       title: "約定価格",
@@ -198,22 +200,45 @@ export async function notifyOrderFilled(data: {
       short: true,
     },
     { title: "数量", value: `${data.quantity}株`, short: true },
+    { title: "約定額", value: `¥${totalAmount.toLocaleString()}`, short: true },
   ];
 
-  if (data.pnl != null) {
-    const pnlEmoji = data.pnl >= 0 ? "📈" : "📉";
+  if (data.strategy) {
+    fields.push({ title: "戦略", value: data.strategy, short: true });
+  }
+
+  if (data.side === "buy" && data.stopLossPrice) {
+    const riskAmt = (data.filledPrice - data.stopLossPrice) * data.quantity;
+    const riskPct = ((data.filledPrice - data.stopLossPrice) / data.filledPrice * 100).toFixed(1);
     fields.push({
-      title: "損益",
-      value: `${pnlEmoji} ¥${data.pnl.toLocaleString()}`,
-      short: true,
+      title: "SL",
+      value: `¥${data.stopLossPrice.toLocaleString()} (−${riskPct}% / −¥${riskAmt.toLocaleString()})`,
+      short: false,
     });
   }
 
+  if (data.pnl != null) {
+    const pnlEmoji = data.pnl >= 0 ? "📈" : "📉";
+    let pnlValue = `${pnlEmoji} ¥${data.pnl.toLocaleString()}`;
+    if (data.entryPrice) {
+      const returnPct = ((data.filledPrice - data.entryPrice) / data.entryPrice * 100).toFixed(1);
+      pnlValue += ` (${Number(returnPct) >= 0 ? "+" : ""}${returnPct}%)`;
+    }
+    fields.push({ title: "損益", value: pnlValue, short: true });
+  }
+
+  if (data.entryPrice && data.side === "sell") {
+    fields.push({ title: "エントリー", value: `¥${data.entryPrice.toLocaleString()}`, short: true });
+  }
+
   const reasonSuffix = data.exitReason ? ` — ${data.exitReason}` : "";
+  const message = data.reasoning
+    ? data.reasoning
+    : `約定価格 ¥${data.filledPrice.toLocaleString()} × ${data.quantity}株`;
 
   await notifySlack({
     title: `${emoji} 約定: ${data.tickerCode}${data.name ? ` ${data.name}` : ""} [${data.side.toUpperCase()}]${reasonSuffix}`,
-    message: `約定価格 ¥${data.filledPrice.toLocaleString()} × ${data.quantity}株`,
+    message,
     color: data.pnl != null ? (data.pnl >= 0 ? "good" : "danger") : "#439FE0",
     fields,
   });
