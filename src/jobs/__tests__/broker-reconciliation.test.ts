@@ -59,31 +59,17 @@ vi.mock("../../core/broker-orders", () => ({
   cancelOrder: mockCancelOrder,
 }));
 
-vi.mock("../../lib/constants/broker", () => ({
-  TACHIBANA_ORDER: {
-    SIDE: { SELL: "1", BUY: "3" },
-    MARGIN_TYPE: { CASH: "0", MARGIN_NEW: "2", MARGIN_CLOSE: "4" },
-    EXCHANGE: { TSE: "00" },
-    CONDITION: { NONE: "0", OPEN: "2", CLOSE: "4", FUNARI: "6" },
-    REVERSE_ORDER_TYPE: { NORMAL: "0", REVERSE_ONLY: "1", NORMAL_AND_REVERSE: "2" },
-    EXPIRE: { TODAY: "0" },
-    TAX_TYPE: { SPECIFIC: "1", GENERAL: "3", NISA: "5" },
-    MARKET_PRICE: "0",
-  },
-  TACHIBANA_ORDER_STATUS: {
-    NOT_RECEIVED: "0",
-    UNFILLED: "1",
-    PARTIAL_FILLED: "9",
-    FULLY_FILLED: "10",
-    CANCELLED: "7",
-    EXPIRED: "12",
-    WAITING_REVERSE: "13",
-    SWITCHING: "15",
-    SWITCHED_UNFILLED: "16",
-    SUBMITTING: "50",
-  },
-  get isTachibanaProduction() { return mockBrokerConstants.isTachibanaProduction; },
-}));
+vi.mock("../../lib/constants/broker", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/constants/broker")>();
+  return {
+    ...actual,
+    BROKER_RECONCILIATION: {
+      ...actual.BROKER_RECONCILIATION,
+      HOLDINGS_CHECK_START_MINUTE_JST: 0, // テストでは常に時刻制限を通過させる
+    },
+    get isTachibanaProduction() { return mockBrokerConstants.isTachibanaProduction; },
+  };
+});
 
 vi.mock("../../core/broker-fill-handler", () => ({
   recoverMissedFills: mockRecoverMissedFills,
