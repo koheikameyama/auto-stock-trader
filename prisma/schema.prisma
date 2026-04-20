@@ -366,6 +366,15 @@ model TradingPosition {
   exitSnapshot              Json?
   maxHighDuringHold         Decimal?               @db.Decimal(10, 2)
   reviewComments            String?
+  // 決済後の株価追跡（EODバッチで補完）
+  postExitClose5d           Float?
+  postExitClose10d          Float?
+  postExitMaxHigh10d        Float?
+  postExitMinLow10d         Float?
+  postExitReturn5dPct       Float?
+  postExitReturn10dPct      Float?
+  postExitMaxHighPct        Float?
+  postExitMinLowPct         Float?
   entryAtr                  Decimal?               @db.Decimal(10, 2)
   trailingStopPrice         Decimal?               @db.Decimal(10, 2)
   holdingScoreTrailOverride Decimal?               @db.Decimal(5, 2)

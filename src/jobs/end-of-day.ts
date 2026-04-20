@@ -10,7 +10,7 @@
  */
 
 import { prisma } from "../lib/prisma";
-import { getTodayForDB, getStartOfDayJST, getEndOfDayJST, addTradingDays } from "../lib/market-date";
+import { getTodayForDB, getStartOfDayJST, getEndOfDayJST, addTradingDays, toJSTDateForDB } from "../lib/market-date";
 import { STRATEGY_SWITCHING } from "../lib/constants";
 import { fetchStockQuote } from "../core/market-data";
 import { closePosition, getCashBalance, getTotalPortfolioValue, getPositionPnl } from "../core/position-manager";
@@ -394,6 +394,9 @@ export async function main() {
   // 7. MA押し目シグナルの終値補完
   await fillIntradayMaSignalClosePrices(getTodayForDB());
 
+  // 8. 決済後の株価追跡補完
+  await fillPostExitReturns();
+
   console.log("=== End of Day 終了 ===");
 }
 
@@ -494,6 +497,90 @@ async function fillRejectedSignalReturns(): Promise<void> {
   }
 
   console.log(`${tag}: 完了`);
+}
+
+/**
+ * 決済後の株価追跡: close5d/close10d + maxHigh/minLow (10営業日) を補完
+ */
+export async function fillPostExitReturns(): Promise<void> {
+  const tag = "[end-of-day] PostExit補完";
+
+  const positions = await prisma.tradingPosition.findMany({
+    where: {
+      status: "closed",
+      exitedAt: { not: null },
+      exitPrice: { not: null },
+      OR: [
+        { postExitClose5d: null },
+        { postExitClose10d: null },
+      ],
+    },
+    include: { stock: { select: { tickerCode: true } } },
+  });
+
+  if (!positions.length) {
+    console.log(`${tag}: 対象なし`);
+    return;
+  }
+
+  console.log(`${tag}: ${positions.length}件処理開始`);
+  let updatedCount = 0;
+
+  for (const position of positions) {
+    const exitDate = position.exitedAt!;
+    const exitPrice = Number(position.exitPrice!);
+    const tickerCode = position.stock.tickerCode;
+
+    // exitedAt (DateTime) → @db.Date 形式に変換（JST日付境界）
+    const exitDateForDb = toJSTDateForDB(exitDate);
+
+    const target10d = addTradingDays(exitDate, 10);
+
+    // 決済日翌日〜10営業日後の全バーを一括取得
+    const bars = await prisma.stockDailyBar.findMany({
+      where: {
+        tickerCode,
+        date: { gt: exitDateForDb, lte: target10d },
+      },
+      orderBy: { date: "asc" },
+      select: { close: true, high: true, low: true },
+    });
+
+    if (bars.length === 0) continue;
+
+    const updates: Record<string, number> = {};
+
+    // close5d: 5営業日目の終値 (bars[4])
+    if (position.postExitClose5d === null && bars.length >= 5) {
+      const close5d = bars[4].close;
+      updates.postExitClose5d = close5d;
+      updates.postExitReturn5dPct = ((close5d - exitPrice) / exitPrice) * 100;
+    }
+
+    // close10d + maxHigh + minLow: 10営業日分揃ったらセット
+    if (position.postExitClose10d === null && bars.length >= 10) {
+      const close10d = bars[9].close;
+      const maxHigh = Math.max(...bars.slice(0, 10).map((b) => b.high));
+      const minLow = Math.min(...bars.slice(0, 10).map((b) => b.low));
+
+      updates.postExitClose10d = close10d;
+      updates.postExitReturn10dPct = ((close10d - exitPrice) / exitPrice) * 100;
+      updates.postExitMaxHigh10d = maxHigh;
+      updates.postExitMinLow10d = minLow;
+      updates.postExitMaxHighPct = ((maxHigh - exitPrice) / exitPrice) * 100;
+      updates.postExitMinLowPct = ((minLow - exitPrice) / exitPrice) * 100;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await prisma.tradingPosition.update({
+        where: { id: position.id },
+        data: updates,
+      });
+      updatedCount++;
+    }
+  }
+
+  console.log(`${tag}: ${updatedCount}件更新完了`);
 }
 
 const isDirectRun = process.argv[1]?.includes("end-of-day");

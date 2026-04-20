@@ -148,6 +148,8 @@ app.get("/", async (c) => {
                   <th>${tt("損益", "実現損益（税引前）")}</th>
                   <th>${tt("MFE%", "最大含み益。保有中に到達した最高利益率")}</th>
                   <th>${tt("決済理由", "損切り・利確・トレーリング・タイムストップ等")}</th>
+                  <th>${tt("5d後", "決済から5営業日後のリターン")}</th>
+                  <th>${tt("10d後", "決済から10営業日後（高値H/安値Lも表示）")}</th>
                   <th>${tt("決済日", "ポジションを閉じた日付")}</th>
                 </tr>
               </thead>
@@ -181,6 +183,24 @@ app.get("/", async (c) => {
                       <td style="white-space:nowrap">${(() => {
                         const snap = p.exitSnapshot as { exitReason?: string } | null;
                         return snap?.exitReason ?? "-";
+                      })()}</td>
+                      <td style="white-space:nowrap">${(() => {
+                        const v = p.postExitReturn5dPct;
+                        if (v == null) return html`<span style="color:#94a3b8">-</span>`;
+                        const color = v >= 0 ? "#22c55e" : "#ef4444";
+                        return html`<span style="color:${color}">${v >= 0 ? "+" : ""}${v.toFixed(1)}%</span>`;
+                      })()}</td>
+                      <td style="white-space:nowrap">${(() => {
+                        const v = p.postExitReturn10dPct;
+                        if (v == null) return html`<span style="color:#94a3b8">-</span>`;
+                        const color = v >= 0 ? "#22c55e" : "#ef4444";
+                        const hPct = p.postExitMaxHighPct;
+                        const lPct = p.postExitMinLowPct;
+                        return html`<span style="color:${color}">${v >= 0 ? "+" : ""}${v.toFixed(1)}%</span>${
+                          hPct != null && lPct != null
+                            ? html`<div style="font-size:0.65rem;color:#94a3b8">H+${hPct.toFixed(1)}% L${lPct >= 0 ? "+" : ""}${lPct.toFixed(1)}%</div>`
+                            : ""
+                        }`;
                       })()}</td>
                       <td style="white-space:nowrap">${p.exitedAt ? dayjs(p.exitedAt).format("M/D") : "-"}</td>
                     </tr>

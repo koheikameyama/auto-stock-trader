@@ -1,0 +1,9 @@
+-- AlterTable
+ALTER TABLE "TradingPosition" ADD COLUMN     "postExitClose10d" DOUBLE PRECISION,
+ADD COLUMN     "postExitClose5d" DOUBLE PRECISION,
+ADD COLUMN     "postExitMaxHigh10d" DOUBLE PRECISION,
+ADD COLUMN     "postExitMaxHighPct" DOUBLE PRECISION,
+ADD COLUMN     "postExitMinLow10d" DOUBLE PRECISION,
+ADD COLUMN     "postExitMinLowPct" DOUBLE PRECISION,
+ADD COLUMN     "postExitReturn10dPct" DOUBLE PRECISION,
+ADD COLUMN     "postExitReturn5dPct" DOUBLE PRECISION;
