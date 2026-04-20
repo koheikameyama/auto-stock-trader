@@ -449,6 +449,9 @@ export async function main() {
         maxHighDuringHold: position.maxHighDuringHold
           ? Number(position.maxHighDuringHold)
           : entryPriceNum,
+        minLowDuringHold: position.minLowDuringHold
+          ? Number(position.minLowDuringHold)
+          : entryPriceNum,
         currentTrailingStop: position.trailingStopPrice
           ? Number(position.trailingStopPrice)
           : null,
@@ -465,6 +468,7 @@ export async function main() {
     );
 
     const newMaxHigh = exitResult.newMaxHigh;
+    const newMinLow = exitResult.newMinLow;
     const exitPrice = exitResult.exitPrice;
 
     // 出口理由の日本語変換
@@ -493,6 +497,7 @@ export async function main() {
         exitPrice,
         priceJourney: {
           maxHigh: newMaxHigh,
+          minLow: newMinLow,
         },
         trailingStop: {
           wasActivated: exitResult.isTrailingActivated,
@@ -541,6 +546,12 @@ export async function main() {
 
       if (newMaxHigh !== Number(position.maxHighDuringHold)) {
         updateData.maxHighDuringHold = newMaxHigh;
+      }
+      const currentMinLow = position.minLowDuringHold
+        ? Number(position.minLowDuringHold)
+        : entryPriceNum;
+      if (newMinLow !== currentMinLow) {
+        updateData.minLowDuringHold = newMinLow;
       }
       const currentTrailing = position.trailingStopPrice
         ? Number(position.trailingStopPrice)

@@ -14,6 +14,7 @@ function makePosition(overrides: Partial<PositionForExit> = {}): PositionForExit
     stopLossPrice: 1920,      // entry - ATR*1.0
     entryAtr: 80,
     maxHighDuringHold: 2000,
+    minLowDuringHold: 2000,
     currentTrailingStop: null,
     strategy: "breakout",
     holdingBusinessDays: 1,
@@ -278,6 +279,7 @@ describe("checkPositionExit", () => {
           stopLossPrice: 2084,
           entryAtr: null,
           maxHighDuringHold: 2148, // 直前まで
+          minLowDuringHold: 2148,
           currentTrailingStop: null,
           strategy: "breakout",
           holdingBusinessDays: 1,

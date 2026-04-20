@@ -502,6 +502,7 @@ export function runBreakoutBacktest(
       // エントリー日はSL判定をスキップ（日中ノイズ防止）
       if (holdingDays === 0) {
         pos.maxHighDuringHold = Math.max(pos.maxHighDuringHold, todayBar.high);
+        pos.minLowDuringHold = Math.min(pos.minLowDuringHold, todayBar.low);
         continue;
       }
 
@@ -512,6 +513,7 @@ export function runBreakoutBacktest(
           stopLossPrice: pos.stopLossPrice,
           entryAtr: pos.entryAtr,
           maxHighDuringHold: pos.maxHighDuringHold,
+          minLowDuringHold: pos.minLowDuringHold,
           currentTrailingStop: pos.trailingStopPrice,
           strategy: "breakout",
           holdingBusinessDays: holdingDays,
@@ -691,6 +693,7 @@ export function runBreakoutBacktest(
             volumeSurgeRatio: entry.volumeSurgeRatio,
             regime: todayRegime,
             maxHighDuringHold: entry.entryPrice,
+            minLowDuringHold: entry.entryPrice,
             trailingStopPrice: null,
             entryAtr: entry.entryAtr,
             exitDate: null,

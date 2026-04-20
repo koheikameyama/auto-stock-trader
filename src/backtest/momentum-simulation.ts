@@ -178,6 +178,7 @@ export function runMomentumBacktest(
 
       if (holdingDays === 0) {
         pos.maxHighDuringHold = Math.max(pos.maxHighDuringHold, todayBar.high);
+        pos.minLowDuringHold = Math.min(pos.minLowDuringHold, todayBar.low);
         continue;
       }
 
@@ -188,6 +189,7 @@ export function runMomentumBacktest(
           stopLossPrice: pos.stopLossPrice,
           entryAtr: pos.entryAtr,
           maxHighDuringHold: pos.maxHighDuringHold,
+          minLowDuringHold: pos.minLowDuringHold,
           currentTrailingStop: pos.trailingStopPrice,
           strategy: "momentum",
           holdingBusinessDays: holdingDays,
@@ -332,6 +334,7 @@ export function runMomentumBacktest(
           volumeSurgeRatio: 0, // モメンタム戦略では出来高サージは使わない
           regime: todayRegime,
           maxHighDuringHold: signal.currentPrice,
+          minLowDuringHold: signal.currentPrice,
           trailingStopPrice: null,
           entryAtr: signal.atr14,
           exitDate: null,

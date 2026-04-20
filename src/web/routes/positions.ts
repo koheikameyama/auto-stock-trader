@@ -147,6 +147,8 @@ app.get("/", async (c) => {
                   <th>${tt("決済", "ポジションを閉じた時の価格")}</th>
                   <th>${tt("損益", "実現損益（税引前）")}</th>
                   <th>${tt("MFE%", "最大含み益。保有中に到達した最高利益率")}</th>
+                  <th>${tt("MAE%", "最大逆行（Maximum Adverse Excursion）。保有中の最安値ベース")}</th>
+                  <th>${tt("翌朝Gap", "エントリー翌日の始値とエントリー価格の乖離率")}</th>
                   <th>${tt("決済理由", "損切り・利確・トレーリング・タイムストップ等")}</th>
                   <th>${tt("5d後", "決済から5営業日後のリターン")}</th>
                   <th>${tt("10d後", "決済から10営業日後（高値H/安値Lも表示）")}</th>
@@ -179,6 +181,20 @@ app.get("/", async (c) => {
                         const mfe = ((maxHigh - entry) / entry) * 100;
                         const color = mfe > 0 ? "#22c55e" : "#94a3b8";
                         return html`<span style="color:${color}">+${mfe.toFixed(1)}%</span>`;
+                      })()}</td>
+                      <td style="white-space:nowrap">${(() => {
+                        const minLow = p.minLowDuringHold ? Number(p.minLowDuringHold) : null;
+                        const entry = p.entryPrice ? Number(p.entryPrice) : null;
+                        if (minLow == null || !entry) return "-";
+                        const mae = ((minLow - entry) / entry) * 100;
+                        const color = mae < 0 ? "#ef4444" : "#94a3b8";
+                        return html`<span style="color:${color}">${mae.toFixed(1)}%</span>`;
+                      })()}</td>
+                      <td style="white-space:nowrap">${(() => {
+                        const v = p.nextDayOpenGapPct;
+                        if (v == null) return html`<span style="color:#94a3b8">-</span>`;
+                        const color = v >= 0 ? "#22c55e" : "#ef4444";
+                        return html`<span style="color:${color}">${v >= 0 ? "+" : ""}${v.toFixed(2)}%</span>`;
                       })()}</td>
                       <td style="white-space:nowrap">${(() => {
                         const snap = p.exitSnapshot as { exitReason?: string } | null;

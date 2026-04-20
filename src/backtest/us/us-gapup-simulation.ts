@@ -237,6 +237,7 @@ export function runUSGapUpBacktest(
       // エントリー日はSL判定スキップ
       if (holdingDays === 0) {
         pos.maxHighDuringHold = Math.max(pos.maxHighDuringHold, todayBar.high);
+        pos.minLowDuringHold = Math.min(pos.minLowDuringHold, todayBar.low);
         continue;
       }
 
@@ -247,6 +248,7 @@ export function runUSGapUpBacktest(
           stopLossPrice: pos.stopLossPrice,
           entryAtr: pos.entryAtr,
           maxHighDuringHold: pos.maxHighDuringHold,
+          minLowDuringHold: pos.minLowDuringHold,
           currentTrailingStop: pos.trailingStopPrice,
           strategy: "gapup",
           holdingBusinessDays: holdingDays,
@@ -360,6 +362,7 @@ export function runUSGapUpBacktest(
           volumeSurgeRatio: signal.volumeSurgeRatio,
           regime: todayRegime,
           maxHighDuringHold: signal.entryPrice,
+          minLowDuringHold: signal.entryPrice,
           trailingStopPrice: null,
           entryAtr: signal.atr14,
           exitDate: null,

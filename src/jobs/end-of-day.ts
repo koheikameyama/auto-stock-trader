@@ -397,6 +397,9 @@ export async function main() {
   // 8. 決済後の株価追跡補完
   await fillPostExitReturns();
 
+  // 9. 翌日始値乖離補完
+  await fillNextDayOpen();
+
   console.log("=== End of Day 終了 ===");
 }
 
@@ -578,6 +581,65 @@ export async function fillPostExitReturns(): Promise<void> {
       });
       updatedCount++;
     }
+  }
+
+  console.log(`${tag}: ${updatedCount}件更新完了`);
+}
+
+/**
+ * 翌日始値乖離を補完する
+ *
+ * closedポジションで nextDayOpenPrice が null のものに対して、
+ * エントリー日の翌営業日始値を取得し、エントリー価格との乖離率を計算する。
+ */
+export async function fillNextDayOpen(): Promise<void> {
+  const tag = "[end-of-day] 翌日始値補完";
+
+  const positions = await prisma.tradingPosition.findMany({
+    where: {
+      status: "closed",
+      nextDayOpenPrice: null,
+    },
+    include: { stock: { select: { tickerCode: true } } },
+  });
+
+  if (!positions.length) {
+    console.log(`${tag}: 対象なし`);
+    return;
+  }
+
+  console.log(`${tag}: ${positions.length}件処理開始`);
+  let updatedCount = 0;
+
+  for (const position of positions) {
+    const entryDate = position.createdAt;
+    const entryPrice = Number(position.entryPrice);
+    const tickerCode = position.stock.tickerCode;
+
+    // createdAt (DateTime) → @db.Date 形式に変換（JST日付境界）
+    const entryDateForDb = toJSTDateForDB(entryDate);
+    const target1d = addTradingDays(entryDate, 1);
+
+    // エントリー日翌日の1本だけ取得
+    const bar = await prisma.stockDailyBar.findFirst({
+      where: {
+        tickerCode,
+        date: { gt: entryDateForDb, lte: target1d },
+      },
+      orderBy: { date: "asc" },
+      select: { open: true },
+    });
+
+    if (!bar) continue;
+
+    const nextDayOpenPrice = bar.open;
+    const nextDayOpenGapPct = ((nextDayOpenPrice - entryPrice) / entryPrice) * 100;
+
+    await prisma.tradingPosition.update({
+      where: { id: position.id },
+      data: { nextDayOpenPrice, nextDayOpenGapPct },
+    });
+    updatedCount++;
   }
 
   console.log(`${tag}: ${updatedCount}件更新完了`);

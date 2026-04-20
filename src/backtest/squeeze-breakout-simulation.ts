@@ -244,6 +244,7 @@ export function runSqueezeBreakoutBacktest(
       // エントリー日はSL判定をスキップ
       if (holdingDays === 0) {
         pos.maxHighDuringHold = Math.max(pos.maxHighDuringHold, todayBar.high);
+        pos.minLowDuringHold = Math.min(pos.minLowDuringHold, todayBar.low);
         continue;
       }
 
@@ -254,6 +255,7 @@ export function runSqueezeBreakoutBacktest(
           stopLossPrice: pos.stopLossPrice,
           entryAtr: pos.entryAtr,
           maxHighDuringHold: pos.maxHighDuringHold,
+          minLowDuringHold: pos.minLowDuringHold,
           currentTrailingStop: pos.trailingStopPrice,
           strategy: "squeeze-breakout",
           holdingBusinessDays: holdingDays,
@@ -384,6 +386,7 @@ export function runSqueezeBreakoutBacktest(
           volumeSurgeRatio: signal.volumeSurgeRatio,
           regime: todayRegime,
           maxHighDuringHold: signal.entryPrice,
+          minLowDuringHold: signal.entryPrice,
           trailingStopPrice: null,
           entryAtr: signal.atr14,
           exitDate: null,

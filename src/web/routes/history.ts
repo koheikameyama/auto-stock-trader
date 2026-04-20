@@ -61,7 +61,7 @@ app.get("/", async (c) => {
   const ninetyDaysAgo = dayjs().subtract(90, "day").toDate();
 
   // Parallel data fetch
-  const [summaries, closedPositions, assessments] = await Promise.all([
+  const [summaries, closedPositions, assessments, rejectedSignals] = await Promise.all([
     prisma.tradingDailySummary.findMany({
       where: { date: { gte: thirtyDaysAgo } },
       orderBy: { date: "desc" },
@@ -83,6 +83,10 @@ app.get("/", async (c) => {
       where: { date: { gte: thirtyDaysAgo } },
       select: { date: true, shouldTrade: true, breadth: true, vix: true, reasoning: true },
       orderBy: { date: "desc" },
+    }),
+    prisma.rejectedSignal.findMany({
+      where: { rejectedAt: { gte: ninetyDaysAgo }, return5dPct: { not: null } },
+      select: { return5dPct: true, return10dPct: true, reason: true },
     }),
   ]);
 
@@ -177,6 +181,38 @@ app.get("/", async (c) => {
     0,
   );
 
+  // === Signal selection accuracy ===
+  const entryPnlPcts = closedPositions
+    .filter((p) => p.entryPrice && p.exitPrice && Number(p.entryPrice) > 0)
+    .map((p) => ((Number(p.exitPrice) - Number(p.entryPrice)) / Number(p.entryPrice)) * 100);
+  const entryAvgPnlPct = entryPnlPcts.length > 0
+    ? entryPnlPcts.reduce((s, v) => s + v, 0) / entryPnlPcts.length
+    : 0;
+
+  const rej5dPcts = rejectedSignals
+    .map((r) => r.return5dPct)
+    .filter((v): v is number => v !== null);
+  const rej10dPcts = rejectedSignals
+    .map((r) => r.return10dPct)
+    .filter((v): v is number => v !== null);
+  const rejAvg5d = rej5dPcts.length > 0
+    ? rej5dPcts.reduce((s, v) => s + v, 0) / rej5dPcts.length
+    : 0;
+  const rejAvg10d = rej10dPcts.length > 0
+    ? rej10dPcts.reduce((s, v) => s + v, 0) / rej10dPcts.length
+    : 0;
+
+  // Rejection reasons breakdown
+  const rejByReason: Record<string, { count: number; avg5d: number }> = {};
+  for (const r of rejectedSignals) {
+    if (!rejByReason[r.reason]) rejByReason[r.reason] = { count: 0, avg5d: 0 };
+    rejByReason[r.reason].count++;
+    rejByReason[r.reason].avg5d += r.return5dPct ?? 0;
+  }
+  for (const key of Object.keys(rejByReason)) {
+    rejByReason[key].avg5d /= rejByReason[key].count;
+  }
+
   // === Gate log ===
   const tradeDays = assessments.filter((a) => a.shouldTrade).length;
   const skipDays = assessments.filter((a) => !a.shouldTrade);
@@ -235,6 +271,42 @@ app.get("/", async (c) => {
           </div>
         `
       : html`<div class="card">${emptyState("\u6C7A\u6E08\u6E08\u307F\u30C8\u30EC\u30FC\u30C9\u306A\u3057")}</div>`}
+
+    <!-- Signal Selection Accuracy -->
+    <p class="section-title">${tt("シグナル選別精度", "入ったトレード vs 見送ったシグナルの成績比較")}（90日）</p>
+    ${entryPnlPcts.length > 0 || rej5dPcts.length > 0
+      ? html`
+          <div class="card">
+            ${detailRow(tt("入った", "実際にエントリーしたトレードの平均損益%"), `${entryAvgPnlPct >= 0 ? "+" : ""}${entryAvgPnlPct.toFixed(2)}%（${entryPnlPcts.length}件）`)}
+            ${rej5dPcts.length > 0
+              ? html`
+                  ${detailRow(tt("見送り 5d", "見送ったシグナルの5営業日後リターン平均"), `${rejAvg5d >= 0 ? "+" : ""}${rejAvg5d.toFixed(2)}%（${rej5dPcts.length}件）`)}
+                  ${detailRow(tt("見送り 10d", "見送ったシグナルの10営業日後リターン平均"), `${rejAvg10d >= 0 ? "+" : ""}${rejAvg10d.toFixed(2)}%（${rej10dPcts.length}件）`)}
+                  <div style="margin-top:10px;padding-top:10px;border-top:1px solid ${COLORS.border}">
+                    ${detailRow(tt("選別効果", "入った方が見送りより良ければプラス"), html`<span style="color:${entryAvgPnlPct - rejAvg5d >= 0 ? COLORS.profit : COLORS.loss}">${(entryAvgPnlPct - rejAvg5d) >= 0 ? "+" : ""}${(entryAvgPnlPct - rejAvg5d).toFixed(2)}%</span>`)}
+                  </div>
+                  ${Object.keys(rejByReason).length > 0
+                    ? html`
+                        <div style="margin-top:10px;padding-top:10px;border-top:1px solid ${COLORS.border}">
+                          <div style="font-size:11px;color:${COLORS.textMuted};margin-bottom:6px">見送り理由別の5d平均:</div>
+                          ${Object.entries(rejByReason)
+                            .sort((a, b) => b[1].count - a[1].count)
+                            .slice(0, 5)
+                            .map(([reason, data]) => html`
+                              <div style="font-size:12px;margin-bottom:3px">
+                                <span style="color:${COLORS.textMuted}">${reason}</span>:
+                                <span style="color:${data.avg5d >= 0 ? COLORS.profit : COLORS.loss}">${data.avg5d >= 0 ? "+" : ""}${data.avg5d.toFixed(2)}%</span>
+                                <span style="color:${COLORS.textMuted}">（${data.count}件）</span>
+                              </div>
+                            `)}
+                        </div>
+                      `
+                    : ""}
+                `
+              : html`<div style="font-size:12px;color:${COLORS.textMuted}">見送りシグナルの株価追跡データなし</div>`}
+          </div>
+        `
+      : html`<div class="card">${emptyState("データなし")}</div>`}
 
     <!-- Gate Log -->
     <p class="section-title">${tt("\u30B2\u30FC\u30C8\u30ED\u30B0", "\u5E02\u5834\u30B3\u30F3\u30C7\u30A3\u30B7\u30E7\u30F3\u306B\u3088\u308B\u53D6\u5F15\u53EF\u5426\u306E\u8A18\u9332")}\uFF0830\u65E5\uFF09</p>

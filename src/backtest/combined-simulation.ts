@@ -167,6 +167,7 @@ function processExits(
 
     if (holdingDays === 0) {
       pos.maxHighDuringHold = Math.max(pos.maxHighDuringHold, todayBar.high);
+        pos.minLowDuringHold = Math.min(pos.minLowDuringHold, todayBar.low);
       continue;
     }
 
@@ -177,6 +178,7 @@ function processExits(
         stopLossPrice: pos.stopLossPrice,
         entryAtr: pos.entryAtr,
         maxHighDuringHold: pos.maxHighDuringHold,
+        minLowDuringHold: pos.minLowDuringHold,
         currentTrailingStop: pos.trailingStopPrice,
         strategy,
         holdingBusinessDays: holdingDays,
@@ -541,7 +543,7 @@ export function runCombinedSimulation(
           ticker: signal.ticker, entryDate: today, entryPrice: signal.entryPrice,
           takeProfitPrice: Math.round(signal.entryPrice + signal.atr14 * 5), stopLossPrice, quantity,
           volumeSurgeRatio: signal.volumeSurgeRatio, regime: todayRegime,
-          maxHighDuringHold: signal.entryPrice, trailingStopPrice: null, entryAtr: signal.atr14,
+          maxHighDuringHold: signal.entryPrice, minLowDuringHold: signal.entryPrice, trailingStopPrice: null, entryAtr: signal.atr14,
           exitDate: null, exitPrice: null, exitReason: null, pnl: null, pnlPct: null, holdingDays: null,
           limitLockDays: 0, entryCommission, exitCommission: null, totalCost: null, tax: null, grossPnl: null, netPnl: null,
         });
@@ -581,7 +583,7 @@ export function runCombinedSimulation(
           ticker: signal.ticker, entryDate: today, entryPrice: signal.entryPrice,
           takeProfitPrice: Math.round(signal.entryPrice + signal.atr14 * 5), stopLossPrice, quantity,
           volumeSurgeRatio: signal.volumeSurgeRatio, regime: todayRegime,
-          maxHighDuringHold: signal.entryPrice, trailingStopPrice: null, entryAtr: signal.atr14,
+          maxHighDuringHold: signal.entryPrice, minLowDuringHold: signal.entryPrice, trailingStopPrice: null, entryAtr: signal.atr14,
           exitDate: null, exitPrice: null, exitReason: null, pnl: null, pnlPct: null, holdingDays: null,
           limitLockDays: 0, entryCommission, exitCommission: null, totalCost: null, tax: null, grossPnl: null, netPnl: null,
         });
@@ -621,7 +623,7 @@ export function runCombinedSimulation(
           ticker: signal.ticker, entryDate: today, entryPrice: signal.entryPrice,
           takeProfitPrice: Math.round(signal.entryPrice + signal.atr14 * 5), stopLossPrice, quantity,
           volumeSurgeRatio: signal.weeklyVolSurge, regime: todayRegime,
-          maxHighDuringHold: signal.entryPrice, trailingStopPrice: null, entryAtr: signal.atr14,
+          maxHighDuringHold: signal.entryPrice, minLowDuringHold: signal.entryPrice, trailingStopPrice: null, entryAtr: signal.atr14,
           exitDate: null, exitPrice: null, exitReason: null, pnl: null, pnlPct: null, holdingDays: null,
           limitLockDays: 0, entryCommission, exitCommission: null, totalCost: null, tax: null, grossPnl: null, netPnl: null,
         });
@@ -661,7 +663,7 @@ export function runCombinedSimulation(
           ticker: signal.ticker, entryDate: today, entryPrice: signal.entryPrice,
           takeProfitPrice: Math.round(signal.entryPrice + signal.atr14 * 5), stopLossPrice, quantity,
           volumeSurgeRatio: signal.volumeSurgeRatio, regime: todayRegime,
-          maxHighDuringHold: signal.entryPrice, trailingStopPrice: null, entryAtr: signal.atr14,
+          maxHighDuringHold: signal.entryPrice, minLowDuringHold: signal.entryPrice, trailingStopPrice: null, entryAtr: signal.atr14,
           exitDate: null, exitPrice: null, exitReason: null, pnl: null, pnlPct: null, holdingDays: null,
           limitLockDays: 0, entryCommission, exitCommission: null, totalCost: null, tax: null, grossPnl: null, netPnl: null,
         });

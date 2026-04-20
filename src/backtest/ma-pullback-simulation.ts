@@ -265,6 +265,7 @@ export function runMaPullbackBacktest(
       // エントリー日はSL判定をスキップ
       if (holdingDays === 0) {
         pos.maxHighDuringHold = Math.max(pos.maxHighDuringHold, todayBar.high);
+        pos.minLowDuringHold = Math.min(pos.minLowDuringHold, todayBar.low);
         continue;
       }
 
@@ -275,6 +276,7 @@ export function runMaPullbackBacktest(
           stopLossPrice: pos.stopLossPrice,
           entryAtr: pos.entryAtr,
           maxHighDuringHold: pos.maxHighDuringHold,
+          minLowDuringHold: pos.minLowDuringHold,
           currentTrailingStop: pos.trailingStopPrice,
           strategy: "ma-pullback",
           holdingBusinessDays: holdingDays,
@@ -407,6 +409,7 @@ export function runMaPullbackBacktest(
           volumeSurgeRatio: signal.maProximity, // MA押し目戦略ではmaProximityを流用（volumeSurgeRatioフィールドの意味は異なる）
           regime: todayRegime,
           maxHighDuringHold: signal.entryPrice,
+          minLowDuringHold: signal.entryPrice,
           trailingStopPrice: null,
           entryAtr: signal.atr14,
           exitDate: null,

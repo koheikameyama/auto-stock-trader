@@ -90,6 +90,7 @@ export interface ExitSnapshot {
   exitPrice: number;
   priceJourney: {
     maxHigh: number;
+    minLow?: number;
   };
   trailingStop?: {
     wasActivated: boolean;

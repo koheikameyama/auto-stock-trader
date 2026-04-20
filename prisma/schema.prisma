@@ -365,6 +365,10 @@ model TradingPosition {
   entrySnapshot             Json?
   exitSnapshot              Json?
   maxHighDuringHold         Decimal?               @db.Decimal(10, 2)
+  minLowDuringHold          Decimal?               @db.Decimal(10, 2)
+  // エントリー品質追跡（EODバッチで補完）
+  nextDayOpenPrice           Float?
+  nextDayOpenGapPct          Float?
   reviewComments            String?
   // 決済後の株価追跡（EODバッチで補完）
   postExitClose5d           Float?

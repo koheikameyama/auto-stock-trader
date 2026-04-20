@@ -234,6 +234,7 @@ function convertToSimulatedPositions(cycles: WheelPosition[]): SimulatedPosition
         volumeSurgeRatio: 0,
         regime: null,
         maxHighDuringHold: 0,
+        minLowDuringHold: 0,
         trailingStopPrice: null,
         entryAtr: null,
         exitDate: cycle.cycleEndDate,

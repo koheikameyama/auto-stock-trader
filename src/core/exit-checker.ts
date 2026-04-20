@@ -21,6 +21,7 @@ export interface PositionForExit {
   stopLossPrice: number;
   entryAtr: number | null;
   maxHighDuringHold: number;
+  minLowDuringHold: number;
   currentTrailingStop: number | null;
   strategy: TradingStrategy;
   holdingBusinessDays: number;
@@ -47,6 +48,7 @@ export interface ExitCheckResult {
   exitPrice: number | null;
   exitReason: ExitReason | null;
   newMaxHigh: number;
+  newMinLow: number;
   trailingStopPrice: number | null;
   isTrailingActivated: boolean;
 }
@@ -61,8 +63,9 @@ export function checkPositionExit(
   position: PositionForExit,
   bar: BarForExit,
 ): ExitCheckResult {
-  // maxHigh を更新（トレーリングストップ算出に必要）
+  // maxHigh / minLow を更新
   const newMaxHigh = Math.max(position.maxHighDuringHold, bar.high);
+  const newMinLow = Math.min(position.minLowDuringHold, bar.low);
 
   // 1. トレーリングストップ算出
   const trailingResult = calculateTrailingStop({
@@ -118,6 +121,7 @@ export function checkPositionExit(
     exitPrice,
     exitReason,
     newMaxHigh,
+    newMinLow,
     trailingStopPrice: trailingResult.trailingStopPrice,
     isTrailingActivated: trailingResult.isActivated,
   };

@@ -109,6 +109,7 @@ export interface SimulatedPosition {
   volumeSurgeRatio: number;
   regime: RegimeLevel | null;
   maxHighDuringHold: number;
+  minLowDuringHold: number;
   trailingStopPrice: number | null;
   entryAtr: number | null;
   exitDate: string | null;
