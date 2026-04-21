@@ -10,6 +10,7 @@
  *   npm run backtest:combined -- --compare-split-positions
  *   npm run backtest:combined -- --compare-breadth
  *   npm run backtest:combined -- --compare-breadth-modes --start 2024-03-01
+ *   npm run backtest:combined -- --compare-breadth-zoom --start 2024-03-01
  */
 
 import dayjs from "dayjs";
@@ -128,8 +129,9 @@ async function main() {
   const compareEfficiency = args.includes("--compare-efficiency");
   const compareBreadth = args.includes("--compare-breadth");
   const compareBreadthModes = args.includes("--compare-breadth-modes");
+  const compareBreadthZoom = args.includes("--compare-breadth-zoom");
 
-  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes;
+  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const pscConfig: PostSurgeConsolidationBacktestConfig = {
@@ -464,6 +466,111 @@ async function main() {
         const netPnlStr = (sub.totalNetPnl >= 0 ? "+" : "") + `¥${sub.totalNetPnl.toLocaleString()}`;
         console.log(
           `  ${r.label.padEnd(24)}| ${String(sub.totalTrades).padStart(6)} | ${sub.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expStr.padStart(7)} | ${netPnlStr.padStart(10)}`,
+        );
+      }
+    }
+
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // breadth 下限ゾーンの個別BT（52-55% 帯の個別調査 + 下限を段階的に緩和した版）
+  if (compareBreadthZoom) {
+    const REGIMES: { label: string; from: string; to: string }[] = [
+      { label: "A: 平穏ボックス", from: "2024-03-01", to: "2024-07-31" },
+      { label: "B: ブラマン+余震", from: "2024-08-01", to: "2024-12-31" },
+      { label: "C: 関税ショック", from: "2025-02-01", to: "2025-04-30" },
+      { label: "D: 大強気相場", from: "2025-05-01", to: "2026-02-28" },
+      { label: "E: 直近急落", from: "2026-03-01", to: "2026-04-20" },
+    ];
+
+    type ZoomSpec = { label: string; mode: BreadthMode };
+    const modes: ZoomSpec[] = [
+      // === sub-threshold 帯だけエントリー（今日のようなケースの過去版を直接見る） ===
+      { label: "band 50-55% only", mode: { type: "band", lower: 0.50, upper: 0.55 } },
+      { label: "band 52-55% only", mode: { type: "band", lower: 0.52, upper: 0.55 } },
+      { label: "band 53-55% only", mode: { type: "band", lower: 0.53, upper: 0.55 } },
+      { label: "band 54-55% only", mode: { type: "band", lower: 0.54, upper: 0.55 } },
+
+      // === 下限を段階的に緩和（現在 55-80% と比較） ===
+      { label: "band 50-80%", mode: { type: "band", lower: 0.50, upper: 0.80 } },
+      { label: "band 52-80%", mode: { type: "band", lower: 0.52, upper: 0.80 } },
+      { label: "band 53-80%", mode: { type: "band", lower: 0.53, upper: 0.80 } },
+      { label: "band 54-80%", mode: { type: "band", lower: 0.54, upper: 0.80 } },
+      { label: "band 55-80% (現状)", mode: { type: "band", lower: 0.55, upper: 0.80 } },
+    ];
+
+    // 比較時は precompute 側のbreadthフィルターを切り、simulation側で判定
+    const guCfgNoFilter: GapUpBacktestConfig = { ...guConfig, marketTrendFilter: false };
+    const pscCfgNoFilter: PostSurgeConsolidationBacktestConfig = { ...pscConfig, marketTrendFilter: false };
+    const guSigOpen = precomputeGapUpDailySignals(guCfgNoFilter, allData, precomputed);
+    const pSigOpen = precomputePSCDailySignals(pscCfgNoFilter, allData, precomputed);
+
+    console.log("\n=== breadth 下限ゾーンの個別BT ===");
+    console.log(`期間: ${startDate} → ${endDate}`);
+    console.log(
+      `${"モード".padEnd(22)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"Expect".padStart(7)} | ${"MaxDD".padStart(6)} | ${"NetRet".padStart(7)} | ${"Calmar".padStart(6)} | ${"稼働率".padStart(6)}`,
+    );
+    console.log("-".repeat(100));
+
+    const overallResults: { label: string; metrics: PerformanceMetrics; guMetrics: PerformanceMetrics; pscMetrics: PerformanceMetrics; allTrades: SimulatedPosition[]; equityCurve: DailyEquity[] }[] = [];
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+
+    for (const { label, mode } of modes) {
+      const result = runCombinedSimulation(
+        { ...ctx, guConfig: guCfgNoFilter, pscConfig: pscCfgNoFilter, gapupSignals: guSigOpen, pscSignals: pSigOpen, breadthMode: mode },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const util = calculateCapitalUtilization(result.equityCurve);
+      const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
+      const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      console.log(
+        `${label.padEnd(22)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(7)} | ${m.maxDrawdown.toFixed(1).padStart(5)}% | ${m.netReturnPct.toFixed(1).padStart(6)}% | ${calmar.toFixed(2).padStart(6)} | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
+      );
+      overallResults.push({ label, metrics: m, guMetrics: result.guMetrics, pscMetrics: result.pscMetrics, allTrades: result.allTrades, equityCurve: result.equityCurve });
+    }
+
+    // 戦略別内訳（GU vs PSC で挙動が違うので分離）
+    console.log("\n=== 戦略別内訳 (GU / PSC) ===");
+    console.log(
+      `${"モード".padEnd(22)}| ${"GU Trd".padStart(6)} | ${"GU PF".padStart(5)} | ${"GU Exp".padStart(7)} | ${"PSC Trd".padStart(7)} | ${"PSC PF".padStart(6)} | ${"PSC Exp".padStart(8)}`,
+    );
+    console.log("-".repeat(88));
+    for (const r of overallResults) {
+      const gm = r.guMetrics;
+      const pm = r.pscMetrics;
+      const gPf = gm.profitFactor === Infinity ? "∞" : gm.profitFactor.toFixed(2);
+      const pPf = pm.profitFactor === Infinity ? "∞" : pm.profitFactor.toFixed(2);
+      const gExp = (gm.expectancy >= 0 ? "+" : "") + gm.expectancy.toFixed(2) + "%";
+      const pExp = (pm.expectancy >= 0 ? "+" : "") + pm.expectancy.toFixed(2) + "%";
+      console.log(
+        `${r.label.padEnd(22)}| ${String(gm.totalTrades).padStart(6)} | ${gPf.padStart(5)} | ${gExp.padStart(7)} | ${String(pm.totalTrades).padStart(7)} | ${pPf.padStart(6)} | ${pExp.padStart(8)}`,
+      );
+    }
+
+    // レジーム別内訳（A: 平穏ボックスで破綻していないか特に注意）
+    console.log("\n=== レジーム別トレード指標 (entryDateで分割) ===");
+    for (const regime of REGIMES) {
+      console.log(`\n[${regime.label}] ${regime.from} 〜 ${regime.to}`);
+      console.log(
+        `  ${"モード".padEnd(22)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"Expect".padStart(7)} | ${"NetPnL".padStart(10)}`,
+      );
+      console.log("  " + "-".repeat(74));
+
+      for (const r of overallResults) {
+        const inRange = r.allTrades.filter(
+          (t) => t.entryDate >= regime.from && t.entryDate <= regime.to,
+        );
+        const sub = calculateMetrics(inRange, r.equityCurve, budget);
+        const pfStr = sub.profitFactor === Infinity ? "∞" : sub.profitFactor.toFixed(2);
+        const expStr = (sub.expectancy >= 0 ? "+" : "") + sub.expectancy.toFixed(2) + "%";
+        const netPnlStr = (sub.totalNetPnl >= 0 ? "+" : "") + `¥${sub.totalNetPnl.toLocaleString()}`;
+        console.log(
+          `  ${r.label.padEnd(22)}| ${String(sub.totalTrades).padStart(6)} | ${sub.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expStr.padStart(7)} | ${netPnlStr.padStart(10)}`,
         );
       }
     }
