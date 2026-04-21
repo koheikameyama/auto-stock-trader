@@ -446,14 +446,6 @@ app.get("/watchlist/state", async (c) => {
   const hour = now.hour();
   const minute = now.minute();
 
-  // ステータス判定
-  type WatchlistStatus = "ordered" | "holding" | "watching";
-  function getStatus(ticker: string): { status: WatchlistStatus; orderStrategy?: string } {
-    if (holdingTickers.has(ticker)) return { status: "holding" };
-    if (orderedMap.has(ticker)) return { status: "ordered", orderStrategy: orderedMap.get(ticker) };
-    return { status: "watching" };
-  }
-
   // 戦略条件チェック
   function checkStrategies(ticker: string, quote: { price: number; open: number; volume: number } | null): string[] {
     if (!quote) return [];
@@ -576,10 +568,8 @@ app.get("/watchlist/state", async (c) => {
     };
   }
 
-  // ティッカーごとのデータ
+  // ティッカーごとのデータ（注文済/保有中は返さない）
   const tickerData: Record<string, {
-    status: WatchlistStatus;
-    orderStrategy?: string;
     strategies: string[];
     surgeRatio: number | null;
     price: number | null;
@@ -598,7 +588,9 @@ app.get("/watchlist/state", async (c) => {
     : "post";
 
   for (const ticker of tickers) {
-    const { status, orderStrategy } = getStatus(ticker);
+    // 注文済/保有中は既にアクション済のためレスポンスに含めない
+    if (holdingTickers.has(ticker) || orderedMap.has(ticker)) continue;
+
     const quote = quotes.get(ticker);
     const wl = wlMap.get(ticker);
 
@@ -611,8 +603,6 @@ app.get("/watchlist/state", async (c) => {
     const quoteData = marketPhase !== "pre" && quote ? { price: quote.price, open: quote.open, volume: quote.volume } : null;
 
     tickerData[ticker] = {
-      status,
-      ...(orderStrategy && { orderStrategy }),
       strategies: checkStrategies(ticker, quoteData),
       surgeRatio,
       price: quote?.price ?? null,

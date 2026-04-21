@@ -13,6 +13,7 @@ import { html, raw } from "hono/html";
 import { prisma } from "../../lib/prisma";
 import { TIMEZONE } from "../../lib/constants";
 import { GAPUP } from "../../lib/constants/gapup";
+import { POST_SURGE_CONSOLIDATION } from "../../lib/constants/post-surge-consolidation";
 import { layout } from "../views/layout";
 import { tickerLink, tt } from "../views/components";
 import { getAllWatchlist } from "../../jobs/watchlist-builder";
@@ -23,19 +24,8 @@ dayjs.extend(timezone);
 
 const app = new Hono();
 
-type WatchlistStatus = "ordered" | "holding" | "watching";
-
-function statusBadgeHtml(status: WatchlistStatus, orderStrategy?: string) {
-  switch (status) {
-    case "ordered": {
-      const label = orderStrategy ? `注文済(${orderStrategy.toUpperCase()})` : "注文済";
-      return raw(`<span class="badge badge-triggered">${label}</span>`);
-    }
-    case "holding":
-      return raw(`<span class="badge badge-holding">保有中</span>`);
-    case "watching":
-      return raw(`<span class="badge badge-cold">監視中</span>`);
-  }
+function statusBadgeHtml() {
+  return raw(`<span class="badge badge-cold">監視中</span>`);
 }
 
 /** グローバル条件: 時間帯チェック */
@@ -74,23 +64,12 @@ app.get("/", async (c) => {
     orderedMap.set(o.stock.tickerCode, o.strategy ?? "");
   }
 
-  // ステータス付きウォッチリストを作成しソート
-  const watchlistWithStatus = watchlist.map((w) => {
-    let status: WatchlistStatus = "watching";
-    let orderStrategy: string | undefined;
-    if (holdingTickers.has(w.ticker)) {
-      status = "holding";
-    } else if (orderedMap.has(w.ticker)) {
-      status = "ordered";
-      orderStrategy = orderedMap.get(w.ticker);
-    }
-    return { ...w, status, orderStrategy };
-  });
-  // 注文済 → 保有中 → 監視中
-  const statusOrder = { ordered: 0, holding: 1, watching: 2 };
-  watchlistWithStatus.sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
+  // 注文済/保有中はwatchlistに表示しない（既にアクション済のため）
+  const visibleWatchlist = watchlist.filter(
+    (w) => !holdingTickers.has(w.ticker) && !orderedMap.has(w.ticker),
+  );
 
-  const tickers = watchlist.map((w) => w.ticker);
+  const tickers = visibleWatchlist.map((w) => w.ticker);
   const stocks = tickers.length
     ? await prisma.stock.findMany({
         where: { tickerCode: { in: tickers } },
@@ -98,11 +77,6 @@ app.get("/", async (c) => {
       })
     : [];
   const nameMap = new Map(stocks.map((s) => [s.tickerCode, s.name]));
-
-  // サマリー統計
-  const orderedCount = watchlistWithStatus.filter((w) => w.status === "ordered").length;
-  const holdingCount = watchlistWithStatus.filter((w) => w.status === "holding").length;
-  const watchingCount = watchlistWithStatus.filter((w) => w.status === "watching").length;
 
   // グローバル条件
   const inTimeWindow = isInEntryTimeWindow();
@@ -112,10 +86,8 @@ app.get("/", async (c) => {
     <p class="section-title">今日のエントリー候補</p>
     <div class="card" style="padding: 8px 12px; margin-bottom: 8px; font-size: 12px;">
       <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; align-items: center;">
-        <span style="color: #e2e8f0; font-size: 11px; font-weight: 600;">すべて: ${watchlist.length}</span>
-        <span data-summary-ordered class="badge badge-triggered" style="opacity: ${orderedCount ? 0.7 : 0.3};">注文済: ${orderedCount}</span>
-        <span data-summary-holding class="badge badge-holding" style="opacity: ${holdingCount ? 0.7 : 0.3};">保有中: ${holdingCount}</span>
-        <span data-summary-watching class="badge badge-cold" style="opacity: ${watchingCount ? 0.7 : 0.3};">監視中: ${watchingCount}</span>
+        <span style="color: #e2e8f0; font-size: 11px; font-weight: 600;">候補: ${visibleWatchlist.length}</span>
+        <span data-summary-watching class="badge badge-cold" style="opacity: 0.3;">監視中: -</span>
         <span style="margin-left: auto;"></span>
         <span data-summary-gu class="badge badge-gapup" style="opacity: 0.3;">GU: -</span>
         <span data-summary-psc class="badge badge-psc" style="opacity: 0.3;">PSC: -</span>
@@ -129,13 +101,13 @@ app.get("/", async (c) => {
       <button id="tab-gu" onclick="switchTab('gu')" style="padding: 5px 14px; font-size: 12px; border-radius: 6px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; cursor: pointer;">GU</button>
       <button id="tab-psc" onclick="switchTab('psc')" style="padding: 5px 14px; font-size: 12px; border-radius: 6px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; cursor: pointer;">PSC</button>
     </div>
-    <div id="loading-state" class="card" style="${watchlist.length ? "display:none;" : ""}padding: 16px; text-align: center; color: #94a3b8; font-size: 13px;">
+    <div id="loading-state" class="card" style="${visibleWatchlist.length ? "display:none;" : ""}padding: 16px; text-align: center; color: #94a3b8; font-size: 13px;">
       読み込み中...
     </div>
     <div id="empty-state" class="card" style="display:none; padding: 16px; text-align: center; color: #94a3b8; font-size: 13px;">
       今日のエントリー候補はありません
     </div>
-    <div id="candidates-table" class="card table-wrap" style="${watchlist.length ? "" : "display:none;"}">
+    <div id="candidates-table" class="card table-wrap" style="${visibleWatchlist.length ? "" : "display:none;"}">
       <table>
         <thead>
           <tr>
@@ -144,11 +116,11 @@ app.get("/", async (c) => {
             <th class="col-psc" style="display:none;">${tt("PSC条件", "mom20d≥15% / 高値-5%以内 / 陽線 / 出来高≥1.5x")}</th>
             <th>${tt("現在価格", "リアルタイム価格")}</th>
             <th class="col-gu col-psc" style="display:none;">${tt("始値", "当日始値")}</th>
-            <th>${tt("状態", "保有中/注文済/監視中")}</th>
+            <th>${tt("状態", "監視中/対象外")}</th>
           </tr>
         </thead>
         <tbody>
-          ${watchlistWithStatus.map(
+          ${visibleWatchlist.map(
             (w) => html`
               <tr data-quote-row data-ticker="${w.ticker}" data-atr14="${w.atr14}">
                 <td>${tickerLink(w.ticker, `${w.ticker} ${nameMap.get(w.ticker) ?? w.ticker}`)}</td>
@@ -156,7 +128,7 @@ app.get("/", async (c) => {
                 <td class="col-psc" data-psc-conditions style="display:none; font-size: 11px; white-space: nowrap;"><span class="quote-loading">...</span></td>
                 <td data-quote-price><span class="quote-loading">...</span></td>
                 <td class="col-gu col-psc" data-open-price style="display:none;"><span class="quote-loading">...</span></td>
-                <td data-status-badge>${statusBadgeHtml(w.status, w.orderStrategy)}</td>
+                <td data-status-badge>${statusBadgeHtml()}</td>
               </tr>
             `,
           )}
@@ -171,15 +143,16 @@ app.get("/", async (c) => {
       function applyRowFilter(tab) {
         var allRows = document.querySelectorAll('[data-quote-row]');
         allRows.forEach(function(row) {
+          // 注文済/保有中で非表示にした行はそのまま
+          if (row.style.display === 'none') return;
           var ticker = row.getAttribute('data-ticker');
           var d = rowFilterData[ticker] || {};
-          row.style.display = '';
-          if (tab === 'gu' && currentMarketPhase !== 'pre') {
-            // GUタブ・場中/場後: gap条件を満たさない行を減衰表示
-            row.style.opacity = d.isGapOk ? '1' : '0.3';
+          if (tab === 'gu') {
+            // GUタブ: 始値Gap未達（=今日のGUは絶対不成立）を減衰
+            row.style.opacity = d.guWatchingOk ? '1' : '0.3';
           } else if (tab === 'psc') {
-            // PSCタブ: mom条件を満たさない行を減衰表示
-            row.style.opacity = d.isMomentumOk ? '1' : '0.3';
+            // PSCタブ: 構造的にPSC候補でない行を減衰
+            row.style.opacity = d.pscWatchingOk ? '1' : '0.3';
           } else {
             row.style.opacity = '1';
           }
@@ -221,13 +194,13 @@ app.get("/", async (c) => {
       (function() {
         var POLL_INTERVAL = 30000;
         var ATR_MULTIPLIER_GU = ${GAPUP.STOP_LOSS.ATR_MULTIPLIER};
+        var PSC_WATCHING_MOM_MIN = ${POST_SURGE_CONSOLIDATION.WATCHING.MOMENTUM_MIN_RETURN};
+        var PSC_WATCHING_HIGH_DIST_MAX = ${POST_SURGE_CONSOLIDATION.WATCHING.MAX_HIGH_DISTANCE_PCT};
         var rows = document.querySelectorAll('[data-quote-row]');
 
         var fmt = function(v) { return Number(v).toLocaleString('ja-JP', { maximumFractionDigits: 0 }); };
 
         var STATUS_MAP = {
-          ordered: { cls: 'badge-triggered' },
-          holding: { label: '保有中', cls: 'badge-holding' },
           watching: { label: '監視中', cls: 'badge-cold' },
           not_target: { label: '対象外', cls: 'badge-cold' }
         };
@@ -272,22 +245,31 @@ app.get("/", async (c) => {
               }
 
               var guCount = 0, pscCount = 0;
-              var orderedCount = 0, holdingCount = 0, watchingCount = 0;
+              var watchingCount = 0;
               var rowSortData = {};
 
               rows.forEach(function(row) {
                 var ticker = row.getAttribute('data-ticker');
                 var d = data.tickers[ticker];
-                if (!d) return;
+                // APIが返さない=注文済/保有中になった→watchlistから非表示
+                if (!d) {
+                  row.style.display = 'none';
+                  return;
+                }
+                row.style.display = '';
 
-                // ---- ステータス別カウント ----
-                if (d.status === 'ordered') orderedCount++;
-                else if (d.status === 'holding') holdingCount++;
-                else watchingCount++;
+                // 監視中判定:
+                //   GU = isGapOk（始値Gapが確定で満たされる → 他は日中で揃う可能性）
+                //   PSC = mom20d ≥ 緩和閾値 AND highDist ≥ 緩和閾値（過去データ起因の構造的候補）
+                var guWatchingOk = !!(d.gapup && d.gapup.isGapOk);
+                var pscWatchingOk = !!(d.psc
+                  && d.psc.momentum20d >= PSC_WATCHING_MOM_MIN
+                  && d.psc.highDistancePct >= -PSC_WATCHING_HIGH_DIST_MAX);
+
+                if (guWatchingOk || pscWatchingOk) watchingCount++;
 
                 // ソート用データを収集
                 var guAllMet = d.gapup && d.gapup.isGapOk && d.gapup.isCloseGapOk && d.gapup.isCandleOk && d.gapup.isVolumeOk;
-                var isEntryCandidate = guAllMet ? 1 : 0;
 
                 // GU条件達成数（0〜4）
                 var guConditionsMet = 0;
@@ -310,41 +292,30 @@ app.get("/", async (c) => {
                 }
 
                 rowSortData[ticker] = {
-                  isEntryCandidate: isEntryCandidate,
                   guAllMet: guAllMet ? 1 : 0,
                   guConditionsMet: guConditionsMet,
-                  isGapOk: !!(d.gapup && d.gapup.isGapOk) ? 1 : 0,
+                  guWatchingOk: guWatchingOk ? 1 : 0,
                   gapPct: d.gapup ? d.gapup.gapPct : -999,
                   pscAllMet: pscAllMetFlag ? 1 : 0,
                   pscConditionsMet: pscConditionsMet,
-                  isMomentumOk: !!(d.psc && d.psc.isMomentum20dOk) ? 1 : 0,
+                  pscWatchingOk: pscWatchingOk ? 1 : 0,
                   momentum20d: d.psc ? d.psc.momentum20d : -999,
-                  surgeRatio: d.surgeRatio || 0,
-                  status: d.status || 'watching'
+                  surgeRatio: d.surgeRatio || 0
                 };
 
-                // フィルター用データを収集
+                // フィルター用データ（タブ別の減衰表示用）
                 rowFilterData[ticker] = {
-                  isGapOk: !!(d.gapup && d.gapup.isGapOk),
-                  guAllMet: !!(guAllMet),
-                  isMomentumOk: !!(d.psc && d.psc.isMomentum20dOk),
-                  pscAllMet: pscAllMetFlag
+                  guWatchingOk: guWatchingOk,
+                  pscWatchingOk: pscWatchingOk
                 };
 
                 // ---- ステータスバッジ ----
                 var badgeEl = row.querySelector('[data-status-badge]');
                 if (badgeEl) {
-                  var resolvedStatus = d.status;
-                  if (d.status !== 'ordered' && d.status !== 'holding') {
-                    resolvedStatus = (guAllMet || pscAllMetFlag) ? 'watching' : 'not_target';
-                  }
+                  var resolvedStatus = (guWatchingOk || pscWatchingOk) ? 'watching' : 'not_target';
                   var s = STATUS_MAP[resolvedStatus];
                   if (s) {
-                    var label = s.label;
-                    if (resolvedStatus === 'ordered') {
-                      label = d.orderStrategy ? '注文済(' + d.orderStrategy.toUpperCase() + ')' : '注文済';
-                    }
-                    badgeEl.innerHTML = '<span class="badge ' + s.cls + '">' + label + '</span>';
+                    badgeEl.innerHTML = '<span class="badge ' + s.cls + '">' + s.label + '</span>';
                   }
                 }
 
@@ -442,10 +413,6 @@ app.get("/", async (c) => {
               if (emptyEl) emptyEl.style.display = rows.length ? 'none' : '';
 
               // ---- サマリーバッジ更新 ----
-              var orderedSummaryEl = document.querySelector('[data-summary-ordered]');
-              if (orderedSummaryEl) { orderedSummaryEl.textContent = '注文済: ' + orderedCount; orderedSummaryEl.style.opacity = orderedCount ? '0.7' : '0.3'; }
-              var holdingSummaryEl = document.querySelector('[data-summary-holding]');
-              if (holdingSummaryEl) { holdingSummaryEl.textContent = '保有中: ' + holdingCount; holdingSummaryEl.style.opacity = holdingCount ? '0.7' : '0.3'; }
               var watchingSummaryEl = document.querySelector('[data-summary-watching]');
               if (watchingSummaryEl) { watchingSummaryEl.textContent = '監視中: ' + watchingCount; watchingSummaryEl.style.opacity = watchingCount ? '0.7' : '0.3'; }
               var guSummaryEl = document.querySelector('[data-summary-gu]');
@@ -470,61 +437,42 @@ app.get("/", async (c) => {
               }
 
               // ---- 行ソート ----
-              var statusOrder = { ordered: 0, holding: 1, watching: 2 };
               var tbody = document.querySelector('table tbody');
               if (tbody) {
                 var rowArr = Array.prototype.slice.call(rows);
+                var defaultSort = { guAllMet: 0, guConditionsMet: 0, guWatchingOk: 0, gapPct: -999, pscAllMet: 0, pscConditionsMet: 0, pscWatchingOk: 0, momentum20d: -999, surgeRatio: 0 };
                 rowArr.sort(function(a, b) {
                   var ta = a.getAttribute('data-ticker');
                   var tb = b.getAttribute('data-ticker');
-                  var da = rowSortData[ta] || { isEntryCandidate: 0, guAllMet: 0, guConditionsMet: 0, isGapOk: 0, gapPct: -999, pscAllMet: 0, pscConditionsMet: 0, isMomentumOk: 0, momentum20d: -999, surgeRatio: 0, status: 'watching' };
-                  var db = rowSortData[tb] || { isEntryCandidate: 0, guAllMet: 0, guConditionsMet: 0, isGapOk: 0, gapPct: -999, pscAllMet: 0, pscConditionsMet: 0, isMomentumOk: 0, momentum20d: -999, surgeRatio: 0, status: 'watching' };
+                  var da = rowSortData[ta] || defaultSort;
+                  var db = rowSortData[tb] || defaultSort;
 
-                  // GUタブ: (減衰なし=Gap OK) → ✔ → 条件達成数 → Gap% → 出来高サージ
+                  // GUタブ: 監視中(GU構造) → ✔ → 条件達成数 → Gap% → 出来高サージ
                   if (currentTab === 'gu') {
-                    // 0. 場中/場後は減衰表示されない行（isGapOk=true）を最上位
-                    if (currentMarketPhase !== 'pre') {
-                      var guDecayDiff = db.isGapOk - da.isGapOk;
-                      if (guDecayDiff !== 0) return guDecayDiff;
-                    }
-                    // 1. ✔（全条件OK）を最上位
+                    var guWatchDiff = db.guWatchingOk - da.guWatchingOk;
+                    if (guWatchDiff !== 0) return guWatchDiff;
                     var guAllDiff = db.guAllMet - da.guAllMet;
                     if (guAllDiff !== 0) return guAllDiff;
-                    // 2. 条件達成数（多い順）
                     var guCondDiff = db.guConditionsMet - da.guConditionsMet;
                     if (guCondDiff !== 0) return guCondDiff;
-                    // 3. Gap%（大きい順）
                     var gapDiff = db.gapPct - da.gapPct;
                     if (gapDiff !== 0) return gapDiff;
-                    // 4. 出来高サージ（大きい順）
                     return db.surgeRatio - da.surgeRatio;
                   }
 
-                  // PSCタブ: (減衰なし=Momentum OK) → ✔ → 条件達成数 → momentum20d% → 出来高サージ
+                  // PSCタブ: 監視中(PSC構造) → ✔ → 条件達成数 → momentum20d% → 出来高サージ
                   if (currentTab === 'psc') {
-                    // 0. 減衰表示されない行（isMomentumOk=true）を最上位
-                    var pscDecayDiff = db.isMomentumOk - da.isMomentumOk;
-                    if (pscDecayDiff !== 0) return pscDecayDiff;
-                    // 1. ✔（全条件OK）を最上位
+                    var pscWatchDiff = db.pscWatchingOk - da.pscWatchingOk;
+                    if (pscWatchDiff !== 0) return pscWatchDiff;
                     var pscAllDiff = db.pscAllMet - da.pscAllMet;
                     if (pscAllDiff !== 0) return pscAllDiff;
-                    // 2. 条件達成数（多い順）
                     var pscCondDiff = db.pscConditionsMet - da.pscConditionsMet;
                     if (pscCondDiff !== 0) return pscCondDiff;
-                    // 3. momentum20d%（大きい順）
                     var momDiff = db.momentum20d - da.momentum20d;
                     if (momDiff !== 0) return momDiff;
-                    // 4. 出来高サージ（大きい順）
                     return db.surgeRatio - da.surgeRatio;
                   }
 
-                  // その他: エントリー候補 → ステータス → 出来高サージ
-                  var entryDiff = db.isEntryCandidate - da.isEntryCandidate;
-                  if (entryDiff !== 0) return entryDiff;
-                  // 2. ステータス: 注文済 → 保有中 → 監視中
-                  var statusDiff = (statusOrder[da.status] != null ? statusOrder[da.status] : 2) - (statusOrder[db.status] != null ? statusOrder[db.status] : 2);
-                  if (statusDiff !== 0) return statusDiff;
-                  // 3. サージ比率（出来高が多い順）
                   return db.surgeRatio - da.surgeRatio;
                 });
                 rowArr.forEach(function(row) { tbody.appendChild(row); });

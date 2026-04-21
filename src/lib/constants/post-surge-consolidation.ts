@@ -13,6 +13,11 @@ export const POST_SURGE_CONSOLIDATION = {
     MIN_AVG_VOLUME_25: 100_000,
     MIN_ATR_PCT: 1.5,
   },
+  /** ウォッチリスト「監視中」表示の緩和閾値（過去データ起因の構造のみで判定） */
+  WATCHING: {
+    MOMENTUM_MIN_RETURN: 0.10,       // +10%（厳密 +15% から -5pt）
+    MAX_HIGH_DISTANCE_PCT: 0.10,     // 高値から-10%以内（厳密 -5% から +5pt）
+  },
   STOP_LOSS: {
     ATR_MULTIPLIER: 0.8,
   },
