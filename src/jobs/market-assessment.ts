@@ -247,8 +247,8 @@ export async function main(): Promise<MarketAssessmentContext> {
 
     // breadthフィルター（全戦略共通、band 55-80%）
     const breadthPct = breadthValue != null ? (breadthValue * 100).toFixed(1) : "N/A";
-    const lowerPct = MARKET_BREADTH.THRESHOLD * 100;
-    const upperPct = MARKET_BREADTH.UPPER_CAP * 100;
+    const lowerPct = (MARKET_BREADTH.THRESHOLD * 100).toFixed(1);
+    const upperPct = (MARKET_BREADTH.UPPER_CAP * 100).toFixed(1);
     if (breadthValue == null || breadthValue < MARKET_BREADTH.THRESHOLD) {
       assessment = {
         shouldTrade: false,

@@ -125,7 +125,7 @@ export async function main(): Promise<void> {
 
     if (breadth < WEEKLY_BREAK.MARKET_FILTER.BREADTH_THRESHOLD) {
       console.log(
-        `${tag} スキップ: breadth=${(breadth * 100).toFixed(1)}% < ${WEEKLY_BREAK.MARKET_FILTER.BREADTH_THRESHOLD * 100}%`,
+        `${tag} スキップ: breadth=${(breadth * 100).toFixed(1)}% < ${(WEEKLY_BREAK.MARKET_FILTER.BREADTH_THRESHOLD * 100).toFixed(1)}%`,
       );
       lastScanDate = today;
       return;
