@@ -54,6 +54,28 @@ per-trade 期待値は**必要条件だが十分条件ではない**:
 
 → Calmar比優位 + シンプル（条件1つ少ない）で OFF採用。詳細は `memory/long-term/psc-prev-vol-analysis.md` 参照。
 
+### 事例: breadth 上限（band 55-80%）追加（2026-04-21）
+
+現状は breadth < 55% で下限vetoのみ。combined BT で代替モードを検証した結果、**上限80%超過時のvetoを追加（band 55-80%）**で圧倒的改善:
+
+| 指標 | hard 55%（従来） | band 55-80%（採用） |
+|---|---:|---:|
+| PF | 3.22 | 3.66 |
+| **MaxDD** | 16.2% | **9.0%**（-44%） |
+| NetRet | 173.6% | 180.3% |
+| **Calmar比** | **5.01** | **9.38**（+87%） |
+| Regime A (平穏ボックス) NetPnL | +¥13K | +¥13K（維持） |
+| Regime E (直近急落) NetPnL | -¥480 | +¥276（黒字化） |
+
+**WF検証（band 55-80%）:**
+- GapUp: OOS集計PF **2.18**（堅牢 ✓、IS/OOS比 0.78）
+- PSC: OOS集計PF **2.67**（堅牢 ✓、IS/OOS比 0.75）
+- 両方ともOOS平均PF > IS平均PF で極めて健全、全窓アクティブ、パラメータ安定
+
+**論理的根拠:** breadth > 80% = ほぼ全銘柄がSMA25上回り = 過熱状態。中小型株ブレイクアウト系戦略は mean reversionリスクが急増する局面で参入するとSL刈られやすい。上限vetoで late-cycle を回避。
+
+実装: `MARKET_BREADTH.UPPER_CAP = 0.80`（`lib/constants/trading.ts`）を `jobs/market-assessment.ts` と `backtest/gapup-config.ts` / `post-surge-consolidation-config.ts` に適用。
+
 ## バックテスト実行
 
 **breakout戦略とgapup戦略のバックテスト・walk-forward検証が利用可能です。**

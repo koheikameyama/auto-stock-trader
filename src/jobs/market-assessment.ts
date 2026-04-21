@@ -245,19 +245,27 @@ export async function main(): Promise<MarketAssessmentContext> {
   if (!isShadowMode) {
     console.log("[2/2] VIXベース市場評価...");
 
-    // breadthフィルター（全戦略共通）
+    // breadthフィルター（全戦略共通、band 55-80%）
     const breadthPct = breadthValue != null ? (breadthValue * 100).toFixed(1) : "N/A";
+    const lowerPct = MARKET_BREADTH.THRESHOLD * 100;
+    const upperPct = MARKET_BREADTH.UPPER_CAP * 100;
     if (breadthValue == null || breadthValue < MARKET_BREADTH.THRESHOLD) {
       assessment = {
         shouldTrade: false,
         sentiment: "normal" as Sentiment,
-        reasoning: `breadth ${breadthPct}% < ${MARKET_BREADTH.THRESHOLD * 100}%: エントリー見送り`,
+        reasoning: `breadth ${breadthPct}% < ${lowerPct}%: 弱気でエントリー見送り`,
+      };
+    } else if (breadthValue > MARKET_BREADTH.UPPER_CAP) {
+      assessment = {
+        shouldTrade: false,
+        sentiment: "normal" as Sentiment,
+        reasoning: `breadth ${breadthPct}% > ${upperPct}%: 過熱でエントリー見送り`,
       };
     } else {
       assessment = {
         shouldTrade: true,
         sentiment: "normal" as Sentiment,
-        reasoning: `機械判定: VIX ${marketData.vix.price.toFixed(1)} — レジーム・キルスイッチで制御`,
+        reasoning: `機械判定: VIX ${marketData.vix.price.toFixed(1)} / breadth ${breadthPct}%（${lowerPct}-${upperPct}%band内） — レジーム・キルスイッチで制御`,
       };
     }
     console.log(
