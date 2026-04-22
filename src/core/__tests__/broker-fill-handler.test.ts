@@ -198,6 +198,7 @@ describe("handleBrokerFill", () => {
         expect.any(Number), // stopLossPrice
         expect.any(Object), // entrySnapshot
         30, // entryAtr
+        undefined, // regimeInfo (entrySnapshot に regimeInfo ブロックなし)
       );
       // ポジションIDの紐付け
       expect(mockPrisma.tradingOrder.update).toHaveBeenCalledWith(

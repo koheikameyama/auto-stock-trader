@@ -65,6 +65,38 @@ export async function getEffectiveCapital(config?: TradingConfig | null): Promis
  * ポジションレコードを作成する。
  * 注文レコードはposition-monitorで元の注文にpositionIdを紐づけるため、ここでは作成しない。
  */
+export interface RegimeInfo {
+  vixAtEntry?: number | null;
+  regimeLevel?: string | null;
+  regimeScale?: number | null;
+  appliedRiskPct?: number | null;
+}
+
+/**
+ * entrySnapshot からVIXレジーム情報を抽出する
+ *
+ * entry-executor が書き込んだ `regimeInfo` ブロックを TradingPosition 用の
+ * RegimeInfo 形式に変換する。古い注文（regimeInfo 未登録）では空オブジェクトを返す。
+ */
+export function extractRegimeInfoFromSnapshot(
+  snapshot: unknown,
+): RegimeInfo | undefined {
+  if (!snapshot || typeof snapshot !== "object") return undefined;
+  const regimeInfo = (snapshot as { regimeInfo?: unknown }).regimeInfo;
+  if (!regimeInfo || typeof regimeInfo !== "object") return undefined;
+  const r = regimeInfo as Record<string, unknown>;
+  const toNum = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? v : null;
+  const toStr = (v: unknown): string | null =>
+    typeof v === "string" ? v : null;
+  return {
+    vixAtEntry: toNum(r.vixAtEntry),
+    regimeLevel: toStr(r.regimeLevel),
+    regimeScale: toNum(r.regimeScale),
+    appliedRiskPct: toNum(r.appliedRiskPct),
+  };
+}
+
 export async function openPosition(
   stockId: string,
   strategy: string,
@@ -74,6 +106,7 @@ export async function openPosition(
   stopLossPrice: number,
   entrySnapshot?: object,
   entryAtr?: number | null,
+  regimeInfo?: RegimeInfo,
 ): Promise<TradingPosition> {
   return prisma.tradingPosition.create({
     data: {
@@ -89,6 +122,10 @@ export async function openPosition(
       minLowDuringHold: entryPrice,
       trailingStopPrice: null,
       entryAtr: entryAtr ?? null,
+      vixAtEntry: regimeInfo?.vixAtEntry ?? null,
+      regimeLevel: regimeInfo?.regimeLevel ?? null,
+      regimeScale: regimeInfo?.regimeScale ?? null,
+      appliedRiskPct: regimeInfo?.appliedRiskPct ?? null,
       updatedAt: new Date(),
     },
   });

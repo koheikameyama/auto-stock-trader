@@ -384,6 +384,11 @@ model TradingPosition {
   holdingScoreTrailOverride Decimal?               @db.Decimal(5, 2)
   slBrokerBusinessDay       String?
   slBrokerOrderId           String?
+  // VIXレジームスケーリング情報（エントリー時のMarketAssessment由来）
+  vixAtEntry                Decimal?               @db.Decimal(6, 2)
+  regimeLevel               String?
+  regimeScale               Decimal?               @db.Decimal(4, 3)
+  appliedRiskPct            Decimal?               @db.Decimal(6, 3)
   defensiveFollowUp         DefensiveExitFollowUp?
   holdingScores             HoldingScoreRecord[]
   orders                    TradingOrder[]

@@ -376,6 +376,12 @@ export async function executeEntry(
         slClamped: isSLClamped,
         riskPct,
         ...(losingStreak > 0 ? { losingStreak } : {}),
+        regimeInfo: {
+          vixAtEntry: vixValue,
+          regimeLevel: regime?.level ?? null,
+          regimeScale,
+          appliedRiskPct: riskPct,
+        },
         ...(trigger.askPrice ? {
           liquidity: {
             askPrice: trigger.askPrice,

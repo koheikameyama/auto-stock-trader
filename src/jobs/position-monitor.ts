@@ -38,6 +38,7 @@ import {
   getUnrealizedPnl,
   getCashBalance,
   getPositionPnl,
+  extractRegimeInfoFromSnapshot,
 } from "../core/position-manager";
 import { checkPositionExit } from "../core/exit-checker";
 import type { ExitReason } from "../core/exit-checker";
@@ -262,6 +263,7 @@ export async function main() {
             ? { ...entrySnapshot, timeWindowRisk: "opening_volatility" }
             : entrySnapshot;
 
+        const regimeInfo = extractRegimeInfoFromSnapshot(filledOrder?.entrySnapshot);
         const position = await openPosition(
           order.stockId,
           order.strategy,
@@ -271,6 +273,7 @@ export async function main() {
           stopLossPrice,
           snapshotWithTimeRisk,
           entryAtr,
+          regimeInfo,
         );
 
         // ポジションIDを注文に紐付け

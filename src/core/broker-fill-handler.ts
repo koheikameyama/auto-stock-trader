@@ -11,7 +11,7 @@ import { prisma } from "../lib/prisma";
 import { TACHIBANA_ORDER_STATUS } from "../lib/constants/broker";
 import { getOrderDetail } from "./broker-orders";
 import { fillOrder } from "./order-executor";
-import { openPosition, closePosition, getPositionPnl } from "./position-manager";
+import { openPosition, closePosition, getPositionPnl, extractRegimeInfoFromSnapshot } from "./position-manager";
 import { submitBrokerSL } from "./broker-sl-manager";
 import { validateStopLoss } from "./risk-manager";
 import { notifyOrderFilled, notifySlack } from "../lib/slack";
@@ -248,6 +248,7 @@ async function handleBuyFill(
   );
 
   // ポジションオープン
+  const regimeInfo = extractRegimeInfoFromSnapshot(order.entrySnapshot);
   const position = await openPosition(
     order.stockId,
     order.strategy,
@@ -257,6 +258,7 @@ async function handleBuyFill(
     stopLossPrice,
     order.entrySnapshot as object | undefined,
     entryAtr,
+    regimeInfo,
   );
 
   // 約定品質ロギング: 引け成行注文（gapup/weekly-break/PSC）のみ
