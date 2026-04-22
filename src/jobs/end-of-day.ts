@@ -402,8 +402,10 @@ export async function main() {
   // 9. 翌日始値乖離補完
   await fillNextDayOpen();
 
-  // 10. 翌日エントリー可否通知（今日の終値ベースのbreadth）
-  const tomorrowBreadth = await calculateMarketBreadth(getTodayForDB()).catch((e) => {
+  // 10. 翌日エントリー可否通知（直近の JP 営業日終値ベース）
+  // 15:50 時点では当日分の StockDailyBar が未入庫（17:00 backfill 前）なので
+  // asOfDate は明示せず、StockDailyBarにある最新 JP 日を使う（Slack通知に基準日を表示）。
+  const tomorrowBreadth = await calculateMarketBreadth().catch((e) => {
     console.warn("翌日breadth計算に失敗:", e);
     return null;
   });
