@@ -86,6 +86,26 @@ export function determineMarketRegime(vix: number): MarketRegime {
  * - 乖離 ≤ -1.5% → elevated以上に引き上げ（警戒モード）
  * - それ以外 → レジームへの影響なし
  */
+/**
+ * VIXレジーム別リスク倍率を返す（既定: elevated=0.5, high=0.25, crisis=0, normal=1.0）
+ *
+ * 2026-04-22 の `--compare-vix-risk` BT検証で採用された既定値。BT・本番共通で使用する。
+ * BT側 combined-simulation の quantity 計算と、本番側 entry-executor の riskPct 計算の
+ * 両方に適用することで、BT結果と本番挙動の乖離を減らす。
+ *
+ * CLAUDE.md の「高ボラでサイズ縮小」コンセプトと整合。
+ */
+export function getRegimeRiskScale(
+  regime: RegimeLevel,
+  custom?: Partial<Record<RegimeLevel, number>>,
+): number {
+  if (custom && custom[regime] !== undefined) return custom[regime]!;
+  if (regime === "elevated") return 0.5;
+  if (regime === "high") return 0.25;
+  if (regime === "crisis") return 0;
+  return 1.0;
+}
+
 export function determinePreMarketRegime(cmeDivergencePct: number): {
   minLevel: RegimeLevel | null;
   reason: string | null;

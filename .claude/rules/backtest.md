@@ -986,6 +986,24 @@ npm run backtest:combined -- --compare-vix-risk --start 2024-03-01
 
 本番コード(trading-*.ts / watchlist-builder / entry-executor)は BT側から独立しており、本変更の影響を受けない。運用側でも同様のレジーム別scalingを適用したい場合は別途実装が必要(本変更はBTのみ)。
 
+### 追記（2026-04-22）: 本番側にも VIX scale を適用
+
+BT と本番の乖離を解消するため、`getRegimeRiskScale()` を共有ヘルパー化し、本番の `entry-executor.ts` のリスク計算にも適用:
+
+- `src/core/market-regime.ts`: `getRegimeRiskScale(regime, custom?)` を export（BT/本番共通）
+- `src/backtest/combined-simulation.ts`: local copy を削除して import に差し替え（挙動変化なし）
+- `src/core/breakout/entry-executor.ts`: `todayAssessment.vix` から regime を判定、`streakAdjustedPct × regimeScale` で最終リスク%を算出
+  - elevated: 0.5x / high: 0.25x / crisis: 0(エントリー停止) / normal: 1.0x
+  - 連敗スロットル(既存 LOSING_STREAK.SCALE_FACTOR)と VIX scale を乗算合成
+  - regime scale適用時は console.log で明示
+
+`gu-watchlist-builder.ts` のサイズ事前チェックは regime scale を適用しない(watchlist を過剰に絞る副作用を避けるため、本番発注の実サイズ決定は entry-executor で一元管理)。
+
+**変更の意義:**
+- BTで検証した `elevated=0.5, high=0.25` がそのまま本番でも効く
+- 従来は本番で elevated時も full size → 本番挙動が BT結果より高リスク寄りだった
+- 本変更により BT と本番の挙動が一致 = BT結果が信頼できる予測値になる
+
 ## 連敗スロットル(B3)検証（2026-04-22実施、不採用）
 
 **結論: 不採用。Phase 0のエクイティSMAフィルターと同じ失敗パターン。全パターンで Calmar 悪化。**

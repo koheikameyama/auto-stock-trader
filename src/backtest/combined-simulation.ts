@@ -19,7 +19,7 @@ import { MOMENTUM_RISK_PER_TRADE_PCT } from "./momentum-config";
 import { checkPositionExit } from "../core/exit-checker";
 import { calculateCommission, calculateTax } from "../core/trading-costs";
 import { getLimitDownPrice } from "../lib/constants/price-limits";
-import { determineMarketRegime } from "../core/market-regime";
+import { determineMarketRegime, getRegimeRiskScale } from "../core/market-regime";
 import { UNIT_SHARES, DRAWDOWN } from "../lib/constants/trading";
 import { calculateMetrics } from "./metrics";
 import type {
@@ -191,25 +191,7 @@ function shouldSkipByVixRegime(currentRegime: RegimeLevel, skipLevel: RegimeLeve
   return REGIME_ORDER[currentRegime] >= REGIME_ORDER[skipLevel];
 }
 
-// ──────────────────────────────────────────
-// VIXレジーム別リスク倍率（既定: elevated=0.5, high=0.25, crisis=0, normal=1.0）
-//
-// high=0.25 は 2026-04-22 の `--compare-vix-risk` 検証で採用された既定。
-// 24ヶ月BTで high レジームは未発生だったため baseline 結果に影響なし。
-// 将来 high VIX相場(例: 2020 COVID, 2022 金利急騰)が来た際に保守的に振る舞う保険的変更。
-// 従来は high で full size が維持されていたが、これは暗黙の設計ミス（CLAUDE.md の
-// 「高ボラでサイズ縮小」コンセプトと矛盾）を修正する位置づけ。
-// ──────────────────────────────────────────
-function getRegimeRiskScale(
-  regime: RegimeLevel,
-  custom?: Partial<Record<RegimeLevel, number>>,
-): number {
-  if (custom && custom[regime] !== undefined) return custom[regime]!;
-  if (regime === "elevated") return 0.5;
-  if (regime === "high") return 0.25;
-  if (regime === "crisis") return 0;
-  return 1.0;
-}
+// getRegimeRiskScale は market-regime.ts から import（BT/本番共通）
 
 // ──────────────────────────────────────────
 // 連敗スロットル: 直近Nトレードの勝率が閾値未満ならサイズ縮小

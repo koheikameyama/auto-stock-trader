@@ -23,6 +23,7 @@ import { notifyOrderPlaced, notifySlack } from "../../lib/slack";
 import { STOP_LOSS, UNIT_SHARES, POSITION_SIZING, LOSING_STREAK } from "../../lib/constants";
 import { getLosingStreak } from "../drawdown-manager";
 import { checkLiquidity } from "../market-data";
+import { determineMarketRegime, getRegimeRiskScale } from "../market-regime";
 import { TIMEZONE } from "../../lib/constants/timezone";
 import { GAPUP } from "../../lib/constants/gapup";
 import { WEEKLY_BREAK } from "../../lib/constants/weekly-break";
@@ -153,9 +154,24 @@ export async function executeEntry(
   // リスク%: フラット2%（SL/TPが共にATRベースのためRR傾斜は常に固定値になり無意味）
   // 連敗時はスケールダウンして損失を抑える
   const baseRiskPct = POSITION_SIZING.RISK_PER_TRADE_PCT;
-  const riskPct = losingStreak >= LOSING_STREAK.SCALE_TRIGGER
+  const streakAdjustedPct = losingStreak >= LOSING_STREAK.SCALE_TRIGGER
     ? baseRiskPct * LOSING_STREAK.SCALE_FACTOR
     : baseRiskPct;
+  // VIXレジーム別スケーリング（BT側と同じロジック: elevated=0.5, high=0.25, crisis=0）
+  const vixValue = todayAssessment.vix != null ? Number(todayAssessment.vix) : null;
+  const regime = vixValue != null ? determineMarketRegime(vixValue) : null;
+  const regimeScale = regime ? getRegimeRiskScale(regime.level) : 1.0;
+  const riskPct = streakAdjustedPct * regimeScale;
+  if (regimeScale < 1.0) {
+    console.log(
+      `[entry-executor] ${ticker} VIXレジーム(${regime?.level} VIX=${vixValue?.toFixed(1)})でリスク%縮小: ${streakAdjustedPct}% → ${riskPct.toFixed(3)}%`,
+    );
+  }
+  if (riskPct <= 0) {
+    const reason = `VIXレジーム ${regime?.level} でサイズ=0（crisis停止）`;
+    console.log(`[entry-executor] ${ticker} スキップ: ${reason}`);
+    return { success: false, reason, retryable: false };
+  }
   const riskAmount = effectiveCapital * (riskPct / 100);
 
   const rawQuantity = Math.floor(riskAmount / riskPerShare);
