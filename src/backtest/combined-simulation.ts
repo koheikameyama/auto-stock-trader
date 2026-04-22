@@ -74,6 +74,8 @@ export interface SimContext {
   breadthModeGu?: BreadthMode;
   /** PSC戦略専用 breadthモード（指定時は breadthMode より優先） */
   breadthModePsc?: BreadthMode;
+  /** 銘柄→セクター マッピング（maxPerSector で使用、省略時はセクター制限なし） */
+  tickerSectorMap?: Map<string, string>;
 }
 
 /** breadthゲーティングの方式 */
@@ -474,6 +476,8 @@ export interface PositionLimits {
   momMax?: number;
   /** 全戦略合算の最大ポジション数（undefined = 制限なし） */
   totalMax?: number;
+  /** 同セクターに保有可能な最大ポジション数（全戦略横断、undefined = 制限なし） */
+  maxPerSector?: number;
 }
 
 export function runCombinedSimulation(
@@ -484,7 +488,7 @@ export function runCombinedSimulation(
     typeof maxPositions === "number"
       ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap } = ctx;
   const guBreadthMode = breadthModeGu ?? breadthMode;
   const pscBreadthMode = breadthModePsc ?? breadthMode;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
@@ -666,11 +670,23 @@ export function runCombinedSimulation(
     // ── 2a. Breakout エントリー ──
     const totalPositions = () => boPositions.length + guPositions.length + wbPositions.length + pscPositions.length + momPositions.length;
     const totalUnderLimit = () => limits.totalMax === undefined || totalPositions() < limits.totalMax;
+    // 同セクター保有数チェック（全戦略横断）
+    const isSectorAtLimit = (ticker: string): boolean => {
+      if (limits.maxPerSector === undefined || !tickerSectorMap) return false;
+      const sector = tickerSectorMap.get(ticker);
+      if (!sector) return false;
+      let count = 0;
+      for (const pos of [...boPositions, ...guPositions, ...wbPositions, ...pscPositions, ...momPositions]) {
+        if (tickerSectorMap.get(pos.ticker) === sector) count++;
+      }
+      return count >= limits.maxPerSector;
+    };
     if (boShouldTrade && breadthMul > 0 && !shouldSkipByVixRegime(todayRegime, boVixSkipLevel) && boPositions.length < limits.boMax && totalUnderLimit() && cash > 0) {
       const rawSignals = breakoutSignals?.get(today) ?? [];
       for (const signal of rawSignals) {
         if (boPositions.length >= limits.boMax || !totalUnderLimit()) break;
         if (allOpenTickers.has(signal.ticker)) continue;
+        if (isSectorAtLimit(signal.ticker)) continue;
 
         const lastExit = lastExitDayIdx.get(signal.ticker);
         if (lastExit != null && dayIdx - lastExit < boConfigLocal.cooldownDays) continue;
@@ -711,6 +727,7 @@ export function runCombinedSimulation(
       for (const signal of signals) {
         if (guPositions.length >= limits.guMax || !totalUnderLimit()) break;
         if (allOpenTickers.has(signal.ticker)) continue;
+        if (isSectorAtLimit(signal.ticker)) continue;
 
         const lastExit = lastExitDayIdx.get(signal.ticker);
         if (lastExit != null && dayIdx - lastExit < guConfigLocal.cooldownDays) continue;
@@ -751,6 +768,7 @@ export function runCombinedSimulation(
       for (const signal of signals) {
         if (wbPositions.length >= wbMaxPos || !totalUnderLimit()) break;
         if (allOpenTickers.has(signal.ticker)) continue;
+        if (isSectorAtLimit(signal.ticker)) continue;
 
         const lastExit = lastExitDayIdx.get(signal.ticker);
         if (lastExit != null && dayIdx - lastExit < wbConfigLocal.cooldownDays) continue;
@@ -791,6 +809,7 @@ export function runCombinedSimulation(
       for (const signal of signals) {
         if (pscPositions.length >= pscMaxPos || !totalUnderLimit()) break;
         if (allOpenTickers.has(signal.ticker)) continue;
+        if (isSectorAtLimit(signal.ticker)) continue;
 
         const lastExit = lastExitDayIdx.get(signal.ticker);
         if (lastExit != null && dayIdx - lastExit < pscConfigLocal.cooldownDays) continue;
@@ -841,6 +860,7 @@ export function runCombinedSimulation(
       for (const signal of topN) {
         if (momPositions.length >= momMaxPos || !totalUnderLimit()) break;
         if (allOpenTickers.has(signal.ticker)) continue;
+        if (isSectorAtLimit(signal.ticker)) continue;
 
         const rawSL = signal.currentPrice - signal.atr14 * momConfigLocal.atrMultiplier;
         const maxSL = signal.currentPrice * (1 - momConfigLocal.maxLossPct);

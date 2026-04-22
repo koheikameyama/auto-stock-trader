@@ -881,6 +881,64 @@ npm run backtest:combined -- --enable-wb-largecap --wb-max 2 --enable-momentum -
 
 `combined-simulation.ts` は既存 `wbConfig` / `weeklyBreakSignals` / `PositionLimits.wbMax` サポートをそのまま活用。追加変更なし。
 
+## セクター分散上限の検証（2026-04-22実施、不採用）
+
+**結論: 不採用。¥500K運用/¥10M運用どちらでも改善せず、2件/1件制限ではむしろMaxDD+16〜17%悪化する。**
+
+プロの機関投資家で標準的な「同セクター同時保有数上限」を導入できるか検証。相関drawdown削減が期待効果。
+
+```bash
+# ¥500K (GU3+PSC2, 最大5枠)
+npm run backtest:combined -- --compare-sector --start 2024-03-01
+
+# ¥10M + 全戦略 (GU3+PSC2+WB2+MOM3, 最大10枠)
+npm run backtest:combined -- --compare-sector --enable-wb-largecap --wb-max 2 --enable-momentum --mom-max 3 --budget 10000000 --start 2024-03-01
+```
+
+### ¥500K / 5枠 結果
+
+| 上限 | Trades | PF | MaxDD | NetRet | Calmar |
+|---|---:|---:|---:|---:|---:|
+| **制限なし(現状)** | 289 | **3.66** | 9.0% | **180.3%** | **9.37** |
+| 3件/セクター | 289 | 3.66 | 9.0% | 180.3% | 9.37 |
+| 2件/セクター | 289 | 3.66 | 9.0% | 180.3% | 9.37 |
+| 1件/セクター | 280 | 3.40 | 9.9% | 162.3% | 7.67 |
+
+### ¥10M / 10枠 結果
+
+| 上限 | Trades | PF | MaxDD | NetRet | **Calmar** |
+|---|---:|---:|---:|---:|---:|
+| **制限なし(現状)** | 556 | **2.72** | **9.6%** | **+140.0%** | **6.79** |
+| 3件/セクター | 556 | 2.72 | 9.6% | +140.0% | 6.79 |
+| 2件/セクター | 544 | 2.55 | **11.1%** | +128.0% | 5.36 |
+| 1件/セクター | 541 | 2.65 | **11.2%** | +125.4% | 5.25 |
+
+### 直感に反する発見
+
+**分散上限を入れるとMaxDDがむしろ増える（+16〜17%悪化）。**
+
+1. **3件制限は完全同一結果**: 10枠あっても同セクター4件以上の重複は一度も発生しない
+2. **2件/1件制限で捨てる玉は勝ち傾向**: GU/PSC/WB/MOM は「強い銘柄を拾う」戦略で、セクタートレンドがある時は2件目も好調 → 制限すると利益機会を失う
+3. **集中リスクは既に自動回避**: 20+セクターの universe + signal filter で実質分散済み
+
+### プロの教訓
+
+**機関投資家的「集中リスク管理」は個別シグナル選別型のシステムトレードには必要ない。**
+
+アクティブ運用では集中が起きる時は「強いセクターに便乗すべき時」で、機械的に切ると機会損失。分散リスク管理は以下の状況で初めて意味を持つ:
+
+- ポジション数が20-30件以上(ETF/mutual fund水準)
+- シグナル品質が低く"ランダムに拾う"モード
+- レバレッジ高く単一セクターショックで破綻する水準
+
+GU/PSC/WB/MOMを最大10枠で組合せる本プロジェクトではいずれにも該当しない。
+
+### 実装として残したもの（本番への影響なし、将来運用拡大時の再評価用）
+
+- `src/backtest/combined-simulation.ts`: `PositionLimits.maxPerSector` + `SimContext.tickerSectorMap` + `isSectorAtLimit()` ヘルパー + 全5戦略のentry logic に sector check
+- `src/backtest/combined-run.ts`: `--max-per-sector N` フラグ、`--compare-sector` 比較モード(レジーム別内訳付き)、`Stock.sector` からのマップロード
+- DB `Stock.sector` は既存フィールドを利用（3,092銘柄全てにsector情報あり）
+
 ## ファイル構成
 
 ### breakout
