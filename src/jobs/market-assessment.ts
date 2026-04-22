@@ -71,7 +71,8 @@ export async function main(): Promise<MarketAssessmentContext> {
   ]);
   const breadthValue = breadthResult?.breadth ?? null;
   if (breadthResult) {
-    console.log(`  Breadth: ${(breadthResult.breadth * 100).toFixed(1)}% (${breadthResult.above}/${breadthResult.total}銘柄)`);
+    const asOf = breadthResult.asOfDate.toISOString().slice(0, 10);
+    console.log(`  Breadth: ${(breadthResult.breadth * 100).toFixed(1)}% (${breadthResult.above}/${breadthResult.total}銘柄, asOf ${asOf})`);
   }
 
   if (!marketData.nikkei) {

@@ -12,16 +12,14 @@
 import { prisma } from "../lib/prisma";
 import { getTodayForDB, getStartOfDayJST, getEndOfDayJST, addTradingDays, toJSTDateForDB } from "../lib/market-date";
 import { STRATEGY_SWITCHING } from "../lib/constants";
-import { MARKET_BREADTH } from "../lib/constants/trading";
 import { fetchStockQuote } from "../core/market-data";
 import { closePosition, getCashBalance, getTotalPortfolioValue, getPositionPnl } from "../core/position-manager";
 import type { ExitSnapshot } from "../types/snapshots";
 import { expireOrders } from "../core/order-executor";
 import { getDailyPnl } from "../core/risk-manager";
 import { updatePeakEquity } from "../core/drawdown-manager";
-import { notifyDailyReport, notifyOrderFilled, notifySlack } from "../lib/slack";
+import { notifyDailyReport, notifyOrderFilled } from "../lib/slack";
 import { chatCompletion } from "../lib/openai";
-import { calculateMarketBreadth } from "../core/market-breadth";
 import dayjs from "dayjs";
 
 async function forceClosePositions(
@@ -402,25 +400,9 @@ export async function main() {
   // 9. 翌日始値乖離補完
   await fillNextDayOpen();
 
-  // 10. 翌日エントリー可否通知（今日の終値ベースのbreadth）
-  const tomorrowBreadth = await calculateMarketBreadth().catch(() => null);
-  if (tomorrowBreadth) {
-    const pct = (tomorrowBreadth.breadth * 100).toFixed(1);
-    const isEntryOk = tomorrowBreadth.breadth >= MARKET_BREADTH.THRESHOLD && tomorrowBreadth.breadth <= MARKET_BREADTH.UPPER_CAP;
-    const reason = tomorrowBreadth.breadth < MARKET_BREADTH.THRESHOLD
-      ? `${pct}% — ${(MARKET_BREADTH.THRESHOLD * 100).toFixed(0)}%未満につきスキップ`
-      : tomorrowBreadth.breadth > MARKET_BREADTH.UPPER_CAP
-        ? `${pct}% — ${(MARKET_BREADTH.UPPER_CAP * 100).toFixed(0)}%超過（過熱）につきスキップ`
-        : `${pct}% — エントリーゾーン内`;
-    await notifySlack({
-      title: isEntryOk ? `🟢 明日エントリー可: Breadth ${pct}%` : `🔴 明日エントリーNG: Breadth ${pct}%`,
-      message: reason,
-      color: isEntryOk ? "good" : "warning",
-      fields: [
-        { title: "SMA25超え", value: `${tomorrowBreadth.above}/${tomorrowBreadth.total}銘柄`, short: true },
-      ],
-    });
-  }
+  // 翌日エントリー可否通知（今日の終値ベースのbreadth）は
+  // backfill-stock-data で当日バーを入庫した後に breadth-notify ジョブが実行する。
+  // ここでは計算しない（15:50時点では StockDailyBar に当日バーが無いため）。
 
   console.log("=== End of Day 終了 ===");
 }

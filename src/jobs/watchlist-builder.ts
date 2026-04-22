@@ -2,7 +2,7 @@
  * ウォッチリストビルダージョブ（8:00 JST / 平日）
  *
  * 朝8:00に実行し、GU/WBエントリー候補リストを構築する。
- * 結果はDBに永続化し、gapup-monitor・weekly-break-monitor・Web UIから参照される。
+ * 結果はDBに永続化し、gapup-monitor・Web UIから参照される。
  */
 
 import dayjs from "dayjs";
