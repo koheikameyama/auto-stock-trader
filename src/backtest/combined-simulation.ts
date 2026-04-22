@@ -76,6 +76,11 @@ export interface SimContext {
   breadthModePsc?: BreadthMode;
   /** 銘柄→セクター マッピング（maxPerSector で使用、省略時はセクター制限なし） */
   tickerSectorMap?: Map<string, string>;
+  /**
+   * VIXレジーム別リスク倍率。quantity に掛ける係数。
+   * 省略時の既定: { elevated: 0.5, crisis: 0 }（normal/high=1.0）= 既存挙動
+   */
+  riskScaleByRegime?: Partial<Record<RegimeLevel, number>>;
 }
 
 /** breadthゲーティングの方式 */
@@ -172,6 +177,26 @@ const REGIME_ORDER: Record<RegimeLevel, number> = { normal: 0, elevated: 1, high
 function shouldSkipByVixRegime(currentRegime: RegimeLevel, skipLevel: RegimeLevel | undefined): boolean {
   if (skipLevel == null) return currentRegime === "crisis";
   return REGIME_ORDER[currentRegime] >= REGIME_ORDER[skipLevel];
+}
+
+// ──────────────────────────────────────────
+// VIXレジーム別リスク倍率（既定: elevated=0.5, high=0.25, crisis=0, normal=1.0）
+//
+// high=0.25 は 2026-04-22 の `--compare-vix-risk` 検証で採用された既定。
+// 24ヶ月BTで high レジームは未発生だったため baseline 結果に影響なし。
+// 将来 high VIX相場(例: 2020 COVID, 2022 金利急騰)が来た際に保守的に振る舞う保険的変更。
+// 従来は high で full size が維持されていたが、これは暗黙の設計ミス（CLAUDE.md の
+// 「高ボラでサイズ縮小」コンセプトと矛盾）を修正する位置づけ。
+// ──────────────────────────────────────────
+function getRegimeRiskScale(
+  regime: RegimeLevel,
+  custom?: Partial<Record<RegimeLevel, number>>,
+): number {
+  if (custom && custom[regime] !== undefined) return custom[regime]!;
+  if (regime === "elevated") return 0.5;
+  if (regime === "high") return 0.25;
+  if (regime === "crisis") return 0;
+  return 1.0;
 }
 
 // ──────────────────────────────────────────
@@ -488,7 +513,7 @@ export function runCombinedSimulation(
     typeof maxPositions === "number"
       ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, riskScaleByRegime } = ctx;
   const guBreadthMode = breadthModeGu ?? breadthMode;
   const pscBreadthMode = breadthModePsc ?? breadthMode;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
@@ -701,7 +726,10 @@ export function runCombinedSimulation(
         const riskAmount = cash * ((riskPctOverride ?? RISK_PER_TRADE_PCT) / 100) * breadthMul;
         const rawQuantity = Math.floor(riskAmount / riskPerShare);
         let quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
-        if (todayRegime === "elevated") quantity = Math.floor(quantity / 2 / UNIT_SHARES) * UNIT_SHARES;
+        {
+          const regimeScale = getRegimeRiskScale(todayRegime, riskScaleByRegime);
+          if (regimeScale < 1.0) quantity = Math.floor((quantity * regimeScale) / UNIT_SHARES) * UNIT_SHARES;
+        }
         if (quantity <= 0) continue;
         if (signal.entryPrice * quantity > cash) continue;
 
@@ -742,7 +770,10 @@ export function runCombinedSimulation(
         const riskAmount = cash * ((riskPctOverride ?? GAPUP_RISK_PER_TRADE_PCT) / 100) * breadthMulGu;
         const rawQuantity = Math.floor(riskAmount / riskPerShare);
         let quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
-        if (todayRegime === "elevated") quantity = Math.floor(quantity / 2 / UNIT_SHARES) * UNIT_SHARES;
+        {
+          const regimeScale = getRegimeRiskScale(todayRegime, riskScaleByRegime);
+          if (regimeScale < 1.0) quantity = Math.floor((quantity * regimeScale) / UNIT_SHARES) * UNIT_SHARES;
+        }
         if (quantity <= 0) continue;
         if (signal.entryPrice * quantity > cash) continue;
 
@@ -783,7 +814,10 @@ export function runCombinedSimulation(
         const riskAmount = cash * ((wbRiskPctOverride ?? riskPctOverride ?? WEEKLY_BREAK_RISK_PER_TRADE_PCT) / 100) * breadthMul;
         const rawQuantity = Math.floor(riskAmount / riskPerShare);
         let quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
-        if (todayRegime === "elevated") quantity = Math.floor(quantity / 2 / UNIT_SHARES) * UNIT_SHARES;
+        {
+          const regimeScale = getRegimeRiskScale(todayRegime, riskScaleByRegime);
+          if (regimeScale < 1.0) quantity = Math.floor((quantity * regimeScale) / UNIT_SHARES) * UNIT_SHARES;
+        }
         if (quantity <= 0) continue;
         if (signal.entryPrice * quantity > cash) continue;
 
@@ -824,7 +858,10 @@ export function runCombinedSimulation(
         const riskAmount = cash * ((riskPctOverride ?? PSC_RISK_PER_TRADE_PCT) / 100) * breadthMulPsc;
         const rawQuantity = Math.floor(riskAmount / riskPerShare);
         let quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
-        if (todayRegime === "elevated") quantity = Math.floor(quantity / 2 / UNIT_SHARES) * UNIT_SHARES;
+        {
+          const regimeScale = getRegimeRiskScale(todayRegime, riskScaleByRegime);
+          if (regimeScale < 1.0) quantity = Math.floor((quantity * regimeScale) / UNIT_SHARES) * UNIT_SHARES;
+        }
         if (quantity <= 0) continue;
         if (signal.entryPrice * quantity > cash) continue;
 
@@ -872,7 +909,10 @@ export function runCombinedSimulation(
         const riskAmount = cash * ((riskPctOverride ?? MOMENTUM_RISK_PER_TRADE_PCT) / 100);
         const rawQuantity = Math.floor(riskAmount / riskPerShare);
         let quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
-        if (todayRegime === "elevated") quantity = Math.floor(quantity / 2 / UNIT_SHARES) * UNIT_SHARES;
+        {
+          const regimeScale = getRegimeRiskScale(todayRegime, riskScaleByRegime);
+          if (regimeScale < 1.0) quantity = Math.floor((quantity * regimeScale) / UNIT_SHARES) * UNIT_SHARES;
+        }
         if (quantity <= 0) continue;
         if (signal.currentPrice * quantity > cash) continue;
 
