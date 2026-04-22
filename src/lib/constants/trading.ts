@@ -296,6 +296,23 @@ export const DRAWDOWN = {
 } as const;
 
 // ========================================
+// 異常検知アラート（取引停止ではなく観測通知）
+// ========================================
+
+export const ANOMALY_ALERT = {
+  /** 月次DD通知閾値 (%) */
+  MONTHLY_DRAWDOWN_PCT: 10,
+  /** 直近Nトレードの勝率最低ライン (%) */
+  RECENT_TRADES_WINDOW: 20,
+  RECENT_TRADES_MIN_WINRATE_PCT: 30,
+  /** 連敗検知: 直近N日でM件以上 */
+  STREAK_WINDOW_DAYS: 5,
+  STREAK_MIN_LOSSES: 4,
+  /** 沈黙検知: N日間エントリーゼロ */
+  SILENT_DAYS: 30,
+} as const;
+
+// ========================================
 // 連敗クールダウン
 // ========================================
 
