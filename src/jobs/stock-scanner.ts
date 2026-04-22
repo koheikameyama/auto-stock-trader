@@ -46,7 +46,7 @@ import {
   determineNikkeiTrend,
   applyNikkeiFilter,
 } from "../core/market-regime";
-import type { MarketRegime, Sentiment, TradingStrategy } from "../core/market-regime";
+import type { MarketRegime, Sentiment } from "../core/market-regime";
 import { calculateDrawdownStatus } from "../core/drawdown-manager";
 import { getEffectiveCapital } from "../core/position-manager";
 import {
@@ -111,7 +111,6 @@ async function restoreContextFromDB(): Promise<MarketAssessmentContext> {
     isShadowMode: !record.shouldTrade,
     marketData: null as unknown as MarketAssessmentContext["marketData"], // 単独実行時は不使用
     drawdown,
-    strategyDecision: { strategy: (record.tradingStrategy ?? "breakout") as TradingStrategy, reason: "DB復元" },
     cmeDivergencePct,
     breadth: record.breadth ? Number(record.breadth) : null,
     assessment: {
@@ -128,7 +127,7 @@ export async function main(context?: MarketAssessmentContext) {
   // コンテキストがなければDBから復元
   const ctx = context ?? await restoreContextFromDB();
   let { regime } = ctx;
-  const { isShadowMode, strategyDecision } = ctx;
+  const { isShadowMode } = ctx;
 
   // 日経225 SMA(25)フィルター適用（本番: より制限的な方を採用）
   try {
@@ -451,7 +450,7 @@ export async function main(context?: MarketAssessmentContext) {
     // 全候補を自動承認（AI審査なし）
     const goStocks = filtered.map((c) => ({
       tickerCode: c.tickerCode,
-      strategy: strategyDecision.strategy,
+      strategy: "breakout",
       reasoning: `テクニカルスコア${c.score.totalScore}点 自動承認`,
       riskFlags: [] as string[],
       technicalScore: c.score.totalScore,

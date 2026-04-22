@@ -79,7 +79,6 @@ export async function notifyMarketAssessment(data: {
   cmeFuturesPrice?: number | null;
   cmeDivergencePct?: number | null;
   breadth?: number | null;
-  strategy?: string | null;
 }): Promise<void> {
   const emoji = data.shouldTrade ? "🟢" : "🔴";
   const action = data.shouldTrade ? "取引実行" : "取引見送り";
@@ -95,7 +94,6 @@ export async function notifyMarketAssessment(data: {
     color: data.shouldTrade ? "good" : "warning",
     fields: [
       { title: "センチメント", value: data.sentiment, short: true },
-      { title: "戦略", value: data.strategy ?? "N/A", short: true },
       { title: "日経変化率", value: fmtPct(data.nikkeiChange), short: true },
       { title: "VIX", value: fmtNum(data.vix), short: true },
       { title: "SP500", value: fmtPct(data.sp500Change), short: true },

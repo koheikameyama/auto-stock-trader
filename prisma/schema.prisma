@@ -148,7 +148,6 @@ model MarketAssessment {
   selectedStocks  Json?
   createdAt       DateTime @default(now())
   nikkeiVi        Decimal? @db.Decimal(8, 2)
-  tradingStrategy String?
   nasdaqChange    Decimal? @db.Decimal(8, 4)
   dowChange       Decimal? @db.Decimal(8, 4)
   soxChange       Decimal? @db.Decimal(8, 4)

@@ -219,26 +219,6 @@ export function applyNikkeiFilter(
 
 export type TradingStrategy = "breakout" | "gapup" | "momentum" | "earnings-gap" | "weekly-break" | "squeeze-breakout" | "ma-pullback" | "gapdown-reversal" | "post-surge-consolidation" | "nr7" | "stop-high" | "early-volume-spike" | "down-day-reversal" | "overnight-gap-fade";
 
-export interface StrategyDecision {
-  strategy: TradingStrategy;
-  reason: string;
-}
-
-/**
- * 市場環境に基づいて当日の取引戦略を記録する
- *
- * breakout/gapupのみ。VIX高騰時のリスク回避はEOD強制決済で対処。
- */
-export function determineTradingStrategy(
-  vix: number,
-  cmeDivergencePct: number | null,
-): StrategyDecision {
-  return {
-    strategy: "breakout",
-    reason: `VIX ${vix.toFixed(1)}, CME乖離率 ${cmeDivergencePct != null ? cmeDivergencePct.toFixed(2) + "%" : "N/A"}`,
-  };
-}
-
 /**
  * CME先物乖離率を計算する
  *

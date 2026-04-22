@@ -15,9 +15,8 @@ import {
   determineMarketRegime,
   determinePreMarketRegime,
   calculateCmeDivergence,
-  determineTradingStrategy,
 } from "../core/market-regime";
-import type { MarketRegime, StrategyDecision, Sentiment } from "../core/market-regime";
+import type { MarketRegime, Sentiment } from "../core/market-regime";
 import { calculateDrawdownStatus } from "../core/drawdown-manager";
 import type { DrawdownStatus } from "../core/drawdown-manager";
 import { calculateMarketBreadth } from "../core/market-breadth";
@@ -28,7 +27,6 @@ export interface MarketAssessmentContext {
   isShadowMode: boolean;
   marketData: Awaited<ReturnType<typeof fetchMarketData>>;
   drawdown: DrawdownStatus;
-  strategyDecision: StrategyDecision;
   cmeDivergencePct: number | null;
   breadth: number | null;
   assessment: { shouldTrade: boolean; sentiment: Sentiment; reasoning: string } | null;
@@ -129,7 +127,6 @@ export async function main(): Promise<MarketAssessmentContext> {
           shouldTrade: false,
           reasoning: `[CME先物乖離率キルスイッチ] ${preMarket.reason}`,
           selectedStocks: [],
-          tradingStrategy: "breakout",
         };
         await prisma.marketAssessment.upsert({
           where: { date: getTodayForDB() },
@@ -167,13 +164,6 @@ export async function main(): Promise<MarketAssessmentContext> {
 
   console.log(`  → レジーム: ${regime.level}（${regime.reason}）`);
 
-  // 1.8.1. 戦略決定（CME休場中は乖離率を無視 — 古いデータでデイトレ判定するのを防止）
-  const strategyDecision: StrategyDecision = determineTradingStrategy(
-    marketData.vix.price,
-    cmeStatus !== "closed" ? cmeDivergencePct : null,
-  );
-  console.log(`[1.8.1/2] 戦略決定: ${strategyDecision.strategy}（${strategyDecision.reason}）`);
-
   // VIX ≥ 30: EODで強制決済される（end-of-day.tsで処理）
 
   // 1.8.5. 日経平均キルスイッチ
@@ -190,7 +180,6 @@ export async function main(): Promise<MarketAssessmentContext> {
       shouldTrade: false,
       reasoning: `[日経平均キルスイッチ] ${reason}`,
       selectedStocks: [],
-      tradingStrategy: strategyDecision.strategy,
     };
     await prisma.marketAssessment.upsert({
       where: { date: getTodayForDB() },
@@ -230,7 +219,6 @@ export async function main(): Promise<MarketAssessmentContext> {
       shouldTrade: false,
       reasoning: `[ドローダウン自動停止] ${drawdown.reason}（sentiment=${drawdownSentiment}は市場評価を維持）`,
       selectedStocks: [],
-      tradingStrategy: strategyDecision.strategy,
     };
     await prisma.marketAssessment.upsert({
       where: { date: getTodayForDB() },
@@ -279,7 +267,6 @@ export async function main(): Promise<MarketAssessmentContext> {
       shouldTrade: assessment.shouldTrade,
       reasoning: assessment.reasoning,
       selectedStocks: [],
-      tradingStrategy: strategyDecision.strategy,
     };
     await prisma.marketAssessment.upsert({
       where: { date: getTodayForDB() },
@@ -313,7 +300,6 @@ export async function main(): Promise<MarketAssessmentContext> {
       cmeFuturesPrice: marketData.cmeFutures?.price ?? null,
       cmeDivergencePct,
       breadth: breadthValue,
-      strategy: strategyDecision.strategy,
     });
   }
 
@@ -324,7 +310,6 @@ export async function main(): Promise<MarketAssessmentContext> {
     isShadowMode,
     marketData,
     drawdown,
-    strategyDecision,
     cmeDivergencePct,
     breadth: breadthValue,
     assessment,

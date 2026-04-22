@@ -214,11 +214,10 @@ async function generateDailyReview(params: {
 export async function main() {
   console.log("=== End of Day 開始 ===");
 
-  // 今日の戦略判定を取得
+  // 今日の市場評価を取得（VIXチェック用）
   const todayAssessmentForStrategy = await prisma.marketAssessment.findUnique({
     where: { date: getTodayForDB() },
   });
-  const _todayStrategy = (todayAssessmentForStrategy as Record<string, unknown> | null)?.tradingStrategy as string | null;
 
   // 1a. VIX高騰時のポジション強制決済（オーバーナイトリスク回避）
   // VIX ≥ 30: 全ポジション強制決済（ギャップダウンでSLが機能しないリスク）
