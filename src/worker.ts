@@ -121,10 +121,15 @@ function nowJST(): string {
   return dayjs().tz(TIMEZONE).format("YYYY-MM-DD HH:mm:ss");
 }
 
-// 市場時間の毎分tick: broker-reconciliation → position-monitor の順にシーケンシャル実行
-async function runMarketTick() {
-  await runJob("broker-reconciliation", runBrokerReconciliation, true);
+// 市場時間の毎分tick: position-monitor 単体で実行
+// （broker-reconciliation は立花のAPI高負荷警告を受けて1日6回の独立スケジュールへ移行）
+async function runPositionMonitorTick() {
   await runJob("position-monitor", runMonitor, true);
+}
+
+// broker-reconciliation を単発で実行（独立スケジュール用）
+async function runBrokerReconciliationJob() {
+  await runJob("broker-reconciliation", runBrokerReconciliation, true);
 }
 
 // 前場のみのtick: intraday-ma-scanner を実行
@@ -138,17 +143,26 @@ async function runAMTick() {
 // ※ news-collector, weekly-review は GitHub Actions cron に移行済み
 const schedules = [
   // 9:00-11:30, 12:30-15:30 毎分 ポジション監視（平日・市場時間）
-  // broker-reconciliation → position-monitor の順に実行
-  { cron: "0-59 9 * * 1-5", job: runMarketTick, name: "market-tick", requiresMarketDay: false },
-  { cron: "* 10 * * 1-5", job: runMarketTick, name: "market-tick", requiresMarketDay: false },
-  { cron: "0-30 11 * * 1-5", job: runMarketTick, name: "market-tick", requiresMarketDay: false },
+  // broker-reconciliation は下記の独立スケジュール（1日6回）に移行済み（立花API高負荷警告対応）
+  { cron: "0-59 9 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false },
+  { cron: "* 10 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false },
+  { cron: "0-30 11 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false },
   // 前場のみ: intraday-ma-scanner（9:00-11:30）
   { cron: "0-59 9 * * 1-5", job: runAMTick, name: "intraday-ma-scanner", requiresMarketDay: true },
   { cron: "* 10 * * 1-5", job: runAMTick, name: "intraday-ma-scanner", requiresMarketDay: true },
   { cron: "0-30 11 * * 1-5", job: runAMTick, name: "intraday-ma-scanner", requiresMarketDay: true },
-  { cron: "30-59 12 * * 1-5", job: runMarketTick, name: "market-tick", requiresMarketDay: false },
-  { cron: "* 13-14 * * 1-5", job: runMarketTick, name: "market-tick", requiresMarketDay: false },
-  { cron: "0-30 15 * * 1-5", job: runMarketTick, name: "market-tick", requiresMarketDay: false },
+  { cron: "30-59 12 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false },
+  { cron: "* 13-14 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false },
+  { cron: "0-30 15 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false },
+  // broker-reconciliation（1日6回の独立スケジュール。position-monitor の :00 実行と競合回避のため :30 秒にオフセット）
+  // 立花のAPI高負荷警告（2026-03-10）対応: 毎分 → 6回/日 で ~98% 削減。
+  // WebSocket EVENT I/F がリアルタイム約定同期を主系として担うため、照合頻度を下げても機能劣化は限定的。
+  { cron: "30 5 9 * * 1-5",   job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 9:05:30 前場開始直後の初期化
+  { cron: "30 30 10 * * 1-5", job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 10:30:30 前場中の回復チェック
+  { cron: "30 35 12 * * 1-5", job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 12:35:30 後場開始直後
+  { cron: "30 0 14 * * 1-5",  job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 14:00:30 後場中の回復チェック
+  { cron: "30 22 15 * * 1-5", job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 15:22:30 gapup/PSC 発注（15:24）直前スナップショット
+  { cron: "30 30 15 * * 1-5", job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 15:30:30 引け直後の最終同期
   // 15:24:00/20/40 ギャップアップ監視（東証クロージングオークション15:25〜直前に発注）
   // 接続エラー等のretryableな失敗時に20秒間隔で最大3回試行。成功後はlastScanDateで以降をスキップ
   { cron: "0 24 15 * * 1-5", job: runGapupMonitor, name: "gapup-monitor", requiresMarketDay: true },

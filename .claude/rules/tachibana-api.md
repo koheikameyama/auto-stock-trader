@@ -7,6 +7,7 @@
 | 本番URL | `https://kabuka.e-shiten.jp/e_api_v4r8/` |
 | デモURL | `https://demo-kabuka.e-shiten.jp/e_api_v4r8/` |
 | リファレンス | https://www.e-shiten.jp/e_api/mfds_json_api_refference.html |
+| 利用制限告知 | https://www.e-shiten.jp/api/20260310.html |
 | プロトコル | HTTP GET |
 | リクエスト形式 | URLクエリパラメータにJSON文字列 (`?{JSON}`) |
 | レスポンス形式 | JSON（デフォルトは数値キー） |
@@ -14,6 +15,36 @@
 | 値の型 | **全て文字列**（数値も `"100"` で送受信） |
 | 銘柄コード | 4桁数字（`.T` サフィックスなし） |
 | 市場コード | `"00"` = 東証 |
+
+## サーバー負荷・利用制限（重要）
+
+**立花証券公式お願い**: [APIご利用に関するお願い (2026-03-10)](https://www.e-shiten.jp/api/20260310.html)
+
+立花側から「弊社システムに高負荷をかける状態が確認されている」と通達あり。**違反すると利用停止の可能性**。
+
+### 禁止・制限される行為
+
+- **大量かつ頻繁な株価取得**（`CLMMfdsGetMarketPrice`）
+- **頻繁な情報照会（ポーリング）**（`CLMZanKaiKanougaku`, `CLMGenbutuKabuList`, `CLMOrderList`, `CLMOrderListDetail` など）
+
+### 時間帯別の指針（JST）
+
+| 時間帯 | システム状態 | 推奨動作 |
+|---|---|---|
+| **8:00〜15:30** | 取引所への注文送受信時間帯（高負荷） | **高負荷リクエストを控える。ポーリング禁止** |
+| 5:30〜8:00 | 低負荷 | マスタデータ取得に推奨 |
+| 18:00〜翌3:30 | 低負荷 | 日足データ（`CLMMfdsGetMarketPriceHistory`）取得に推奨 |
+
+### 実装方針
+
+- **約定同期は EVENT I/F（WebSocket）を主系**にする（`src/core/broker-event-stream.ts` で実装済み）
+- **broker-reconciliation などの保有・注文照合は1日数回に絞る**（発注前・引け後など必要最小時刻のみ。場中ポーリング禁止）
+- `CLMMfdsGetMarketPrice` のバッチ取得はシグナル検出目的のみ。頻度はロジック上の必要最小限に留める
+- `CLMMfdsGetMarketPriceHistory` を叩く場合は **18:00以降** にスケジュール
+
+### 具体的なアクセス上限
+
+立花側で「公平な注文受付実現のため」非公表。**上限値ではなくパターンで判断される可能性が高い**ため、ポーリング構造そのものを回避する設計が必要。
 
 ## 環境変数
 
