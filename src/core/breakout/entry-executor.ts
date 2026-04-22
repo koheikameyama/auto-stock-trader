@@ -163,13 +163,31 @@ export async function executeEntry(
   const regimeScale = regime ? getRegimeRiskScale(regime.level) : 1.0;
   const riskPct = streakAdjustedPct * regimeScale;
   if (regimeScale < 1.0) {
-    console.log(
-      `[entry-executor] ${ticker} VIXレジーム(${regime?.level} VIX=${vixValue?.toFixed(1)})でリスク%縮小: ${streakAdjustedPct}% → ${riskPct.toFixed(3)}%`,
-    );
+    const msg = `[entry-executor] ${ticker} VIXレジーム(${regime?.level} VIX=${vixValue?.toFixed(1)})でリスク%縮小: ${streakAdjustedPct}% → ${riskPct.toFixed(3)}%`;
+    console.log(msg);
+    // 発動は稀(2年で数回レベル)なので発動時は必ず通知して観測性を確保
+    await notifySlack({
+      title: `🟡 VIXレジーム縮小発動: ${ticker}`,
+      message:
+        `戦略: ${strategy}\n` +
+        `銘柄: ${stock.name}（${ticker}）\n` +
+        `VIX: ${vixValue?.toFixed(1)} (${regime?.level})\n` +
+        `リスク%: ${streakAdjustedPct.toFixed(2)}% → ${riskPct.toFixed(3)}% (×${regimeScale})\n` +
+        `理由: ${regime?.reason ?? "-"}`,
+      color: "warning",
+    });
   }
   if (riskPct <= 0) {
     const reason = `VIXレジーム ${regime?.level} でサイズ=0（crisis停止）`;
     console.log(`[entry-executor] ${ticker} スキップ: ${reason}`);
+    await notifySlack({
+      title: `🔴 VIXレジーム crisis でエントリー停止: ${ticker}`,
+      message:
+        `戦略: ${strategy}\n銘柄: ${stock.name}（${ticker}）\n` +
+        `VIX: ${vixValue?.toFixed(1)} (${regime?.level})\n` +
+        `理由: ${regime?.reason ?? "-"}`,
+      color: "danger",
+    });
     return { success: false, reason, retryable: false };
   }
   const riskAmount = effectiveCapital * (riskPct / 100);
