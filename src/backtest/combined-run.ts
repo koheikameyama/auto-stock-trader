@@ -470,34 +470,44 @@ async function main() {
     return;
   }
 
-  // 資金効率比較モード（T+2 / リスク%）
+  // 資金効率比較モード（T+2 / リスク% / 信用金利）
   if (compareEfficiency) {
-    const grid: { label: string; settlementDays: number; riskPct: number | undefined }[] = [
-      { label: "現状(T+2,2%)", settlementDays: 2, riskPct: undefined },
-      { label: "T+0,2%", settlementDays: 0, riskPct: undefined },
-      { label: "T+2,3%", settlementDays: 2, riskPct: 3 },
-      { label: "T+2,4%", settlementDays: 2, riskPct: 4 },
-      { label: "T+0,3%", settlementDays: 0, riskPct: 3 },
-      { label: "T+0,4%", settlementDays: 0, riskPct: 4 },
+    const grid: { label: string; settlementDays: number; riskPct: number | undefined; marginInterestRate: number }[] = [
+      { label: "現物T+2,2%", settlementDays: 2, riskPct: undefined, marginInterestRate: 0 },
+      { label: "T+0,2%,金利0%", settlementDays: 0, riskPct: undefined, marginInterestRate: 0 },
+      { label: "T+0,2%,金利2.5%", settlementDays: 0, riskPct: undefined, marginInterestRate: 0.025 },
+      { label: "T+0,2%,金利3.0%", settlementDays: 0, riskPct: undefined, marginInterestRate: 0.030 },
+      { label: "T+0,2%,金利3.5%", settlementDays: 0, riskPct: undefined, marginInterestRate: 0.035 },
+      { label: "T+0,3%,金利3.0%", settlementDays: 0, riskPct: 3, marginInterestRate: 0.030 },
+      { label: "T+0,4%,金利3.0%", settlementDays: 0, riskPct: 4, marginInterestRate: 0.030 },
     ];
 
-    console.log("\n=== 資金効率比較（受渡日数 × リスク%） ===");
+    console.log("\n=== 資金効率比較（受渡日数 × リスク% × 信用金利） ===");
     console.log(
-      `${"条件".padEnd(16)}| ${"Trades".padStart(6)} | ${"WinRate".padStart(7)} | ${"PF".padStart(5)} | ${"Expect".padStart(8)} | ${"MaxDD".padStart(7)} | ${"NetRet".padStart(8)} | ${"稼働率".padStart(6)}`,
+      `${"条件".padEnd(20)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"Expect".padStart(7)} | ${"MaxDD".padStart(6)} | ${"NetRet".padStart(7)} | ${"Calmar".padStart(6)} | ${"稼働率".padStart(6)}`,
     );
-    console.log("-".repeat(82));
+    console.log("-".repeat(96));
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
 
     for (const row of grid) {
       const result = runCombinedSimulation(
-        { ...ctx, settlementDays: row.settlementDays, riskPctOverride: row.riskPct },
+        {
+          ...ctx,
+          settlementDays: row.settlementDays,
+          riskPctOverride: row.riskPct,
+          marginInterestRate: row.marginInterestRate,
+        },
         defaultLimits,
       );
       const m = result.totalMetrics;
       const util = calculateCapitalUtilization(result.equityCurve);
       const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
       const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
       console.log(
-        `${row.label.padEnd(16)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(6)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(8)} | ${m.maxDrawdown.toFixed(1).padStart(6)}% | ${m.netReturnPct.toFixed(1).padStart(7)}% | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
+        `${row.label.padEnd(20)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(7)} | ${m.maxDrawdown.toFixed(1).padStart(5)}% | ${m.netReturnPct.toFixed(1).padStart(6)}% | ${calmar.toFixed(2).padStart(6)} | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
       );
     }
     console.log("");

@@ -53,6 +53,27 @@ export function calculateTax(grossPnl: number, totalCost: number): number {
 }
 
 /**
+ * 信用取引の金利コストを算出
+ *
+ * 建玉金額 × 年率金利 × (保有営業日数 / 365)
+ * - 制度信用の一般的な金利: 年率2.5〜3.5%
+ * - 保有中は日割りで発生
+ * - 現物取引(settlementDays >= 1 想定)では 0 を返す想定
+ *
+ * @param positionValue エントリー時の建玉金額（entryPrice × quantity）
+ * @param holdingDays 保有営業日数
+ * @param annualRate 年率金利（0.03 = 3%）
+ */
+export function calculateMarginInterest(
+  positionValue: number,
+  holdingDays: number,
+  annualRate: number,
+): number {
+  if (annualRate <= 0 || holdingDays <= 0 || positionValue <= 0) return 0;
+  return Math.round((positionValue * annualRate * holdingDays) / 365);
+}
+
+/**
  * 1トレードの全コストを算出
  */
 export function calculateTradeCosts(

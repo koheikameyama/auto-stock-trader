@@ -17,7 +17,7 @@ import type { PrecomputedPSCSignals } from "./post-surge-consolidation-simulatio
 import type { PrecomputedMomentumSignals } from "./momentum-simulation";
 import { MOMENTUM_RISK_PER_TRADE_PCT } from "./momentum-config";
 import { checkPositionExit } from "../core/exit-checker";
-import { calculateCommission, calculateTax } from "../core/trading-costs";
+import { calculateCommission, calculateTax, calculateMarginInterest } from "../core/trading-costs";
 import { getLimitDownPrice } from "../lib/constants/price-limits";
 import { determineMarketRegime, getRegimeRiskScale } from "../core/market-regime";
 import { UNIT_SHARES, DRAWDOWN } from "../lib/constants/trading";
@@ -93,6 +93,12 @@ export interface SimContext {
     scale: number;
     minSample: number;
   };
+  /**
+   * 信用取引の年率金利（0.03 = 3%）。0 or 省略時は金利コスト無し（現物想定）。
+   * T+0 受渡日数(settlementDays=0)設定と組み合わせて、信用取引の実効リターンを
+   * 正確に評価する用途。
+   */
+  marginInterestRate?: number;
 }
 
 /** breadthゲーティングの方式 */
@@ -223,6 +229,7 @@ function closePosition(
   tradingDays: string[],
   costModelEnabled: boolean,
   verbose: boolean,
+  marginInterestRate = 0,
 ): void {
   const grossPnl = (exitPrice - pos.entryPrice) * pos.quantity;
   const pnlPct = pos.entryPrice > 0
@@ -233,7 +240,12 @@ function closePosition(
 
   const exitTradeValue = exitPrice * pos.quantity;
   const exitCommission = costModelEnabled ? calculateCommission(exitTradeValue) : 0;
-  const totalCost = (pos.entryCommission ?? 0) + exitCommission;
+  // 信用取引の金利コスト（marginInterestRate > 0 の時のみ計上）
+  const entryValue = pos.entryPrice * pos.quantity;
+  const marginInterest = costModelEnabled
+    ? calculateMarginInterest(entryValue, holdingDays, marginInterestRate)
+    : 0;
+  const totalCost = (pos.entryCommission ?? 0) + exitCommission + marginInterest;
   const tax = costModelEnabled ? calculateTax(grossPnl, totalCost) : 0;
   const netPnl = grossPnl - totalCost - tax;
 
@@ -275,6 +287,7 @@ function processExits(
   lastExitDayIdx: Map<string, number>,
   verbose: boolean,
   settlementDays: number,
+  marginInterestRate = 0,
 ): void {
   const toClose: number[] = [];
   for (let i = 0; i < positions.length; i++) {
@@ -346,7 +359,7 @@ function processExits(
     }
 
     if (exitPrice != null && exitReason != null) {
-      closePosition(pos, exitPrice, exitReason, dayIdx, tradingDays, config.costModelEnabled, verbose);
+      closePosition(pos, exitPrice, exitReason, dayIdx, tradingDays, config.costModelEnabled, verbose, marginInterestRate);
       const proceeds = exitPrice * pos.quantity - (pos.exitCommission ?? 0) - (pos.tax ?? 0);
       pendingSettlement.push({ amount: proceeds, availableDayIdx: dayIdx + settlementDays });
       toClose.push(i);
@@ -378,6 +391,7 @@ function processDefensive(
   costModelEnabled: boolean,
   verbose: boolean,
   settlementDays: number,
+  marginInterestRate = 0,
 ): void {
   if (todayRegime !== "crisis" && todayRegime !== "high") return;
   if (positions.length === 0) return;
@@ -395,7 +409,7 @@ function processDefensive(
     }
 
     if (shouldClose) {
-      closePosition(pos, todayBar.close, "defensive_exit", dayIdx, tradingDays, costModelEnabled, verbose);
+      closePosition(pos, todayBar.close, "defensive_exit", dayIdx, tradingDays, costModelEnabled, verbose, marginInterestRate);
       const proceeds = todayBar.close * pos.quantity - (pos.exitCommission ?? 0) - (pos.tax ?? 0);
       pendingSettlement.push({ amount: proceeds, availableDayIdx: dayIdx + settlementDays });
       defClose.push(i);
@@ -526,7 +540,7 @@ export function runCombinedSimulation(
     typeof maxPositions === "number"
       ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, riskScaleByRegime, loseStreakScaling } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0 } = ctx;
   const guBreadthMode = breadthModeGu ?? breadthMode;
   const pscBreadthMode = breadthModePsc ?? breadthMode;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
@@ -590,29 +604,29 @@ export function runCombinedSimulation(
       todayVix != null ? determineMarketRegime(todayVix).level : "normal";
 
     // ── 1. 出口判定 ──
-    processExits(boPositions, boConfigLocal, "breakout", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, boClosedTrades, lastExitDayIdx, verbose, settlementDays);
-    processExits(guPositions, guConfigLocal, "gapup", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, guClosedTrades, lastExitDayIdx, verbose, settlementDays);
+    processExits(boPositions, boConfigLocal, "breakout", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, boClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate);
+    processExits(guPositions, guConfigLocal, "gapup", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, guClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate);
     if (wbConfigLocal) {
-      processExits(wbPositions, wbConfigLocal, "weekly-break", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, wbClosedTrades, lastExitDayIdx, verbose, settlementDays);
+      processExits(wbPositions, wbConfigLocal, "weekly-break", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, wbClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate);
     }
     if (pscConfigLocal) {
-      processExits(pscPositions, pscConfigLocal, "post-surge-consolidation", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, pscClosedTrades, lastExitDayIdx, verbose, settlementDays);
+      processExits(pscPositions, pscConfigLocal, "post-surge-consolidation", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, pscClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate);
     }
     if (momConfigLocal) {
-      processExits(momPositions, momConfigLocal, "momentum", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, momClosedTrades, lastExitDayIdx, verbose, settlementDays);
+      processExits(momPositions, momConfigLocal, "momentum", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, momClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate);
     }
 
     // ── 1.5 ディフェンシブモード ──
-    processDefensive(boPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, boClosedTrades, lastExitDayIdx, boConfigLocal.costModelEnabled, verbose, settlementDays);
-    processDefensive(guPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, guClosedTrades, lastExitDayIdx, guConfigLocal.costModelEnabled, verbose, settlementDays);
+    processDefensive(boPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, boClosedTrades, lastExitDayIdx, boConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate);
+    processDefensive(guPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, guClosedTrades, lastExitDayIdx, guConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate);
     if (wbConfigLocal) {
-      processDefensive(wbPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, wbClosedTrades, lastExitDayIdx, wbConfigLocal.costModelEnabled, verbose, settlementDays);
+      processDefensive(wbPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, wbClosedTrades, lastExitDayIdx, wbConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate);
     }
     if (pscConfigLocal) {
-      processDefensive(pscPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, pscClosedTrades, lastExitDayIdx, pscConfigLocal.costModelEnabled, verbose, settlementDays);
+      processDefensive(pscPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, pscClosedTrades, lastExitDayIdx, pscConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate);
     }
     if (momConfigLocal) {
-      processDefensive(momPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, momClosedTrades, lastExitDayIdx, momConfigLocal.costModelEnabled, verbose, settlementDays);
+      processDefensive(momPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, momClosedTrades, lastExitDayIdx, momConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate);
     }
 
     // ── 1.55 モメンタム ローテーション決済（rebalance日にトップN外に落ちた銘柄をクローズ） ──
@@ -626,7 +640,7 @@ export function runCombinedSimulation(
             const posBarIdx = dateIndexMap.get(momPositions[i].ticker)?.get(today);
             if (posBarIdx == null) continue;
             const todayBar = allData.get(momPositions[i].ticker)![posBarIdx];
-            closePosition(momPositions[i], todayBar.close, "rotation_exit", dayIdx, tradingDays, momConfigLocal.costModelEnabled, verbose);
+            closePosition(momPositions[i], todayBar.close, "rotation_exit", dayIdx, tradingDays, momConfigLocal.costModelEnabled, verbose, marginInterestRate);
             const proceeds = todayBar.close * momPositions[i].quantity - (momPositions[i].exitCommission ?? 0) - (momPositions[i].tax ?? 0);
             pendingSettlement.push({ amount: proceeds, availableDayIdx: dayIdx + settlementDays });
             rotationClose.push(i);
