@@ -10,16 +10,10 @@ on:
         required: true
       YFINANCE_PROXY:
         required: false
-      TACHIBANA_USER_ID:
-        required: true
-      TACHIBANA_PASSWORD:
-        required: true
 
 env:
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
   YFINANCE_PROXY: ${{ secrets.YFINANCE_PROXY }}
-  TACHIBANA_USER_ID: ${{ secrets.TACHIBANA_USER_ID }}
-  TACHIBANA_PASSWORD: ${{ secrets.TACHIBANA_PASSWORD }}
 
 jobs:
   run:

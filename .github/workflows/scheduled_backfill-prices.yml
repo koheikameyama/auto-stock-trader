@@ -66,8 +66,6 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       YFINANCE_PROXY: ${{ secrets.YFINANCE_PROXY }}
-      TACHIBANA_USER_ID: ${{ secrets.TACHIBANA_USER_ID }}
-      TACHIBANA_PASSWORD: ${{ secrets.TACHIBANA_PASSWORD }}
 
   corporate-events:
     needs: check-market-day

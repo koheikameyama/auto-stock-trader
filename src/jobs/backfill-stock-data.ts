@@ -12,7 +12,8 @@ import dayjs from "dayjs";
 
 import { prisma } from "../lib/prisma";
 import { YAHOO_FINANCE, STOCK_FETCH, TECHNICAL_MIN_DATA } from "../lib/constants";
-import { fetchStockQuotesBatch, fetchHistoricalDataBatch } from "../core/market-data";
+import { fetchHistoricalDataBatch } from "../core/market-data";
+import { yfFetchQuotesBatch, type YfQuoteResult } from "../lib/yfinance-client";
 import { analyzeTechnicals } from "../core/technical-analysis";
 import { sleep } from "../lib/retry-utils";
 import { clampDecimal, incrementFailAndMarkDelisted } from "../lib/decimal-utils";
@@ -38,7 +39,7 @@ export async function main() {
   // [1/3] クォート更新（バッチ取得）
   // ================================================================
   console.log("[1/3] クォート更新中...");
-  const quoteMap = new Map<string, Awaited<ReturnType<typeof fetchStockQuotesBatch>> extends Map<string, infer V> ? V : never>();
+  const quoteMap = new Map<string, YfQuoteResult>();
   let quotesFailed = 0;
 
   const totalBatches = Math.ceil(allStocks.length / YAHOO_FINANCE.BATCH_SIZE);
@@ -47,9 +48,11 @@ export async function main() {
     const batch = allStocks.slice(i, i + YAHOO_FINANCE.BATCH_SIZE);
     const tickers = batch.map((s) => s.tickerCode);
     console.log(`  バッチ ${batchNum}/${totalBatches}（${tickers.length}件）`);
-    const batchResult = await fetchStockQuotesBatch(tickers);
-    for (const [key, value] of batchResult) {
-      quoteMap.set(key, value);
+    const batchResult = await yfFetchQuotesBatch(tickers);
+    for (const result of batchResult) {
+      if (result && result.tickerCode) {
+        quoteMap.set(result.tickerCode, result);
+      }
     }
     if (i + YAHOO_FINANCE.BATCH_SIZE < allStocks.length) {
       await sleep(YAHOO_FINANCE.RATE_LIMIT_DELAY_MS);
@@ -217,7 +220,7 @@ export async function main() {
         latestPriceDate: now,
         priceUpdatedAt: now,
         fetchFailCount: 0,
-        // ファンダメンタルズがnull（立花APIなど）の場合は既存DB値を保持
+        // ファンダメンタルズがnullの場合は既存DB値を保持
         ...(quote.per != null ? { per: clampDecimal(quote.per, "8,2") } : {}),
         ...(quote.pbr != null ? { pbr: clampDecimal(quote.pbr, "8,2") } : {}),
         ...(quote.eps != null && Number.isFinite(quote.eps) ? { eps: quote.eps, isProfitable: quote.eps > 0 } : {}),
