@@ -16,6 +16,70 @@ export interface TradeCosts {
   netPnl: number;
 }
 
+// ========================================
+// スリッページモデル (KOH-428 Phase B)
+// ========================================
+
+export type SlippageProfile = "none" | "light" | "standard" | "heavy";
+
+/** 約定種別: 引け成行エントリー/出口成行/SL・トレーリング発動成行/指値 */
+export type SlippageContext =
+  | "entry_market"
+  | "exit_market"
+  | "exit_stop"
+  | "limit";
+
+interface SlippageRates {
+  entryMarketBps: number;
+  exitMarketBps: number;
+  exitStopBps: number;
+  limitBps: number;
+}
+
+/**
+ * スリッページプロファイル（bps）
+ *
+ * 初期値は保守的推定。Phase A の実績キャリブレーション後に再調整する。
+ * - light: 流動性の高い銘柄を中心に取引する想定
+ * - standard: 中小型株中心の現行運用の推定値
+ * - heavy: ストレス市況 / 厚みの薄い板を想定した上限
+ */
+export const SLIPPAGE_PROFILES: Record<SlippageProfile, SlippageRates> = {
+  none:     { entryMarketBps:  0, exitMarketBps:  0, exitStopBps:  0, limitBps: 0 },
+  light:    { entryMarketBps:  5, exitMarketBps:  5, exitStopBps: 10, limitBps: 0 },
+  standard: { entryMarketBps: 10, exitMarketBps: 10, exitStopBps: 20, limitBps: 0 },
+  heavy:    { entryMarketBps: 25, exitMarketBps: 25, exitStopBps: 50, limitBps: 0 },
+};
+
+/**
+ * 価格にスリッページを適用する
+ *
+ * buy 側: 価格が bps 分だけ上振れ（不利な方向）
+ * sell 側: 価格が bps 分だけ下振れ（不利な方向）
+ *
+ * @param price 基準価格（シグナル価格 / SL価格 / 引け値など）
+ * @param side  "buy" = エントリー / "sell" = 決済
+ * @param context 約定種別
+ * @param profile プロファイル名
+ */
+export function applySlippage(
+  price: number,
+  side: "buy" | "sell",
+  context: SlippageContext,
+  profile: SlippageProfile = "none",
+): number {
+  if (profile === "none" || price <= 0) return price;
+  const rates = SLIPPAGE_PROFILES[profile];
+  const bps =
+    context === "entry_market" ? rates.entryMarketBps
+    : context === "exit_market" ? rates.exitMarketBps
+    : context === "exit_stop"   ? rates.exitStopBps
+    : rates.limitBps;
+  if (bps === 0) return price;
+  const sign = side === "buy" ? 1 : -1;
+  return price * (1 + (sign * bps) / 10000);
+}
+
 /**
  * 約定代金から手数料を算出（立花証券 e-Supportプラン）
  */

@@ -6,6 +6,7 @@
  *   npm run backtest:combined -- --start 2025-04-01 --end 2026-03-25
  *   npm run backtest:combined -- --budget 1000000
  *   npm run backtest:combined -- --verbose
+ *   npm run backtest:combined -- --compare-slippage
  *   npm run backtest:combined -- --compare-positions
  *   npm run backtest:combined -- --compare-split-positions
  *   npm run backtest:combined -- --compare-breadth
@@ -148,8 +149,9 @@ async function main() {
   const compareVixRisk = args.includes("--compare-vix-risk");
   const compareStreak = args.includes("--compare-streak");
   const compareCooldown = args.includes("--compare-cooldown");
+  const compareSlippage = args.includes("--compare-slippage");
 
-  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareMaxPrice || compareSector || compareVixRisk || compareStreak || compareCooldown;
+  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareMaxPrice || compareSector || compareVixRisk || compareStreak || compareCooldown || compareSlippage;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const pscConfig: PostSurgeConsolidationBacktestConfig = {
@@ -1232,6 +1234,45 @@ async function main() {
           `  ${r.label.padEnd(24)}| ${String(sub.totalTrades).padStart(6)} | ${sub.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expStr.padStart(7)} | ${netPnlStr.padStart(12)}`,
         );
       }
+    }
+
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // --compare-slippage: スリッページプロファイルの影響を定量化 (KOH-428 Phase B)
+  if (compareSlippage) {
+    const grid: { label: string; profile: "none" | "light" | "standard" | "heavy" }[] = [
+      { label: "none (現状 BT)", profile: "none" },
+      { label: "light (5/5/10bps)", profile: "light" },
+      { label: "standard (10/10/20bps)", profile: "standard" },
+      { label: "heavy (25/25/50bps)", profile: "heavy" },
+    ];
+
+    console.log("\n=== スリッページプロファイル比較 ===");
+    console.log(`期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}`);
+    console.log("bps表記: entry_market / exit_market / exit_stop");
+    console.log(
+      `${"プロファイル".padEnd(24)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"Expect".padStart(7)} | ${"MaxDD".padStart(6)} | ${"NetRet".padStart(7)} | ${"Calmar".padStart(6)}`,
+    );
+    console.log("-".repeat(96));
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+
+    for (const row of grid) {
+      const result = runCombinedSimulation(
+        { ...ctx, slippageProfile: row.profile },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
+      const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      console.log(
+        `${row.label.padEnd(24)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(7)} | ${m.maxDrawdown.toFixed(1).padStart(5)}% | ${m.netReturnPct.toFixed(1).padStart(6)}% | ${calmar.toFixed(2).padStart(6)}`,
+      );
     }
 
     console.log("");
