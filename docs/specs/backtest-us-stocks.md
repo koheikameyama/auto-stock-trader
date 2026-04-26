@@ -2,9 +2,12 @@
 
 ## サマリ
 
-**米国株5戦略すべて、本番投入できるエッジなし。**
-2026-04-16 の初回検証および 2026-04-26 の最新データを含む再検証で同じ結論を確認。
-コードは [src/backtest/us/](../../src/backtest/us/) に参考用として残置。
+**個別株戦略（5本）はエッジなし。インデックスオプション系の SPY Credit Spread のみ構造的エッジあり。**
+
+2026-04-16 の初回検証および 2026-04-26 の最新データを含む再検証 + 追加3戦略で確認。
+コードは [src/backtest/us/](../../src/backtest/us/) に残置。
+
+### Phase 1: 個別株戦略（5本）— **すべてエッジなし**
 
 | 戦略 | 24ヶ月BT NetRet | WF判定 | 結論 |
 |---|---:|---|---|
@@ -13,6 +16,14 @@
 | PEAD | -8.5% | エッジなし | 不採用 |
 | Mean Reversion | 0%（シグナル不発） | 検証不能 | 不採用 |
 | Wheel (CSP→CC) | +10.7%（24ヶ月BT）| **過学習 ✗（OOS PF 0.25）** | 不採用 |
+
+### Phase 2: インデックス系・代替戦略（3本）— **1本のみエッジ確認**
+
+| 戦略 | BT NetRet | WF判定 | 結論 |
+|---|---:|---|---|
+| **SPY Credit Spread** (Bull Put) | **+106.2%** (24ヶ月) | **実質堅牢 ✓**（OOS PF 4.86, 勝率96%）| **本番候補** |
+| VIX Contango (SVXY) | -5.4% (5年) | 過学習 ✗（OOS PF 0.08）| 不採用 |
+| Dual Momentum (Antonacci GEM) | +42% (8年) | 要注意 △（5/7正窓）| 限定的有効 |
 
 ## 検証条件
 
@@ -129,6 +140,133 @@ Black-Scholes で価格付け、デルタベースで権利行使価格選定。
 - パラメータが `dte=21/30/45`、`pt=0.5/0.65` で全くバラバラ、安定パラメータが見つからない
 - 前回WF（2026-04-16, OOS PF=0.53）と同じ結論
 
+## Phase 2: インデックス系・代替戦略
+
+### SPY Credit Spread (Bull Put) — **本番候補**
+
+#### 戦略
+
+- インデックス（SPY = ^GSPC ÷ 10）の OTM put credit spread
+- 売: short put @ delta -0.20（OTM）
+- 買: long put @ 5pt下（hedge、max loss定義）
+- 受領クレジット → 利益目標50%で早期決済 or 満期保有
+- BS価格モデル、VIXをIVプロキシ
+- 同時2ポジ、cycle終わったら次
+
+#### 24ヶ月BT結果（2024-04-25 〜 2026-04-24, $3,300予算）
+
+| 指標 | 値 |
+|---|---:|
+| Spreads | 87 |
+| 勝率 | **95.4%** |
+| PF | **3.55** |
+| 期待値 | +8.05%（max lossに対する%）|
+| 平均保有日 | 15.0d |
+| Avg Credit Ratio | 18.5% of width |
+| MaxDD | 17.8% |
+| Sharpe | 1.96 |
+| **NetRet** | **+106.2%** |
+
+- Profit Target Hits: 79（早期決済）/ Expired Worthless: 4（満期消滅）/ Max Loss: 3 / Partial: 1
+
+#### WF結果（2024-01-26 〜 2026-04-25, 7ウィンドウ）
+
+| Window | IS PF | OOS PF | OOS勝率 | OOS Trades | パラメータ |
+|---:|---:|---:|---:|---:|---|
+| 1 | 1.03 | ∞ | 100% | 13 | delta=0.30, dte=35 |
+| 2 | ∞ | ∞ | 100% | 13 | delta=0.15, dte=45 |
+| 3 | ∞ | **0.15** | 60% | 5 | delta=0.15, dte=35 |
+| 4 | 1.93 | ∞ | 100% | 20 | delta=0.30, dte=21 |
+| 5 | 2.80 | ∞ | 100% | 15 | delta=0.30, dte=21 |
+| 6 | ∞ | ∞ | 100% | 18 | delta=0.15, dte=21 |
+| 7 | ∞ | 1.45 | 87.5% | 16 | delta=0.15, dte=21 |
+
+**OOS集計PF 4.86, 勝率 96.0%, 全7窓アクティブ → 実質「堅牢 ✓」**
+（自動判定が「過学習 ✗」になっているのは IS=∞/OOS=∞ で IS/OOS比がNaNになるロジックバグ。OOS集計PF 4.86 は堅牢閾値 1.3 を大きく上回る）
+
+#### エッジの構造的根拠
+
+1. **Volatility Risk Premium (VRP)**: implied vol > realized vol が長期的に成立。OTM put 売りは IV を売って RV を買う構造でアルファ
+2. **インデックスはガンマ小**: 個別株 Wheel と違い early assignment ほぼなし、テールが定義済み
+3. **Profit Target 50%**: 早期決済で時間損失を確実に取り、満期前のドローダウンを回避
+4. **VIXフィルター + SMA50**: 大幅なベア相場では新規エントリー停止
+
+#### 残課題
+
+- **Window 3 (2025-01-26〜04-25, OOS PF 0.15)**: 関税ショック期の SPY 急落で max loss 発生
+  → ストップロス追加 or VIXフィルター強化で改善余地
+- **profit target=0.5 のみ全窓安定**、delta/dte は 2-3値で揺れる → ロバストな1パラメータ固定が望ましい
+- **24-30ヶ月のみ検証**：2018年Volmageddon・2020年COVID期での挙動は未検証
+
+### VIX Contango (SVXY) — **エッジなし**
+
+#### 戦略
+
+- SVXY (-0.5x VIX short-term futures ETF) を保有
+- VIX <= 22 でエントリー、VIX > 25 で撤退、VIX前日比+20%急上昇で撤退
+- ストップロス -10%
+
+#### 5年BT結果（2021-05-01 〜 2026-04-24）
+
+| 指標 | 値 |
+|---|---:|
+| Positions | 14 |
+| 勝率 | 30.8% |
+| PF | 0.94 |
+| 期待値 | +1.43% |
+| MaxDD | **49.6%** |
+| NetRet | -5.4% |
+
+#### WF結果
+
+OOS集計PF **0.08**, 勝率 12.5%, 4/7窓アクティブ → **過学習 ✗**
+
+#### 却下理由
+
+- VIX-cap exit 25 が遅すぎ、SVXY が既に大幅下落してから退場
+- 14 positions in 5 years（保有期間73日平均）= サンプル少
+- 2022 vol regime shift で機能停止
+
+### Dual Momentum (Antonacci GEM) — **限定的有効**
+
+#### 戦略
+
+- 12ヶ月リターン上位の equity ETF (SPY/EFA) を月次リバランスで保有
+- 絶対モメンタム陰性なら AGG (米国総合債券) へ退避
+
+#### 8年BT結果（2018-01-01 〜 2026-04-24）
+
+| 指標 | 値 |
+|---|---:|
+| Rebalances | 100 / Switches | 16 |
+| 勝率 | 46.7% |
+| PF | 2.15 |
+| 期待値 | +3.77% |
+| MaxDD | **37.2%** |
+| NetRet | +42.0%（年率約4.4%）|
+| Asset Participation | SPY 69%, AGG 18%, EFA 13% |
+
+#### WF結果（2021-10〜2026-04, 7ウィンドウ）
+
+| Window | IS PF | OOS PF | OOS Ret% | OOS MaxDD% |
+|---:|---:|---:|---:|---:|
+| 1 | 0.00 | 休止 | - | - |
+| 2 | 0.00 | 休止 | - | - |
+| 3 | 164.84 | ∞ | +3.20% | 5.0% |
+| 4 | ∞ | 0.00 | 0.00% | 7.8% |
+| 5 | ∞ | 0.00 | 0.00% | 16.8% |
+| 6 | ∞ | ∞ | +5.04% | 4.7% |
+| 7 | ∞ | ∞ | +1.17% | 11.1% |
+
+5/7 アクティブ、3/5 正リターン、合計+9.4%（54ヶ月で年率約2%）→ **要注意 △**
+
+#### 評価
+
+- SPY 単純保有（2018-2026 で年率 ~12%）に大きく劣る
+- 252日lookback では COVID/2022bear に反応遅すぎ → MaxDD 37%
+- パラメータ不安定（lookback 63/126/252 が窓ごと変動）
+- **idle cash の代替としては妥当**（1ファンドで運用、信託料率低、税効率良い）が、Calmar/絶対リターン重視ならSPY買付の方が良い
+
 ## 構造的に米国でエッジが出ない理由
 
 1. **流動性とHFT競合**: 日本中小型株（時価総額数百億円帯）にあるような出来高ギャップ・遅延反応エッジは、米国S&P構成銘柄では Algo/HFT に即座に解消される
@@ -140,27 +278,33 @@ Black-Scholes で価格付け、デルタベースで権利行使価格選定。
 
 ### バックテストエンジン [src/backtest/us/](../../src/backtest/us/)
 
+#### Phase 1: 個別株戦略（不採用、参考用残置）
 - PEAD: `us-pead-config.ts` / `us-pead-simulation.ts` / `us-pead-run.ts`
 - GapUp: `us-gapup-config.ts` / `us-gapup-simulation.ts` / `us-gapup-run.ts`
 - Momentum: `us-momentum-config.ts` / `us-momentum-simulation.ts` / `us-momentum-run.ts`
 - Mean Reversion: `us-mean-reversion-config.ts` / `us-mean-reversion-simulation.ts` / `us-mean-reversion-run.ts`
 - Wheel: `us-wheel-config.ts` / `us-wheel-simulation.ts` / `us-wheel-run.ts` / `us-wheel-types.ts`
-- 共通: `us-types.ts` / `us-data-fetcher.ts` / `us-trading-costs.ts` / `us-simulation-helpers.ts`
+
+#### Phase 2: インデックス系・代替戦略
+- **SPY Credit Spread（本番候補）**: `us-credit-spread-types.ts` / `us-credit-spread-config.ts` / `us-credit-spread-simulation.ts` / `us-credit-spread-run.ts`
+- VIX Contango（不採用）: `us-vix-contango-types.ts` / `us-vix-contango-config.ts` / `us-vix-contango-simulation.ts` / `us-vix-contango-run.ts`
+- Dual Momentum（限定的）: `us-dual-momentum-types.ts` / `us-dual-momentum-config.ts` / `us-dual-momentum-simulation.ts` / `us-dual-momentum-run.ts`
+
+#### 共通
+- `us-types.ts` / `us-data-fetcher.ts` / `us-trading-costs.ts` / `us-simulation-helpers.ts`
 - BS価格モデル: [src/core/options-pricing.ts](../../src/core/options-pricing.ts)
 
 ### Walk-forward スクリプト [scripts/](../../scripts/)
 
-- `walk-forward-us-pead.ts`
-- `walk-forward-us-gapup.ts`
-- `walk-forward-us-momentum.ts`
-- `walk-forward-us-mean-reversion.ts`
-- `walk-forward-us-wheel.ts`
+- Phase 1: `walk-forward-us-pead.ts` / `walk-forward-us-gapup.ts` / `walk-forward-us-momentum.ts` / `walk-forward-us-mean-reversion.ts` / `walk-forward-us-wheel.ts`
+- Phase 2: `walk-forward-us-credit-spread.ts` / `walk-forward-us-vix-contango.ts` / `walk-forward-us-dual-momentum.ts`
 
 ### データバックフィル [scripts/](../../scripts/)
 
 - `backfill-us-daily-bars.py` （S&P 500/600 OHLCV、yfinance）
 - `backfill-us-earnings-dates.py` （決算日、yfinance）
 - `backfill-us-index-data.py` （S&P 500、VIX）
+- VIX関連ETF/ローテーションETF（VXX, SVXY, UVXY, SVIX, VIXY, SPY, EFA, AGG, QQQ, IWM, TLT, GLD, BND）は `/tmp/backfill-vol-etfs.py` / `/tmp/backfill-rotation-etfs.py` で随時バックフィル（恒久スクリプト化未対応）
 
 ## 実行方法（再検証する場合）
 
@@ -175,12 +319,17 @@ DATABASE_URL="postgresql://kouheikameyama@localhost:5432/auto_stock_trader" \
 DATABASE_URL="postgresql://kouheikameyama@localhost:5432/auto_stock_trader" \
   python scripts/backfill-us-earnings-dates.py --yes
 
-# 単体BT
+# Phase 1: 単体BT
 npm run backtest:us-pead
 npm run backtest:us-gapup
 npm run backtest:us-momentum
 npm run backtest:us-mean-reversion
 npm run backtest:us-wheel
+
+# Phase 2: 単体BT
+npm run backtest:us-credit-spread       # 本番候補
+npm run backtest:us-vix-contango        # 却下済
+npm run backtest:us-dual-momentum       # 限定的有効
 
 # WF
 npm run walk-forward:us-pead
@@ -188,6 +337,9 @@ npm run walk-forward:us-gapup
 npm run walk-forward:us-momentum
 npm run walk-forward:us-mean-reversion
 npm run walk-forward:us-wheel
+npm run walk-forward:us-credit-spread
+npm run walk-forward:us-vix-contango
+npm run walk-forward:us-dual-momentum
 ```
 
 ## 既知の不具合
@@ -196,10 +348,32 @@ npm run walk-forward:us-wheel
 
 ## 今後の方針
 
+### Phase 1（個別株）の教訓
 - **再検証 NG**: 同じ戦略の細かなパラメータ調整は時間の無駄。本ドキュメントを根拠に却下する
-- **新規戦略を試す場合の前提**: 米国はコスト・競合が厳しいため、(a) 期待値 > 0.5%/trade、(b) 平均保有10日以上、(c) PF > 1.5 のいずれかを満たさない戦略は最初から検討対象外とする
-- **次に試すなら**:
-  - オプション売り戦略（Wheel以外、たとえば Iron Condor、Credit Spread）
-  - ETFローテーション（個別株より流動性とAlgo競合の影響が小さい）
-  - イベントドリブン（M&A arbitrage、IPO post-lockup など）
-  - ただしいずれも米国市場の効率性を踏まえると **エッジ発見の期待値は低い**
+- 米国S&P500/600個別株は流動性・HFT競合で日足遅延エッジゼロ
+
+### Phase 2 で確立されたこと
+- **インデックスオプションには構造的アルファ（VRP）が存在**：SPY Credit Spread はWFでもOOS PF 4.86
+- VIX関連戦略（VIX Contango/SVXY）は米国market微細構造ではエッジなし
+- ETFローテーション（Dual Momentum）は SPY 単純保有を上回らないが、idle cash運用としては許容
+
+### 次に試す候補（実装優先度順）
+
+1. **SPY/QQQ Iron Condor**: Bull Put + Bear Call の同時保有で双方向のVRP取得
+2. **SPY Calendar Spread**: 異なる満期の同行使価で時間価値差を取得
+3. **VIX期間構造ベース動的ポジション**: VX1/VX2 比率で contango/backwardation 判定
+4. **個別株 Earnings Strangle Selling**: PEAD と異なり IV crush を狙う売り戦略
+
+### 新規戦略を試す場合の前提
+
+- 期待値 > 0.5%/trade、平均保有10日以上、PF > 1.5 のいずれかを満たさない戦略は最初から検討対象外
+- インデックス（SPY/QQQ/IWM）優先、個別株は最終手段
+- VRP系（オプション売り）はテール管理が必須（max loss定義済構造を選ぶ）
+
+### SPY Credit Spread 本番投入に向けた残作業
+
+- [ ] 2018-2020期間（Volmageddon, COVID）でのストレステスト
+- [ ] 実SPY/SPX option chainデータでのbacktest（現在はBS理論値のみ）
+- [ ] bid-ask spread を考慮した実効P&L計算
+- [ ] ストップロス追加によるWindow 3的な急落耐性検証
+- [ ] 立花証券 / Webull / IBKR でのオプション取引手数料・最低契約数確認
