@@ -1,11 +1,16 @@
-# 米国株バックテスト検証結果
+# 米国株バックテスト検証結果（歴史的記録）
+
+> **2026-04-28 移管完了**: 米国株関連のコード・スキーマ・データ収集は
+> [auto-us-stock-trader](../../../auto-us-stock-trader/) リポジトリへ完全移管済み。
+> 本ドキュメントは検証履歴の保存目的のみ。
+> 最新のBT結果や戦略開発は `auto-us-stock-trader` リポを参照。
 
 ## サマリ
 
 **個別株戦略（5本）はエッジなし。インデックスオプション系の SPY Credit Spread のみ構造的エッジあり。**
 
 2026-04-16 の初回検証および 2026-04-26 の最新データを含む再検証 + 追加3戦略で確認。
-コードは [src/backtest/us/](../../src/backtest/us/) に残置。
+コードは [auto-us-stock-trader/src/backtest/us/](../../../auto-us-stock-trader/src/backtest/us/) に移管済み。
 
 ### Phase 1: 個別株戦略（5本）— **すべてエッジなし**
 

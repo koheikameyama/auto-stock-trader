@@ -1,8 +1,11 @@
 """
-市場指数データのバックフィル（^N225）
+市場指数データのバックフィル（^N225, ^VIX）
 
-yfinanceで日経225（^N225）の2年分OHLCVを取得し、
-StockDailyBarに INSERT（skipDuplicates相当）する。
+yfinanceで日経225（^N225）と VIX（^VIX）の2年分OHLCVを取得し、
+StockDailyBarに market='INDEX' で INSERT（skipDuplicates相当）する。
+
+^VIX は JP 取引のレジーム判定（market-assessment.ts）と JP BT の VIX フィルターで使用。
+リアルタイム VIX は yfinance 直叩きだが、過去履歴は本スクリプトで補充。
 
 Usage:
   python scripts/backfill-index-data.py [--yes]
@@ -11,7 +14,6 @@ Usage:
 import os
 import sys
 import uuid
-from datetime import date
 
 import yfinance as yf
 import psycopg2
@@ -91,7 +93,7 @@ def fetch_index_data(ticker: str) -> list[tuple]:
             continue
         if any(math.isnan(x) for x in [o, h, lo, c]):
             continue
-        bars.append((str(uuid.uuid4()), ticker, dt, o, h, lo, c, vol))
+        bars.append((str(uuid.uuid4()), ticker, dt, o, h, lo, c, vol, "INDEX"))
 
     return bars
 
@@ -104,7 +106,7 @@ def insert_bars(conn, bars: list[tuple]) -> int:
         psycopg2.extras.execute_values(
             cur,
             """
-            INSERT INTO "StockDailyBar" (id, "tickerCode", date, open, high, low, close, volume)
+            INSERT INTO "StockDailyBar" (id, "tickerCode", date, open, high, low, close, volume, market)
             VALUES %s
             ON CONFLICT ("tickerCode", date) DO NOTHING
             """,
