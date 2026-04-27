@@ -301,15 +301,15 @@ OOS集計PF **0.08**, 勝率 12.5%, 4/7窓アクティブ → **過学習 ✗**
 
 ### データバックフィル
 
-**米国データ収集は別リポジトリ [`trading-data-collector`](../../../trading-data-collector/) に分離済み（2026-04-27）。**
+**米国データ収集は別リポジトリ [`auto-us-stock-trader`](../../../auto-us-stock-trader/) に分離済み（2026-04-27）。**
 
 | スクリプト | 内容 |
 |---|---|
-| `scripts/us/backfill_daily_bars.py` | S&P 500/600 OHLCV |
-| `scripts/us/backfill_earnings.py` | 決算日 |
-| `scripts/us/backfill_index.py` | ^GSPC, ^VIX |
-| `scripts/us/backfill_vol_etfs.py` | VXX/SVXY/UVXY/SVIX/VIXY |
-| `scripts/us/backfill_rotation_etfs.py` | SPY/EFA/AGG/QQQ/IWM/TLT/GLD/BND |
+| `scripts/data/backfill_daily_bars.py` | S&P 500/600 OHLCV |
+| `scripts/data/backfill_earnings.py` | 決算日 |
+| `scripts/data/backfill_index.py` | ^GSPC, ^VIX |
+| `scripts/data/backfill_vol_etfs.py` | VXX/SVXY/UVXY/SVIX/VIXY |
+| `scripts/data/backfill_rotation_etfs.py` | SPY/EFA/AGG/QQQ/IWM/TLT/GLD/BND |
 
 GitHub Actions で平日 JST 7:00（米国close後）/ 毎週土曜 JST 8:00 に自動実行。
 スキーマ管理は本リポ（auto-stock-trader）の Prisma で継続、データ収集側は psycopg2 直書き。
@@ -317,16 +317,16 @@ GitHub Actions で平日 JST 7:00（米国close後）/ 毎週土曜 JST 8:00 に
 ## 実行方法（再検証する場合）
 
 ```bash
-# データ更新（trading-data-collector リポで実行）
-cd ../trading-data-collector
+# データ更新（auto-us-stock-trader リポで実行）
+cd ../auto-us-stock-trader
 DATABASE_URL="postgresql://kouheikameyama@localhost:5432/auto_stock_trader" \
-  python scripts/us/backfill_daily_bars.py --index sp500 --yes
+  python scripts/data/backfill_daily_bars.py --index sp500 --yes
 DATABASE_URL="postgresql://kouheikameyama@localhost:5432/auto_stock_trader" \
-  python scripts/us/backfill_daily_bars.py --index sp600 --yes
+  python scripts/data/backfill_daily_bars.py --index sp600 --yes
 DATABASE_URL="postgresql://kouheikameyama@localhost:5432/auto_stock_trader" \
-  python scripts/us/backfill_index.py --yes
+  python scripts/data/backfill_index.py --yes
 DATABASE_URL="postgresql://kouheikameyama@localhost:5432/auto_stock_trader" \
-  python scripts/us/backfill_earnings.py --yes
+  python scripts/data/backfill_earnings.py --yes
 
 cd ../auto-stock-trader
 
