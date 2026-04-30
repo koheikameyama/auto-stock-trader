@@ -1,0 +1,46 @@
+name: "[Scheduled] Monthly GU/PSC Correlation Report"
+
+on:
+  schedule:
+    # 毎月第1土曜 13:00 JST = 04:00 UTC（slippage の1時間後、1-7日の土曜）
+    - cron: "0 4 1-7 * 6"
+  workflow_dispatch:
+
+concurrency:
+  group: monthly-correlation-report
+  cancel-in-progress: false
+
+env:
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+jobs:
+  correlation-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - name: Run GU/PSC correlation report
+        run: python scripts/run_monthly_correlation_report.py
+
+  notify-failure:
+    needs: correlation-report
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on failure
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "Monthly Correlation Report 失敗"
+          SLACK_MESSAGE: |
+            Correlation Report が失敗しました。
+            詳細はGitHub Actionsログを確認してください。
+          SLACK_COLOR: danger
+          SLACK_FOOTER: "Auto Stock Trader"

@@ -43,6 +43,49 @@ def run_walk_forward(strategy: str) -> tuple[int, str]:
     return result.returncode, result.stdout
 
 
+def parse_window_oos_pfs(stdout: str) -> list[float | None]:
+    """[ウィンドウ別] テーブルから各窓の OOS PF を抽出する。
+
+    休止窓は None。"∞" は math.inf として扱う。窓番号順 (1, 2, 3, ...) で返す。
+    """
+    pfs: list[float | None] = []
+    section = re.search(r"\[ウィンドウ別\](.*?)(?=\[パラメータ安定性\]|\[本番パラメータ\]|\Z)", stdout, re.DOTALL)
+    if not section:
+        return pfs
+    for line in section.group(1).splitlines():
+        # 例: "  1    |   3.45 |   2.01 |  56.0%  |          25 | ..."
+        # 例: "  2    |   2.34 |    休止 |      -  |           - | ..."
+        m = re.match(r"\s*(\d+)\s*\|\s*[\d.∞]+\s*\|\s*([\d.∞休止]+)\s*\|", line)
+        if not m:
+            continue
+        oos_str = m.group(2).strip()
+        if "休止" in oos_str:
+            pfs.append(None)
+        elif oos_str == "∞":
+            pfs.append(float("inf"))
+        else:
+            try:
+                pfs.append(float(oos_str))
+            except ValueError:
+                pfs.append(None)
+    return pfs
+
+
+def detect_disable_proposal(oos_pfs: list[float | None], threshold: float = 1.0, lookback: int = 3) -> dict | None:
+    """直近のOOS窓 lookback 個 (休止を除く) が全て threshold 未満なら停止提案を返す"""
+    active = [p for p in oos_pfs if p is not None]
+    if len(active) < lookback:
+        return None
+    recent = active[-lookback:]
+    if all(p < threshold for p in recent):
+        return {
+            "lookback": lookback,
+            "threshold": threshold,
+            "recent_pfs": recent,
+        }
+    return None
+
+
 def parse_wf_result(stdout: str) -> dict:
     """Walk-forward の stdout から主要指標を抽出する"""
     info = {
@@ -54,6 +97,8 @@ def parse_wf_result(stdout: str) -> dict:
         "win_rate": "N/A",
         "window_table": "",
         "param_stability": "",
+        "window_oos_pfs": [],
+        "disable_proposal": None,
     }
 
     # 判定行
@@ -105,6 +150,10 @@ def parse_wf_result(stdout: str) -> dict:
     m = re.search(r"\[本番パラメータ\](.*?)$", stdout, re.DOTALL)
     if m:
         info["production_params"] = m.group(1).strip()
+
+    # 窓別 OOS PF + 停止提案判定
+    info["window_oos_pfs"] = parse_window_oos_pfs(stdout)
+    info["disable_proposal"] = detect_disable_proposal(info["window_oos_pfs"])
 
     return info
 
@@ -200,6 +249,7 @@ def notify_slack(results: list[dict], ai_review: str) -> None:
 
     fields = []
     has_failure = False
+    disable_proposals: list[str] = []
 
     for r in results:
         strategy = r["strategy"]
@@ -228,6 +278,24 @@ def notify_slack(results: list[dict], ai_review: str) -> None:
             "short": False,
         })
 
+        proposal = info.get("disable_proposal")
+        if proposal:
+            recent_str = " → ".join(f"{p:.2f}" for p in proposal["recent_pfs"])
+            disable_proposals.append(
+                f"*{strategy}*: 直近{proposal['lookback']}窓のOOS PF が全て{proposal['threshold']}未満 ({recent_str})"
+            )
+
+    if disable_proposals:
+        fields.append({
+            "title": ":octagonal_sign: ENTRY_ENABLED=false 提案",
+            "value": (
+                "以下の戦略で OOS の継続劣化を検知。本番停止を検討してください:\n"
+                + "\n".join(disable_proposals)
+                + "\n\n判断は手動。承認後 `lib/constants/<strategy>.ts` の ENTRY_ENABLED を false に変更"
+            ),
+            "short": False,
+        })
+
     if ai_review:
         fields.append({
             "title": "AI評価",
@@ -235,7 +303,7 @@ def notify_slack(results: list[dict], ai_review: str) -> None:
             "short": False,
         })
 
-    color = "danger" if has_failure else "good"
+    color = "danger" if has_failure else ("warning" if disable_proposals else "good")
     title = "Monthly Walk-Forward 結果"
 
     payload = {

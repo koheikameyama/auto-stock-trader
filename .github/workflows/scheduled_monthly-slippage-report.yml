@@ -1,0 +1,46 @@
+name: "[Scheduled] Monthly Execution Slippage Report"
+
+on:
+  schedule:
+    # 毎月第1土曜 12:00 JST = 03:00 UTC（walk-forward の1時間後、1-7日の土曜）
+    - cron: "0 3 1-7 * 6"
+  workflow_dispatch:
+
+concurrency:
+  group: monthly-slippage-report
+  cancel-in-progress: false
+
+env:
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+jobs:
+  slippage-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - name: Run execution slippage report
+        run: python scripts/run_monthly_slippage_report.py
+
+  notify-failure:
+    needs: slippage-report
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on failure
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "Monthly Slippage Report 失敗"
+          SLACK_MESSAGE: |
+            Slippage Report が失敗しました。
+            詳細はGitHub Actionsログを確認してください。
+          SLACK_COLOR: danger
+          SLACK_FOOTER: "Auto Stock Trader"

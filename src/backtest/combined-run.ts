@@ -118,6 +118,116 @@ function printMonthlyEquitySummary(
   console.log(`  資金増加率: ${sign}${growthPct.toFixed(1)}%`);
 }
 
+function buildDailyPnlSeries(trades: SimulatedPosition[]): Map<string, number> {
+  const series = new Map<string, number>();
+  for (const t of trades) {
+    if (!t.exitDate || t.netPnl == null) continue;
+    series.set(t.exitDate, (series.get(t.exitDate) ?? 0) + t.netPnl);
+  }
+  return series;
+}
+
+function pearsonCorrelation(xs: number[], ys: number[]): number {
+  const n = xs.length;
+  if (n < 2) return 0;
+  const meanX = xs.reduce((s, v) => s + v, 0) / n;
+  const meanY = ys.reduce((s, v) => s + v, 0) / n;
+  let num = 0, denX = 0, denY = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = xs[i] - meanX;
+    const dy = ys[i] - meanY;
+    num += dx * dy;
+    denX += dx * dx;
+    denY += dy * dy;
+  }
+  const den = Math.sqrt(denX * denY);
+  return den === 0 ? 0 : num / den;
+}
+
+function printCorrelationReport(
+  guTrades: SimulatedPosition[],
+  pscTrades: SimulatedPosition[],
+  startDate: string,
+  endDate: string,
+): void {
+  const guByDate = buildDailyPnlSeries(guTrades);
+  const pscByDate = buildDailyPnlSeries(pscTrades);
+
+  // 全期間: GU決済日 ∪ PSC決済日 を union として扱う
+  const allDates = new Set<string>([...guByDate.keys(), ...pscByDate.keys()]);
+  const dates = [...allDates].sort();
+  const guSeries = dates.map((d) => guByDate.get(d) ?? 0);
+  const pscSeries = dates.map((d) => pscByDate.get(d) ?? 0);
+
+  const overallCorr = pearsonCorrelation(guSeries, pscSeries);
+
+  // 同日両方発生したケースの統計
+  let bothActiveDays = 0;
+  let bothLossDays = 0;
+  let bothWinDays = 0;
+  let oppositeDirDays = 0;
+  for (let i = 0; i < dates.length; i++) {
+    const g = guByDate.get(dates[i]);
+    const p = pscByDate.get(dates[i]);
+    if (g != null && p != null) {
+      bothActiveDays++;
+      if (g < 0 && p < 0) bothLossDays++;
+      if (g > 0 && p > 0) bothWinDays++;
+      if ((g < 0 && p > 0) || (g > 0 && p < 0)) oppositeDirDays++;
+    }
+  }
+
+  // 月次相関
+  const monthlyMap = new Map<string, { guVals: number[]; pscVals: number[] }>();
+  for (const d of dates) {
+    const month = d.substring(0, 7);
+    const entry = monthlyMap.get(month) ?? { guVals: [], pscVals: [] };
+    entry.guVals.push(guByDate.get(d) ?? 0);
+    entry.pscVals.push(pscByDate.get(d) ?? 0);
+    monthlyMap.set(month, entry);
+  }
+  const monthlyCorrs: { month: string; corr: number; n: number }[] = [];
+  for (const [month, { guVals, pscVals }] of monthlyMap) {
+    const c = pearsonCorrelation(guVals, pscVals);
+    monthlyCorrs.push({ month, corr: c, n: guVals.length });
+  }
+  monthlyCorrs.sort((a, b) => a.month.localeCompare(b.month));
+
+  console.log("=".repeat(60));
+  console.log("GU/PSC Daily PnL Correlation Report");
+  console.log("=".repeat(60));
+  console.log(`期間: ${startDate} → ${endDate}`);
+  console.log(`GU決済日数: ${guByDate.size} / PSC決済日数: ${pscByDate.size}`);
+  console.log("");
+  console.log("[全期間統計]");
+  console.log(`  Pearson相関係数(全union日): ${overallCorr.toFixed(3)}`);
+  console.log(`  両戦略同日決済: ${bothActiveDays}日`);
+  console.log(`    両方プラス: ${bothWinDays}日`);
+  console.log(`    両方マイナス(共倒れ): ${bothLossDays}日`);
+  console.log(`    逆方向(片勝ち片負け): ${oppositeDirDays}日`);
+  console.log("");
+  console.log("[月次相関]");
+  console.log(`  ${"月".padEnd(8)} | ${"相関".padStart(7)} | ${"日数".padStart(5)}`);
+  console.log("  " + "-".repeat(28));
+  for (const m of monthlyCorrs) {
+    const corrStr = m.corr.toFixed(3).padStart(6);
+    console.log(`  ${m.month.padEnd(8)} | ${corrStr} | ${m.n.toString().padStart(5)}`);
+  }
+
+  // アラート判定
+  const ALERT_OVERALL_CORR = 0.5;
+  const recentMonths = monthlyCorrs.slice(-3);
+  const recentHighCorrCount = recentMonths.filter((m) => m.corr > ALERT_OVERALL_CORR).length;
+  console.log("");
+  console.log("[判定]");
+  console.log(`  全期間相関 ${overallCorr.toFixed(3)} ${overallCorr > ALERT_OVERALL_CORR ? "✗ 警告(>0.5: 戦略間で独立性が低い)" : "✓ 健全(独立性確保)"}`);
+  if (recentHighCorrCount >= 2) {
+    console.log(`  直近3ヶ月のうち${recentHighCorrCount}ヶ月で相関>0.5 ✗ 警告`);
+  } else {
+    console.log(`  直近3ヶ月の相関安定性 ✓`);
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const endDate = getArg(args, "--end") ?? dayjs().format("YYYY-MM-DD");
@@ -150,8 +260,9 @@ async function main() {
   const compareStreak = args.includes("--compare-streak");
   const compareCooldown = args.includes("--compare-cooldown");
   const compareSlippage = args.includes("--compare-slippage");
+  const corrReport = args.includes("--corr-report");
 
-  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareMaxPrice || compareSector || compareVixRisk || compareStreak || compareCooldown || compareSlippage;
+  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareMaxPrice || compareSector || compareVixRisk || compareStreak || compareCooldown || compareSlippage || corrReport;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const pscConfig: PostSurgeConsolidationBacktestConfig = {
@@ -1394,6 +1505,14 @@ async function main() {
       console.log(`${pr.label.padEnd(14)}` + cols.map((c) => ` | ${c}`).join(""));
     }
     console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // GU/PSC 相関レポート
+  if (corrReport) {
+    const result = runCombinedSimulation(ctx, defaultLimits);
+    printCorrelationReport(result.guTrades, result.pscTrades, startDate, endDate);
     await prisma.$disconnect();
     return;
   }

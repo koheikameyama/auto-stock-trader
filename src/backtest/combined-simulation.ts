@@ -188,6 +188,12 @@ export interface SimResult {
   momMetrics: PerformanceMetrics;
   equityCurve: DailyEquity[];
   allTrades: SimulatedPosition[];
+  /** 戦略別トレード（相関分析用） */
+  boTrades: SimulatedPosition[];
+  guTrades: SimulatedPosition[];
+  wbTrades: SimulatedPosition[];
+  pscTrades: SimulatedPosition[];
+  momTrades: SimulatedPosition[];
   /** 累計入金額（初期資金 + 月次追加の合計） */
   totalCapitalAdded: number;
   /** ドローダウンハルトが発動した営業日数 */
@@ -1031,6 +1037,11 @@ export function runCombinedSimulation(
     momMetrics: calculateMetrics(momAllTrades, equityCurve, budget),
     equityCurve,
     allTrades,
+    boTrades: boAllTrades,
+    guTrades: guAllTrades,
+    wbTrades: wbAllTrades,
+    pscTrades: pscAllTrades,
+    momTrades: momAllTrades,
     totalCapitalAdded,
     haltDays,
   };
