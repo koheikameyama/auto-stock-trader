@@ -52,7 +52,7 @@ app.get("/", async (c) => {
     avg10dPct: v.count10d > 0 ? v.sum10d / v.count10d : null,
   }));
 
-  const strategyOptions = ["all", "gapup", "weekly-break", "post-surge-consolidation"];
+  const strategyOptions = ["all", "gapup", "post-surge-consolidation"];
 
   const body = html`
     <div style="max-width:1100px;margin:0 auto;padding:16px">

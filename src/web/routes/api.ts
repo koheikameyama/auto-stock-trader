@@ -679,7 +679,7 @@ app.get("/intraday-ma-signals", async (c) => {
  * GET /api/rejected-signals
  *
  * クエリパラメータ:
- * - strategy: gapup | weekly-break | post-surge-consolidation | all (default: all)
+ * - strategy: gapup | post-surge-consolidation | all (default: all)
  * - dateFrom: YYYY-MM-DD
  * - dateTo: YYYY-MM-DD
  */
