@@ -30,18 +30,6 @@ import type {
 const MIN_WINDOW_BARS = 80;
 
 /**
- * 日本市場のday Tに対して、直前のUS営業日のS&P500リターンを返す。
- * S&P500のday T-1 close は JST day T の 5:00AM に確定。
- */
-function getPreviousUSReturn(jpDate: string, sp500DailyReturn: Map<string, number>): number | null {
-  let bestDate: string | null = null;
-  for (const [usDate] of sp500DailyReturn) {
-    if (usDate < jpDate && (!bestDate || usDate > bestDate)) bestDate = usDate;
-  }
-  return bestDate ? sp500DailyReturn.get(bestDate) ?? null : null;
-}
-
-/**
  * ギャップアップシグナルの事前計算結果（1銘柄分）
  */
 export interface PrecomputedGapUpSignal {
@@ -66,11 +54,9 @@ export function precomputeGapUpDailySignals(
     | "marketTrendFilter" | "marketTrendThreshold" | "marketTrendUpperCap" | "indexTrendFilter"
     | "atrMultiplier" | "maxLossPct" | "signalSortMethod"
     | "gapRelaxVolThreshold" | "gapMinPctRelaxed"
-    | "sp500MaxReturn"
   >,
   allData: Map<string, OHLCVData[]>,
   precomputed: PrecomputedSimData,
-  sp500DailyReturn?: Map<string, number>,
 ): PrecomputedGapUpSignals {
   const result: PrecomputedGapUpSignals = new Map();
   const { tradingDays, dateIndexMap, dailyBreadth, dailyIndexAboveSma } = precomputed;
@@ -87,12 +73,6 @@ export function precomputeGapUpDailySignals(
       if (breadthUpperCap != null && b > breadthUpperCap) continue;
     }
     if (config.indexTrendFilter && !dailyIndexAboveSma.get(today)) continue;
-
-    // S&P500フィルター: 前夜のUS市場リターンが閾値を超えたらスキップ
-    if (config.sp500MaxReturn != null && sp500DailyReturn) {
-      const usRet = getPreviousUSReturn(today, sp500DailyReturn);
-      if (usRet != null && usRet > config.sp500MaxReturn) continue;
-    }
 
     const daySignals: PrecomputedGapUpSignal[] = [];
 
@@ -204,7 +184,6 @@ export function runGapUpBacktest(
   indexData?: Map<string, number>,
   precomputed?: PrecomputedSimData,
   precomputedSignals?: PrecomputedGapUpSignals,
-  sp500DailyReturn?: Map<string, number>,
 ): GapUpBacktestResult {
   const openPositions: SimulatedPosition[] = [];
   const closedTrades: SimulatedPosition[] = [];
@@ -238,7 +217,7 @@ export function runGapUpBacktest(
     tradingDayIndex = computed.tradingDayIndex;
 
     // シグナルも計算
-    precomputedSignals = precomputeGapUpDailySignals(config, allData, computed, sp500DailyReturn);
+    precomputedSignals = precomputeGapUpDailySignals(config, allData, computed);
   }
 
   for (let dayIdx = 0; dayIdx < tradingDays.length; dayIdx++) {

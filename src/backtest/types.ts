@@ -289,12 +289,6 @@ export interface GapUpBacktestConfig {
    * 固定モードでも初日のSL（ATR/maxLossPct）は有効。BE・トレール・タイムストップは無効化。
    */
   exitMode?: "trail" | "next_open" | "next_close" | "day2_close";
-
-  /**
-   * S&P500フィルター: 前夜のUS市場S&P500リターンがこの閾値を超えたらエントリーをスキップ。
-   * 例: 0.01 → SP500 > +1%の日はスキップ。省略時=無効
-   */
-  sp500MaxReturn?: number;
 }
 
 export interface GapUpBacktestResult {
