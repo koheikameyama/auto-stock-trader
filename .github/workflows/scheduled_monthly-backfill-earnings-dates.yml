@@ -1,0 +1,64 @@
+name: "[Scheduled] Monthly Backfill Earnings Dates"
+
+on:
+  schedule:
+    # 毎月第1土曜 09:00 JST = 00:00 UTC（1-7日の土曜、月次戦略ヘルスチェックの前）
+    - cron: "0 0 1-7 * 6"
+  workflow_dispatch:
+
+concurrency:
+  group: monthly-backfill-earnings-dates
+  cancel-in-progress: false
+
+env:
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: pip install yfinance==1.2.0 psycopg2-binary
+
+      - name: Run earnings dates backfill
+        run: python scripts/backfill-earnings-dates.py --yes
+
+  notify-success:
+    needs: backfill
+    if: success()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on success
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "EarningsDate バックフィル 完了"
+          SLACK_MESSAGE: |
+            yfinance から決算日データの月次バックフィルが完了しました
+            詳細はGitHub Actionsログを確認してください
+          SLACK_COLOR: good
+          SLACK_FOOTER: "Auto Stock Trader"
+
+  notify-failure:
+    needs: backfill
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on failure
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "EarningsDate バックフィル 失敗"
+          SLACK_MESSAGE: |
+            EarningsDate のバックフィルが失敗しました
+            詳細はGitHub Actionsログを確認してください
+          SLACK_COLOR: danger
+          SLACK_FOOTER: "Auto Stock Trader"
