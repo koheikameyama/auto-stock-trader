@@ -351,7 +351,6 @@ def main() -> None:
     monthly = parse_monthly(stdout)
     alerts = build_alerts(overall, monthly)
     fields = build_slack_fields(overall, monthly, alerts, args.start, args.end)
-    print(f"\n--- parse: overall_corr={overall['overall_corr']}, monthly={len(monthly)}, alerts={len(alerts)} ---")
     notify_slack(True, fields, alerts)
 
 
