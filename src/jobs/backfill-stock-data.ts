@@ -16,7 +16,7 @@ import { prisma } from "../lib/prisma";
 import { STOCK_FETCH, TECHNICAL_MIN_DATA } from "../lib/constants";
 import { fetchHistoricalDataBatch } from "../core/market-data";
 import { analyzeTechnicals } from "../core/technical-analysis";
-import { clampDecimal, incrementFailAndMarkDelisted } from "../lib/decimal-utils";
+import { clampDecimal, isDecimalOverflow, incrementFailAndMarkDelisted } from "../lib/decimal-utils";
 
 /** OHLCV保持日数（これより古いバーをpruneする）— walk-forward分析に7ウィンドウ(27ヶ月)＋バッファで30ヶ月必要 */
 const OHLCV_RETENTION_DAYS = 900;
@@ -158,7 +158,8 @@ export async function main() {
   // Stock テーブルを一括更新（最新価格・出来高・ATR/volatility/weekChange）
   console.log("  Stock テーブル更新中...");
   const now = new Date();
-  const stockUpdateOps = validStocks.map((stock) => {
+  const anomalyStocks: { id: string; fetchFailCount: number }[] = [];
+  const stockUpdateOps = validStocks.flatMap((stock) => {
     const historical = historicalMap.get(stock.tickerCode)!;
     const latest = historical[0];
     const prev = historical[1]; // 前日終値（日次変化率計算用）
@@ -186,20 +187,33 @@ export async function main() {
       }
     }
 
-    return prisma.stock.update({
-      where: { id: stock.id },
-      data: {
-        latestPrice: price,
-        latestVolume: BigInt(volume),
-        dailyChangeRate: clampDecimal(dailyChangePct, "8,2"),
-        weekChangeRate: clampDecimal(weekChange, "8,2"),
-        volatility: clampDecimal(volatility, "8,2"),
-        atr14,
-        latestPriceDate: now,
-        priceUpdatedAt: now,
-        fetchFailCount: 0,
-      },
-    });
+    // Decimal(12,2) overflow 検知: 壊れた価格データで戦略判断が走るのを防ぐため、
+    // 異常値の銘柄はこのバッチで更新せず fetchFailCount をインクリメント。
+    // FAIL_THRESHOLD 超過で自動廃止扱いになる。
+    if (isDecimalOverflow(price, "12,2") || isDecimalOverflow(atr14, "12,2")) {
+      console.warn(
+        `  ⚠ 異常値検知 ${stock.tickerCode}: price=${price}, atr14=${atr14} — Stock 更新をスキップ`,
+      );
+      anomalyStocks.push({ id: stock.id, fetchFailCount: stock.fetchFailCount });
+      return [];
+    }
+
+    return [
+      prisma.stock.update({
+        where: { id: stock.id },
+        data: {
+          latestPrice: clampDecimal(price, "12,2"),
+          latestVolume: BigInt(volume),
+          dailyChangeRate: clampDecimal(dailyChangePct, "8,2"),
+          weekChangeRate: clampDecimal(weekChange, "8,2"),
+          volatility: clampDecimal(volatility, "8,2"),
+          atr14: clampDecimal(atr14, "12,2"),
+          latestPriceDate: now,
+          priceUpdatedAt: now,
+          fetchFailCount: 0,
+        },
+      }),
+    ];
   });
 
   const STOCK_BATCH = 50;
@@ -208,6 +222,15 @@ export async function main() {
     if ((i + STOCK_BATCH) % 500 === 0 || i + STOCK_BATCH >= stockUpdateOps.length) {
       console.log(`    Stock更新: ${Math.min(i + STOCK_BATCH, stockUpdateOps.length)}/${stockUpdateOps.length}件`);
     }
+  }
+
+  if (anomalyStocks.length > 0) {
+    const anomalyCounts = new Map(anomalyStocks.map((s) => [s.id, s.fetchFailCount]));
+    await incrementFailAndMarkDelisted(
+      anomalyStocks.map((s) => s.id),
+      anomalyCounts,
+    );
+    console.log(`  異常値検知: ${anomalyStocks.length}件の fetchFailCount をインクリメント`);
   }
 
   // ================================================================
