@@ -309,6 +309,8 @@ export const ANOMALY_ALERT = {
   STREAK_MIN_LOSSES: 4,
   /** 沈黙検知: N日間エントリーゼロ */
   SILENT_DAYS: 30,
+  /** shouldTrade=false 連続営業日数の通知閾値（早期検知） */
+  SHOULD_TRADE_FALSE_STREAK_BUSINESS_DAYS: 10,
 } as const;
 
 // ========================================

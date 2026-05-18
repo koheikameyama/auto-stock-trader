@@ -9,6 +9,7 @@
  *   2. 直近20トレードの勝率 < 30%
  *   3. 直近5日で連敗4件以上
  *   4. 30日間エントリーゼロ
+ *   5. shouldTrade=false が N営業日連続（breadth/regime フィルターによる長期休眠の早期検知）
  */
 
 import { prisma } from "../lib/prisma";
@@ -98,6 +99,31 @@ export async function detectAnomalies(): Promise<Anomaly[]> {
       title: "長期エントリーゼロ",
       detail: `直近${ANOMALY_ALERT.SILENT_DAYS}日間で新規エントリーが0件 (システム停止の可能性)`,
     });
+  }
+
+  // 5. shouldTrade=false が N営業日連続
+  //    breadth/regime フィルターによる長期休眠を早期検知する。
+  //    MarketAssessment は営業日のみ作成されるため、レコード自体の連続が営業日連続と等価。
+  const recentAssessments = await prisma.marketAssessment.findMany({
+    orderBy: { date: "desc" },
+    take: ANOMALY_ALERT.SHOULD_TRADE_FALSE_STREAK_BUSINESS_DAYS,
+    select: { date: true, shouldTrade: true, reasoning: true },
+  });
+  if (recentAssessments.length === ANOMALY_ALERT.SHOULD_TRADE_FALSE_STREAK_BUSINESS_DAYS) {
+    const allFalse = recentAssessments.every((a) => a.shouldTrade === false);
+    if (allFalse) {
+      const latest = recentAssessments[0];
+      const oldest = recentAssessments[recentAssessments.length - 1];
+      const sampleReason = latest.reasoning?.slice(0, 80) ?? "(理由不明)";
+      anomalies.push({
+        code: "should_trade_false_streak",
+        title: "市場フィルターによる長期休眠",
+        detail:
+          `shouldTrade=false が ${ANOMALY_ALERT.SHOULD_TRADE_FALSE_STREAK_BUSINESS_DAYS}営業日連続 ` +
+          `(${dayjs(oldest.date).format("YYYY-MM-DD")} 〜 ${dayjs(latest.date).format("YYYY-MM-DD")}) — ` +
+          `最新理由: ${sampleReason}`,
+      });
+    }
   }
 
   return anomalies;

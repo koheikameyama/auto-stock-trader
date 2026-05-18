@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockFindMany, mockCount } = vi.hoisted(() => ({
+const { mockFindMany, mockCount, mockAssessmentFindMany } = vi.hoisted(() => ({
   mockFindMany: vi.fn(),
   mockCount: vi.fn(),
+  mockAssessmentFindMany: vi.fn(),
 }));
 
 vi.mock("../../lib/prisma", () => ({
@@ -10,6 +11,9 @@ vi.mock("../../lib/prisma", () => ({
     tradingPosition: {
       findMany: mockFindMany,
       count: mockCount,
+    },
+    marketAssessment: {
+      findMany: mockAssessmentFindMany,
     },
   },
 }));
@@ -47,6 +51,7 @@ describe("detectAnomalies", () => {
     mockCalculateDrawdownStatus.mockResolvedValue(okDD);
     mockFindMany.mockResolvedValue([]);
     mockCount.mockResolvedValue(1); // 直近30日のエントリーあり（沈黙検知を抑制）
+    mockAssessmentFindMany.mockResolvedValue([]); // 既定: 連続休眠検知を抑制
   });
 
   it("全指標OK時は空配列を返す", async () => {
@@ -105,6 +110,39 @@ describe("detectAnomalies", () => {
     mockCount.mockResolvedValue(0);
     const anomalies = await detectAnomalies();
     expect(anomalies.map((a) => a.code)).toContain("silent_entries");
+  });
+
+  it("shouldTrade=false が 10営業日連続で should_trade_false_streak を検知", async () => {
+    const assessments = Array(10).fill(null).map((_, i) => ({
+      date: new Date(Date.UTC(2026, 4, 17 - i)),
+      shouldTrade: false,
+      reasoning: "breadth 38.0% < 54.0%: 弱気でエントリー見送り",
+    }));
+    mockAssessmentFindMany.mockResolvedValue(assessments);
+    const anomalies = await detectAnomalies();
+    expect(anomalies.map((a) => a.code)).toContain("should_trade_false_streak");
+  });
+
+  it("直近10件のうち1件でも shouldTrade=true なら検知しない", async () => {
+    const assessments = Array(10).fill(null).map((_, i) => ({
+      date: new Date(Date.UTC(2026, 4, 17 - i)),
+      shouldTrade: i === 5, // 真ん中の1件だけ true
+      reasoning: "...",
+    }));
+    mockAssessmentFindMany.mockResolvedValue(assessments);
+    const anomalies = await detectAnomalies();
+    expect(anomalies.map((a) => a.code)).not.toContain("should_trade_false_streak");
+  });
+
+  it("サンプル不足（10件未満）なら検知しない", async () => {
+    const assessments = Array(5).fill(null).map((_, i) => ({
+      date: new Date(Date.UTC(2026, 4, 17 - i)),
+      shouldTrade: false,
+      reasoning: "...",
+    }));
+    mockAssessmentFindMany.mockResolvedValue(assessments);
+    const anomalies = await detectAnomalies();
+    expect(anomalies.map((a) => a.code)).not.toContain("should_trade_false_streak");
   });
 
   it("複数の異常を同時に検知", async () => {
