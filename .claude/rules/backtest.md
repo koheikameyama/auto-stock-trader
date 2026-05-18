@@ -9,8 +9,8 @@
 
 | 設定 | 値 | 根拠 |
 |---|---|---|
-| `MARKET_BREADTH.THRESHOLD` (下限) | 55% | 2026-04-21 band検証でWF堅牢 |
-| `MARKET_BREADTH.UPPER_CAP` (上限) | 80% | 同上、上限vetoで Calmar 9.37 |
+| `MARKET_BREADTH.THRESHOLD` (下限) | **54%** | 2026-05-19 検証で 55% を BT/WF とも上回ることを確認（下記「事例」参照） |
+| `MARKET_BREADTH.UPPER_CAP` (上限) | 80% | 2026-04-21 band検証、上限vetoで Calmar 9.37 |
 | `cooldownDays` (GU/PSC) | **3日** | 2026-04-22検証、**0日だとMaxDD 2倍に壊滅** |
 | `cooldownDays` (WB) | 5日 | WF最適 |
 | VIX regime scale | **elevated=0.5x / high=0.25x / crisis=0** | 2026-04-22、BT/本番共通に統一済み |
@@ -174,6 +174,40 @@ per-trade 期待値は**必要条件だが十分条件ではない**:
 **論理的根拠:** breadth > 80% = ほぼ全銘柄がSMA25上回り = 過熱状態。中小型株ブレイクアウト系戦略は mean reversionリスクが急増する局面で参入するとSL刈られやすい。上限vetoで late-cycle を回避。
 
 実装: `MARKET_BREADTH.UPPER_CAP = 0.80`（`lib/constants/trading.ts`）を `jobs/market-assessment.ts` と `backtest/gapup-config.ts` / `post-surge-consolidation-config.ts` に適用。
+
+### 事例: breadth 下限緩和 0.55 → 0.54（2026-05-19）
+
+**契機:** 本番運用で 4/22 以降 20営業日連続 `shouldTrade=false`（breadth 31〜53%）でエントリーが完全停止。
+ユーザーが「30日以上エントリーないんだが」と気付いた時点で、本番累計トレードは1件のみ（GU はまだ一度も発火していない）。
+
+**検証:**
+
+| 閾値 | 24M Combined Calmar | 24M Combined NetRet | 24M MaxDD | GapUp WF OOS PF | PSC WF OOS PF |
+|---|---:|---:|---:|---:|---:|
+| band 53-80% | 11.62 | +197.3% | 7.7% | 1.99（堅牢✓）| 2.13（堅牢✓）|
+| **band 54-80%（採用）** | **12.62** | **+249.9%** | 8.9% | **1.94**（堅牢✓）| **2.23**（堅牢✓）|
+| band 55-80%（旧）| 9.82 | +195.5% | 9.0% | 1.87（堅牢✓）| 2.15（堅牢✓）|
+| band 50-80% | 2.26 | +84.3% | 16.8% | — | — |
+
+**レジーム別差分（54-80% vs 55-80%）:**
+
+| 期 | 54-80% | 55-80% | 差 |
+|---|---:|---:|---:|
+| A 平穏ボックス | -¥17K | +¥13K | -¥30K（譲歩）|
+| B ブラマン+余震 | +¥79K | +¥73K | +¥6K |
+| C 関税ショック | +¥105K | +¥96K | +¥9K |
+| **D 大強気** | **+¥913K** | +¥724K | **+¥189K** |
+| E 直近急落 | +¥89K | +¥76K | +¥13K |
+
+**判断:** A期の-¥30Kは D期の+¥189Kで完全に相殺。Calmar +29%、NetRet +28%。
+fresh データでの WF も両戦略 55%超え（GapUp 1.94 > 1.87 / PSC 2.23 > 2.15）。
+パラメータ安定性（be=0.3, trail=0.3 全窓固定）は両閾値で同等。
+
+**実装:** `MARKET_BREADTH.THRESHOLD = 0.54`（`lib/constants/trading.ts`）。`market-assessment.ts` および `gapup-config.ts` / `post-surge-consolidation-config.ts` に自動伝播。
+
+**同時に Phase 1 (1枠制限) を解除:** 2026-04-21 commit 0d818377 で `MAX_POSITIONS_GU: 3→1` / `MAX_POSITIONS_PSC: 1` に絞っていたが、breadth フィルターが既に十分機会を絞っており、追加の枠制限は累計20件達成を事実上不可能にしていた。BT 設計値の **GU3 + PSC2 (合計5枠)** に戻す。
+
+**注意点:** 本変更は CLAUDE.md「磨き上げ検証必須プロトコル」をクリアした上での Calmar 改善であり、「単一パラメータ調整の磨き上げROIは限定的」原則の例外。背景として、55% は band 化と同日に hard 55%→band 55-80% へ移行した際の暫定値で、下限自体の単独最適化は未実施だった。
 
 ## バックテスト実行
 

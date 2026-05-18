@@ -12,12 +12,11 @@ export const UNIT_SHARES = 100;
 export const TRADING_DEFAULTS = {
   TOTAL_BUDGET: 500_000, // 50万円
   MAX_POSITIONS: 3, // 最大同時保有数（戦略別・独立）
-  // Phase 1 (bedding-in): 本稼働初期のバグ耐性確保のため1に制限。
-  // 卒業条件: 累計20トレード決済 + 逆行イベント1回以上を仕様通り処理 → 2に昇格
-  MAX_POSITIONS_GU: 1,
-  // Phase 1 (bedding-in): 本稼働初期のため1に制限。
-  // 卒業条件: GUがPhase 2に昇格 + PSC累計10トレード達成 → 2に昇格
-  MAX_POSITIONS_PSC: 1,
+  // 2026-05-19: Phase 1 (1枠制限) 解除。breadth フィルター + 戦略個別の cooldown で十分機会が絞られており、
+  // 追加の枠制限は累計20件達成を事実上不可能にしてbedding-in卒業を永久ロックしていた（1ヶ月で実トレード1件）。
+  // BT 24ヶ月設計値の GU3 + PSC2 (合計5枠) に戻す。
+  MAX_POSITIONS_GU: 3,
+  MAX_POSITIONS_PSC: 2,
   MAX_POSITION_PCT: 40, // 1銘柄集中リスク防止（50万円規模: 最大20万/銘柄）
   MAX_DAILY_LOSS_PCT: 3, // 日次最大損失率(%)
 } as const;
@@ -56,7 +55,7 @@ export const MARKET_INDEX = {
 /** 市場breadthフィルター（全戦略共通） */
 export const MARKET_BREADTH = {
   /** breadth閾値（全銘柄のSMA25上回り比率）— この値未満の日はエントリーをスキップ */
-  THRESHOLD: 0.55,
+  THRESHOLD: 0.54,
   /** breadth上限 — この値超過の日は過熱判定でエントリーをスキップ */
   UPPER_CAP: 0.80,
 } as const;

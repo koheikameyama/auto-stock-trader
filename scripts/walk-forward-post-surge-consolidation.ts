@@ -96,6 +96,8 @@ async function main() {
   const maxDailyEntries = maxDailyEntriesArg ? parseInt(maxDailyEntriesArg.split("=")[1], 10) : undefined;
   const budgetArg = args.find((a) => a.startsWith("--budget="));
   const budget = budgetArg ? parseInt(budgetArg.split("=")[1], 10) : 500_000;
+  const breadthLowerArg = args.find((a) => a.startsWith("--breadth-lower="));
+  const breadthLower = breadthLowerArg ? parseFloat(breadthLowerArg.split("=")[1]) : undefined;
   const maxPriceOverride = getMaxBuyablePrice(budget);
   const endDate = dayjs().format("YYYY-MM-DD");
   const startDate = dayjs().subtract(TOTAL_MONTHS, "month").format("YYYY-MM-DD");
@@ -152,7 +154,9 @@ async function main() {
 
   const windows = generateWindows(startDate);
   const budgetOverrides = { maxPrice: maxPriceOverride, initialBudget: budget };
-  const filterCfg = { ...PSC_BACKTEST_DEFAULTS, ...budgetOverrides };
+  const breadthOverride = breadthLower != null ? { marketTrendThreshold: breadthLower } : {};
+  if (breadthLower != null) console.log(`breadth 下限上書き: ${(breadthLower * 100).toFixed(1)}%`);
+  const filterCfg = { ...PSC_BACKTEST_DEFAULTS, ...budgetOverrides, ...breadthOverride };
   const vixArg = vixData.size > 0 ? vixData : undefined;
   const indexArg = indexData.size > 0 ? indexData : undefined;
 
