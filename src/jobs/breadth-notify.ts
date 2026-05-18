@@ -9,6 +9,7 @@
  */
 
 import { calculateMarketBreadth } from "../core/market-breadth";
+import { forecastBreadthAll, summarizeForecast } from "../core/breadth-forecast";
 import { MARKET_BREADTH } from "../lib/constants/trading";
 import { notifySlack } from "../lib/slack";
 import { getTodayForDB } from "../lib/market-date";
@@ -29,11 +30,25 @@ async function main() {
         ? `${pct}% — ${(MARKET_BREADTH.UPPER_CAP * 100).toFixed(0)}%超過（過熱）につきスキップ`
         : `${pct}% — エントリーゾーン内`;
 
+  // エントリー見送り時のみ breadth 予測を本文に追加（復活見通しを示す）
+  let forecastSummary: string | null = null;
+  if (!isEntryOk) {
+    try {
+      const fc = await forecastBreadthAll({ days: 20, target: MARKET_BREADTH.THRESHOLD });
+      forecastSummary = summarizeForecast(fc, MARKET_BREADTH.THRESHOLD);
+      console.log(`[breadth-forecast] ${forecastSummary}`);
+    } catch (e) {
+      console.warn(`[breadth-forecast] 予測スキップ: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
+  const message = forecastSummary ? `${reason}\n\n${forecastSummary}` : reason;
+
   await notifySlack({
     title: isEntryOk
       ? `🟢 明日エントリー可: Breadth ${pct}%`
       : `🔴 明日エントリーNG: Breadth ${pct}%`,
-    message: reason,
+    message,
     color: isEntryOk ? "good" : "warning",
     fields: [
       { title: "SMA25超え", value: `${breadth.above}/${breadth.total}銘柄`, short: true },
