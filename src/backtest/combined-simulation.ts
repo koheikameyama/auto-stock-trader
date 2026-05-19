@@ -77,6 +77,13 @@ export interface SimContext {
   breadthModePsc?: BreadthMode;
   /** 銘柄→セクター マッピング（maxPerSector で使用、省略時はセクター制限なし） */
   tickerSectorMap?: Map<string, string>;
+  /** セクター・ローテーション: 各日の上位 topPct セクター以外はシグナルをスキップ */
+  sectorRotation?: {
+    /** 各日のセクター momentum マップ (date -> sector -> N日 return) */
+    momentumMap: Map<string, Map<string, number>>;
+    /** 上位何%のセクターを通すか (0.0-1.0) */
+    topPct: number;
+  };
   /**
    * VIXレジーム別リスク倍率。quantity に掛ける係数。
    * 省略時の既定: { elevated: 0.5, crisis: 0 }（normal/high=1.0）= 既存挙動
@@ -563,7 +570,7 @@ export function runCombinedSimulation(
     typeof maxPositions === "number"
       ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, slippageProfile = "none" } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, slippageProfile = "none" } = ctx;
   const guBreadthMode = breadthModeGu ?? breadthMode;
   const pscBreadthMode = breadthModePsc ?? breadthMode;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
@@ -764,12 +771,25 @@ export function runCombinedSimulation(
       }
       return count >= limits.maxPerSector;
     };
+    // セクター・ローテーション: ticker のセクターが当日 top N% に入っているか
+    const isInRotationTop = (ticker: string): boolean => {
+      if (!sectorRotation || !tickerSectorMap) return true;
+      const sector = tickerSectorMap.get(ticker);
+      if (!sector) return true; // sector 不明は通す
+      const scores = sectorRotation.momentumMap.get(today);
+      if (!scores || scores.size === 0) return true; // データなし日は通す
+      const sorted = [...scores.entries()].sort((a, b) => b[1] - a[1]);
+      const cutIdx = Math.max(1, Math.ceil(sorted.length * sectorRotation.topPct));
+      const topSectors = new Set(sorted.slice(0, cutIdx).map((e) => e[0]));
+      return topSectors.has(sector);
+    };
     if (boShouldTrade && breadthMul > 0 && !shouldSkipByVixRegime(todayRegime, boVixSkipLevel) && boPositions.length < limits.boMax && totalUnderLimit() && cash > 0) {
       const rawSignals = breakoutSignals?.get(today) ?? [];
       for (const signal of rawSignals) {
         if (boPositions.length >= limits.boMax || !totalUnderLimit()) break;
         if (allOpenTickers.has(signal.ticker)) continue;
         if (isSectorAtLimit(signal.ticker)) continue;
+        if (!isInRotationTop(signal.ticker)) continue;
 
         const lastExit = lastExitDayIdx.get(signal.ticker);
         if (lastExit != null && dayIdx - lastExit < boConfigLocal.cooldownDays) continue;
@@ -816,6 +836,7 @@ export function runCombinedSimulation(
         if (guPositions.length >= limits.guMax || !totalUnderLimit()) break;
         if (allOpenTickers.has(signal.ticker)) continue;
         if (isSectorAtLimit(signal.ticker)) continue;
+        if (!isInRotationTop(signal.ticker)) continue;
 
         const lastExit = lastExitDayIdx.get(signal.ticker);
         if (lastExit != null && dayIdx - lastExit < guConfigLocal.cooldownDays) continue;
@@ -862,6 +883,7 @@ export function runCombinedSimulation(
         if (wbPositions.length >= wbMaxPos || !totalUnderLimit()) break;
         if (allOpenTickers.has(signal.ticker)) continue;
         if (isSectorAtLimit(signal.ticker)) continue;
+        if (!isInRotationTop(signal.ticker)) continue;
 
         const lastExit = lastExitDayIdx.get(signal.ticker);
         if (lastExit != null && dayIdx - lastExit < wbConfigLocal.cooldownDays) continue;
@@ -908,6 +930,7 @@ export function runCombinedSimulation(
         if (pscPositions.length >= pscMaxPos || !totalUnderLimit()) break;
         if (allOpenTickers.has(signal.ticker)) continue;
         if (isSectorAtLimit(signal.ticker)) continue;
+        if (!isInRotationTop(signal.ticker)) continue;
 
         const lastExit = lastExitDayIdx.get(signal.ticker);
         if (lastExit != null && dayIdx - lastExit < pscConfigLocal.cooldownDays) continue;
