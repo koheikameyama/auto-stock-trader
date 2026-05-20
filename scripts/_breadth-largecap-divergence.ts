@@ -9,7 +9,9 @@ import dayjs from "dayjs";
 import { prisma } from "../src/lib/prisma";
 import { jstDateAsUTC } from "../src/lib/market-date";
 
-const LARGECAP_THRESHOLD = 100_000_000_000; // ¥100B (1,000億円)
+// marketCap が NULL の銘柄が多いため、latestPrice で代用
+// CLAUDE.md で GU/PSC ユニバースが ≤¥2,500 → ≥¥3,000 を pseudo-大型株と定義
+const LARGECAP_PRICE_THRESHOLD = 3000;
 
 interface BreadthByDate {
   date: Date;
@@ -18,35 +20,19 @@ interface BreadthByDate {
 }
 
 async function main() {
-  // marketCap 分布を確認
-  const dist = await prisma.$queryRaw<
-    { count: bigint; min: number; max: number; median: number; p90: number; p99: number }[]
-  >`
-    SELECT
-      COUNT(*) as count,
-      MIN("marketCap")::float as min,
-      MAX("marketCap")::float as max,
-      PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY "marketCap")::float as median,
-      PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY "marketCap")::float as p90,
-      PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY "marketCap")::float as p99
-    FROM "Stock"
-    WHERE market = 'JP' AND "marketCap" IS NOT NULL
-  `;
-  console.log("==== marketCap 分布（JP, NOT NULL）====");
-  console.log(dist[0]);
-
-  // 大型株の ticker リストを取得
+  // 大型株 (latestPrice >= 3000) の ticker リストを取得
   const largecaps = await prisma.stock.findMany({
     where: {
       market: "JP",
-      marketCap: { gte: LARGECAP_THRESHOLD },
+      latestPrice: { gte: LARGECAP_PRICE_THRESHOLD },
+      isActive: true,
     },
-    select: { tickerCode: true, marketCap: true },
+    select: { tickerCode: true },
   });
-  console.log(`\n大型株 (時価総額 ≥ ¥${LARGECAP_THRESHOLD.toExponential()}): ${largecaps.length}銘柄`);
+  console.log(`大型株 (latestPrice ≥ ¥${LARGECAP_PRICE_THRESHOLD.toLocaleString()}): ${largecaps.length}銘柄`);
 
   if (largecaps.length === 0) {
-    console.log("大型株が0件のため、別閾値を試行（median + p90 + p99 を見て手動調整推奨）");
+    console.log("大型株が0件のため処理中止");
     return;
   }
 
@@ -62,7 +48,7 @@ async function main() {
     WITH lc AS (
       SELECT "tickerCode"
       FROM "Stock"
-      WHERE market = 'JP' AND "marketCap" >= ${LARGECAP_THRESHOLD}
+      WHERE market = 'JP' AND "latestPrice" >= ${LARGECAP_PRICE_THRESHOLD} AND "isActive" = true
     ),
     windowed AS (
       SELECT
