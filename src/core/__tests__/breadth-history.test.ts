@@ -80,7 +80,10 @@ describe("computeSimilarCases", () => {
     const stats = computeSimilarCases(history, 0.32, 0.54, { tolerance: 0.03 });
     expect(stats.count).toBe(3);
     expect(stats.medianDays).not.toBe(null);
-    expect(stats.q75Days).not.toBe(null);
+    expect(stats.minDays).not.toBe(null);
+    expect(stats.maxDays).not.toBe(null);
+    expect(stats.minDays!).toBeLessThanOrEqual(stats.medianDays!);
+    expect(stats.maxDays!).toBeGreaterThanOrEqual(stats.medianDays!);
     expect(stats.rangeLower).toBeCloseTo(0.29, 2);
     expect(stats.rangeUpper).toBeCloseTo(0.35, 2);
   });
@@ -90,6 +93,8 @@ describe("computeSimilarCases", () => {
     const stats = computeSimilarCases(history, 0.32, 0.54);
     expect(stats.count).toBe(0);
     expect(stats.medianDays).toBe(null);
+    expect(stats.minDays).toBe(null);
+    expect(stats.maxDays).toBe(null);
   });
 
   it("同じ低迷期は1件としてカウント (連続マッチを重複させない)", () => {
@@ -119,7 +124,8 @@ describe("formatEnrichment", () => {
       similar: {
         count: 12,
         medianDays: 8,
-        q75Days: 14,
+        minDays: 4,
+        maxDays: 22,
         rangeLower: 0.29,
         rangeUpper: 0.35,
       },
@@ -131,6 +137,7 @@ describe("formatEnrichment", () => {
     expect(lines[0]).toContain("↗");
     expect(lines[1]).toContain("≈9営業日後");
     expect(lines[2]).toContain("N=12");
+    expect(lines[2]).toContain("4〜22営業日");
     expect(lines[2]).toContain("中央値8");
   });
 
@@ -139,7 +146,7 @@ describe("formatEnrichment", () => {
       recentSeries: [33.0, 32.5, 32.0],
       recentAvgChangePct: -0.5,
       forecast: { driftPerDay: -0.005, daysToTarget: null, expectedDate: null },
-      similar: { count: 0, medianDays: null, q75Days: null, rangeLower: 0.29, rangeUpper: 0.35 },
+      similar: { count: 0, medianDays: null, minDays: null, maxDays: null, rangeLower: 0.29, rangeUpper: 0.35 },
     };
     const text = formatEnrichment(enrichment, 0.54);
     expect(text).toContain("横ばい〜下降");

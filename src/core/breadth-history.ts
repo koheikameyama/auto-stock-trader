@@ -124,8 +124,10 @@ export interface SimilarCaseStats {
   count: number;
   /** 復帰までの中央値営業日数 */
   medianDays: number | null;
-  /** 復帰までの 75% 分位営業日数 */
-  q75Days: number | null;
+  /** 復帰までの最短営業日数 */
+  minDays: number | null;
+  /** 復帰までの最長営業日数 */
+  maxDays: number | null;
   /** マッチ範囲下限 */
   rangeLower: number;
   /** マッチ範囲上限 */
@@ -148,7 +150,7 @@ export function computeSimilarCases(
   target: number,
   opts: { tolerance?: number } = {},
 ): SimilarCaseStats {
-  const tolerance = opts.tolerance ?? 0.03;
+  const tolerance = opts.tolerance ?? 0.04;
   const lower = Math.max(0, currentBreadth - tolerance);
   const upper = Math.min(1, currentBreadth + tolerance);
 
@@ -182,7 +184,8 @@ export function computeSimilarCases(
     return {
       count: 0,
       medianDays: null,
-      q75Days: null,
+      minDays: null,
+      maxDays: null,
       rangeLower: lower,
       rangeUpper: upper,
     };
@@ -190,16 +193,12 @@ export function computeSimilarCases(
 
   recoveryDays.sort((a, b) => a - b);
   const median = recoveryDays[Math.floor(recoveryDays.length * 0.5)];
-  const q75Idx = Math.min(
-    recoveryDays.length - 1,
-    Math.floor(recoveryDays.length * 0.75),
-  );
-  const q75 = recoveryDays[q75Idx];
 
   return {
     count: recoveryDays.length,
     medianDays: median,
-    q75Days: q75,
+    minDays: recoveryDays[0],
+    maxDays: recoveryDays[recoveryDays.length - 1],
     rangeLower: lower,
     rangeUpper: upper,
   };
@@ -289,7 +288,7 @@ export function formatEnrichment(
   if (s.count > 0) {
     const rangeStr = `${(s.rangeLower * 100).toFixed(0)}-${(s.rangeUpper * 100).toFixed(0)}%`;
     lines.push(
-      `📊 過去類似(${rangeStr}帯, N=${s.count}): 中央値${s.medianDays}営業日 / 75%分位${s.q75Days}営業日で復帰`,
+      `📊 過去類似(${rangeStr}帯, N=${s.count}): ${s.minDays}〜${s.maxDays}営業日で復帰（中央値${s.medianDays}）`,
     );
   }
 
