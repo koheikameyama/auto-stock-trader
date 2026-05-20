@@ -15,9 +15,6 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npx prisma generate
-      - run: npx tsx scripts/_breadth-historical-context.ts
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
       - run: npx tsx scripts/_breadth-largecap-divergence.ts
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

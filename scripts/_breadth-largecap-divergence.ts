@@ -20,16 +20,18 @@ interface BreadthByDate {
 }
 
 async function main() {
-  // 大型株 (latestPrice >= 3000) の ticker リストを取得
-  const largecaps = await prisma.stock.findMany({
-    where: {
-      market: "JP",
-      latestPrice: { gte: LARGECAP_PRICE_THRESHOLD },
-      isActive: true,
-    },
-    select: { tickerCode: true },
-  });
-  console.log(`大型株 (latestPrice ≥ ¥${LARGECAP_PRICE_THRESHOLD.toLocaleString()}): ${largecaps.length}銘柄`);
+  // StockDailyBar の最新 close >= 3000 を大型株とする
+  const largecaps = await prisma.$queryRaw<{ tickerCode: string; close: number }[]>`
+    WITH latest_prices AS (
+      SELECT "tickerCode", close, ROW_NUMBER() OVER (PARTITION BY "tickerCode" ORDER BY date DESC) as rn
+      FROM "StockDailyBar"
+      WHERE market = 'JP'
+    )
+    SELECT "tickerCode", close::float as close
+    FROM latest_prices
+    WHERE rn = 1 AND close >= ${LARGECAP_PRICE_THRESHOLD}
+  `;
+  console.log(`大型株 (直近close ≥ ¥${LARGECAP_PRICE_THRESHOLD.toLocaleString()}): ${largecaps.length}銘柄`);
 
   if (largecaps.length === 0) {
     console.log("大型株が0件のため処理中止");
@@ -47,8 +49,12 @@ async function main() {
   >`
     WITH lc AS (
       SELECT "tickerCode"
-      FROM "Stock"
-      WHERE market = 'JP' AND "latestPrice" >= ${LARGECAP_PRICE_THRESHOLD} AND "isActive" = true
+      FROM (
+        SELECT "tickerCode", close, ROW_NUMBER() OVER (PARTITION BY "tickerCode" ORDER BY date DESC) as rn
+        FROM "StockDailyBar"
+        WHERE market = 'JP'
+      ) latest
+      WHERE rn = 1 AND close >= ${LARGECAP_PRICE_THRESHOLD}
     ),
     windowed AS (
       SELECT
