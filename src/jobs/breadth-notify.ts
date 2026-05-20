@@ -10,6 +10,7 @@
 
 import { calculateMarketBreadth } from "../core/market-breadth";
 import { forecastBreadthAll, summarizeForecast } from "../core/breadth-forecast";
+import { buildBreadthEnrichment, formatEnrichment } from "../core/breadth-history";
 import { MARKET_BREADTH } from "../lib/constants/trading";
 import { notifySlack } from "../lib/slack";
 import { getTodayForDB } from "../lib/market-date";
@@ -30,9 +31,14 @@ async function main() {
         ? `${pct}% — ${(MARKET_BREADTH.UPPER_CAP * 100).toFixed(0)}%超過（過熱）につきスキップ`
         : `${pct}% — エントリーゾーン内`;
 
-  // エントリー見送り時のみ breadth 予測を本文に追加（復活見通しを示す）
+  // 下限割れ時のみ復帰見通しを本文に追加
+  // 上限超過は「過熱の調整待ち」で別物（点推定や過去類似ケースの統計が下限割れ前提）
+  const isBelowThreshold = breadth.breadth < MARKET_BREADTH.THRESHOLD;
+
   let forecastSummary: string | null = null;
-  if (!isEntryOk) {
+  let enrichmentBlock: string | null = null;
+
+  if (isBelowThreshold) {
     try {
       const fc = await forecastBreadthAll({ days: 20, target: MARKET_BREADTH.THRESHOLD });
       forecastSummary = summarizeForecast(fc, MARKET_BREADTH.THRESHOLD);
@@ -40,9 +46,26 @@ async function main() {
     } catch (e) {
       console.warn(`[breadth-forecast] 予測スキップ: ${e instanceof Error ? e.message : e}`);
     }
+
+    try {
+      const enrichment = await buildBreadthEnrichment({
+        currentBreadth: breadth.breadth,
+        target: MARKET_BREADTH.THRESHOLD,
+        asOfDate: breadth.asOfDate,
+      });
+      enrichmentBlock = formatEnrichment(enrichment, MARKET_BREADTH.THRESHOLD);
+      if (enrichmentBlock) {
+        console.log(`[breadth-enrichment]\n${enrichmentBlock}`);
+      }
+    } catch (e) {
+      console.warn(`[breadth-enrichment] スキップ: ${e instanceof Error ? e.message : e}`);
+    }
   }
 
-  const message = forecastSummary ? `${reason}\n\n${forecastSummary}` : reason;
+  const parts: string[] = [reason];
+  if (enrichmentBlock) parts.push(enrichmentBlock);
+  if (forecastSummary) parts.push(`[シナリオ] ${forecastSummary}`);
+  const message = parts.join("\n\n");
 
   await notifySlack({
     title: isEntryOk
