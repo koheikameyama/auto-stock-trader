@@ -18,6 +18,23 @@ interface BreadthByDate {
 }
 
 async function main() {
+  // marketCap 分布を確認
+  const dist = await prisma.$queryRaw<
+    { count: bigint; min: number; max: number; median: number; p90: number; p99: number }[]
+  >`
+    SELECT
+      COUNT(*) as count,
+      MIN("marketCap")::float as min,
+      MAX("marketCap")::float as max,
+      PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY "marketCap")::float as median,
+      PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY "marketCap")::float as p90,
+      PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY "marketCap")::float as p99
+    FROM "Stock"
+    WHERE market = 'JP' AND "marketCap" IS NOT NULL
+  `;
+  console.log("==== marketCap 分布（JP, NOT NULL）====");
+  console.log(dist[0]);
+
   // 大型株の ticker リストを取得
   const largecaps = await prisma.stock.findMany({
     where: {
@@ -26,7 +43,12 @@ async function main() {
     },
     select: { tickerCode: true, marketCap: true },
   });
-  console.log(`大型株 (時価総額 ≥ ¥100B): ${largecaps.length}銘柄`);
+  console.log(`\n大型株 (時価総額 ≥ ¥${LARGECAP_THRESHOLD.toExponential()}): ${largecaps.length}銘柄`);
+
+  if (largecaps.length === 0) {
+    console.log("大型株が0件のため、別閾値を試行（median + p90 + p99 を見て手動調整推奨）");
+    return;
+  }
 
   // 集計範囲
   const endDate = new Date();
