@@ -95,3 +95,69 @@ export function isSectorInTop(
   const topSectors = new Set(sorted.slice(0, cutIdx).map((e) => e[0]));
   return topSectors.has(sector);
 }
+
+/**
+ * セクター内リーダー precompute: 各営業日について、各セクター内で
+ * 直近 lookbackDays の return が上位 topPerSector の銘柄を「リーダー」として記録。
+ *
+ * 返り値: date -> Set<ticker> （その日エントリー対象として通す銘柄）
+ *
+ * 仮説: 各セクター #1-#2 の銘柄は機関投資家が好み、流動性も高い → 翌日もトレンド継続性が高い
+ */
+export function precomputeSectorLeaders(
+  allData: Map<string, OHLCVData[]>,
+  tickerSectorMap: Map<string, string>,
+  lookbackDays: number,
+  topPerSector: number,
+): Map<string, Set<string>> {
+  // 全営業日
+  const allDates = new Set<string>();
+  for (const bars of allData.values()) {
+    for (const b of bars) allDates.add(b.date);
+  }
+  const tradingDays = [...allDates].sort();
+
+  // 各銘柄について、date -> bar の index map を構築
+  const tickerBarIndex = new Map<string, Map<string, number>>();
+  for (const [ticker, bars] of allData) {
+    const idx = new Map<string, number>();
+    for (let i = 0; i < bars.length; i++) idx.set(bars[i].date, i);
+    tickerBarIndex.set(ticker, idx);
+  }
+
+  const result = new Map<string, Set<string>>();
+
+  for (const today of tradingDays) {
+    // セクター毎に [ticker, return] を集約
+    const bySector = new Map<string, { ticker: string; ret: number }[]>();
+
+    for (const [ticker, bars] of allData) {
+      const sector = tickerSectorMap.get(ticker);
+      if (!sector) continue;
+      const idx = tickerBarIndex.get(ticker)?.get(today);
+      if (idx == null || idx < lookbackDays) continue;
+
+      const today_close = bars[idx].close;
+      const past_close = bars[idx - lookbackDays].close;
+      if (past_close <= 0 || today_close <= 0) continue;
+      const ret = (today_close - past_close) / past_close;
+
+      const arr = bySector.get(sector) ?? [];
+      arr.push({ ticker, ret });
+      bySector.set(sector, arr);
+    }
+
+    // 各セクター内 top N を取得
+    const leaders = new Set<string>();
+    for (const [, candidates] of bySector) {
+      candidates.sort((a, b) => b.ret - a.ret);
+      for (const c of candidates.slice(0, topPerSector)) {
+        leaders.add(c.ticker);
+      }
+    }
+
+    result.set(today, leaders);
+  }
+
+  return result;
+}

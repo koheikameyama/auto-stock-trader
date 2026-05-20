@@ -382,11 +382,12 @@ async function main() {
   const wfMiniSectorRotation = args.includes("--wf-mini-sector-rotation");
   const compareBreadthSectorTradeoff = args.includes("--compare-breadth-sector-tradeoff");
   const compareConditionalRotation = args.includes("--compare-conditional-rotation");
+  const compareSectorLeaders = args.includes("--compare-sector-leaders");
   const compareSlippage = args.includes("--compare-slippage");
   const compareStrategyMix = args.includes("--compare-strategy-mix");
   const corrReport = args.includes("--corr-report");
 
-  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || comparePscTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSlippage || compareStrategyMix || corrReport;
+  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || comparePscTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || corrReport;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const pscConfig: PostSurgeConsolidationBacktestConfig = {
@@ -472,7 +473,7 @@ async function main() {
 
   // セクターマップをロード（--max-per-sector / --compare-sector で使用）
   let tickerSectorMap: Map<string, string> | undefined;
-  if (maxPerSectorArg !== undefined || compareSector || compareSectorRotation || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation) {
+  if (maxPerSectorArg !== undefined || compareSector || compareSectorRotation || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders) {
     const stocksWithSector = await prisma.stock.findMany({
       where: { isDelisted: false, isActive: true, isRestricted: false, sector: { not: null } },
       select: { tickerCode: true, sector: true },
@@ -1619,6 +1620,101 @@ async function main() {
         const netPnlStr = (sub.totalNetPnl >= 0 ? "+" : "") + `¥${sub.totalNetPnl.toLocaleString()}`;
         console.log(
           `  ${r.label.padEnd(28)}| ${String(sub.totalTrades).padStart(6)} | ${sub.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expStr.padStart(7)} | ${netPnlStr.padStart(10)}`,
+        );
+      }
+    }
+
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // セクター内リーダー戦略比較（各セクター内の N日 return 上位 N銘柄のみ通過）
+  if (compareSectorLeaders) {
+    const { precomputeSectorLeaders } = await import("./sector-rotation");
+    const REGIMES: { label: string; from: string; to: string }[] = [
+      { label: "A: 平穏ボックス", from: "2024-03-01", to: "2024-07-31" },
+      { label: "B: ブラマン+余震", from: "2024-08-01", to: "2024-12-31" },
+      { label: "C: 関税ショック", from: "2025-02-01", to: "2025-04-30" },
+      { label: "D: 大強気相場", from: "2025-05-01", to: "2026-02-28" },
+      { label: "E: 直近急落", from: "2026-03-01", to: "2026-04-20" },
+    ];
+
+    if (!tickerSectorMap) {
+      console.error("tickerSectorMap が必要です");
+      await prisma.$disconnect();
+      return;
+    }
+
+    type Setting = { label: string; topPerSector?: number; lookback: number };
+    const grid: Setting[] = [
+      { label: "現状 (no-leader)", lookback: 20 }, // topPerSector 省略 = filter なし
+      { label: "leader top1, 5d", topPerSector: 1, lookback: 5 },
+      { label: "leader top1, 20d", topPerSector: 1, lookback: 20 },
+      { label: "leader top2, 5d", topPerSector: 2, lookback: 5 },
+      { label: "leader top2, 20d", topPerSector: 2, lookback: 20 },
+      { label: "leader top3, 20d", topPerSector: 3, lookback: 20 },
+    ];
+
+    console.log("\n=== セクター内リーダー precompute ===");
+    // 各設定について leaderSet を計算（topPerSector 設定があるもののみ）
+    const leaderSets = new Map<string, Map<string, Set<string>>>();
+    for (const s of grid) {
+      if (s.topPerSector == null) continue;
+      const key = `${s.topPerSector}_${s.lookback}`;
+      if (leaderSets.has(key)) continue;
+      const ls = precomputeSectorLeaders(allData, tickerSectorMap, s.lookback, s.topPerSector);
+      leaderSets.set(key, ls);
+      console.log(`  ${key}: ${ls.size}日分の leaderSet`);
+    }
+
+    console.log("\n=== セクター内リーダー戦略比較 ===");
+    console.log(`期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}`);
+    console.log(
+      `${"設定".padEnd(22)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"Expect".padStart(7)} | ${"MaxDD".padStart(6)} | ${"NetRet".padStart(7)} | ${"Calmar".padStart(6)} | ${"稼働率".padStart(6)}`,
+    );
+    console.log("-".repeat(102));
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    const overallResults: { label: string; allTrades: SimulatedPosition[]; equityCurve: DailyEquity[] }[] = [];
+
+    for (const s of grid) {
+      const key = s.topPerSector != null ? `${s.topPerSector}_${s.lookback}` : null;
+      const leaderSet = key ? leaderSets.get(key) : undefined;
+      const ctxRow = leaderSet
+        ? { ...ctx, sectorRotation: { momentumMap: new Map(), topPct: 1.0, leaderSet } }
+        : ctx;
+      const result = runCombinedSimulation(ctxRow, defaultLimits);
+      const m = result.totalMetrics;
+      const util = calculateCapitalUtilization(result.equityCurve);
+      const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
+      const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      console.log(
+        `${s.label.padEnd(22)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(7)} | ${m.maxDrawdown.toFixed(1).padStart(5)}% | ${m.netReturnPct.toFixed(1).padStart(6)}% | ${calmar.toFixed(2).padStart(6)} | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
+      );
+      overallResults.push({ label: s.label, allTrades: result.allTrades, equityCurve: result.equityCurve });
+    }
+
+    console.log("\n=== レジーム別トレード指標 ===");
+    for (const regime of REGIMES) {
+      console.log(`\n[${regime.label}] ${regime.from} 〜 ${regime.to}`);
+      console.log(
+        `  ${"設定".padEnd(22)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"Expect".padStart(7)} | ${"NetPnL".padStart(10)}`,
+      );
+      console.log("  " + "-".repeat(76));
+
+      for (const r of overallResults) {
+        const inRange = r.allTrades.filter(
+          (t) => t.entryDate >= regime.from && t.entryDate <= regime.to,
+        );
+        const sub = calculateMetrics(inRange, r.equityCurve, budget);
+        const pfStr = sub.profitFactor === Infinity ? "∞" : sub.profitFactor.toFixed(2);
+        const expStr = (sub.expectancy >= 0 ? "+" : "") + sub.expectancy.toFixed(2) + "%";
+        const netPnlStr = (sub.totalNetPnl >= 0 ? "+" : "") + `¥${sub.totalNetPnl.toLocaleString()}`;
+        console.log(
+          `  ${r.label.padEnd(22)}| ${String(sub.totalTrades).padStart(6)} | ${sub.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expStr.padStart(7)} | ${netPnlStr.padStart(10)}`,
         );
       }
     }

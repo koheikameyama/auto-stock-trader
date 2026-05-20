@@ -88,6 +88,11 @@ export interface SimContext {
      * それ以上は filter 通す（強い相場では制限なし）。省略時は常時適用。
      */
     applyOnlyWhenBreadthBelow?: number;
+    /**
+     * セクター内リーダー集合: date -> 当日エントリー対象として通す銘柄セット。
+     * 設定すると momentumMap/topPct ではなくこの leaderSet で銘柄レベル絞り込み。
+     */
+    leaderSet?: Map<string, Set<string>>;
   };
   /**
    * VIXレジーム別リスク倍率。quantity に掛ける係数。
@@ -779,6 +784,7 @@ export function runCombinedSimulation(
     // セクター・ローテーション: ticker のセクターが当日 top N% に入っているか
     // 条件付き発動 (applyOnlyWhenBreadthBelow) が設定されている場合、
     // 当日 breadth がそれ以上なら filter を通す（強い相場では制限なし）。
+    // leaderSet が指定されている場合は銘柄レベルでの絞り込み（セクター内 top N）。
     const isInRotationTop = (ticker: string): boolean => {
       if (!sectorRotation || !tickerSectorMap) return true;
       // 条件付き発動チェック
@@ -788,6 +794,13 @@ export function runCombinedSimulation(
           return true; // 強い相場では filter なし
         }
       }
+      // 銘柄レベル絞り込み（セクター内リーダー）
+      if (sectorRotation.leaderSet) {
+        const leaders = sectorRotation.leaderSet.get(today);
+        if (!leaders || leaders.size === 0) return true; // データなし日は通す
+        return leaders.has(ticker);
+      }
+      // セクター単位絞り込み
       const sector = tickerSectorMap.get(ticker);
       if (!sector) return true; // sector 不明は通す
       const scores = sectorRotation.momentumMap.get(today);
