@@ -1,0 +1,20 @@
+name: "[Manual] Breadth Historical Context"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  context:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx tsx scripts/_breadth-historical-context.ts
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
