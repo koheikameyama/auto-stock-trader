@@ -1,0 +1,23 @@
+name: "[Manual] Dump Stock Table"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install psycopg2-binary
+      - run: python scripts/_dump-stock-table.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stock-table-dump
+          path: /tmp/stock-table.dump
+          retention-days: 7
