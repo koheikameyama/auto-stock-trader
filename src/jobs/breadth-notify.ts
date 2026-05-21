@@ -8,12 +8,14 @@
  * Slack にも通知しない（backfill 失敗の検知を兼ねる）。
  */
 
+import dayjs from "dayjs";
 import { calculateMarketBreadth } from "../core/market-breadth";
 import { forecastBreadthAll, summarizeForecast } from "../core/breadth-forecast";
 import { buildBreadthEnrichment, formatEnrichment } from "../core/breadth-history";
 import { MARKET_BREADTH } from "../lib/constants/trading";
 import { notifySlack } from "../lib/slack";
 import { getTodayForDB } from "../lib/market-date";
+import { prisma } from "../lib/prisma";
 
 async function main() {
   const today = getTodayForDB();
@@ -62,9 +64,33 @@ async function main() {
     }
   }
 
+  // 翌営業日 ETF 発注予定サマリー
+  // entry-executor が処理対象とするのと同じ条件で UsEtfSignal を集計
+  const etfCutoff = dayjs(today).subtract(3, "day").toDate();
+  const pendingEtfSignals = await prisma.usEtfSignal.findMany({
+    where: {
+      executed: false,
+      detectedDate: { gte: etfCutoff },
+      skipReason: null,
+    },
+    orderBy: { detectedDate: "desc" },
+  });
+  let etfSummary: string;
+  if (pendingEtfSignals.length === 0) {
+    etfSummary = "📉 翌営業日 ETF 発注予定: なし";
+  } else {
+    const lines = pendingEtfSignals.map((s) => {
+      const days = dayjs(today).diff(dayjs(s.detectedDate), "day");
+      const dayLabel = days === 0 ? "今日検出" : `${days}日前`;
+      return `  ${s.ticker} (${dayLabel})`;
+    });
+    etfSummary = `📈 翌営業日 ETF 発注予定: ${pendingEtfSignals.length}件\n${lines.join("\n")}`;
+  }
+
   const parts: string[] = [reason];
   if (enrichmentBlock) parts.push(enrichmentBlock);
   if (forecastSummary) parts.push(`[シナリオ] ${forecastSummary}`);
+  parts.push(etfSummary);
   const message = parts.join("\n\n");
 
   await notifySlack({
