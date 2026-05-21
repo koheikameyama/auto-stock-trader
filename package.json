@@ -15,6 +15,7 @@
     "monitor": "tsx src/jobs/position-monitor.ts",
     "eod": "tsx src/jobs/end-of-day.ts",
     "breadth-notify": "tsx src/jobs/breadth-notify.ts",
+    "regime-shift-notify": "tsx src/jobs/regime-shift-notify.ts",
     "defensive-followup": "tsx src/jobs/defensive-exit-followup.ts",
     "unfilled-followup": "tsx src/jobs/unfilled-order-followup.ts",
     "weekly": "tsx src/jobs/weekly-review.ts",
