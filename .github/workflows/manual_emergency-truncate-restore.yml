@@ -1,0 +1,24 @@
+name: "[Manual] Emergency Dump + TRUNCATE + Restore"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install psycopg2-binary
+      - run: python scripts/_emergency-dump-truncate-restore.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockdailybar-dump-final
+          path: /tmp/stockdailybar.dump
+          retention-days: 30
