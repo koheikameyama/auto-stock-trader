@@ -127,6 +127,35 @@ async function main() {
     }
   }
 
+  // 取りこぼし検知: 3日以上前のシグナルが executed=false で残っているか
+  // entry-executor は通常 cutoff 3日以内のシグナルだけを処理するため、それ以前のものは
+  // 取りこぼし (cron 障害 / 立花API エラー等) の可能性が高い
+  const orphanCutoff = dayjs(asOfDate).subtract(3, "day").toDate();
+  const orphans = await prisma.usEtfSignal.findMany({
+    where: {
+      executed: false,
+      detectedDate: { lte: orphanCutoff },
+      skipReason: null, // skipReason 記録済みは明示的にスキップなので除外
+    },
+    orderBy: { detectedDate: "desc" },
+  });
+  if (orphans.length > 0) {
+    const lines = orphans.map(
+      (o) => `  ${o.ticker} (検出: ${dayjs(o.detectedDate).format("YYYY-MM-DD")})`,
+    );
+    await notifySlack({
+      title: `⚠️ ETF 未発注シグナル取りこぼし: ${orphans.length}件`,
+      message: [
+        "3営業日以上前のシグナルが executed=false で残っています:",
+        ...lines,
+        "",
+        "考えられる原因: entry-executor 未起動 / 立花API エラー / ログイン期限切れ",
+        "対応: SQL で skipReason を埋めるか手動 dispatch で再発注",
+      ].join("\n"),
+      color: "warning",
+    });
+  }
+
   // Slack 通知 (発火時のみ)
   const fired = signals.filter((s) => s.triggered);
   if (fired.length === 0) {

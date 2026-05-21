@@ -28,16 +28,17 @@ import { notifySlack } from "../lib/slack";
 const BUDGET = parseInt(process.env.ETF_TRADING_BUDGET || "500000", 10);
 const MAX_POSITION_PCT = 0.4; // 1ポジ最大40%
 
-async function isSystemActive(): Promise<boolean> {
-  const config = await prisma.tradingConfig.findFirst({
+async function getTradingConfig() {
+  return prisma.tradingConfig.findFirst({
     orderBy: { createdAt: "desc" },
   });
-  return !config || config.isActive;
 }
 
 async function main() {
+  const config = await getTradingConfig();
+
   // システム停止フラグチェック
-  if (!(await isSystemActive())) {
+  if (config && !config.isActive) {
     console.log("[us-etf-entry] TradingConfig.isActive=false → スキップ");
     return;
   }
@@ -45,6 +46,40 @@ async function main() {
   if (!US_ETF_RISK_PARAMS.entryEnabled) {
     console.log("[us-etf-entry] US_ETF_RISK_PARAMS.entryEnabled=false → スキップ");
     return;
+  }
+  // 立花ログインロックチェック
+  if (config?.loginLockedUntil && new Date(config.loginLockedUntil) > new Date()) {
+    console.log(
+      `[us-etf-entry] 立花ログインロック中 (until ${config.loginLockedUntil}) → スキップ`,
+    );
+    await notifySlack({
+      title: "⚠️ ETF entry スキップ: 立花ログインロック中",
+      message: [
+        `ロック解除予定: ${dayjs(config.loginLockedUntil).format("YYYY-MM-DD HH:mm:ss")} JST`,
+        `理由: ${config.loginLockReason ?? "不明"}`,
+        "",
+        "ETF の翌営業日寄付を逃しました。電話番号認証を完了後、",
+        "ダッシュボードの「再開」ボタンで復旧してください。",
+      ].join("\n"),
+      color: "warning",
+    });
+    return;
+  }
+  // 立花ログイン承認期限チェック (本番環境のみ)
+  if (process.env.TACHIBANA_ENV === "production") {
+    if (!config?.loginArmedUntil || new Date(config.loginArmedUntil) <= new Date()) {
+      console.log("[us-etf-entry] 立花ログイン承認期限切れ → スキップ");
+      await notifySlack({
+        title: "⚠️ ETF entry スキップ: 立花ログイン承認期限切れ",
+        message: [
+          `承認期限: ${config?.loginArmedUntil ? dayjs(config.loginArmedUntil).format("YYYY-MM-DD HH:mm:ss") + " JST" : "未承認"}`,
+          "",
+          "電話番号認証を完了して再起動してください。",
+        ].join("\n"),
+        color: "warning",
+      });
+      return;
+    }
   }
 
   // 直近2営業日以内の未執行シグナルを取得
