@@ -46,8 +46,23 @@ jobs:
       - name: Run combined strategy-mix comparison (baseline vs +WB / +MOM / +WB+MOM)
         run: python scripts/run_monthly_combined_compare.py
 
+  us-etf-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # WF/combined-compare とは独立 (実トレード集計のみで BT 不要)
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - name: ETF strategy health (劣化検知)
+        run: npm run us-etf-health
+
   notify-failure:
-    needs: [walk-forward, combined-compare]
+    needs: [walk-forward, combined-compare, us-etf-health]
     if: failure()
     runs-on: ubuntu-latest
     steps:

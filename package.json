@@ -19,6 +19,7 @@
     "us-etf-watchlist": "tsx src/jobs/us-etf-watchlist-builder.ts",
     "us-etf-entry": "tsx src/jobs/us-etf-entry-executor.ts",
     "us-etf-monitor": "tsx src/jobs/us-etf-position-monitor.ts",
+    "us-etf-health": "tsx src/jobs/us-etf-health-check.ts",
     "defensive-followup": "tsx src/jobs/defensive-exit-followup.ts",
     "unfilled-followup": "tsx src/jobs/unfilled-order-followup.ts",
     "weekly": "tsx src/jobs/weekly-review.ts",
