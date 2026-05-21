@@ -19,7 +19,9 @@ import { TACHIBANA_ORDER } from "../lib/constants/broker";
 import { US_ETF_RISK_PARAMS } from "../core/us-etf/entry-conditions";
 import { notifySlack } from "../lib/slack";
 
-const BUDGET = parseInt(process.env.ETF_TRADING_BUDGET ?? "500000", 10);
+// `??` ではなく `||` で空文字列も fallback 対象にする
+// (GitHub Actions の未設定 secret は "" になるため)
+const BUDGET = parseInt(process.env.ETF_TRADING_BUDGET || "500000", 10);
 const MAX_POSITION_PCT = 0.4; // 1ポジ最大40%
 
 async function main() {
