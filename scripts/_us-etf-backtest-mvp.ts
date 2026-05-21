@@ -1,17 +1,20 @@
 /**
- * 米株 ETF (1547, 1545) シンプル gap-up 戦略 MVP バックテスト
+ * 米株 ETF (1547, 1545) シンプル gap-up 戦略 BT
  *
- * A-2 MVP: シグナル検証のための最小実装
- * - エントリー: 当日 gap >= 0.5% + 陽線 + 出来高 1.5x
- * - 損切り: -2% (固定)
- * - タイムストップ: 5営業日
- * - リスク管理: 簡略 (固定ロット ¥30万)
+ * 設計 (A-3a 結合効果検証で確定):
+ *   - breadth フィルター: 日本株 breadth < 54% の日のみエントリー (idle 帯補完)
+ *   - 既存戦略と機会を取り合わずに ETF 単独で動く
  *
- * 一時利用スクリプト
+ * 出力:
+ *   - フィルターなし (旧 MVP) と フィルター付き (改良版) を並列で出力 → 比較
+ *
+ * 一時利用
  */
 
 import dayjs from "dayjs";
 import { prisma } from "../src/lib/prisma";
+import { fetchBreadthSeries } from "../src/core/breadth-history";
+import { MARKET_BREADTH } from "../src/lib/constants/trading";
 
 interface OHLCV {
   date: string;
@@ -25,11 +28,9 @@ interface OHLCV {
 interface Trade {
   ticker: string;
   entryDate: string;
-  entryPrice: number;
   exitDate: string;
-  exitPrice: number;
-  reason: "sl" | "time" | "open";
   pnlPct: number;
+  reason: "sl" | "time" | "open";
 }
 
 const TICKERS = ["1547", "1545"];
@@ -63,7 +64,11 @@ async function fetchData(ticker: string): Promise<OHLCV[]> {
   }));
 }
 
-function runStrategy(ticker: string, bars: OHLCV[]): Trade[] {
+function runStrategy(
+  ticker: string,
+  bars: OHLCV[],
+  opts: { breadthFilter?: Map<string, number> | null } = {},
+): Trade[] {
   const trades: Trade[] = [];
   let position: { entryIdx: number; entryPrice: number } | null = null;
 
@@ -71,150 +76,163 @@ function runStrategy(ticker: string, bars: OHLCV[]): Trade[] {
     const today = bars[i];
     const prev = bars[i - 1];
 
-    // ポジション中の出口判定
+    // 出口判定
     if (position) {
       const slPrice = position.entryPrice * (1 - SL_PCT);
       const daysHeld = i - position.entryIdx;
 
-      // 当日安値が SL を割ったら SL
       if (today.low <= slPrice) {
         trades.push({
           ticker,
           entryDate: bars[position.entryIdx].date,
-          entryPrice: position.entryPrice,
           exitDate: today.date,
-          exitPrice: slPrice,
-          reason: "sl",
           pnlPct: ((slPrice - position.entryPrice) / position.entryPrice) * 100,
+          reason: "sl",
         });
         position = null;
         continue;
       }
-
-      // タイムストップ
       if (daysHeld >= TIME_STOP_DAYS) {
         trades.push({
           ticker,
           entryDate: bars[position.entryIdx].date,
-          entryPrice: position.entryPrice,
           exitDate: today.date,
-          exitPrice: today.close,
-          reason: "time",
           pnlPct: ((today.close - position.entryPrice) / position.entryPrice) * 100,
+          reason: "time",
         });
         position = null;
         continue;
       }
     }
 
-    // エントリー判定 (ポジションないとき)
+    // エントリー判定
     if (!position) {
       const gap = (today.open - prev.close) / prev.close;
       const isUpDay = today.close > today.open;
-      const avgVol25 = bars
-        .slice(i - VOL_LOOKBACK, i)
-        .reduce((s, b) => s + b.volume, 0) / VOL_LOOKBACK;
-      const volSurge = today.volume / avgVol25;
+      const avgVol =
+        bars.slice(i - VOL_LOOKBACK, i).reduce((s, b) => s + b.volume, 0) / VOL_LOOKBACK;
+      const volSurge = today.volume / avgVol;
 
       if (gap >= GAP_MIN_PCT && isUpDay && volSurge >= VOLUME_SURGE_RATIO) {
+        // breadth フィルター: 前日の日本株 breadth < 54% (idle 帯) のみ
+        if (opts.breadthFilter) {
+          const breadth = opts.breadthFilter.get(prev.date);
+          if (breadth == null || breadth >= MARKET_BREADTH.THRESHOLD) {
+            continue;
+          }
+        }
         position = { entryIdx: i, entryPrice: today.close };
       }
     }
   }
 
-  // 最後のポジションを終値で決済 (open-ended)
   if (position) {
     const last = bars[bars.length - 1];
     trades.push({
       ticker,
       entryDate: bars[position.entryIdx].date,
-      entryPrice: position.entryPrice,
       exitDate: last.date,
-      exitPrice: last.close,
-      reason: "open",
       pnlPct: ((last.close - position.entryPrice) / position.entryPrice) * 100,
+      reason: "open",
     });
   }
 
   return trades;
 }
 
-function summarize(trades: Trade[]) {
+function summarize(label: string, trades: Trade[]) {
   if (trades.length === 0) {
-    console.log("  トレードなし");
+    console.log(`\n[${label}] トレードなし`);
     return;
   }
   const wins = trades.filter((t) => t.pnlPct > 0);
   const losses = trades.filter((t) => t.pnlPct < 0);
   const winRate = (wins.length / trades.length) * 100;
-  const grossProfit = wins.reduce((s, t) => s + t.pnlPct, 0);
-  const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnlPct, 0));
-  const pf = grossLoss > 0 ? grossProfit / grossLoss : Infinity;
-  const avgWin = wins.length > 0 ? grossProfit / wins.length : 0;
-  const avgLoss = losses.length > 0 ? -grossLoss / losses.length : 0;
-  const expectancy =
-    (winRate / 100) * avgWin + ((100 - winRate) / 100) * avgLoss;
-  const totalPnlPct = trades.reduce((s, t) => s + t.pnlPct, 0);
-  const maxDD = (() => {
-    let peak = 0;
-    let dd = 0;
-    let cum = 0;
-    for (const t of trades) {
-      cum += t.pnlPct;
-      if (cum > peak) peak = cum;
-      const drawdown = peak - cum;
-      if (drawdown > dd) dd = drawdown;
-    }
-    return dd;
-  })();
+  const gp = wins.reduce((s, t) => s + t.pnlPct, 0);
+  const gl = Math.abs(losses.reduce((s, t) => s + t.pnlPct, 0));
+  const pf = gl > 0 ? gp / gl : gp > 0 ? Infinity : 0;
+  const avgWin = wins.length > 0 ? gp / wins.length : 0;
+  const avgLoss = losses.length > 0 ? -gl / losses.length : 0;
+  const expectancy = (winRate / 100) * avgWin + ((100 - winRate) / 100) * avgLoss;
+  const totalPnl = trades.reduce((s, t) => s + t.pnlPct, 0);
 
+  let cum = 0;
+  let peak = 0;
+  let dd = 0;
+  for (const t of trades) {
+    cum += t.pnlPct;
+    if (cum > peak) peak = cum;
+    if (peak - cum > dd) dd = peak - cum;
+  }
+
+  console.log(`\n[${label}]`);
   console.log(`  トレード数: ${trades.length} (勝${wins.length} / 負${losses.length})`);
   console.log(`  勝率: ${winRate.toFixed(1)}%`);
   console.log(`  PF: ${pf === Infinity ? "∞" : pf.toFixed(2)}`);
   console.log(`  期待値: ${expectancy >= 0 ? "+" : ""}${expectancy.toFixed(2)}%`);
   console.log(`  平均勝: +${avgWin.toFixed(2)}% / 平均負: ${avgLoss.toFixed(2)}%`);
-  console.log(`  累計リターン: ${totalPnlPct >= 0 ? "+" : ""}${totalPnlPct.toFixed(2)}%`);
-  console.log(`  MaxDD: -${maxDD.toFixed(2)}%`);
-  console.log(`  出口別: sl=${trades.filter((t) => t.reason === "sl").length}, time=${trades.filter((t) => t.reason === "time").length}, open=${trades.filter((t) => t.reason === "open").length}`);
-}
-
-async function main() {
-  console.log("=".repeat(60));
-  console.log(`米株 ETF MVP BT: ${START_DATE} 〜 ${END_DATE}`);
-  console.log(`gap >= ${(GAP_MIN_PCT * 100).toFixed(1)}%, vol >= ${VOLUME_SURGE_RATIO}x, SL -${SL_PCT * 100}%, time ${TIME_STOP_DAYS}d`);
-  console.log("=".repeat(60));
-
-  const allTrades: Trade[] = [];
-
-  for (const ticker of TICKERS) {
-    const bars = await fetchData(ticker);
-    console.log(`\n[${ticker}] ${bars.length}本のバー`);
-    const trades = runStrategy(ticker, bars);
-    summarize(trades);
-    allTrades.push(...trades);
-  }
-
-  console.log(`\n${"=".repeat(60)}`);
-  console.log("統合結果 (全 ETF)");
-  console.log("=".repeat(60));
-  summarize(allTrades);
+  console.log(`  累計リターン: ${totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(2)}%`);
+  console.log(`  MaxDD: -${dd.toFixed(2)}%`);
+  console.log(`  Calmar (totalReturn / MaxDD): ${dd > 0 ? (totalPnl / dd).toFixed(2) : "N/A"}`);
 
   // 年別
-  console.log("\n--- 年別 ---");
   const byYear = new Map<string, Trade[]>();
-  for (const t of allTrades) {
+  for (const t of trades) {
     const y = t.entryDate.slice(0, 4);
     const arr = byYear.get(y) ?? [];
     arr.push(t);
     byYear.set(y, arr);
   }
+  console.log(`  年別:`);
   for (const y of [...byYear.keys()].sort()) {
     const arr = byYear.get(y)!;
-    const totalPct = arr.reduce((s, t) => s + t.pnlPct, 0);
-    const wins = arr.filter((t) => t.pnlPct > 0).length;
-    const winRate = (wins / arr.length) * 100;
-    console.log(`  ${y}: ${arr.length}件, 勝率${winRate.toFixed(0)}%, 累計${totalPct >= 0 ? "+" : ""}${totalPct.toFixed(2)}%`);
+    const pct = arr.reduce((s, t) => s + t.pnlPct, 0);
+    const w = arr.filter((t) => t.pnlPct > 0).length;
+    console.log(`    ${y}: ${arr.length}件, 勝率${((w / arr.length) * 100).toFixed(0)}%, ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`);
   }
+}
+
+async function main() {
+  console.log("=".repeat(70));
+  console.log(`米株 ETF BT: ${START_DATE} 〜 ${END_DATE}`);
+  console.log(`gap >= ${(GAP_MIN_PCT * 100).toFixed(1)}%, vol >= ${VOLUME_SURGE_RATIO}x, SL -${SL_PCT * 100}%, time ${TIME_STOP_DAYS}d`);
+  console.log("=".repeat(70));
+
+  // 日本株 breadth を取得
+  const breadthSeries = await fetchBreadthSeries({ lookbackDays: 2200 });
+  const breadthMap = new Map<string, number>();
+  for (const p of breadthSeries) {
+    breadthMap.set(dayjs(p.date).format("YYYY-MM-DD"), p.breadth);
+  }
+
+  // 各 ticker のデータをキャッシュ
+  const allBars = new Map<string, OHLCV[]>();
+  for (const t of TICKERS) {
+    allBars.set(t, await fetchData(t));
+  }
+
+  // フィルターなし
+  const noFilterTrades: Trade[] = [];
+  for (const t of TICKERS) {
+    noFilterTrades.push(...runStrategy(t, allBars.get(t)!));
+  }
+  summarize("フィルターなし (旧 MVP)", noFilterTrades);
+
+  // フィルター付き (breadth < 54%)
+  const filteredTrades: Trade[] = [];
+  for (const t of TICKERS) {
+    filteredTrades.push(...runStrategy(t, allBars.get(t)!, { breadthFilter: breadthMap }));
+  }
+  summarize("フィルター付き (breadth < 54%)", filteredTrades);
+
+  // 比較
+  console.log("\n" + "=".repeat(70));
+  console.log("比較");
+  console.log("=".repeat(70));
+  const total1 = noFilterTrades.reduce((s, t) => s + t.pnlPct, 0);
+  const total2 = filteredTrades.reduce((s, t) => s + t.pnlPct, 0);
+  console.log(`累計リターン: ${total1.toFixed(2)}% → ${total2.toFixed(2)}% (${(total2 - total1).toFixed(2)}pp)`);
+  console.log(`トレード数: ${noFilterTrades.length} → ${filteredTrades.length}`);
 
   await prisma.$disconnect();
 }
