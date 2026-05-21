@@ -28,7 +28,25 @@ import { notifySlack } from "../lib/slack";
 const BUDGET = parseInt(process.env.ETF_TRADING_BUDGET || "500000", 10);
 const MAX_POSITION_PCT = 0.4; // 1ポジ最大40%
 
+async function isSystemActive(): Promise<boolean> {
+  const config = await prisma.tradingConfig.findFirst({
+    orderBy: { createdAt: "desc" },
+  });
+  return !config || config.isActive;
+}
+
 async function main() {
+  // システム停止フラグチェック
+  if (!(await isSystemActive())) {
+    console.log("[us-etf-entry] TradingConfig.isActive=false → スキップ");
+    return;
+  }
+  // 戦略レベル ENTRY_ENABLED フラグチェック
+  if (!US_ETF_RISK_PARAMS.entryEnabled) {
+    console.log("[us-etf-entry] US_ETF_RISK_PARAMS.entryEnabled=false → スキップ");
+    return;
+  }
+
   // 直近2営業日以内の未執行シグナルを取得
   const cutoff = dayjs().subtract(3, "day").toDate();
   const signals = await prisma.usEtfSignal.findMany({

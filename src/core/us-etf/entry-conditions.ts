@@ -99,4 +99,6 @@ export const US_ETF_RISK_PARAMS = {
   riskPct: 0.015,
   /** ETF universe */
   tickers: ["1547", "1545"] as const,
+  /** 新規エントリー許可 (本番投入時に true、デモテスト時は false にして発注スキップ可) */
+  entryEnabled: true,
 };
