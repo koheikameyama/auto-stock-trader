@@ -502,3 +502,27 @@ model RejectedSignal {
   @@index([rejectedAt(sort: Desc)])
   @@index([ticker])
 }
+
+/// 米株 ETF (1547, 1545) のエントリーシグナル
+/// us-etf-watchlist で検出されたシグナルを保存し、翌営業日寄付に
+/// us-etf-entry-executor が発注する
+model UsEtfSignal {
+  id                String    @id @default(cuid())
+  detectedDate      DateTime  @db.Date
+  ticker            String
+  todayClose        Decimal   @db.Decimal(12, 2)
+  gap               Decimal   @db.Decimal(8, 4)
+  volSurge          Decimal   @db.Decimal(8, 2)
+  japanBreadth      Decimal   @db.Decimal(5, 4)
+  slPrice           Decimal   @db.Decimal(12, 2)
+  executed          Boolean   @default(false)
+  executedAt        DateTime?
+  brokerOrderNumber String?
+  positionId        String?
+  skipReason        String?
+  createdAt         DateTime  @default(now())
+
+  @@unique([detectedDate, ticker])
+  @@index([detectedDate(sort: Desc)])
+  @@index([executed])
+}

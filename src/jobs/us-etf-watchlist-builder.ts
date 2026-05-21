@@ -40,6 +40,13 @@ async function main() {
     slPrice: number;
   }> = [];
 
+  // 既存の同日シグナル (重複保存防止)
+  const existing = await prisma.usEtfSignal.findMany({
+    where: { detectedDate: asOfDate },
+    select: { ticker: true },
+  });
+  const existingTickers = new Set(existing.map((s) => s.ticker));
+
   for (const ticker of TICKERS) {
     const bars = await prisma.stockDailyBar.findMany({
       where: {
@@ -100,6 +107,24 @@ async function main() {
     console.log(
       `${ticker}: ${signal.triggered ? "🚀 発火" : "─ 不発"} | ${detail}`,
     );
+
+    // 発火シグナルを DB 保存（翌営業日に entry-executor が読み取る）
+    if (signal.triggered && !existingTickers.has(ticker)) {
+      await prisma.usEtfSignal.create({
+        data: {
+          detectedDate: asOfDate,
+          ticker,
+          todayClose: todayBar.close,
+          gap: signal.gap,
+          volSurge: signal.volSurge,
+          japanBreadth,
+          slPrice,
+        },
+      });
+      console.log(`  → DB保存完了 (detectedDate=${dayjs(asOfDate).format("YYYY-MM-DD")})`);
+    } else if (signal.triggered && existingTickers.has(ticker)) {
+      console.log(`  → 同日シグナル既存のためスキップ`);
+    }
   }
 
   // Slack 通知 (発火時のみ)
