@@ -103,6 +103,8 @@ function positionBanner(pos: ModalPositionInfo): HtmlContent {
   const strategyLabels: Record<string, string> = {
     breakout: "ブレイクアウト",
     gapup: "GU（ギャップアップ）",
+    "post-surge-consolidation": "PSC（高騰後押し目）",
+    us_etf: "ETF（米株連動）",
   };
   const pnlColor = (pos.unrealizedPnl ?? 0) >= 0 ? "#22c55e" : "#ef4444";
   const pnlSign = (pos.unrealizedPnl ?? 0) >= 0 ? "+" : "";

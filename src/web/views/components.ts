@@ -73,6 +73,7 @@ export function strategyBadge(strategy: string): HtmlContent {
     breakout: "BO",
     gapup: "GU",
     "post-surge-consolidation": "PSC",
+    us_etf: "ETF",
   };
   return html`<span class="badge badge-${strategy}"
     >${labels[strategy] ?? strategy}</span
