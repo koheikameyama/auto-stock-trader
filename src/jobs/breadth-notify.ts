@@ -18,7 +18,11 @@ import { getTodayForDB } from "../lib/market-date";
 import { prisma } from "../lib/prisma";
 
 async function main() {
-  const today = getTodayForDB();
+  // 手動試運転用: BREADTH_AS_OF_DATE=2026-05-21 で過去日付で実行可能
+  const overrideDate = process.env.BREADTH_AS_OF_DATE;
+  const today = overrideDate
+    ? new Date(`${overrideDate}T00:00:00Z`)
+    : getTodayForDB();
   const breadth = await calculateMarketBreadth(today);
 
   const pct = (breadth.breadth * 100).toFixed(1);
