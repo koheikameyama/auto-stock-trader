@@ -25,38 +25,44 @@ export async function fetchHistoricalFromDB(
     .subtract(lookbackDays, "day")
     .format("YYYY-MM-DD");
 
-  const rows = await prisma.stockDailyBar.findMany({
-    where: {
-      tickerCode: { in: tickerCodes },
-      date: {
-        gte: new Date(`${adjustedStart}T00:00:00Z`),
-        lte: new Date(`${endDate}T00:00:00Z`),
-      },
-    },
-    orderBy: { date: "asc" },
-    select: {
-      tickerCode: true,
-      date: true,
-      open: true,
-      high: true,
-      low: true,
-      close: true,
-      volume: true,
-    },
-  });
-
+  // 大量データ取得時の napi 変換エラーを防ぐため、銘柄をチャンク化して取得
+  const CHUNK_SIZE = 500;
   const results = new Map<string, OHLCVData[]>();
-  for (const row of rows) {
-    const ticker = row.tickerCode;
-    if (!results.has(ticker)) results.set(ticker, []);
-    results.get(ticker)!.push({
-      date: dayjs(row.date).format("YYYY-MM-DD"),
-      open: row.open,
-      high: row.high,
-      low: row.low,
-      close: row.close,
-      volume: Number(row.volume),
+
+  for (let i = 0; i < tickerCodes.length; i += CHUNK_SIZE) {
+    const chunk = tickerCodes.slice(i, i + CHUNK_SIZE);
+    const rows = await prisma.stockDailyBar.findMany({
+      where: {
+        tickerCode: { in: chunk },
+        date: {
+          gte: new Date(`${adjustedStart}T00:00:00Z`),
+          lte: new Date(`${endDate}T00:00:00Z`),
+        },
+      },
+      orderBy: { date: "asc" },
+      select: {
+        tickerCode: true,
+        date: true,
+        open: true,
+        high: true,
+        low: true,
+        close: true,
+        volume: true,
+      },
     });
+
+    for (const row of rows) {
+      const ticker = row.tickerCode;
+      if (!results.has(ticker)) results.set(ticker, []);
+      results.get(ticker)!.push({
+        date: dayjs(row.date).format("YYYY-MM-DD"),
+        open: row.open,
+        high: row.high,
+        low: row.low,
+        close: row.close,
+        volume: Number(row.volume),
+      });
+    }
   }
 
   return results;

@@ -23,7 +23,7 @@ import { getMaxBuyablePrice } from "../src/core/risk-manager";
 const IS_MONTHS = 6;
 const OOS_MONTHS = 3;
 const SLIDE_MONTHS = 3;
-const NUM_WINDOWS = 7;
+const NUM_WINDOWS = parseInt(process.env.WF_NUM_WINDOWS ?? "7", 10);
 const TOTAL_MONTHS = IS_MONTHS + OOS_MONTHS + SLIDE_MONTHS * (NUM_WINDOWS - 1);
 
 /** IS最低PFゲート */
@@ -99,8 +99,8 @@ async function main() {
   const breadthLowerArg = args.find((a) => a.startsWith("--breadth-lower="));
   const breadthLower = breadthLowerArg ? parseFloat(breadthLowerArg.split("=")[1]) : undefined;
   const maxPriceOverride = getMaxBuyablePrice(budget);
-  const endDate = dayjs().format("YYYY-MM-DD");
-  const startDate = dayjs().subtract(TOTAL_MONTHS, "month").format("YYYY-MM-DD");
+  const endDate = process.env.WF_END_DATE ?? dayjs().format("YYYY-MM-DD");
+  const startDate = process.env.WF_START_DATE ?? dayjs(endDate).subtract(TOTAL_MONTHS, "month").format("YYYY-MM-DD");
 
   console.log("=".repeat(70));
   console.log("PSC（高騰後押し目）Walk-Forward 分析");
