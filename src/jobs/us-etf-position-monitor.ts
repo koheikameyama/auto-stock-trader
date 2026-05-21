@@ -1,14 +1,15 @@
 /**
  * 米株 ETF ポジションのタイムストップ exit 監視
  *
- * 引け前 (15:24 JST) に走る:
+ * 引け前 (15:20 JST) に走る:
  *   1. strategy = "us_etf" の open ポジションを取得
  *   2. 保有営業日数を計算
  *   3. ≥ 5営業日経過なら引け成行売り発注 (立花API)
+ *   4. TradingOrder を DB 作成 (positionId 紐付け)
+ *   5. 約定通知 → broker-fill-handler が TradingPosition.status を自動更新
  *
- * SL は entry-executor で逆指値同時発注済 → 立花側で自動執行されるため、
- * このジョブは「タイムストップ」のみ監視。
- * 約定後の TradingPosition status 更新は既存 broker-fill-handler の event stream に任せる。
+ * SL は entry-executor で逆指値同時発注済 → 立花側で自動執行。
+ * (SL 約定通知の TradingPosition.status 自動更新は次フェーズで対応)
  */
 
 import dayjs from "dayjs";
@@ -41,7 +42,7 @@ function computeHoldingBusinessDays(entryAt: Date, now: Date): number {
 async function main() {
   const positions = await prisma.tradingPosition.findMany({
     where: { strategy: "us_etf", status: "open" },
-    include: { stock: { select: { tickerCode: true, name: true } } },
+    include: { stock: { select: { id: true, tickerCode: true, name: true } } },
   });
 
   console.log(`[us-etf-position-monitor] open ポジション: ${positions.length}件`);
@@ -65,7 +66,7 @@ async function main() {
     console.log(`${ticker}: ${daysHeld}日経過 ≥ ${limit}日 → タイムストップ売り`);
 
     // 引け成行売り
-    const result = await submitOrder({
+    const brokerResult = await submitOrder({
       ticker,
       side: "sell",
       quantity: pos.quantity,
@@ -73,15 +74,33 @@ async function main() {
       condition: TACHIBANA_ORDER.CONDITION.CLOSE,
     });
 
-    if (!result.success) {
-      const reason = result.error ?? "unknown";
+    if (!brokerResult.success) {
+      const reason = brokerResult.error ?? "unknown";
       console.error(`${ticker}: 売り発注失敗 ${reason}`);
       errors.push({ ticker, reason });
       continue;
     }
 
-    closed.push({ ticker, daysHeld, orderNumber: result.orderNumber });
-    console.log(`${ticker}: 売り発注成功 注文番号=${result.orderNumber}`);
+    // TradingOrder を作成 (positionId 紐付け → broker-fill-handler が約定処理)
+    await prisma.tradingOrder.create({
+      data: {
+        updatedAt: new Date(),
+        stockId: pos.stock.id,
+        side: "sell",
+        orderType: "market",
+        strategy: "us_etf",
+        limitPrice: null,
+        quantity: pos.quantity,
+        status: "pending",
+        reasoning: `ETF タイムストップ: ${daysHeld}営業日経過 (limit ${limit})`,
+        brokerOrderId: brokerResult.orderNumber,
+        brokerBusinessDay: brokerResult.businessDay,
+        positionId: pos.id,
+      },
+    });
+
+    closed.push({ ticker, daysHeld, orderNumber: brokerResult.orderNumber });
+    console.log(`${ticker}: 売り発注成功 注文番号=${brokerResult.orderNumber}`);
   }
 
   if (closed.length > 0 || errors.length > 0) {

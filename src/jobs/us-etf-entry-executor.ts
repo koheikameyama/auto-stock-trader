@@ -5,11 +5,15 @@
  *   1. 前営業日に UsEtfSignal に保存された未執行シグナルを取得
  *   2. ロット計算 (リスク 1.5%, 投資上限 40%)
  *   3. 立花API で 寄付成行 + SL逆指値 同時発注 (sGyakusasiOrderType=2)
- *   4. TradingPosition 作成、UsEtfSignal.executed=true 更新
- *   5. Slack 通知
+ *   4. TradingOrder を DB 作成 (status="pending")
+ *   5. UsEtfSignal.executed=true 更新
+ *   6. Slack 通知
  *
- * MVP: シンプルなロット計算のみ。残高は環境変数 ETF_TRADING_BUDGET、
- *      デフォルト ¥500K。連敗スロットル/集中度/VIX scale は適用しない (ETF は補完戦略)。
+ * 約定後の TradingPosition 作成は broker-event-stream 経由で
+ * broker-fill-handler が自動処理する (既存 GU/PSC と同じパス)。
+ *
+ * MVP: 連敗スロットル/集中度/VIX scale は適用しない (ETF は補完戦略)。
+ *      資金は環境変数 ETF_TRADING_BUDGET (デフォルト ¥500K)。
  */
 
 import dayjs from "dayjs";
@@ -32,7 +36,9 @@ async function main() {
     orderBy: { detectedDate: "desc" },
   });
 
-  console.log(`[us-etf-entry] 未執行シグナル: ${signals.length}件 (cutoff: ${dayjs(cutoff).format("YYYY-MM-DD")})`);
+  console.log(
+    `[us-etf-entry] 未執行シグナル: ${signals.length}件 (cutoff: ${dayjs(cutoff).format("YYYY-MM-DD")}, budget: ¥${BUDGET.toLocaleString()})`,
+  );
 
   if (signals.length === 0) {
     console.log("発注対象なし → 終了");
@@ -86,7 +92,7 @@ async function main() {
     );
 
     // 立花API 発注: 寄付成行 + SL逆指値同時 (NORMAL_AND_REVERSE)
-    const result = await submitOrder({
+    const brokerResult = await submitOrder({
       ticker,
       side: "buy",
       quantity: qty,
@@ -96,8 +102,8 @@ async function main() {
       // stopOrderPrice 未指定 → 成行 SL
     });
 
-    if (!result.success) {
-      const reason = result.error ?? "unknown broker error";
+    if (!brokerResult.success) {
+      const reason = brokerResult.error ?? "unknown broker error";
       console.error(`${ticker}: 発注失敗 ${reason}`);
       await prisma.usEtfSignal.update({
         where: { id: sig.id },
@@ -107,24 +113,30 @@ async function main() {
       continue;
     }
 
-    // TradingPosition 作成
-    const position = await prisma.tradingPosition.create({
+    // TradingOrder を DB 作成 (broker-event-stream が約定通知 → TradingPosition 作成)
+    const tradingOrder = await prisma.tradingOrder.create({
       data: {
+        updatedAt: new Date(),
         stockId: stock.id,
+        side: "buy",
+        orderType: "market", // 寄付成行
         strategy: "us_etf",
-        entryPrice: todayClose,
-        quantity: qty,
+        limitPrice: null,
+        takeProfitPrice: null,
         stopLossPrice: slPrice,
-        status: "open",
-        slBrokerOrderId: result.orderNumber,
-        slBrokerBusinessDay: result.businessDay,
-        appliedRiskPct: US_ETF_RISK_PARAMS.riskPct,
+        quantity: qty,
+        status: "pending",
+        reasoning: `ETF idle帯シグナル: gap+${(Number(sig.gap) * 100).toFixed(2)}%, vol ${Number(sig.volSurge).toFixed(2)}x, 日本株breadth ${(Number(sig.japanBreadth) * 100).toFixed(1)}%`,
+        brokerOrderId: brokerResult.orderNumber,
+        brokerBusinessDay: brokerResult.businessDay,
+        referencePrice: todayClose,
         entrySnapshot: {
           signalDetectedDate: dayjs(sig.detectedDate).format("YYYY-MM-DD"),
           gap: Number(sig.gap),
           volSurge: Number(sig.volSurge),
           japanBreadth: Number(sig.japanBreadth),
           timeStopDays: US_ETF_RISK_PARAMS.timeStopDays,
+          appliedRiskPct: US_ETF_RISK_PARAMS.riskPct,
         },
       },
     });
@@ -134,25 +146,28 @@ async function main() {
       data: {
         executed: true,
         executedAt: new Date(),
-        brokerOrderNumber: result.orderNumber,
-        positionId: position.id,
+        brokerOrderNumber: brokerResult.orderNumber,
       },
     });
 
-    executed.push({ ticker, qty, entryPrice: todayClose, slPrice, orderNumber: result.orderNumber });
-    console.log(`${ticker}: 発注成功 注文番号=${result.orderNumber}`);
+    executed.push({ ticker, qty, entryPrice: todayClose, slPrice, orderNumber: brokerResult.orderNumber });
+    console.log(
+      `${ticker}: TradingOrder作成 id=${tradingOrder.id}, 注文番号=${brokerResult.orderNumber}`,
+    );
   }
 
   // Slack 通知
   if (executed.length > 0 || failed.length > 0) {
     const lines: string[] = [];
     if (executed.length > 0) {
-      lines.push("*✅ 発注成功*");
+      lines.push("*✅ 発注成功 (寄付成行 + SL逆指値同時)*");
       for (const e of executed) {
         lines.push(
           `  ${e.ticker}: ${e.qty}株 @ ¥${e.entryPrice.toLocaleString()} (SL ¥${e.slPrice.toFixed(0)})${e.orderNumber ? ` 注文番号=${e.orderNumber}` : ""}`,
         );
       }
+      lines.push("");
+      lines.push("約定通知が来たら broker-event-stream が TradingPosition を自動作成");
     }
     if (failed.length > 0) {
       lines.push("*⚠️ 発注スキップ/失敗*");
