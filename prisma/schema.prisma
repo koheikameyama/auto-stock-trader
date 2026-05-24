@@ -237,6 +237,7 @@ model Stock {
   jpxLastSyncDate  DateTime?         @db.Date
   jpxSectorCode    String?
   jpxSectorName    String?
+  listingDate      DateTime?         @db.Date
   statusUpdatedAt  DateTime?
   supervisionFlag  String?
   tradingHaltFlag  Boolean           @default(false)

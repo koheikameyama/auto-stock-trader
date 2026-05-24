@@ -1,13 +1,16 @@
 /**
- * JPX CSV同期ジョブ（手動実行）
+ * JPX CSV同期ジョブ
  *
  * JPXが公開する上場銘柄一覧CSV（data/data_j.csv）を読み込み、
  * Stockテーブルとの同期を行う。
  *
  * 1. CSVパース → 対象市場フィルタ
- * 2. バッチupsert（既存更新 + 新規追加）
+ * 2. バッチupsert（既存更新 + 新規追加。新規時のみ listingDate = 同期実行日 を記録）
  * 3. CSVに存在しない銘柄を isActive = false に更新
  * 4. StockStatusLog に変更ログを記録
+ *
+ * listingDate は IPO銘柄検知用。実IPO日ではなく「マスタに初出した日」を記録するため、
+ * 実IPO日との誤差は最大で同期間隔ぶん（週次同期なら最大6日）。
  */
 
 import { prisma } from "../lib/prisma";
@@ -152,6 +155,17 @@ export async function main() {
   });
   const existingTickerSet = new Set(existingStocks.map((s) => s.tickerCode));
 
+  // ブートストラップモード判定: jpxLastSyncDate が一度も設定されていない場合、
+  // 過去にJPX同期実績がない = 初回投入。初回は「DBに存在しない=新規IPO」とは限らない
+  // （単に過去にマスタに入れていなかった既存銘柄を含む）ので、listingDate を設定しない。
+  const previouslySyncedCount = await prisma.stock.count({
+    where: { jpxLastSyncDate: { not: null } },
+  });
+  const isBootstrap = previouslySyncedCount === 0;
+  if (isBootstrap) {
+    console.log("  [Bootstrap mode] 初回同期検出: listingDate は記録しません");
+  }
+
   for (let i = 0; i < entries.length; i += JPX_CSV.UPSERT_BATCH_SIZE) {
     const batch = entries.slice(i, i + JPX_CSV.UPSERT_BATCH_SIZE);
 
@@ -186,6 +200,7 @@ export async function main() {
             jpxSectorCode: entry.sectorCode33 || null,
             jpxSectorName: entry.sectorName33 || null,
             jpxLastSyncDate: today,
+            listingDate: isBootstrap ? null : today,
             isActive: true,
           },
           update: {
@@ -210,14 +225,13 @@ export async function main() {
   }
 
   // 3. CSVに存在しない銘柄を isActive = false に更新
+  // jpxLastSyncDate IS NOT NULL の銘柄のみ対象（過去にJPX由来で同期された実績がある銘柄）。
+  // ETF (1547, 1545等) や手動登録の非JPX銘柄は jpxLastSyncDate が null のままなので影響を受けない。
   console.log("[3/4] CSVに存在しない銘柄を非アクティブ化...");
   const removedStocks = await prisma.stock.findMany({
     where: {
       isActive: true,
-      OR: [
-        { jpxLastSyncDate: null },
-        { jpxLastSyncDate: { lt: today } },
-      ],
+      jpxLastSyncDate: { lt: today },
     },
     select: { tickerCode: true, name: true },
   });
@@ -226,10 +240,7 @@ export async function main() {
     await prisma.stock.updateMany({
       where: {
         isActive: true,
-        OR: [
-          { jpxLastSyncDate: null },
-          { jpxLastSyncDate: { lt: today } },
-        ],
+        jpxLastSyncDate: { lt: today },
       },
       data: { isActive: false },
     });
