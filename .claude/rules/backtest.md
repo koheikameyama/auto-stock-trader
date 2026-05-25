@@ -32,7 +32,7 @@
 | 4 | 大型株universe拡張(GU/PSC) | 2026-04-22 | 中価格帯は赤字、大型株はシグナル未発火 |
 | 5 | Gap Fade (overnight-gap-fade) | 2026-04-22 | PF 0.58、NetRet -24.8% |
 | 6 | Early Volume Spike (evs) | 2026-04-22 | PF 0.99、NetRet -11% |
-| 7 | MA Pullback | 2026-04-22 | PF 0.29(最悪)、NetRet -18% |
+| 7 | MA Pullback | 2026-04-22 / 2026-05-25 | PF 0.29(最悪)、NetRet -18%。**2026-05-25 ライブフォワード観察 (intraday-ma-scanner) も停止・全コード削除済**。本番DB蓄積 16件 (2026-05-25のみ) を含めて DROP TABLE。立花 API 場中ポーリング (前場 5分おき) も停止して負荷削減。再検証する場合は CLAUDE.md「相場局面が trend → range に明確転換 / 2018-2022 backfillデータでA期相当サンプル20件以上」の条件を先に満たすこと |
 | 8 | Down-Day Reversal | 2026-04-22 | PF 1.34だがTrades 34件と過少、コスト負け |
 | 9 | breakout / squeeze-breakout / NR7 | 過去 | すべて過学習or微妙、本番停止済 |
 | 10 | cooldownDays=0 | 2026-04-22 | MaxDD 21.6% (2倍)、Calmar 2.38 |

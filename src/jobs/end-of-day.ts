@@ -390,13 +390,10 @@ export async function main() {
   // 6. RejectedSignal の close5d/close10d 補完
   await fillRejectedSignalReturns();
 
-  // 7. MA押し目シグナルの終値補完
-  await fillIntradayMaSignalClosePrices(getTodayForDB());
-
-  // 8. 決済後の株価追跡補完
+  // 7. 決済後の株価追跡補完
   await fillPostExitReturns();
 
-  // 9. 翌日始値乖離補完
+  // 8. 翌日始値乖離補完
   await fillNextDayOpen();
 
   // 翌日エントリー可否通知（今日の終値ベースのbreadth）は
@@ -404,43 +401,6 @@ export async function main() {
   // ここでは計算しない（15:50時点では StockDailyBar に当日バーが無いため）。
 
   console.log("=== End of Day 終了 ===");
-}
-
-async function fillIntradayMaSignalClosePrices(today: Date): Promise<void> {
-  const signals = await prisma.intraDayMaPullbackSignal.findMany({
-    where: { date: today, closePrice: null },
-    select: { id: true, tickerCode: true },
-  });
-
-  if (!signals.length) {
-    console.log("[end-of-day] MA押し目シグナル終値補完: 対象なし");
-    return;
-  }
-
-  const tickers = signals.map((s) => s.tickerCode);
-
-  const bars = await prisma.stockDailyBar.findMany({
-    where: { tickerCode: { in: tickers }, date: today },
-    select: { tickerCode: true, close: true },
-  });
-
-  const closeMap = new Map<string, number>();
-  for (const bar of bars) {
-    closeMap.set(bar.tickerCode, Number(bar.close));
-  }
-
-  await Promise.all(
-    tickers.map((ticker) => {
-      const close = closeMap.get(ticker);
-      if (close == null) return Promise.resolve();
-      return prisma.intraDayMaPullbackSignal.updateMany({
-        where: { date: today, tickerCode: ticker },
-        data: { closePrice: close },
-      });
-    }),
-  );
-
-  console.log(`[end-of-day] MA押し目シグナル終値補完: ${signals.length}件`);
 }
 
 /**

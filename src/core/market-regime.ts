@@ -217,7 +217,7 @@ export function applyNikkeiFilter(
   };
 }
 
-export type TradingStrategy = "breakout" | "gapup" | "momentum" | "earnings-gap" | "weekly-break" | "squeeze-breakout" | "ma-pullback" | "gapdown-reversal" | "post-surge-consolidation" | "nr7" | "stop-high" | "early-volume-spike" | "down-day-reversal" | "overnight-gap-fade";
+export type TradingStrategy = "breakout" | "gapup" | "momentum" | "earnings-gap" | "weekly-break" | "squeeze-breakout" | "gapdown-reversal" | "post-surge-consolidation" | "nr7" | "stop-high" | "early-volume-spike" | "down-day-reversal" | "overnight-gap-fade";
 
 /**
  * CME先物乖離率を計算する
