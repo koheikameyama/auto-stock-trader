@@ -20,7 +20,6 @@ import { main as runMonitor } from "./jobs/position-monitor";
 import { main as runGapupMonitor } from "./jobs/gapup-monitor";
 import { main as runPSCMonitor } from "./jobs/post-surge-consolidation-monitor";
 import { main as runBrokerReconciliation } from "./jobs/broker-reconciliation";
-import { main as runIntradayMaScanner } from "./jobs/intraday-ma-scanner";
 import { main as runSessionHealthCheck } from "./jobs/session-health-check";
 import { main as runEnsureBrokerSL } from "./jobs/ensure-broker-sl";
 import { app } from "./web/app";
@@ -132,11 +131,6 @@ async function runBrokerReconciliationJob() {
   await runJob("broker-reconciliation", runBrokerReconciliation, true);
 }
 
-// 前場のみのtick: intraday-ma-scanner を実行
-async function runAMTick() {
-  await runJob("intraday-ma-scanner", runIntradayMaScanner, true);
-}
-
 // スケジュール定義（全て JST）
 // ※ position-monitor のみ Worker cron で実行
 // ※ バッチジョブ（end-of-day, jpx-delisting-sync）は cron-job.org → /api/cron/* に移行
@@ -147,12 +141,6 @@ const schedules = [
   { cron: "0-59 9 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false },
   { cron: "* 10 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false },
   { cron: "0-30 11 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false },
-  // 前場のみ: intraday-ma-scanner（9:00-11:30、5分おき）
-  // 立花API高負荷警告対応: 毎分 → 5分おきに削減（~80%削減）。
-  // シグナル側に「前回タッチから5分以上」の間隔制約があり5分おきで情報量は維持される。
-  { cron: "*/5 9 * * 1-5", job: runAMTick, name: "intraday-ma-scanner-tick", requiresMarketDay: true },
-  { cron: "*/5 10 * * 1-5", job: runAMTick, name: "intraday-ma-scanner-tick", requiresMarketDay: true },
-  { cron: "0,5,10,15,20,25,30 11 * * 1-5", job: runAMTick, name: "intraday-ma-scanner-tick", requiresMarketDay: true },
   { cron: "30-59 12 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false },
   { cron: "* 13-14 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false },
   { cron: "0-30 15 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false },
@@ -207,7 +195,6 @@ cronControl.register(
     for (const task of cronTasks) task.start();
     holidaySkipLogged.delete("position-monitor:inactive");
     holidaySkipLogged.delete("broker-reconciliation:inactive");
-    holidaySkipLogged.delete("intraday-ma-scanner-tick:inactive");
     console.log(`[${nowJST()}] cron タスク再開（${cronTasks.length}件）`);
   },
 );

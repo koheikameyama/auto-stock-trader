@@ -22,7 +22,7 @@ import { GAPUP } from "../../lib/constants/gapup";
 import { POST_SURGE_CONSOLIDATION } from "../../lib/constants/post-surge-consolidation";
 import { getAllWatchlist } from "../../jobs/watchlist-builder";
 import { calculateVolumeSurgeRatio } from "../../core/breakout/volume-surge";
-import { getTodayForDB, getDaysAgoForDB, isMarketOpen } from "../../lib/market-date";
+import { getTodayForDB, isMarketOpen } from "../../lib/market-date";
 import { getTachibanaClient } from "../../core/broker-client";
 import dayjs from "dayjs";
 import utcPlugin from "dayjs/plugin/utc.js";
@@ -629,50 +629,6 @@ app.get("/watchlist/state", async (c) => {
       ...(brokerError && { _error: "broker_api_failed" }),
     },
   });
-});
-
-/**
- * GET /api/intraday-ma-signals?from=YYYY-MM-DD&to=YYYY-MM-DD - 当日MA引きつけシグナル一覧
- */
-app.get("/intraday-ma-signals", async (c) => {
-  const fromParam = c.req.query("from");
-  const toParam = c.req.query("to");
-
-  const from = fromParam ? new Date(`${fromParam}T00:00:00Z`) : getDaysAgoForDB(30);
-  const to = toParam ? new Date(`${toParam}T00:00:00Z`) : getTodayForDB();
-
-  const signals = await prisma.intraDayMaPullbackSignal.findMany({
-    where: {
-      date: { gte: from, lte: to },
-    },
-    orderBy: [{ date: "desc" }, { detectedAt: "asc" }],
-  });
-
-  const result = signals.map((s) => {
-    let pnl: number | null = null;
-    if (s.closePrice != null) {
-      if (s.closePrice < s.stopLossPrice) {
-        pnl = (s.stopLossPrice - s.detectedPrice) / s.detectedPrice;
-      } else {
-        pnl = (s.closePrice - s.detectedPrice) / s.detectedPrice;
-      }
-    }
-    return {
-      id: s.id,
-      date: s.date.toISOString().slice(0, 10),
-      tickerCode: s.tickerCode,
-      detectedAt: s.detectedAt.toISOString(),
-      ma20: s.ma20,
-      detectedPrice: s.detectedPrice,
-      closePrice: s.closePrice,
-      stopLossPrice: s.stopLossPrice,
-      atr14: s.atr14,
-      pnl,
-      createdAt: s.createdAt.toISOString(),
-    };
-  });
-
-  return c.json(result);
 });
 
 /**

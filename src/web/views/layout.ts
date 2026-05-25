@@ -54,11 +54,6 @@ const NAV_ITEMS = [
     label: "弾き追跡",
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`,
   },
-  {
-    path: "/intraday-ma-signals",
-    label: "MA押し目",
-    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="2 16 7 11 11 15 17 9 22 9"/><circle cx="17" cy="9" r="2" fill="currentColor" stroke="none"/></svg>`,
-  },
 ];
 
 export function layout(
