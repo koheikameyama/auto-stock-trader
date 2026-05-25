@@ -7,7 +7,7 @@
  * Railway 上で `npm start` で起動。
  */
 
-import cron from "node-cron";
+import cron, { type ScheduledTask } from "node-cron";
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone.js";
 import utc from "dayjs/plugin/utc.js";
@@ -44,7 +44,7 @@ const jobState = {
 };
 
 // cron タスク参照（動的停止/再開用）
-const cronTasks: cron.ScheduledTask[] = [];
+const cronTasks: ScheduledTask[] = [];
 
 // ダッシュボードに状態を共有
 setJobState(jobState);
