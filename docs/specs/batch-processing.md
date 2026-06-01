@@ -2,9 +2,42 @@
 
 ## エントリー戦略
 
-**gapup戦略（ギャップアップ短期決戦）で単独運用中。** breakout戦略はWF検証でエッジ消失を確認し、エントリーを無効化（2026-04-10）。
+**gapup + PSC（高騰後押し目）の2本柱で運用中。** breakout戦略はWF検証でエッジ消失を確認しエントリー無効化（2026-04-10）。weekly-break / momentum はWFで堅牢だが combined で baseline を改善しないため停止中（資金¥10M+到達時に再評価）。
 
 スコアリング+AIレビュー方式は廃止済み。エントリー戦略にAI依存なし。市場予想（market-forecast）のみOpenAI gpt-4o-miniを使用。
+
+### 米株ETF idle帯補完戦略（A-4）
+
+**日本株が "offseason"（breadth < 54% で GU/PSC がエントリーしない期間）に**、JP上場の米株ETF（1547 SPDR S&P500 / 1545 NEXT FUNDS NASDAQ-100）で補完エントリーする戦略。立花証券 e支店 API で取引可能。
+
+検証根拠（8.5年BT, `.claude/rules/backtest.md`「事例: 過去9年データ拡張検証 + 米株ETF補完戦略」参照）:
+- 単独: PF 1.83 / Calmar 5.24 / MaxDD -6.43% / 累計 +33.7%
+- WF（14窓）: OOS PF 1.91、全窓アクティブ
+- レジーム別: idle帯 PF 1.92 / band帯 PF 1.08 / overheat帯 PF 0.31 → **idle帯フィルター必須**
+
+| 項目 | 値 |
+|---|---|
+| ユニバース | 1547, 1545 |
+| エントリー条件 | gap ≥ 0.5% + 出来高サージ ≥ 1.5x + 陽線 + 日本株 breadth < 54% |
+| エントリー実行 | 翌営業日 寄付成行 + SL逆指値同時発注（`sGyakusasiOrderType=2`） |
+| 損切 | -2%（逆指値、立花側で自動執行） |
+| タイムストップ | 5営業日 |
+| リスク% | 資金の1.5% / 1ポジション最大40% |
+| 予算 | `ETF_TRADING_BUDGET` 環境変数（デフォルト ¥500K） |
+| 戦略名 | `TradingOrder.strategy = "us_etf"` |
+
+**実装状態**:
+- ✅ シグナル検出 (`src/jobs/us-etf-watchlist-builder.ts`): 引け後実行、`scheduled_backfill-prices.yml` 経由で日次稼働中
+- ✅ 寄付発注 (`src/jobs/us-etf-entry-executor.ts`): `scheduled_us-etf-entry.yml` あり、**cron スケジュール未有効化（manual dispatch のみ）**
+- ✅ タイムストップ監視 (`src/jobs/us-etf-position-monitor.ts`): `scheduled_us-etf-monitor.yml` あり、**cron スケジュール未有効化**
+- ✅ シグナル永続化: `UsEtfSignal` テーブル
+- ✅ 月次ヘルスチェック: `scheduled_monthly-strategy-health.yml` 内 `us-etf-health` ジョブ
+- ⏸ 本番有効化（cron 有効化 + cron-job.org 登録）は動作確認完了後に実施
+
+**設計上のポイント**:
+- 既存 GU/PSC と**排他的に動作する補完戦略**（idle 帯のみ）。同時稼働で機会競合しない
+- 連敗スロットル / VIX scale / セクター集中度は適用しない（補完戦略のためシンプルに保つ）
+- SL は立花API の逆指値で自動執行されるため、worker 側で価格監視ループ不要
 
 ## ジョブ実行基盤
 
@@ -105,8 +138,9 @@ watchlist-builderは2種類のウォッチリストを同時に構築する。
 | ジョブ | ワークフロー | 実行タイミング | 備考 |
 |--------|------------|--------------|------|
 | market-assessment + watchlist-builder | cronjob_morning-analysis.yml | 平日 8:00 JST | 市場評価→ウォッチリスト構築（MA20計算含む） |
-
 | end-of-day → market-forecast | cronjob_end-of-day.yml | 平日 15:50 JST | 日次締め → AI市場予想（EOD完了後に実行） |
+| us-etf-entry-executor *(未有効化)* | scheduled_us-etf-entry.yml | 平日 8:35 JST | 米株ETF 寄付前発注。動作確認後に cron-job.org 登録予定（現状 workflow_dispatch のみ） |
+| us-etf-position-monitor *(未有効化)* | scheduled_us-etf-monitor.yml | 平日 15:20 JST | 米株ETF タイムストップ売り（5営業日経過分）。動作確認後に cron-job.org 登録予定 |
 
 ### GitHub Actions cron
 
@@ -122,6 +156,8 @@ watchlist-builderは2種類のウォッチリストを同時に構築する。
 | run-backtest | scheduled_daily-backtest.yml | `30 7 * * 1-5` | 平日 16:30 JST | ブレイクアウト戦略バックテスト（直近12ヶ月） |
 | run-backtest-gapup | scheduled_daily-backtest-gapup.yml | `0 8 * * 1-5` | 平日 17:00 JST | ギャップアップ戦略バックテスト（直近12ヶ月） |
 | monthly-walk-forward | scheduled_monthly-walk-forward.yml | `0 2 1-7 * 6` | 毎月第1土曜 11:00 JST | breakout+gapup WF分析（戦略エッジ監視） |
+| monthly-strategy-health | scheduled_monthly-strategy-health.yml | `0 2 1-7 * 6` | 毎月第1土曜 11:00 JST | 全戦略 WF + combined比較 + ETFヘルスチェック |
+| us-etf-watchlist *(backfill-prices内)* | scheduled_backfill-prices.yml | 平日 21:00頃 JST | 引け後の株価backfill完了後にETFシグナル検出→Slack通知。シグナル発火時 `UsEtfSignal` に保存 |
 
 各ワークフローには `workflow_dispatch` トリガーがあり、手動実行も可能。平日ジョブは `check-market-day` ステップで休場日・システム停止チェックを行う。
 
