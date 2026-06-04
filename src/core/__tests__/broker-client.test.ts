@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import crypto from "crypto";
 import { TachibanaClient, resetTachibanaClient } from "../broker-client";
 
 const { mockTradingConfigFindFirst, mockTradingConfigUpdate } = vi.hoisted(() => ({
@@ -12,8 +13,35 @@ vi.mock("../../lib/prisma", () => ({
       findFirst: mockTradingConfigFindFirst,
       update: mockTradingConfigUpdate,
     },
+    brokerSession: {
+      upsert: vi.fn().mockResolvedValue({}),
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
   },
 }));
+
+// v4r9: ログイン応答の仮想URLは公開鍵で暗号化されて返るため、
+// テスト用のRSA鍵ペアを生成し、公開鍵で暗号化・秘密鍵で復号を検証する。
+const { publicKey: testPublicKey, privateKey: testPrivateKey } =
+  crypto.generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: "spki", format: "pem" },
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+  });
+
+/** 仮想URL値を立花サーバ同様に公開鍵で RSA-OAEP(SHA-256) 暗号化 + Base64 */
+function encUrl(plaintext: string): string {
+  return crypto
+    .publicEncrypt(
+      {
+        key: testPublicKey,
+        padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+        oaepHash: "sha256",
+      },
+      Buffer.from(plaintext, "utf-8"),
+    )
+    .toString("base64");
+}
 
 // fetchをモック
 const mockFetch = vi.fn();
@@ -32,14 +60,28 @@ function createMockResponse(data: Record<string, string>) {
   };
 }
 
+/** ログイン成功レスポンス（仮想URLは暗号化済み） */
+function loginSuccessResponse() {
+  return createMockResponse({
+    "287": "0",
+    "334": "CLMAuthLoginAck",
+    "872": encUrl("https://vurl/request/"),
+    "870": encUrl("https://vurl/master/"),
+    "871": encUrl("https://vurl/price/"),
+    "868": encUrl("https://vurl/event/"),
+    "869": encUrl("wss://vurl/ws/"),
+    "552": "0",
+  });
+}
+
 describe("TachibanaClient", () => {
   let client: TachibanaClient;
 
   beforeEach(() => {
     resetTachibanaClient();
     client = new TachibanaClient("demo");
-    vi.stubEnv("TACHIBANA_USER_ID", "testuser");
-    vi.stubEnv("TACHIBANA_PASSWORD", "testpass");
+    vi.stubEnv("TACHIBANA_AUTH_ID", "testauthid");
+    vi.stubEnv("TACHIBANA_PRIVATE_KEY", testPrivateKey);
     mockFetch.mockReset();
     mockTradingConfigFindFirst.mockReset();
     mockTradingConfigFindFirst.mockResolvedValue(null);
@@ -53,25 +95,30 @@ describe("TachibanaClient", () => {
   });
 
   describe("login", () => {
-    it("ログイン成功時にセッション情報を保持する", async () => {
-      mockFetch.mockResolvedValueOnce(
-        createMockResponse({
-          "287": "0",
-          "334": "CLMAuthLoginAck",
-          "872": "https://vurl/request/",
-          "870": "https://vurl/master/",
-          "871": "https://vurl/price/",
-          "868": "https://vurl/event/",
-          "869": "wss://vurl/ws/",
-          "552": "0",
-        }),
-      );
+    it("ログイン成功時に復号した仮想URLをセッションに保持する", async () => {
+      mockFetch.mockResolvedValueOnce(loginSuccessResponse());
 
       const session = await client.login();
       expect(session.urlRequest).toBe("https://vurl/request/");
       expect(session.urlMaster).toBe("https://vurl/master/");
       expect(session.urlPrice).toBe("https://vurl/price/");
+      expect(session.urlEvent).toBe("https://vurl/event/");
+      expect(session.urlEventWebSocket).toBe("wss://vurl/ws/");
       expect(client.isLoggedIn()).toBe(true);
+    });
+
+    it("秘密鍵が公開鍵と対応しない場合は復号エラーをスローする", async () => {
+      // 別の鍵ペアを生成し、対応しない秘密鍵を環境変数に設定
+      const other = crypto.generateKeyPairSync("rsa", {
+        modulusLength: 2048,
+        privateKeyEncoding: { type: "pkcs8", format: "pem" },
+        publicKeyEncoding: { type: "spki", format: "pem" },
+      });
+      vi.stubEnv("TACHIBANA_PRIVATE_KEY", other.privateKey);
+
+      mockFetch.mockResolvedValueOnce(loginSuccessResponse());
+
+      await expect(client.login()).rejects.toThrow("Failed to decrypt");
     });
 
     it("ログイン失敗時にエラーをスローする", async () => {
@@ -91,11 +138,6 @@ describe("TachibanaClient", () => {
         createMockResponse({
           "287": "0",
           "334": "CLMAuthLoginAck",
-          "872": "https://vurl/request/",
-          "870": "https://vurl/master/",
-          "871": "https://vurl/price/",
-          "868": "https://vurl/event/",
-          "869": "wss://vurl/ws/",
           "552": "1",
         }),
       );
@@ -103,12 +145,11 @@ describe("TachibanaClient", () => {
       await expect(client.login()).rejects.toThrow("金商法のお知らせが未読");
     });
 
-    it("環境変数がない場合にエラーをスローする", async () => {
-      vi.stubEnv("TACHIBANA_USER_ID", "");
-      vi.stubEnv("TACHIBANA_PASSWORD", "");
+    it("認証IDがない場合にエラーをスローする", async () => {
+      vi.stubEnv("TACHIBANA_AUTH_ID", "");
 
       await expect(client.login()).rejects.toThrow(
-        "TACHIBANA_USER_ID and TACHIBANA_PASSWORD are required",
+        "TACHIBANA_AUTH_ID is required",
       );
     });
 
@@ -188,18 +229,7 @@ describe("TachibanaClient", () => {
         .mockResolvedValueOnce(null)        // ロックチェック
         .mockResolvedValueOnce(mockConfig); // 成功後クリア用
 
-      mockFetch.mockResolvedValueOnce(
-        createMockResponse({
-          "287": "0",
-          "334": "CLMAuthLoginAck",
-          "872": "https://vurl/request/",
-          "870": "https://vurl/master/",
-          "871": "https://vurl/price/",
-          "868": "https://vurl/event/",
-          "869": "wss://vurl/ws/",
-          "552": "0",
-        }),
-      );
+      mockFetch.mockResolvedValueOnce(loginSuccessResponse());
 
       await client.login();
 
@@ -227,18 +257,7 @@ describe("TachibanaClient", () => {
 
     it("ログイン後にリクエストを送信できる", async () => {
       // ログイン
-      mockFetch.mockResolvedValueOnce(
-        createMockResponse({
-          "287": "0",
-          "334": "CLMAuthLoginAck",
-          "872": "https://vurl/request/",
-          "870": "https://vurl/master/",
-          "871": "https://vurl/price/",
-          "868": "https://vurl/event/",
-          "869": "wss://vurl/ws/",
-          "552": "0",
-        }),
-      );
+      mockFetch.mockResolvedValueOnce(loginSuccessResponse());
       await client.login();
 
       // リクエスト
@@ -258,22 +277,11 @@ describe("TachibanaClient", () => {
 
   describe("encodeParams", () => {
     it("URLにJSON文字列をエンコードして送信する", async () => {
-      mockFetch.mockResolvedValueOnce(
-        createMockResponse({
-          "287": "0",
-          "334": "CLMAuthLoginAck",
-          "872": "https://vurl/request/",
-          "870": "https://vurl/master/",
-          "871": "https://vurl/price/",
-          "868": "https://vurl/event/",
-          "869": "wss://vurl/ws/",
-          "552": "0",
-        }),
-      );
+      mockFetch.mockResolvedValueOnce(loginSuccessResponse());
       await client.login();
 
       const calledUrl = mockFetch.mock.calls[0][0] as string;
-      expect(calledUrl).toContain("https://demo-kabuka.e-shiten.jp/e_api_v4r8/auth/?");
+      expect(calledUrl).toContain("https://demo-kabuka.e-shiten.jp/e_api_v4r9/auth/?");
       // URLエンコードされたJSONが含まれる
       expect(calledUrl).toContain("%7B");
     });
@@ -282,18 +290,7 @@ describe("TachibanaClient", () => {
   describe("logout", () => {
     it("ログアウト後はisLoggedInがfalseになる", async () => {
       // ログイン
-      mockFetch.mockResolvedValueOnce(
-        createMockResponse({
-          "287": "0",
-          "334": "CLMAuthLoginAck",
-          "872": "https://vurl/request/",
-          "870": "https://vurl/master/",
-          "871": "https://vurl/price/",
-          "868": "https://vurl/event/",
-          "869": "wss://vurl/ws/",
-          "552": "0",
-        }),
-      );
+      mockFetch.mockResolvedValueOnce(loginSuccessResponse());
       await client.login();
       expect(client.isLoggedIn()).toBe(true);
 

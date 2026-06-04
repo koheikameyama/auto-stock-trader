@@ -1,11 +1,19 @@
-# 立花証券 e支店 API (v4r8)
+# 立花証券 e支店 API (v4r9)
+
+> **v4r8 → v4r9 移行（2026-06-27 v4r8 廃止）**
+> v4r9 では認証方式が刷新された。主な差分:
+> 1. **エンドポイント**: `e_api_v4r8/` → `e_api_v4r9/`
+> 2. **ログイン**: `sUserId` + `sPassword` → `sAuthId`（利用設定画面で発行する認証ID）
+> 3. **仮想URL暗号化**: ログイン応答の仮想URL5本が登録公開鍵で RSA-OAEP(SHA-256) + Base64 暗号化されて返る。秘密鍵で復号して利用する
+> 4. ログイン後の API（注文・時価・EVENT I/F）は完全互換、無変更
+> 5. 並行運用期間 2026-05-30〜06-27 は新旧とも電話認証必須。6/27 以降は v4r9 のみ + 電話認証不要
 
 ## 基本情報
 
 | 項目 | 内容 |
 |------|------|
-| 本番URL | `https://kabuka.e-shiten.jp/e_api_v4r8/` |
-| デモURL | `https://demo-kabuka.e-shiten.jp/e_api_v4r8/` |
+| 本番URL | `https://kabuka.e-shiten.jp/e_api_v4r9/` |
+| デモURL | `https://demo-kabuka.e-shiten.jp/e_api_v4r9/` |
 | リファレンス | https://www.e-shiten.jp/e_api/mfds_json_api_refference.html |
 | 利用制限告知 | https://www.e-shiten.jp/api/20260310.html |
 | プロトコル | HTTP GET |
@@ -49,10 +57,20 @@
 ## 環境変数
 
 ```
-TACHIBANA_USER_ID=xxx
-TACHIBANA_PASSWORD=xxx
-TACHIBANA_SECOND_PASSWORD=xxx  # 注文時に必須（発注用暗証番号）
+TACHIBANA_AUTH_ID=xxx           # 利用設定画面で発行する認証ID（旧 USER_ID/PASSWORD の代替）
+TACHIBANA_PRIVATE_KEY=xxx       # 登録した公開鍵と対になる秘密鍵(PEM)。Base64エンコードしたPEMも可
+TACHIBANA_SECOND_PASSWORD=xxx   # 注文時に必須（発注用暗証番号）
+TACHIBANA_ENV=demo              # demo / production
 ```
+
+### 事前セットアップ（e支店 標準Web の利用設定画面で実施）
+
+1. 標準Webでパスキー登録（**本番必須**、2026-05-30 以降。デモ環境は不要）
+2. お客様情報 → 設定情報 → API利用設定画面を開き「利用する」に変更
+3. 自動発行される**認証ID（sAuthId）**を取得 → `TACHIBANA_AUTH_ID`
+4. RSA鍵ペアを生成し公開鍵を登録（手動登録 or 画面で自動生成して秘密鍵をダウンロード）→ 秘密鍵を `TACHIBANA_PRIVATE_KEY`
+5. （任意）固定IPアドレスを登録
+6. 本番・デモは登録情報が別管理。デモを使う場合はデモ標準Webから別途設定する
 
 ## 共通パラメータ
 
@@ -69,14 +87,13 @@ TACHIBANA_SECOND_PASSWORD=xxx  # 注文時に必須（発注用暗証番号）
 URL: {API専用URL}/auth/?{JSON}
 ```
 
-**リクエスト:**
+**リクエスト（v4r9）:**
 ```json
 {
   "p_no": "1",
   "p_sd_date": "2026.03.20-14:00:00.000",
   "sCLMID": "CLMAuthLoginRequest",
-  "sUserId": "xxx",
-  "sPassword": "xxx"
+  "sAuthId": "xxx"
 }
 ```
 
@@ -87,17 +104,22 @@ URL: {API専用URL}/auth/?{JSON}
 | 287 | sResultCode | 結果コード（`"0"` = 正常） |
 | 286 | sResultText | エラーテキスト |
 | 334 | sCLMID | `"CLMAuthLoginAck"` |
-| 872 | sUrlRequest | 業務機能用の仮想URL |
-| 870 | sUrlMaster | マスタ機能用の仮想URL |
-| 871 | sUrlPrice | 時価情報用の仮想URL |
-| 868 | sUrlEvent | EVENT I/F用の仮想URL（Long Polling） |
-| 869 | sUrlEventWebSocket | WebSocket用の仮想URL (`wss://`) |
+| 872 | sUrlRequest | 業務機能用の仮想URL（**暗号化**） |
+| 870 | sUrlMaster | マスタ機能用の仮想URL（**暗号化**） |
+| 871 | sUrlPrice | 時価情報用の仮想URL（**暗号化**） |
+| 868 | sUrlEvent | EVENT I/F用の仮想URL（Long Polling、**暗号化**） |
+| 869 | sUrlEventWebSocket | WebSocket用の仮想URL (`wss://`、**暗号化**) |
 | 744 | sSummaryGenkabuKaituke | 株式現物買付可能額 |
 | 549 | sLastLoginDate | 最終ログイン日時 |
 
+**仮想URLの復号（v4r9）:**
+- 5本の仮想URLは登録公開鍵で RSA-OAEP(SHA-256) 暗号化 + Base64 エンコードされて返る
+- 秘密鍵で復号してから利用する。実装は `src/lib/tachibana-crypto.ts` の `decryptVirtualUrl()`
+- openssl 等価: `cat val | base64 -d | openssl pkeyutl -decrypt -inkey pr.pem -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:SHA256`
+
 **セッション管理:**
 - ログイン成功時にセッション固有の仮想URLが発行される
-- 以降のAPI呼び出しは全てこの仮想URLを使用
+- 以降のAPI呼び出しは全て**復号後**の仮想URLを使用
 - `sKinsyouhouMidokuFlg`（552）が `"1"` の場合、API利用不可
 
 ### ログアウト (CLMAuthLogoutRequest)

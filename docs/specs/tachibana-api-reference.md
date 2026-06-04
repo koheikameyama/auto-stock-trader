@@ -1,11 +1,13 @@
-# 立花証券 e支店 API リファレンス (v4r8)
+# 立花証券 e支店 API リファレンス (v4r9)
+
+> **v4r9 移行（2026-06-27 v4r8 廃止）**: ログインが `sUserId`+`sPassword` → `sAuthId`（利用設定画面で発行する認証ID）に変更。応答の仮想URL5本は登録公開鍵で RSA-OAEP(SHA-256)+Base64 暗号化されて返るため、秘密鍵で復号して利用する（`src/lib/tachibana-crypto.ts`）。ログイン後のAPIは完全互換。
 
 ## 基本情報
 
 | 項目 | 内容 |
 |------|------|
-| 本番URL | `https://kabuka.e-shiten.jp/e_api_v4r8/` |
-| デモURL | `https://demo-kabuka.e-shiten.jp/e_api_v4r8/` |
+| 本番URL | `https://kabuka.e-shiten.jp/e_api_v4r9/` |
+| デモURL | `https://demo-kabuka.e-shiten.jp/e_api_v4r9/` |
 | プロトコル | HTTP GET |
 | リクエスト形式 | URLクエリパラメータにJSON文字列 (`?{JSON}`) |
 | レスポンス形式 | JSON（デフォルトは数値キー） |
@@ -109,16 +111,14 @@
   "p_no": "1",
   "p_sd_date": "2026.04.02-09:00:00.000",
   "sCLMID": "CLMAuthLoginRequest",
-  "sUserId": "xxx",
-  "sPassword": "xxx"
+  "sAuthId": "xxx"
 }
 ```
 
 | パラメータ | 説明 | 値 |
 |-----------|------|-----|
 | `sCLMID` | 機能ID | `CLMAuthLoginRequest` |
-| `sUserId` | ログインID | e支店口座のログインID |
-| `sPassword` | パスワード | e支店口座のログインパスワード |
+| `sAuthId` | 認証ID | 利用設定画面で発行される認証ID（旧 `sUserId`/`sPassword` の代替） |
 
 #### レスポンス（CLMAuthLoginAck）
 
@@ -128,11 +128,13 @@
 |-----------|------|-----|
 | `sResultCode` | 結果コード | `"0"` = 正常 |
 | `sResultText` | 結果テキスト | 正常時: `""` |
-| `sUrlRequest` | 仮想URL（REQUEST） | 業務機能用 |
-| `sUrlMaster` | 仮想URL（MASTER） | マスタ機能用 |
-| `sUrlPrice` | 仮想URL（PRICE） | 時価情報用 |
-| `sUrlEvent` | 仮想URL（EVENT） | Long Polling用 |
-| `sUrlEventWebSocket` | 仮想URL（EVENT-WebSocket） | WebSocket用 (`wss://`) |
+| `sUrlRequest` | 仮想URL（REQUEST） | 業務機能用（**公開鍵で暗号化**） |
+| `sUrlMaster` | 仮想URL（MASTER） | マスタ機能用（**公開鍵で暗号化**） |
+| `sUrlPrice` | 仮想URL（PRICE） | 時価情報用（**公開鍵で暗号化**） |
+| `sUrlEvent` | 仮想URL（EVENT） | Long Polling用（**公開鍵で暗号化**） |
+| `sUrlEventWebSocket` | 仮想URL（EVENT-WebSocket） | WebSocket用 (`wss://`、**公開鍵で暗号化**) |
+
+> **v4r9 復号**: 上記5本の仮想URLは登録公開鍵で RSA-OAEP(SHA-256) 暗号化 + Base64 されて返る。秘密鍵で復号してから利用する。実装は `src/lib/tachibana-crypto.ts` の `decryptVirtualUrl()` / `loadTachibanaPrivateKey()`。openssl 等価コマンド: `cat val | base64 -d | openssl pkeyutl -decrypt -inkey pr.pem -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:SHA256`
 
 **口座情報フィールド:**
 
@@ -158,8 +160,8 @@
 
 #### セッション管理
 
-- ログイン成功時にセッション固有の仮想URLが5つ発行される（REQUEST, MASTER, PRICE, EVENT, EVENT-WebSocket）
-- 以降のAPI呼び出しは全てこの仮想URLを使用
+- ログイン成功時にセッション固有の仮想URLが5つ発行される（REQUEST, MASTER, PRICE, EVENT, EVENT-WebSocket）。v4r9 では公開鍵で暗号化されているため秘密鍵で復号して使用
+- 以降のAPI呼び出しは全て**復号後**の仮想URLを使用
 - **セッション切れ**: `sResultCode` が `"2"` で検出。自動再ログインが必要
 - **自動リフレッシュ**: 6時間ごとに再ログイン（保険用）。30分間隔では再ログイン時に電話番号認証が要求されることが判明（2026-04-13確認）。セッション切れは `sResultCode=2` → `reLoginOnce()` で対応。公式仕様での有効期限は未確認。
 - 再ログイン時はWebSocket接続のURLも更新が必要

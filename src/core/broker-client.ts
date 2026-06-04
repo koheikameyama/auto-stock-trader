@@ -15,6 +15,10 @@ import {
   type TachibanaEnv,
 } from "../lib/constants/broker";
 import { mapNumericKeys } from "../lib/tachibana-key-map";
+import {
+  decryptVirtualUrl,
+  loadTachibanaPrivateKey,
+} from "../lib/tachibana-crypto";
 import { TIMEZONE } from "../lib/constants";
 import { notifyBrokerError, notifyBrokerLoginArmRequired } from "../lib/slack";
 import { prisma } from "../lib/prisma";
@@ -118,12 +122,11 @@ export class TachibanaClient {
     // ログイン承認（arm）ゲート — productionではダッシュボードでのボタン押下が必須
     await this.requireLoginArm();
 
-    const userId = process.env.TACHIBANA_USER_ID;
-    const password = process.env.TACHIBANA_PASSWORD;
+    const authId = process.env.TACHIBANA_AUTH_ID;
 
-    if (!userId || !password) {
+    if (!authId) {
       throw new Error(
-        "TACHIBANA_USER_ID and TACHIBANA_PASSWORD are required in environment variables",
+        "TACHIBANA_AUTH_ID is required in environment variables",
       );
     }
 
@@ -131,8 +134,7 @@ export class TachibanaClient {
       p_no: this.nextRequestNo(),
       p_sd_date: this.formatTimestamp(),
       sCLMID: TACHIBANA_CLMID.LOGIN,
-      sUserId: userId,
-      sPassword: password,
+      sAuthId: authId,
     };
 
     const url = `${this.baseUrl}auth/?${this.encodeParams(params)}`;
@@ -160,27 +162,38 @@ export class TachibanaClient {
       );
     }
 
-    // デバッグ: 仮想URL取得確認
-    const urlRequest = raw.sUrlRequest as string | undefined;
-    const urlMaster = raw.sUrlMaster as string | undefined;
-    const urlPrice = raw.sUrlPrice as string | undefined;
-    const urlEvent = raw.sUrlEvent as string | undefined;
-    const urlEventWebSocket = raw.sUrlEventWebSocket as string | undefined;
+    // 仮想URLは公開鍵で暗号化されているので秘密鍵で復号する（v4r9）
+    const encRequest = raw.sUrlRequest as string | undefined;
+    const encMaster = raw.sUrlMaster as string | undefined;
+    const encPrice = raw.sUrlPrice as string | undefined;
+    const encEvent = raw.sUrlEvent as string | undefined;
+    const encEventWebSocket = raw.sUrlEventWebSocket as string | undefined;
 
-    if (!urlRequest || !urlMaster || !urlPrice) {
+    if (!encRequest || !encMaster || !encPrice) {
       console.error("[TachibanaClient] Login response missing virtual URLs. Raw keys:", Object.keys(raw));
       console.error("[TachibanaClient] Raw response (partial):", JSON.stringify(raw, null, 2).slice(0, 2000));
       throw new Error(
-        `Tachibana login succeeded but virtual URLs are missing: urlRequest=${urlRequest}, urlMaster=${urlMaster}, urlPrice=${urlPrice}`,
+        `Tachibana login succeeded but virtual URLs are missing: urlRequest=${encRequest}, urlMaster=${encMaster}, urlPrice=${encPrice}`,
       );
     }
+
+    const privateKey = loadTachibanaPrivateKey();
+    const urlRequest = this.decryptUrlOrThrow(encRequest, privateKey, "request");
+    const urlMaster = this.decryptUrlOrThrow(encMaster, privateKey, "master");
+    const urlPrice = this.decryptUrlOrThrow(encPrice, privateKey, "price");
+    const urlEvent = encEvent
+      ? this.decryptUrlOrThrow(encEvent, privateKey, "event")
+      : "";
+    const urlEventWebSocket = encEventWebSocket
+      ? this.decryptUrlOrThrow(encEventWebSocket, privateKey, "eventWebSocket")
+      : "";
 
     this.session = {
       urlRequest,
       urlMaster,
       urlPrice,
-      urlEvent: urlEvent ?? "",
-      urlEventWebSocket: urlEventWebSocket ?? "",
+      urlEvent,
+      urlEventWebSocket,
       loginAt: new Date(),
     };
 
@@ -620,6 +633,24 @@ export class TachibanaClient {
   // ========================================
   // 内部ユーティリティ
   // ========================================
+
+  /**
+   * 公開鍵で暗号化された仮想URLを秘密鍵で復号する。
+   * 復号に失敗した場合は、鍵の不一致を示す明確なエラーを投げる。
+   */
+  private decryptUrlOrThrow(
+    encrypted: string,
+    privateKey: string,
+    label: string,
+  ): string {
+    try {
+      return decryptVirtualUrl(encrypted, privateKey);
+    } catch (err) {
+      throw new Error(
+        `Failed to decrypt ${label} virtual URL. TACHIBANA_PRIVATE_KEY が利用設定画面で登録した公開鍵と対になっているか確認してください: ${(err as Error).message}`,
+      );
+    }
+  }
 
   /**
    * アカウントロック検出時の処理
