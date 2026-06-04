@@ -1,5 +1,5 @@
 /**
- * 立花証券 e支店 API (v4r8) 定数
+ * 立花証券 e支店 API (v4r9) 定数
  */
 
 // ========================================
@@ -12,8 +12,8 @@ export const isTachibanaProduction =
   process.env.TACHIBANA_ENV === "production";
 
 export const TACHIBANA_API_URLS = {
-  demo: "https://demo-kabuka.e-shiten.jp/e_api_v4r8/",
-  production: "https://kabuka.e-shiten.jp/e_api_v4r8/",
+  demo: "https://demo-kabuka.e-shiten.jp/e_api_v4r9/",
+  production: "https://kabuka.e-shiten.jp/e_api_v4r9/",
 } as const;
 
 // ========================================
