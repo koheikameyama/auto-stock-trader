@@ -290,6 +290,8 @@ export async function getBuyingPower(): Promise<number | null> {
 
   const res = await client.request({
     sCLMID: TACHIBANA_CLMID.BUYING_POWER,
+    sIssueCode: "",
+    sSizyouC: "",
   });
 
   if (res.sResultCode !== "0") return null;
