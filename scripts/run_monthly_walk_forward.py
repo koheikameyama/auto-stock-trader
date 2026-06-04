@@ -2,11 +2,13 @@
 Monthly Walk-Forward Analysis Runner
 
 A階層(現役): gapup, psc → 劣化検知 (停止提案)
-B階層(復活候補): weekly-break(--largecap), momentum(--largecap), squeeze-breakout
+B階層(復活候補): weekly-break(--largecap), momentum(--largecap)
                 → 堅牢化検知 (復活検討提案)
 
-C階層(構造的却下: breakout/nr7/gapdown-reversal/ma-pullback/ddr/evs/ogf/earnings-gap/stop-high)
-は対象外。年1回手動見直し。
+C階層(構造的却下: breakout/nr7/gapdown-reversal/ma-pullback/ddr/evs/ogf/earnings-gap/
+stop-high/squeeze-breakout) は対象外。年1回手動見直し。
+squeeze-breakout は WF で恒常的に過学習 (2026-06 OOS PF 0.65) かつ既に
+ENTRY_ENABLED=false のため、毎月回してもノイズにしかならず C階層へ格下げ (2026-06-04)。
 
 Usage:
   python scripts/run_monthly_walk_forward.py
@@ -32,7 +34,6 @@ STRATEGIES: list[dict] = [
     {"name": "psc", "tier": "active", "extra_args": []},
     {"name": "weekly-break", "tier": "suspended", "extra_args": ["--largecap"]},
     {"name": "momentum", "tier": "suspended", "extra_args": ["--largecap"]},
-    {"name": "squeeze-breakout", "tier": "suspended", "extra_args": []},
 ]
 
 
