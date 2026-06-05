@@ -16,6 +16,8 @@ import type { PrecomputedWeeklyBreakSignals } from "./weekly-break-simulation";
 import type { PrecomputedPSCSignals } from "./post-surge-consolidation-simulation";
 import type { PrecomputedMomentumSignals } from "./momentum-simulation";
 import { MOMENTUM_RISK_PER_TRADE_PCT } from "./momentum-config";
+import type { PrecomputedUSEtfSignals } from "./us-etf-simulation";
+import type { USEtfBacktestConfig } from "./us-etf-config";
 import { checkPositionExit } from "../core/exit-checker";
 import { calculateCommission, calculateTax, calculateMarginInterest, applySlippage } from "../core/trading-costs";
 import type { SlippageProfile } from "../core/trading-costs";
@@ -47,6 +49,8 @@ export interface SimContext {
   pscSignals?: PrecomputedPSCSignals;
   momConfig?: MomentumBacktestConfig;
   momSignals?: PrecomputedMomentumSignals;
+  etfConfig?: USEtfBacktestConfig;
+  etfSignals?: PrecomputedUSEtfSignals;
   budget: number;
   verbose: boolean;
   allData: Map<string, OHLCVData[]>;
@@ -203,6 +207,7 @@ export interface SimResult {
   wbMetrics: PerformanceMetrics;
   pscMetrics: PerformanceMetrics;
   momMetrics: PerformanceMetrics;
+  etfMetrics: PerformanceMetrics;
   equityCurve: DailyEquity[];
   allTrades: SimulatedPosition[];
   /** 戦略別トレード（相関分析用） */
@@ -211,6 +216,7 @@ export interface SimResult {
   wbTrades: SimulatedPosition[];
   pscTrades: SimulatedPosition[];
   momTrades: SimulatedPosition[];
+  etfTrades: SimulatedPosition[];
   /** 累計入金額（初期資金 + 月次追加の合計） */
   totalCapitalAdded: number;
   /** ドローダウンハルトが発動した営業日数 */
@@ -414,6 +420,75 @@ function processExits(
 }
 
 // ──────────────────────────────────────────
+// ETF出口判定（-2%固定SL + Nd タイムストップ、ATRベースではない）
+// ──────────────────────────────────────────
+function processEtfExits(
+  positions: SimulatedPosition[],
+  etfConfig: USEtfBacktestConfig,
+  dayIdx: number,
+  today: string,
+  tradingDays: string[],
+  tradingDayIndex: Map<string, number>,
+  dateIndexMap: Map<string, Map<string, number>>,
+  allData: Map<string, OHLCVData[]>,
+  pendingSettlement: { amount: number; availableDayIdx: number }[],
+  closedTrades: SimulatedPosition[],
+  lastExitDayIdx: Map<string, number>,
+  verbose: boolean,
+  settlementDays: number,
+  marginInterestRate = 0,
+  slippageProfile: SlippageProfile = "none",
+): void {
+  const toClose: number[] = [];
+  for (let i = 0; i < positions.length; i++) {
+    const pos = positions[i];
+    const bars = allData.get(pos.ticker);
+    if (!bars) continue;
+    const barIdx = dateIndexMap.get(pos.ticker)?.get(today);
+    if (barIdx == null) continue;
+    const todayBar = bars[barIdx];
+
+    const entryDayIdx = tradingDayIndex.get(pos.entryDate) ?? -1;
+    const holdingDays = entryDayIdx >= 0 ? dayIdx - entryDayIdx : 0;
+
+    if (holdingDays === 0) {
+      pos.maxHighDuringHold = Math.max(pos.maxHighDuringHold, todayBar.high);
+      pos.minLowDuringHold = Math.min(pos.minLowDuringHold, todayBar.low);
+      continue;
+    }
+
+    let exitPrice: number | null = null;
+    let exitReason: SimulatedPosition["exitReason"] = null;
+
+    // -2% 固定 SL（pos.stopLossPrice に格納済み）
+    if (todayBar.low <= pos.stopLossPrice) {
+      exitPrice = pos.stopLossPrice;
+      exitReason = "stop_loss";
+    } else if (holdingDays >= etfConfig.timeStopDays) {
+      exitPrice = todayBar.close;
+      exitReason = "time_stop";
+    }
+
+    pos.maxHighDuringHold = Math.max(pos.maxHighDuringHold, todayBar.high);
+    pos.minLowDuringHold = Math.min(pos.minLowDuringHold, todayBar.low);
+
+    if (exitPrice != null && exitReason != null) {
+      closePosition(pos, exitPrice, exitReason, dayIdx, tradingDays, etfConfig.costModelEnabled, verbose, marginInterestRate, slippageProfile);
+      const proceeds = exitPrice * pos.quantity - (pos.exitCommission ?? 0) - (pos.tax ?? 0);
+      pendingSettlement.push({ amount: proceeds, availableDayIdx: dayIdx + settlementDays });
+      toClose.push(i);
+    }
+  }
+
+  for (let i = toClose.length - 1; i >= 0; i--) {
+    const closedPos = positions[toClose[i]];
+    closedTrades.push(closedPos);
+    lastExitDayIdx.set(closedPos.ticker, dayIdx);
+    positions.splice(toClose[i], 1);
+  }
+}
+
+// ──────────────────────────────────────────
 // ディフェンシブモード
 // ──────────────────────────────────────────
 function processDefensive(
@@ -566,6 +641,8 @@ export interface PositionLimits {
   pscMax?: number;
   /** 大型株モメンタム戦略の最大ポジション数 */
   momMax?: number;
+  /** 米株ETF (1547/1545) 戦略の最大ポジション数 */
+  etfMax?: number;
   /** 全戦略合算の最大ポジション数（undefined = 制限なし） */
   totalMax?: number;
   /** 同セクターに保有可能な最大ポジション数（全戦略横断、undefined = 制限なし） */
@@ -578,9 +655,9 @@ export function runCombinedSimulation(
 ): SimResult {
   const limits: PositionLimits =
     typeof maxPositions === "number"
-      ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, totalMax: maxPositions }
+      ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, etfMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, slippageProfile = "none" } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, slippageProfile = "none" } = ctx;
   const guBreadthMode = breadthModeGu ?? breadthMode;
   const pscBreadthMode = breadthModePsc ?? breadthMode;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
@@ -591,9 +668,11 @@ export function runCombinedSimulation(
   const wbConfigLocal = wbConfig ? { ...wbConfig } : null;
   const pscConfigLocal = pscConfig ? { ...pscConfig } : null;
   const momConfigLocal = momConfig ? { ...momConfig } : null;
+  const etfConfigLocal = etfConfig ? { ...etfConfig } : null;
   const wbMaxPos = limits.wbMax ?? 0;
   const pscMaxPos = limits.pscMax ?? 0;
   const momMaxPos = limits.momMax ?? 0;
+  const etfMaxPos = limits.etfMax ?? 0;
 
   let cash = budget;
   let totalCapitalAdded = budget;
@@ -604,11 +683,13 @@ export function runCombinedSimulation(
   const wbPositions: SimulatedPosition[] = [];
   const pscPositions: SimulatedPosition[] = [];
   const momPositions: SimulatedPosition[] = [];
+  const etfPositions: SimulatedPosition[] = [];
   const boClosedTrades: SimulatedPosition[] = [];
   const guClosedTrades: SimulatedPosition[] = [];
   const wbClosedTrades: SimulatedPosition[] = [];
   const pscClosedTrades: SimulatedPosition[] = [];
   const momClosedTrades: SimulatedPosition[] = [];
+  const etfClosedTrades: SimulatedPosition[] = [];
   const lastExitDayIdx = new Map<string, number>();
   const equityCurve: DailyEquity[] = [];
 
@@ -655,6 +736,9 @@ export function runCombinedSimulation(
     if (momConfigLocal) {
       processExits(momPositions, momConfigLocal, "momentum", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, momClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile);
     }
+    if (etfConfigLocal) {
+      processEtfExits(etfPositions, etfConfigLocal, dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, etfClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile);
+    }
 
     // ── 1.5 ディフェンシブモード ──
     processDefensive(boPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, boClosedTrades, lastExitDayIdx, boConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
@@ -667,6 +751,9 @@ export function runCombinedSimulation(
     }
     if (momConfigLocal) {
       processDefensive(momPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, momClosedTrades, lastExitDayIdx, momConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
+    }
+    if (etfConfigLocal) {
+      processDefensive(etfPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, etfClosedTrades, lastExitDayIdx, etfConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
     }
 
     // ── 1.55 モメンタム ローテーション決済（rebalance日にトップN外に落ちた銘柄をクローズ） ──
@@ -702,6 +789,7 @@ export function runCombinedSimulation(
     let wbShouldTrade = ddHalt.shouldTrade;
     let pscShouldTrade = ddHalt.shouldTrade;
     let momShouldTrade = ddHalt.shouldTrade;
+    let etfShouldTrade = ddHalt.shouldTrade;
     const { weeklyDDPct, monthlyDDPct } = ddHalt;
     if (!ddHalt.shouldTrade) {
       haltDays++;
@@ -720,6 +808,7 @@ export function runCombinedSimulation(
       wbShouldTrade = false;
       pscShouldTrade = false;
       momShouldTrade = false;
+      etfShouldTrade = false;
       haltDays++; // DDハルトとは別のハルト事由なので独立カウント
       if (verbose) {
         console.log(`  [${today}] エクイティフィルター: SMA${equityCurveSmaPeriod}下回り（全戦略停止）`);
@@ -733,6 +822,7 @@ export function runCombinedSimulation(
       ...wbPositions.map((p) => p.ticker),
       ...pscPositions.map((p) => p.ticker),
       ...momPositions.map((p) => p.ticker),
+      ...etfPositions.map((p) => p.ticker),
     ]);
 
     // breadthモードによるサイズ係数（0=見送り / 0.5=半分 / 1.0=通常）
@@ -760,13 +850,13 @@ export function runCombinedSimulation(
     );
 
     // ── 2a. Breakout エントリー ──
-    const totalPositions = () => boPositions.length + guPositions.length + wbPositions.length + pscPositions.length + momPositions.length;
+    const totalPositions = () => boPositions.length + guPositions.length + wbPositions.length + pscPositions.length + momPositions.length + etfPositions.length;
     const totalUnderLimit = () => limits.totalMax === undefined || totalPositions() < limits.totalMax;
     // 連敗スロットル: 直近Nトレード全戦略合算のWinRateが閾値を下回ったらサイズ縮小
     let streakScale = 1.0;
     if (loseStreakScaling) {
       const allClosedSorted = [
-        ...boClosedTrades, ...guClosedTrades, ...wbClosedTrades, ...pscClosedTrades, ...momClosedTrades,
+        ...boClosedTrades, ...guClosedTrades, ...wbClosedTrades, ...pscClosedTrades, ...momClosedTrades, ...etfClosedTrades,
       ].sort((a, b) => (a.exitDate ?? "").localeCompare(b.exitDate ?? ""));
       streakScale = getStreakScale(allClosedSorted, loseStreakScaling);
     }
@@ -776,7 +866,7 @@ export function runCombinedSimulation(
       const sector = tickerSectorMap.get(ticker);
       if (!sector) return false;
       let count = 0;
-      for (const pos of [...boPositions, ...guPositions, ...wbPositions, ...pscPositions, ...momPositions]) {
+      for (const pos of [...boPositions, ...guPositions, ...wbPositions, ...pscPositions, ...momPositions, ...etfPositions]) {
         if (tickerSectorMap.get(pos.ticker) === sector) count++;
       }
       return count >= limits.maxPerSector;
@@ -1050,9 +1140,58 @@ export function runCombinedSimulation(
       }
     }
 
+    // ── 2f. US ETF エントリー（idle帯 breadth<54% のみ、precompute済みシグナル使用） ──
+    if (
+      etfConfigLocal &&
+      etfSignals &&
+      etfShouldTrade &&
+      todayRegime !== "crisis" &&
+      etfPositions.length < etfMaxPos &&
+      totalUnderLimit() &&
+      cash > 0
+    ) {
+      const signals = etfSignals.get(today) ?? [];
+      for (const signal of signals) {
+        if (etfPositions.length >= etfMaxPos || !totalUnderLimit()) break;
+        if (allOpenTickers.has(signal.ticker)) continue;
+
+        const stopLossPrice = signal.stopLossPrice;
+        if (stopLossPrice >= signal.entryPrice) continue;
+        const riskPerShare = signal.entryPrice - stopLossPrice;
+        if (riskPerShare <= 0) continue;
+
+        // ETF はリスク% × cash で枠を取り、1株単位で丸める（GU/PSC の100株単位とは異なる）
+        const riskAmount = cash * (etfConfigLocal.riskPct);
+        const rawQuantity = Math.floor(riskAmount / riskPerShare);
+        const unit = etfConfigLocal.unitShares;
+        let quantity = Math.floor(rawQuantity / unit) * unit;
+        if (quantity <= 0) continue;
+        const effEntry = applySlippage(signal.entryPrice, "buy", "entry_market", slippageProfile);
+        if (effEntry * quantity > cash) {
+          // 資金不足なら買える分だけに縮める
+          quantity = Math.floor(cash / effEntry / unit) * unit;
+          if (quantity <= 0) continue;
+        }
+
+        const tradeValue = effEntry * quantity;
+        const entryCommission = etfConfigLocal.costModelEnabled ? calculateCommission(tradeValue) : 0;
+        cash -= tradeValue + entryCommission;
+
+        etfPositions.push({
+          ticker: signal.ticker, entryDate: today, entryPrice: effEntry,
+          takeProfitPrice: 0, stopLossPrice: Math.round(stopLossPrice), quantity,
+          volumeSurgeRatio: signal.volumeSurgeRatio, regime: todayRegime,
+          maxHighDuringHold: effEntry, minLowDuringHold: effEntry, trailingStopPrice: null, entryAtr: 0,
+          exitDate: null, exitPrice: null, exitReason: null, pnl: null, pnlPct: null, holdingDays: null,
+          limitLockDays: 0, entryCommission, exitCommission: null, totalCost: null, tax: null, grossPnl: null, netPnl: null,
+        });
+        allOpenTickers.add(signal.ticker);
+      }
+    }
+
     // ── 3. エクイティスナップショット ──
     let positionsValue = 0;
-    for (const pos of [...boPositions, ...guPositions, ...wbPositions, ...pscPositions, ...momPositions]) {
+    for (const pos of [...boPositions, ...guPositions, ...wbPositions, ...pscPositions, ...momPositions, ...etfPositions]) {
       const eqBarIdx = dateIndexMap.get(pos.ticker)?.get(today);
       const markPrice = eqBarIdx != null ? allData.get(pos.ticker)![eqBarIdx].close : pos.entryPrice;
       positionsValue += markPrice * pos.quantity;
@@ -1064,19 +1203,20 @@ export function runCombinedSimulation(
       cash: Math.round(cash),
       positionsValue: Math.round(positionsValue),
       totalEquity: Math.round(cash + positionsValue + pendingTotal),
-      openPositionCount: boPositions.length + guPositions.length + wbPositions.length + pscPositions.length + momPositions.length,
+      openPositionCount: boPositions.length + guPositions.length + wbPositions.length + pscPositions.length + momPositions.length + etfPositions.length,
       ...(capitalAddedToday > 0 ? { capitalAdded: capitalAddedToday } : {}),
     });
   }
 
-  for (const pos of [...boPositions, ...guPositions, ...wbPositions, ...pscPositions, ...momPositions]) pos.exitReason = "still_open";
+  for (const pos of [...boPositions, ...guPositions, ...wbPositions, ...pscPositions, ...momPositions, ...etfPositions]) pos.exitReason = "still_open";
 
-  const allTrades = [...boClosedTrades, ...guClosedTrades, ...wbClosedTrades, ...pscClosedTrades, ...momClosedTrades, ...boPositions, ...guPositions, ...wbPositions, ...pscPositions, ...momPositions];
+  const allTrades = [...boClosedTrades, ...guClosedTrades, ...wbClosedTrades, ...pscClosedTrades, ...momClosedTrades, ...etfClosedTrades, ...boPositions, ...guPositions, ...wbPositions, ...pscPositions, ...momPositions, ...etfPositions];
   const boAllTrades = [...boClosedTrades, ...boPositions.filter((p) => p.exitReason === "still_open")];
   const guAllTrades = [...guClosedTrades, ...guPositions.filter((p) => p.exitReason === "still_open")];
   const wbAllTrades = [...wbClosedTrades, ...wbPositions.filter((p) => p.exitReason === "still_open")];
   const pscAllTrades = [...pscClosedTrades, ...pscPositions.filter((p) => p.exitReason === "still_open")];
   const momAllTrades = [...momClosedTrades, ...momPositions.filter((p) => p.exitReason === "still_open")];
+  const etfAllTrades = [...etfClosedTrades, ...etfPositions.filter((p) => p.exitReason === "still_open")];
 
   return {
     totalMetrics: calculateMetrics(allTrades, equityCurve, budget),
@@ -1085,6 +1225,7 @@ export function runCombinedSimulation(
     wbMetrics: calculateMetrics(wbAllTrades, equityCurve, budget),
     pscMetrics: calculateMetrics(pscAllTrades, equityCurve, budget),
     momMetrics: calculateMetrics(momAllTrades, equityCurve, budget),
+    etfMetrics: calculateMetrics(etfAllTrades, equityCurve, budget),
     equityCurve,
     allTrades,
     boTrades: boAllTrades,
@@ -1092,6 +1233,7 @@ export function runCombinedSimulation(
     wbTrades: wbAllTrades,
     pscTrades: pscAllTrades,
     momTrades: momAllTrades,
+    etfTrades: etfAllTrades,
     totalCapitalAdded,
     haltDays,
   };

@@ -29,6 +29,8 @@ import { precomputeMomentumSignals } from "./momentum-simulation";
 import { MOMENTUM_BACKTEST_DEFAULTS, MOMENTUM_LARGECAP_PARAMS } from "./momentum-config";
 import { precomputeWeeklyBreakSignals } from "./weekly-break-simulation";
 import { WEEKLY_BREAK_BACKTEST_DEFAULTS, WEEKLY_BREAK_LARGECAP_PARAMS } from "./weekly-break-config";
+import { precomputeUSEtfSignals, type PrecomputedUSEtfSignals } from "./us-etf-simulation";
+import { US_ETF_DEFAULT_CONFIG, type USEtfBacktestConfig } from "./us-etf-config";
 import { fetchHistoricalFromDB, fetchVixFromDB, fetchIndexFromDB } from "./data-fetcher";
 import { calculateCapitalUtilization, calculateMetrics } from "./metrics";
 import { runCombinedSimulation, type PositionLimits, type BreadthMode } from "./combined-simulation";
@@ -370,6 +372,8 @@ async function main() {
   const momMaxArg = getArg(args, "--mom-max");
   const enableWbLargecap = args.includes("--enable-wb-largecap");
   const wbMaxArg = getArg(args, "--wb-max");
+  const enableEtf = args.includes("--enable-etf");
+  const etfMaxArg = getArg(args, "--etf-max");
   const maxPerSectorArg = getArg(args, "--max-per-sector");
   const compareSector = args.includes("--compare-sector");
   const compareSectorRotation = args.includes("--compare-sector-rotation");
@@ -551,6 +555,38 @@ async function main() {
     momSignals = precomputeMomentumSignals(momConfig, allDataForMom, precomputed);
   }
 
+  // --enable-etf: 米株ETF (1547/1545) のシグナル precompute + allData にマージ
+  let etfConfig: USEtfBacktestConfig | undefined;
+  let etfSignals: PrecomputedUSEtfSignals | undefined;
+  if (enableEtf) {
+    etfConfig = { ...US_ETF_DEFAULT_CONFIG };
+    const etfRawData = await fetchHistoricalFromDB(etfConfig.tickers, startDate, endDate);
+    const etfDataMap = new Map<string, import("../core/technical-analysis").OHLCVData[]>();
+    let totalBars = 0;
+    for (const ticker of etfConfig.tickers) {
+      const bars = etfRawData.get(ticker);
+      if (bars && bars.length > 0) {
+        etfDataMap.set(ticker, bars);
+        totalBars += bars.length;
+        // ETF を allData にもマージ（exit/equity計算で dateIndexMap 経由のアクセスが必要）
+        allData.set(ticker, bars);
+      }
+    }
+    console.log(`[data] US ETF universe: ${etfConfig.tickers.join(", ")} (${totalBars}本)`);
+    etfSignals = precomputeUSEtfSignals(etfDataMap, precomputed.dailyBreadth, etfConfig);
+    const sigDays = etfSignals.size;
+    let sigTotal = 0;
+    for (const arr of etfSignals.values()) sigTotal += arr.length;
+    console.log(`[data] US ETF シグナル: ${sigTotal}件 / ${sigDays}日 (idle帯 breadth<${(etfConfig.breadthMax * 100).toFixed(0)}%)`);
+
+    // precomputed.dateIndexMap に ETF 銘柄を追加（既存ロジックでは銘柄ユニバースに含まれないため必須）
+    for (const [ticker, bars] of etfDataMap) {
+      const map = new Map<string, number>();
+      bars.forEach((b, idx) => map.set(dayjs(b.date).format("YYYY-MM-DD"), idx));
+      precomputed.dateIndexMap.set(ticker, map);
+    }
+  }
+
   const ctx = {
     guConfig,
     pscConfig,
@@ -559,6 +595,8 @@ async function main() {
     weeklyBreakSignals,
     momConfig,
     momSignals,
+    etfConfig,
+    etfSignals,
     budget,
     verbose: !quietMode && verbose,
     allData,
@@ -578,6 +616,7 @@ async function main() {
     pscMax: 2,
     ...(enableMomentum ? { momMax: Number(momMaxArg ?? 2) } : {}),
     ...(enableWbLargecap ? { wbMax: Number(wbMaxArg ?? 2) } : {}),
+    ...(enableEtf ? { etfMax: Number(etfMaxArg ?? 2) } : {}),
     ...(maxPerSectorArg !== undefined ? { maxPerSector: Number(maxPerSectorArg) } : {}),
   };
 
@@ -2637,6 +2676,7 @@ async function main() {
   const slotsParts = [`GU${defaultLimits.guMax}`, `PSC${defaultLimits.pscMax ?? 0}`];
   if (enableWbLargecap) slotsParts.push(`WB${defaultLimits.wbMax ?? 0}`);
   if (enableMomentum) slotsParts.push(`MOM${defaultLimits.momMax ?? 0}`);
+  if (enableEtf) slotsParts.push(`ETF${defaultLimits.etfMax ?? 0}`);
   console.log(`ポジション枠: ${slotsParts.join(" + ")}`);
   const result = runCombinedSimulation(ctx, defaultLimits);
 
@@ -2657,6 +2697,9 @@ async function main() {
   }
   if (enableMomentum) {
     printMetrics(result.momMetrics, "Momentum (大型株)");
+  }
+  if (enableEtf) {
+    printMetrics(result.etfMetrics, "US ETF (1547/1545, idle帯)");
   }
 
   const exitReasons = new Map<string, number>();
