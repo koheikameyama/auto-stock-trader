@@ -265,7 +265,7 @@ describe("TachibanaClient", () => {
         createMockResponse({
           "287": "0",
           "334": "CLMOrderList",
-          "744": "20000000",
+          "743": "20000000",
         }),
       );
 
