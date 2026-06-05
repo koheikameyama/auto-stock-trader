@@ -162,6 +162,20 @@ export class TachibanaClient {
       );
     }
 
+    // v4r9 numeric key map 検証用: ログイン応答に含まれる全キーをログ出力
+    // （URL値はマスク。本来 5本の仮想URL がどの数値キーに入っているかを特定するため）
+    console.log(
+      "[TachibanaClient] Login raw response keys:",
+      JSON.stringify(
+        Object.fromEntries(
+          Object.entries(raw).map(([k, v]) => [
+            k,
+            typeof v === "string" && v.length > 40 ? `${v.slice(0, 40)}…(len=${v.length})` : v,
+          ]),
+        ),
+      ),
+    );
+
     // 仮想URLは公開鍵で暗号化されているので秘密鍵で復号する（v4r9）
     const encRequest = raw.sUrlRequest as string | undefined;
     const encMaster = raw.sUrlMaster as string | undefined;

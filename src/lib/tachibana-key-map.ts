@@ -13,11 +13,12 @@ const NUMERIC_KEY_MAP: Record<string, string> = {
   "334": "sCLMID",
 
   // ログインレスポンス
-  "872": "sUrlRequest",
-  "870": "sUrlMaster",
-  "871": "sUrlPrice",
-  "868": "sUrlEvent",
-  "869": "sUrlEventWebSocket",
+  // v4r9 で URL の数値キーが +1 シフト（本番DBの session URL 実態から判明）
+  "873": "sUrlRequest",       // v4r8: 872
+  "871": "sUrlMaster",        // v4r8: 870
+  "872": "sUrlPrice",         // v4r8: 871
+  "869": "sUrlEvent",         // v4r8: 868
+  "870": "sUrlEventWebSocket", // v4r8: 869
   "744": "sSummaryGenkabuKaituke",
   "549": "sLastLoginDate",
   "552": "sKinsyouhouMidokuFlg",
