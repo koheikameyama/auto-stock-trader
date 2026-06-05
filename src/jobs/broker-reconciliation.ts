@@ -23,13 +23,20 @@
  * Phase 4: 孤立買い注文キャンセル
  */
 
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
 import { prisma } from "../lib/prisma";
 import { notifySlack } from "../lib/slack";
 import { syncBrokerOrderStatuses, getHoldings, getOrderDetail, getOrders } from "../core/broker-orders";
 import { recoverMissedFills } from "../core/broker-fill-handler";
 import { TACHIBANA_ORDER, TACHIBANA_ORDER_STATUS, BROKER_RECONCILIATION, isTachibanaProduction } from "../lib/constants/broker";
+import { TIMEZONE } from "../lib/constants";
 import { closePosition } from "../core/position-manager";
 import { cancelBrokerSL } from "../core/broker-sl-manager";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 // 約定直後はブローカーの保有反映が遅れるためスキップする猶予期間
 const HOLDINGS_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5分
@@ -216,8 +223,8 @@ async function reconcileHoldings(): Promise<void> {
   }
 
   // 9:05 JST以前は立花APIの保有データが未反映の可能性があるためスキップ
-  const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000); // UTC→JST
-  const currentMinuteJST = nowJST.getUTCHours() * 60 + nowJST.getUTCMinutes();
+  const nowJST = dayjs().tz(TIMEZONE);
+  const currentMinuteJST = nowJST.hour() * 60 + nowJST.minute();
   if (currentMinuteJST < BROKER_RECONCILIATION.HOLDINGS_CHECK_START_MINUTE_JST) {
     console.log("[broker-reconciliation] 保有照合: 9:05 JST以前のためスキップ");
     return;

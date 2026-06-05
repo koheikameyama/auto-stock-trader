@@ -140,7 +140,7 @@
 
 | フィールド | 説明 | 値 |
 |-----------|------|-----|
-| `sZyoutoekiKazeiC` | 譲渡益課税区分 | `"1"` 特定 / `"3"` 一般 / `"5"` NISA |
+| `sZyoutoekiKazeiC` | 譲渡益課税区分 | `"1"` 特定 / `"3"` 一般 / `"5"` NISA / `"6"` N成長（NISA成長投資枠、2024年〜） |
 | `sSecondPasswordOmit` | 暗証番号省略有無 | `"0"` 固定（省略不可） |
 | `sLastLoginDate` | 最終ログイン日時 | `YYYYMMDDHHMMSS` |
 | `sSinyouKouzaKubun` | 信用取引口座開設区分 | `"0"` 未開設 / `"1"` 開設 |
@@ -611,7 +611,7 @@
 }
 ```
 
-> **注意**: 銘柄コード・市場は未使用（空文字を指定）。
+> **⚠️ v4r9 必須項目**: `sIssueCode` と `sSizyouC` は値が「未使用」だが、**フィールド自体は省略不可**。空文字でも送らないと立花側で `sResultCode != "0"` のエラーになる（2026-06-05 commit f613f881 で修正）。同様の構造は `CLMZanShinkiKanoIjiritu` にもあり。
 
 #### レスポンス
 

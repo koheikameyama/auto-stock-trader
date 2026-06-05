@@ -134,7 +134,7 @@ URL: {API専用URL}/auth/?{JSON}
 
 | パラメータ | 説明 | 値 |
 |-----------|------|-----|
-| sZyoutoekiKazeiC | 譲渡益課税区分 | `"1"` 特定, `"3"` 一般, `"5"` NISA |
+| sZyoutoekiKazeiC | 譲渡益課税区分 | `"1"` 特定, `"3"` 一般, `"5"` NISA, `"6"` N成長（NISA成長投資枠、2024年〜） |
 | sIssueCode | 銘柄コード | 例: `"8411"` |
 | sSizyouC | 市場 | `"00"` = 東証 |
 | sBaibaiKubun | 売買区分 | `"1"` 売, `"3"` 買 |
@@ -192,6 +192,14 @@ URL: {API専用URL}/auth/?{JSON}
 | 855 | sUriOrderGaisanHyoukaSoneki | 評価損益 |
 
 ### 買余力 (CLMZanKaiKanougaku)
+
+**⚠️ v4r9 リクエスト必須項目:**
+- `sIssueCode`: `""`（値は未使用だが**フィールド省略不可**、省略すると `sResultCode != "0"` でエラー）
+- `sSizyouC`: `""`（同上）
+
+同様の構造は `CLMZanShinkiKanoIjiritu` にもある。
+
+**レスポンス:**
 
 | 数値キー | 名前付きキー | 説明 |
 |---------|-------------|------|

@@ -20,7 +20,7 @@ import {
   loadTachibanaPrivateKey,
 } from "../lib/tachibana-crypto";
 import { TIMEZONE } from "../lib/constants";
-import { notifyBrokerError, notifyBrokerLoginArmRequired } from "../lib/slack";
+import { notifyBrokerError, notifyBrokerLoginArmRequired, notifySlack } from "../lib/slack";
 import { prisma } from "../lib/prisma";
 
 dayjs.extend(utc);
@@ -76,6 +76,8 @@ export class TachibanaClient {
   private loginLockNotified = false;
   /** 最後に「arm 必要」Slack通知を送った時刻（スパム防止） */
   private lastArmRequiredNotifiedAt: number = 0;
+  /** 最後に通知した保守予定日キー（"webDoc:YYYYMMDD|apiSpec:YYYYMMDD"）。同値なら再通知しない */
+  private lastMaintenanceNoticeKey: string | null = null;
   /** ログインロック：手動解除まで無期限停止（Prisma/PostgreSQL互換の遠未来日時） */
   private static readonly INDEFINITE_LOCK_DATE = new Date("9999-12-31T23:59:59.999Z");
   /**
@@ -175,6 +177,11 @@ export class TachibanaClient {
         ),
       ),
     );
+
+    // 保守予定日（交付書面更新 / API リリース）の通知（v4r9）
+    // 数値キーは公式ドキュメントに記載なし。名前付きキーで返るケースをフォールバック検出。
+    // 数値キーで返る場合はログ dump（上の console.log）から発見次第 tachibana-key-map.ts に追加する。
+    await this.checkMaintenanceNotices(raw);
 
     // 仮想URLは公開鍵で暗号化されているので秘密鍵で復号する（v4r9）
     const encRequest = raw.sUrlRequest as string | undefined;
@@ -569,6 +576,53 @@ export class TachibanaClient {
    *
    * demo環境または `TACHIBANA_REQUIRE_LOGIN_ARM=false` ではスキップ。
    */
+  /**
+   * 保守予定日（交付書面更新 / e支店APIリリース）の検出と Slack 通知
+   *
+   * v4r9 で追加された `sUpdateInformWebDocument` / `sUpdateInformAPISpecFunction` は
+   * 該当事象の予定日を事前にお知らせする項目。
+   * - 予定日 ≥ 当日日付 で、かつ前回通知と異なるキーの場合に Slack 通知する
+   * - 予定日が決まるまでは同値が返り続けるため、in-memory の `lastMaintenanceNoticeKey` で dedup
+   *
+   * 数値キーは未確認のため、まず名前付きキーで参照。数値キーで返る場合は
+   * login() 内の raw keys dump から発見次第 tachibana-key-map.ts に追加する。
+   */
+  private async checkMaintenanceNotices(raw: Record<string, unknown>): Promise<void> {
+    const webDoc = typeof raw.sUpdateInformWebDocument === "string" ? raw.sUpdateInformWebDocument : "";
+    const apiSpec = typeof raw.sUpdateInformAPISpecFunction === "string" ? raw.sUpdateInformAPISpecFunction : "";
+
+    if (!webDoc && !apiSpec) return;
+
+    const today = dayjs().tz(TIMEZONE).format("YYYYMMDD");
+    const upcoming: string[] = [];
+    if (webDoc && webDoc >= today) upcoming.push(`交付書面更新予定日: ${webDoc}`);
+    if (apiSpec && apiSpec >= today) upcoming.push(`e支店・APIリリース予定日: ${apiSpec}`);
+
+    if (!upcoming.length) return;
+
+    const key = `webDoc:${webDoc}|apiSpec:${apiSpec}`;
+    if (this.lastMaintenanceNoticeKey === key) return;
+    this.lastMaintenanceNoticeKey = key;
+
+    console.warn(`[TachibanaClient] 立花証券保守通知: ${upcoming.join(" / ")}`);
+
+    try {
+      await notifySlack({
+        title: "📢 立花証券 保守通知（v4r9）",
+        message: [
+          ...upcoming,
+          "",
+          "予定日までに対応してください:",
+          "- 交付書面更新: 標準Webで書面確認",
+          "- APIリリース: HPで変更内容を確認し必要な対処を実施",
+        ].join("\n"),
+        color: "warning",
+      });
+    } catch (err) {
+      console.error("[TachibanaClient] Failed to notify maintenance notice to Slack:", err);
+    }
+  }
+
   private async requireLoginArm(): Promise<void> {
     if (!this.isLoginArmRequired()) return;
 

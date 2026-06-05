@@ -22,6 +22,10 @@ const NUMERIC_KEY_MAP: Record<string, string> = {
   "744": "sSummaryGenkabuKaituke",
   "549": "sLastLoginDate",
   "552": "sKinsyouhouMidokuFlg",
+  // v4r9 保守通知フィールド: 数値キー未確認。名前付きキーで返るケースは
+  // broker-client.ts の checkMaintenanceNotices() でフォールバック処理する。
+  // 数値キーが判明したらここに追加: "???": "sUpdateInformWebDocument",
+  //                                "???": "sUpdateInformAPISpecFunction",
 
   // 注文レスポンス（共通）
   "688": "sOrderResultCode",   // サブ結果コード（"0"以外はエラー）

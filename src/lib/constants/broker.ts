@@ -149,6 +149,7 @@ export const TACHIBANA_ORDER = {
     SPECIFIC: "1",
     GENERAL: "3",
     NISA: "5",
+    NISA_GROWTH: "6",
   },
   /** 成行注文価格 */
   MARKET_PRICE: "0",
