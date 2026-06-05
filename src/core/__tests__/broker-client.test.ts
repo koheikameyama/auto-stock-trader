@@ -65,11 +65,11 @@ function loginSuccessResponse() {
   return createMockResponse({
     "287": "0",
     "334": "CLMAuthLoginAck",
-    "872": encUrl("https://vurl/request/"),
-    "870": encUrl("https://vurl/master/"),
-    "871": encUrl("https://vurl/price/"),
-    "868": encUrl("https://vurl/event/"),
-    "869": encUrl("wss://vurl/ws/"),
+    "873": encUrl("https://vurl/request/"),
+    "871": encUrl("https://vurl/master/"),
+    "872": encUrl("https://vurl/price/"),
+    "869": encUrl("https://vurl/event/"),
+    "870": encUrl("wss://vurl/ws/"),
     "552": "0",
   });
 }

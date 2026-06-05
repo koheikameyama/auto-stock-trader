@@ -7,7 +7,7 @@ describe("mapNumericKeys", () => {
       "287": "0",
       "286": "",
       "334": "CLMAuthLoginAck",
-      "872": "https://example.com/request",
+      "873": "https://example.com/request",
     };
 
     const result = mapNumericKeys(input);
@@ -61,7 +61,7 @@ describe("mapNumericKeys", () => {
 describe("getNumericKey", () => {
   it("名前付きキーから数値キーを逆引きする", () => {
     expect(getNumericKey("sResultCode")).toBe("287");
-    expect(getNumericKey("sUrlRequest")).toBe("872");
+    expect(getNumericKey("sUrlRequest")).toBe("873");
     expect(getNumericKey("sOrderNumber")).toBe("532");
   });
 
