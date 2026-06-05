@@ -294,12 +294,6 @@ export async function getBuyingPower(): Promise<number | null> {
     sSizyouC: "",
   });
 
-  // v4r9 numeric key 検証用: 応答に含まれる全キーをログ出力
-  console.log(
-    "[getBuyingPower] response keys:",
-    JSON.stringify(res),
-  );
-
   if (res.sResultCode !== "0") return null;
 
   return Number(res.sSummaryGenkabuKaituke ?? 0);

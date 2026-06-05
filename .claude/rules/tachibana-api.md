@@ -199,13 +199,14 @@ URL: {API専用URL}/auth/?{JSON}
 
 同様の構造は `CLMZanShinkiKanoIjiritu` にもある。
 
-**レスポンス:**
+**レスポンス (v4r9 本番実測):**
 
 | 数値キー | 名前付きキー | 説明 |
 |---------|-------------|------|
-| 744 | sSummaryGenkabuKaituke | 株式現物買付可能額 |
-| 746 | sSummaryNseityouTousiKanougaku | NISA成長投資可能額 |
-| 451 | sHusokukinHasseiFlg | 不足金発生フラグ |
+| 743 | sSummaryGenkabuKaituke | 株式現物買付可能額（v4r8: 744） |
+| 745 | sSummaryNseityouTousiKanougaku | NISA成長投資可能額（v4r8: 746） |
+| 747 | sSummaryUpdate | 更新日時 YYYYMMDDHHMM（新規） |
+| — | sHusokukinHasseiFlg | 不足金発生フラグ（v4r9 では名前付きキーで返る） |
 
 ### 注文一覧 (CLMOrderList)
 

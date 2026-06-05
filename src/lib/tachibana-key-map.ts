@@ -19,7 +19,7 @@ const NUMERIC_KEY_MAP: Record<string, string> = {
   "872": "sUrlPrice",         // v4r8: 871
   "869": "sUrlEvent",         // v4r8: 868
   "870": "sUrlEventWebSocket", // v4r8: 869
-  "744": "sSummaryGenkabuKaituke",
+  "743": "sSummaryGenkabuKaituke", // v4r8: 744 (v4r9 で -1 シフト、本番実測)
   "549": "sLastLoginDate",
   "552": "sKinsyouhouMidokuFlg",
   // v4r9 保守通知フィールド: 数値キー未確認。名前付きキーで返るケースは
@@ -67,9 +67,10 @@ const NUMERIC_KEY_MAP: Record<string, string> = {
   "857": "sUriOrderGaisanHyoukagaku",
   "855": "sUriOrderGaisanHyoukaSoneki",
 
-  // 買余力
-  "746": "sSummaryNseityouTousiKanougaku",
-  "451": "sHusokukinHasseiFlg",
+  // 買余力 (v4r9 で -1 シフト、本番実測)
+  "745": "sSummaryNseityouTousiKanougaku", // v4r8: 746
+  "747": "sSummaryUpdate",                  // 新規
+  // sHusokukinHasseiFlg は v4r9 では名前付きキーで返る
 
   // 時価情報 (CLMMfdsGetMarketPrice)
   "71": "aMarketPriceList",
