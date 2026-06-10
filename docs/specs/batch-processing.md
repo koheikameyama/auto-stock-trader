@@ -362,11 +362,16 @@ checkOrderFill(order, currentHigh, currentLow):
 1. **JPXページ取得**: `https://www.jpx.co.jp/listing/stocks/new/index.html`
 2. **HTMLパース**: cheerioで各行のセルを走査し、上場日・コード・市場区分・銘柄名を柔軟に抽出（`jpx-delisting-sync.ts` と同方式）
 3. **絞り込み**: 直近 `RECENT_DAYS`(7日) 〜 先読み `UPCOMING_DAYS`(60日) の範囲を上場日昇順で整列
-4. **Slack通知**: 上場予定（🆕）/直近上場済（✅）を一覧で通知。0件抽出時は warning 通知（HTML構造変化の検知）
+4. **Tier A 分析の付与**（既存データのみ使用、追加スクレイピングなし）:
+   - **相場環境スコア**: `detectRegimeShift()` の breadth + regime level から「IPO初値が伸びやすい局面か」を判定（🟢強気/🟢良好/🟠過熱/🔴弱気・offseason）。ツールのシーズン性知見の転用。相場データ未整備時はベストエフォートでスキップ
+   - **同日上場集中度**: 同一上場日の件数を集計し需要分散リスクを注記（3件以上で⚠）
+   - **市場区分タグ**: グロース（小型・初値跳ねやすい）/ プライム（大型・伸びにくい）等の傾向ヒント
+5. **Slack通知**: 相場環境ヘッダー + 上場予定（🆕）/直近上場済（✅）の一覧。0件抽出時は warning 通知（HTML構造変化の検知）
 
 ### DB操作
 
-- なし（読み取り・書き込みともDBアクセスなし）
+- **Read**: `MarketAssessment` 等（`detectRegimeShift` 経由の相場環境スコア算出のみ）
+- **Write**: なし
 
 ### 注意
 

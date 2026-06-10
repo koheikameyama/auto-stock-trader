@@ -18,9 +18,15 @@
  *   セレクタは jpx-delisting-sync.ts と同じ「セルを走査して日付/コード/市場を柔軟に拾う」方式。
  */
 
-import { JPX_NEW_LISTING } from "../lib/constants";
+import { JPX_NEW_LISTING, MARKET_BREADTH } from "../lib/constants";
 import { getTodayForDB } from "../lib/market-date";
 import { notifySlack } from "../lib/slack";
+import {
+  detectRegimeShift,
+  getLevelEmoji,
+  getLevelLabel,
+  type SignalLevel,
+} from "../core/regime-shift-detector";
 import * as cheerio from "cheerio";
 import dayjs from "dayjs";
 
@@ -29,6 +35,62 @@ interface NewListingEntry {
   name: string;
   listingDate: Date;
   market: string;
+}
+
+/** Tier A 分析: 相場環境スコア（IPO初値が伸びやすい局面かを判定） */
+interface IpoMarketEnvironment {
+  emoji: string;
+  headline: string;
+}
+
+/**
+ * 相場環境をIPO初値の伸びやすさの観点で分類する。
+ *
+ * 本ツールのシーズン性の知見（弱気相場＝breadth<54% では IPO も公募割れが増え初値が伸びにくい、
+ * D期＝大強気相場では初値が跳ねやすい）を IPO 判断に転用する。
+ */
+function classifyIpoEnvironment(
+  breadth: number | null,
+  level: SignalLevel | null,
+): IpoMarketEnvironment | null {
+  if (breadth == null) return null;
+  const pct = `breadth ${Math.round(breadth * 100)}%`;
+  const levelStr = level ? `・${getLevelLabel(level)}` : "";
+
+  // D期（大強気）に近い = IPO初値が最も伸びやすい
+  if (level === "STRONG_BULL" || level === "MODERATE_BULL") {
+    return {
+      emoji: "🟢",
+      headline: `${pct}${levelStr} → 強気相場。IPO初値が伸びやすい局面`,
+    };
+  }
+  // 過熱: 初値popは出やすいが上場後の調整リスク
+  if (breadth >= MARKET_BREADTH.UPPER_CAP) {
+    return {
+      emoji: "🟠",
+      headline: `${pct}${levelStr} → 過熱気味。初値popは出やすいが上場直後の調整に注意`,
+    };
+  }
+  // band内: 良好
+  if (breadth >= MARKET_BREADTH.THRESHOLD) {
+    return {
+      emoji: "🟢",
+      headline: `${pct}${levelStr} → 良好な地合い。IPO初値は伸びやすい寄り`,
+    };
+  }
+  // idle / offseason: 弱気。公募割れ増
+  return {
+    emoji: "🔴",
+    headline: `${pct}${levelStr} → 弱気・offseason。公募割れが増えやすく初値も伸びにくい。当選しても初値売り徹底推奨`,
+  };
+}
+
+/** 市場区分から初値傾向のヒントを返す（Tier A 分析） */
+function marketSegmentHint(market: string): string {
+  if (market.includes("グロース")) return "小型・初値跳ねやすい傾向";
+  if (market.includes("スタンダード")) return "中型";
+  if (market.includes("プライム")) return "大型・初値は伸びにくい傾向";
+  return "";
 }
 
 /** 4桁の証券コード（数字4桁、または2024年以降の英数字混在コード 例: 130A）。市場名等の誤検出を避ける */
@@ -129,11 +191,25 @@ async function fetchNewListings(): Promise<NewListingEntry[]> {
   return entries;
 }
 
-function formatEntry(entry: NewListingEntry, today: Date): string {
+function formatEntry(
+  entry: NewListingEntry,
+  today: Date,
+  sameDayCount: number,
+): string {
   const dateStr = dayjs(entry.listingDate).format("YYYY-MM-DD");
   const isUpcoming = entry.listingDate.getTime() > today.getTime();
   const marker = isUpcoming ? "🆕 上場予定" : "✅ 上場済";
-  return `${marker} ${dateStr}  ${entry.code}  ${entry.name}（${entry.market}）`;
+
+  const segHint = marketSegmentHint(entry.market);
+  const segPart = segHint ? `｜${segHint}` : "";
+
+  // 同日上場集中度（需要分散リスク）。3件以上で警告マーク
+  const concentration =
+    sameDayCount >= 3
+      ? `｜⚠ 同日上場 ${sameDayCount}件（需要分散注意）`
+      : `｜同日上場 ${sameDayCount}件`;
+
+  return `${marker} ${dateStr}  ${entry.code}  ${entry.name}（${entry.market}${segPart}）${concentration}`;
 }
 
 export async function main() {
@@ -198,11 +274,40 @@ export async function main() {
     (e) => e.listingDate.getTime() > today.getTime(),
   ).length;
 
-  const message = relevant.map((e) => formatEntry(e, today)).join("\n");
+  // Tier A 分析: 同日上場の集中度（需要分散リスク）
+  const sameDayCounts = new Map<string, number>();
+  for (const e of relevant) {
+    const key = dayjs(e.listingDate).format("YYYYMMDD");
+    sameDayCounts.set(key, (sameDayCounts.get(key) ?? 0) + 1);
+  }
+
+  // Tier A 分析: 相場環境スコア（ツールのシーズン性知見を流用）
+  let envBlock = "";
+  try {
+    const regime = await detectRegimeShift({});
+    const env = classifyIpoEnvironment(regime.current.breadth, regime.level);
+    if (env) {
+      envBlock = `${getLevelEmoji(regime.level)} 相場環境: ${env.emoji} ${env.headline}\n\n`;
+    }
+  } catch (error) {
+    // 相場データ未整備でも通知自体は継続する（分析はベストエフォート）
+    console.warn("  相場環境スコアの算出に失敗（分析をスキップ）:", error);
+  }
+
+  const message = relevant
+    .map((e) =>
+      formatEntry(
+        e,
+        today,
+        sameDayCounts.get(dayjs(e.listingDate).format("YYYYMMDD")) ?? 1,
+      ),
+    )
+    .join("\n");
 
   await notifySlack({
     title: `📈 IPO 上場カレンダー（予定 ${upcomingCount}件 / 直近${JPX_NEW_LISTING.RECENT_DAYS}日含む計 ${relevant.length}件）`,
     message:
+      envBlock +
       message +
       "\n\n※ 立花e支店はIPO抽選を扱いません。参加は楽天証券など別口座で手動で行ってください。" +
       `\n出典: ${JPX_NEW_LISTING.LIST_URL}`,

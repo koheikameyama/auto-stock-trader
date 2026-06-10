@@ -11,6 +11,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
 jobs:
@@ -24,6 +25,7 @@ jobs:
           node-version-file: ".tool-versions"
           cache: "npm"
       - run: npm ci
+      - run: npx prisma generate
       - name: Notify IPO calendar
         run: npm run ipo-calendar-notify
 
