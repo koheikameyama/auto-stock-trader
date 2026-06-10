@@ -1,0 +1,44 @@
+name: "[Scheduled] IPO Calendar Notify"
+
+on:
+  schedule:
+    # 月曜 7:00 JST = 日曜 22:00 UTC（jpx-csv-sync の1時間後）
+    - cron: "0 22 * * 0"
+  workflow_dispatch:
+
+concurrency:
+  group: ipo-calendar-notify
+  cancel-in-progress: false
+
+env:
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+jobs:
+  ipo-calendar-notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - name: Notify IPO calendar
+        run: npm run ipo-calendar-notify
+
+  notify-failure:
+    needs: ipo-calendar-notify
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on failure
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "❌ IPO Calendar Notify 失敗"
+          SLACK_MESSAGE: |
+            IPO上場カレンダー通知が失敗しました。
+            詳細はGitHub Actionsログを確認してください。
+          SLACK_COLOR: danger
+          SLACK_FOOTER: "Auto Stock Trader"

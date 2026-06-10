@@ -151,6 +151,7 @@ watchlist-builderは2種類のウォッチリストを同時に構築する。
 | defensive-exit-followup | scheduled_defensive-exit-followup.yml | `20 7 * * 1-5` | 平日 16:20 JST | ディフェンシブ出口判断の事後検証 |
 | unfilled-order-followup | scheduled_unfilled-order-followup.yml | `30 7 * * 1-5` | 平日 16:30 JST | 未約定注文の事後検証 |
 | jpx-delisting-sync | scheduled_jpx-delisting-sync.yml | `0 0 * * 6` | 土曜 9:00 JST | JPX廃止予定同期 |
+| ipo-calendar-notify | scheduled_ipo-calendar.yml | `0 22 * * 0` | 月曜 7:00 JST | JPX新規上場（IPO）の直近上場/上場予定をSlack通知（情報のみ、DB更新なし） |
 | weekly-review | scheduled_weekly-review.yml | `0 1 * * 6` | 土曜 10:00 JST | 週次レビュー |
 | data-cleanup | scheduled_data-cleanup.yml | `0 18 * * 0` | 月曜 3:00 JST | 全テーブルのリテンション期間超過データ削除 |
 | run-backtest | scheduled_daily-backtest.yml | `30 7 * * 1-5` | 平日 16:30 JST | ブレイクアウト戦略バックテスト（直近12ヶ月） |
@@ -344,6 +345,32 @@ checkOrderFill(order, currentHigh, currentLow):
 
 - **Read**: `Stock`（廃止対象チェック）
 - **Write**: `Stock`（delistingDate, isRestricted, isDelisted更新）, `StockStatusLog`
+
+---
+
+## 8.5. JPX新規上場（IPO）通知（src/jobs/jpx-new-listing-notify.ts）
+
+**実行**: 月曜 7:00 JST（`npm run ipo-calendar-notify` で手動実行も可）
+**役割**: JPX公式の「新規上場銘柄一覧」から直近上場・上場予定のIPO銘柄をSlack通知（**情報通知専用、DB更新なし**）
+
+### 背景
+
+発注先の立花証券 e支店 はIPO（新規公開株）の抽選を取り扱わない。そのためIPOへの参加・購入は楽天証券など別口座で手動で行う前提とし、本ジョブは「どの銘柄がいつ上場するか」を知らせる情報レーダーに徹する。`listingDate` の記録は `jpx-csv-sync.ts` が担当するため、本ジョブはDBを更新しない。
+
+### 処理フロー
+
+1. **JPXページ取得**: `https://www.jpx.co.jp/listing/stocks/new/index.html`
+2. **HTMLパース**: cheerioで各行のセルを走査し、上場日・コード・市場区分・銘柄名を柔軟に抽出（`jpx-delisting-sync.ts` と同方式）
+3. **絞り込み**: 直近 `RECENT_DAYS`(7日) 〜 先読み `UPCOMING_DAYS`(60日) の範囲を上場日昇順で整列
+4. **Slack通知**: 上場予定（🆕）/直近上場済（✅）を一覧で通知。0件抽出時は warning 通知（HTML構造変化の検知）
+
+### DB操作
+
+- なし（読み取り・書き込みともDBアクセスなし）
+
+### 注意
+
+JPXがHTML構造を変更するとパースが壊れる。`workflow_dispatch` での手動実行で動作確認可能。0件検出時は warning でSlack可視化する。
 
 ---
 
