@@ -29,6 +29,7 @@
     "backfill:trading-config": "tsx src/jobs/backfill-trading-config.ts",
     "jpx-sync": "tsx src/jobs/jpx-csv-sync.ts",
     "delisting-sync": "tsx src/jobs/jpx-delisting-sync.ts",
+    "ipo-calendar-notify": "tsx src/jobs/jpx-new-listing-notify.ts",
     "anomaly-detector": "tsx src/jobs/anomaly-detector.ts",
     "backtest:combined": "tsx src/backtest/combined-run.ts",
     "backtest:health-check": "tsx src/backtest/health-check-run.ts",

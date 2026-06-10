@@ -42,6 +42,16 @@ export const JPX_DELISTING = {
   RESTRICTION_DAYS_BEFORE: 30,
 } as const;
 
+// JPX新規上場（IPO）スクレイピング設定
+export const JPX_NEW_LISTING = {
+  /** JPX新規上場銘柄一覧ページURL */
+  LIST_URL: "https://www.jpx.co.jp/listing/stocks/new/index.html",
+  /** 上場済み銘柄を「直近上場」として通知に含める日数（過去何日分まで） */
+  RECENT_DAYS: 7,
+  /** 上場予定銘柄を通知に含める先読み日数（未来何日分まで） */
+  UPCOMING_DAYS: 60,
+} as const;
+
 // JPX監理・整理銘柄スクレイピング設定
 export const JPX_SUPERVISION = {
   /** JPX監理・整理銘柄一覧ページURL */
