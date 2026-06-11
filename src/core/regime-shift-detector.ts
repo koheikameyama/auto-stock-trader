@@ -214,6 +214,20 @@ export function formatBullMarketMessage(r: BullMarketResult): string {
   return lines.join("\n");
 }
 
+/**
+ * 1行サマリー。毎日飛ぶ breadth-notify に相乗りして「D期にどれだけ近いか」を
+ * 常時可視化する用（regime-shift-notify はレベル変化時しか飛ばないため）。
+ */
+export function formatBullMarketLine(r: BullMarketResult): string {
+  const s = r.signals;
+  const tick = (b: boolean) => (b ? "✅" : "❌");
+  return (
+    `🌡️ D期監視: ${LEVEL_EMOJI[r.level]} ${LEVEL_LABEL[r.level]} ${r.signalCount}/5` +
+    `（日経>SMA50${tick(s.nikkeiAboveSma50)} 傾き${tick(s.nikkeiSma50Rising)} VIX<25${tick(s.vixLow)}` +
+    ` / breadth連続${tick(s.breadthAboveThreshold5Days)} 回復${tick(s.breadthRecovery10pp)}）`
+  );
+}
+
 export function getLevelEmoji(level: SignalLevel): string {
   return LEVEL_EMOJI[level];
 }

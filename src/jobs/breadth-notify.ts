@@ -12,6 +12,7 @@ import dayjs from "dayjs";
 import { calculateMarketBreadth } from "../core/market-breadth";
 import { forecastBreadthAll, summarizeForecast } from "../core/breadth-forecast";
 import { buildBreadthEnrichment, formatEnrichment } from "../core/breadth-history";
+import { detectRegimeShift, formatBullMarketLine } from "../core/regime-shift-detector";
 import { MARKET_BREADTH } from "../lib/constants/trading";
 import { notifySlack } from "../lib/slack";
 import { getTodayForDB } from "../lib/market-date";
@@ -87,7 +88,19 @@ async function main() {
     etfSummary = `📈 翌営業日 ETF 発注予定: ${pendingEtfSignals.length}件\n${lines.join("\n")}`;
   }
 
+  // D期入りモニター（regime-shift-notify はレベル変化時しか飛ばないため、
+  // 毎日飛ぶ本通知に1行で相乗りさせて「次のD期にどれだけ近いか」を常時可視化）
+  let regimeLine: string | null = null;
+  try {
+    const regime = await detectRegimeShift({ asOfDate: today });
+    regimeLine = formatBullMarketLine(regime);
+    console.log(`[regime] ${regime.level} ${regime.signalCount}/5`);
+  } catch (e) {
+    console.warn(`[regime] スキップ: ${e instanceof Error ? e.message : e}`);
+  }
+
   const parts: string[] = [reason];
+  if (regimeLine) parts.push(regimeLine);
   if (enrichmentBlock) parts.push(enrichmentBlock);
   if (forecastSummary) parts.push(`[シナリオ] ${forecastSummary}`);
   parts.push(etfSummary);
