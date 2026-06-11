@@ -85,6 +85,26 @@ jobs:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       YFINANCE_PROXY: ${{ secrets.YFINANCE_PROXY }}
 
+  # 市場指数（^N225 / ^VIX）の日次バックフィル。
+  # regime-shift-detector が ^N225/^VIX を DB から読むため、regime-shift-notify の前に更新する。
+  index-data:
+    needs: check-market-day
+    if: needs.check-market-day.outputs.should_run == 'true' && (github.event.inputs.job == 'all' || github.event.inputs.job == '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Python dependencies
+        run: pip install yfinance==1.2.0 psycopg2-binary
+      - name: Backfill index data (^N225 / ^VIX)
+        run: python scripts/backfill-index-data.py --period 6mo --yes
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
   breadth-notify:
     needs: stock-data
     if: needs.stock-data.result == 'success'
@@ -104,8 +124,8 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   regime-shift-notify:
-    needs: stock-data
-    if: needs.stock-data.result == 'success'
+    needs: [stock-data, index-data]
+    if: always() && needs.stock-data.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -160,6 +180,7 @@ jobs:
         stock-data,
         corporate-events,
         trading-config,
+        index-data,
         breadth-notify,
         regime-shift-notify,
         us-etf-watchlist,
