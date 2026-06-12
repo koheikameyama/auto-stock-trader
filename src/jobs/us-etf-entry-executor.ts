@@ -63,6 +63,8 @@ async function main() {
       ].join("\n"),
       color: "warning",
     });
+    // ロック中は寄付を逃す = 異常。ワークフローを赤くして notify-failure を発火させる
+    process.exitCode = 1;
     return;
   }
   // 立花ログイン承認 (arm) は GU/PSC と同じく中央ゲートに委譲する。
@@ -227,6 +229,16 @@ async function main() {
       message: lines.join("\n"),
       color: executed.length > 0 ? "good" : "warning",
     });
+  }
+
+  // 未執行シグナルがあったのに発注できなかった分があれば異常終了させる。
+  // ワークフローを赤くして notify-failure を発火させ、緑色のまま寄付を見逃す事故を防ぐ
+  // (broker発注失敗 / 未承認による requireLoginArm throw / qty<1 / Stock未登録 など)。
+  if (failed.length > 0) {
+    console.error(
+      `[us-etf-entry] 発注できなかったシグナルが ${failed.length}件あります → 異常終了 (exit 1)`,
+    );
+    process.exitCode = 1;
   }
 }
 
