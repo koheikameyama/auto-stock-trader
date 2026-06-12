@@ -63,24 +63,19 @@ async function main() {
       ].join("\n"),
       color: "warning",
     });
+    // ロック中は寄付を逃す = 異常。ワークフローを赤くして notify-failure を発火させる
+    process.exitCode = 1;
     return;
   }
-  // 立花ログイン承認期限チェック (本番環境のみ)
-  if (process.env.TACHIBANA_ENV === "production") {
-    if (!config?.loginArmedUntil || new Date(config.loginArmedUntil) <= new Date()) {
-      console.log("[us-etf-entry] 立花ログイン承認期限切れ → スキップ");
-      await notifySlack({
-        title: "⚠️ ETF entry スキップ: 立花ログイン承認期限切れ",
-        message: [
-          `承認期限: ${config?.loginArmedUntil ? dayjs(config.loginArmedUntil).format("YYYY-MM-DD HH:mm:ss") + " JST" : "未承認"}`,
-          "",
-          "電話番号認証を完了して再起動してください。",
-        ].join("\n"),
-        color: "warning",
-      });
-      return;
-    }
-  }
+  // 立花ログイン承認 (arm) は GU/PSC と同じく中央ゲートに委譲する。
+  // loginArmedUntil は TTL 10分・手動「再開」時のみ設定される短命フラグで、
+  // 通常運用ではセッションが BrokerSession から復元され login()=requireLoginArm() は
+  // 呼ばれない (restoreOrLogin)。ここで loginArmedUntil > now を要求すると、
+  // セッションが健全で GU/PSC が発注できる日でも ETF だけが誤って skip される
+  // (2026-06-12: 本番でこの誤ゲートによる空振りを観測)。
+  // arm が本当に必要なケース (セッション失効 + 未承認) は submitOrder 内の
+  // client.request → requireLoginArm() が isActive=false + 電話番号/再開リンク付き
+  // 通知を出し、submitOrder が {success:false} を返して下の失敗ハンドリングに乗る。
 
   // 直近2営業日以内の未執行シグナルを取得
   const cutoff = dayjs().subtract(3, "day").toDate();
@@ -234,6 +229,16 @@ async function main() {
       message: lines.join("\n"),
       color: executed.length > 0 ? "good" : "warning",
     });
+  }
+
+  // 未執行シグナルがあったのに発注できなかった分があれば異常終了させる。
+  // ワークフローを赤くして notify-failure を発火させ、緑色のまま寄付を見逃す事故を防ぐ
+  // (broker発注失敗 / 未承認による requireLoginArm throw / qty<1 / Stock未登録 など)。
+  if (failed.length > 0) {
+    console.error(
+      `[us-etf-entry] 発注できなかったシグナルが ${failed.length}件あります → 異常終了 (exit 1)`,
+    );
+    process.exitCode = 1;
   }
 }
 
