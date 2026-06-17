@@ -350,6 +350,15 @@ export async function main() {
       return;
     }
 
+    // us_etf は固定-2%SL（約定後に broker-fill-handler が売り逆指値を別建て）+
+    // 5日タイムストップ（専用 us-etf-position-monitor）で排他管理する。
+    // 汎用ループのトレーリング/タイムストップを適用すると SL が動き broker SL も
+    // 書き換わって ETF の BT 設計（トレーリングなし・固定SL）と乖離するためスキップ。
+    // 配当落ちSL調整は上の applyCorporateEventAdjustments で別途適用済み。
+    if (position.strategy === "us_etf") {
+      continue;
+    }
+
     // 猶予期間チェック: Open直後のポジションは日足OHLCに買い前の高値/安値が含まれるためスキップ
     const positionAgeMs = Date.now() - new Date(position.createdAt).getTime();
     if (positionAgeMs < EXIT_GRACE_PERIOD_MS) {
