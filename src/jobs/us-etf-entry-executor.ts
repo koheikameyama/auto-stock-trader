@@ -4,13 +4,14 @@
  * 朝寄付前 (8:30〜8:55 JST) に走る:
  *   1. 前営業日に UsEtfSignal に保存された未執行シグナルを取得
  *   2. ロット計算 (リスク 1.5%, 投資上限 40%)
- *   3. 立花API で 寄付成行 + SL逆指値 同時発注 (sGyakusasiOrderType=2)
- *   4. TradingOrder を DB 作成 (status="pending")
+ *   3. 立花API で 寄付成行買いを発注 (SLは同梱しない)
+ *   4. TradingOrder を DB 作成 (status="pending", stopLossPrice 保持)
  *   5. UsEtfSignal.executed=true 更新
  *   6. Slack 通知
  *
- * 約定後の TradingPosition 作成は broker-event-stream 経由で
- * broker-fill-handler が自動処理する (既存 GU/PSC と同じパス)。
+ * 約定後の TradingPosition 作成と SL逆指値の別建て発注は
+ * broker-event-stream 経由で broker-fill-handler が自動処理する
+ * (既存 GU/PSC と同じパス。SLはエントリーに同梱できない — 立花API仕様)。
  *
  * MVP: 連敗スロットル/集中度/VIX scale は適用しない (ETF は補完戦略)。
  *      資金は環境変数 ETF_TRADING_BUDGET (デフォルト ¥500K)。
@@ -139,15 +140,17 @@ async function main() {
       `${ticker} ${stock.name}: 数量 ${qty}株 (1株 ¥${todayClose}, SL ¥${slPrice.toFixed(0)} = -${(US_ETF_RISK_PARAMS.slPct * 100).toFixed(1)}%)`,
     );
 
-    // 立花API 発注: 寄付成行 + SL逆指値同時 (NORMAL_AND_REVERSE)
+    // 立花API 発注: 寄付成行買いのみ (SL逆指値はエントリーに同梱できない)。
+    // 立花APIに IFD (約定後にSL自動発注) は無く、買い注文に逆指値を同梱すると
+    // 「買い逆指値 (トリガーが現在値より下)」という矛盾注文になり 11034 で拒否される。
+    // SL は下記 TradingOrder.stopLossPrice 経由で broker-fill-handler が
+    // 約定後に売り逆指値を別建て発注する (既存 GU/PSC と同じパス)。
     const brokerResult = await submitOrder({
       ticker,
       side: "buy",
       quantity: qty,
       limitPrice: null, // 寄付成行
       condition: TACHIBANA_ORDER.CONDITION.OPEN,
-      stopTriggerPrice: Math.floor(slPrice), // 逆指値トリガー
-      // stopOrderPrice 未指定 → 成行 SL
     });
 
     if (!brokerResult.success) {
@@ -208,7 +211,7 @@ async function main() {
   if (executed.length > 0 || failed.length > 0) {
     const lines: string[] = [];
     if (executed.length > 0) {
-      lines.push("*✅ 発注成功 (寄付成行 + SL逆指値同時)*");
+      lines.push("*✅ 発注成功 (寄付成行買い / SLは約定後に別建て)*");
       for (const e of executed) {
         lines.push(
           `  ${e.ticker}: ${e.qty}株 @ ¥${e.entryPrice.toLocaleString()} (SL ¥${e.slPrice.toFixed(0)})${e.orderNumber ? ` 注文番号=${e.orderNumber}` : ""}`,
