@@ -8,7 +8,8 @@
  *   4. TradingOrder を DB 作成 (positionId 紐付け)
  *   5. 約定通知 → broker-fill-handler が TradingPosition.status を自動更新
  *
- * SL は entry-executor で逆指値同時発注済 → 立花側で自動執行。
+ * SL は約定後に broker-fill-handler が売り逆指値を別建て発注済 → 立花側で自動執行
+ * (エントリーには同梱できない — 立花API仕様)。
  * (SL 約定通知の TradingPosition.status 自動更新は次フェーズで対応)
  */
 
