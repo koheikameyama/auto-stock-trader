@@ -19,6 +19,7 @@ dayjs.extend(timezone);
 import { main as runMonitor } from "./jobs/position-monitor";
 import { main as runGapupMonitor } from "./jobs/gapup-monitor";
 import { main as runPSCMonitor } from "./jobs/post-surge-consolidation-monitor";
+import { main as runUsEtfMonitor } from "./jobs/us-etf-monitor";
 import { main as runBrokerReconciliation } from "./jobs/broker-reconciliation";
 import { main as runSessionHealthCheck } from "./jobs/session-health-check";
 import { main as runEnsureBrokerSL } from "./jobs/ensure-broker-sl";
@@ -162,6 +163,11 @@ const schedules = [
   { cron: "0 24 15 * * 1-5", job: runPSCMonitor, name: "psc-monitor", requiresMarketDay: true },
   { cron: "20 24 15 * * 1-5", job: runPSCMonitor, name: "psc-monitor", requiresMarketDay: true },
   { cron: "40 24 15 * * 1-5", job: runPSCMonitor, name: "psc-monitor", requiresMarketDay: true },
+  // 15:24:00/20/40 米株ETF 監視（エントリー: idle帯のみ引け成行買い / Exit: 5営業日タイムストップ引け成行売り）
+  // GU/PSC と同じ「場中15:24・引け成行 → 当日引け約定」方式に統一（BT前提一致・CI遅延解消）
+  { cron: "0 24 15 * * 1-5", job: runUsEtfMonitor, name: "us-etf-monitor", requiresMarketDay: true },
+  { cron: "20 24 15 * * 1-5", job: runUsEtfMonitor, name: "us-etf-monitor", requiresMarketDay: true },
+  { cron: "40 24 15 * * 1-5", job: runUsEtfMonitor, name: "us-etf-monitor", requiresMarketDay: true },
   // 8:50 プレマーケット セッション確認（電話番号認証の早期検出）
   { cron: "50 8 * * 1-5", job: runSessionHealthCheck, name: "session-health-check", requiresMarketDay: true },
   // 15:15 プレクローズ セッション確認（15:24のエントリー発注前に最終確認。9分の再ログイン・電話認証対応余裕）
