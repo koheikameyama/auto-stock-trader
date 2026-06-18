@@ -100,7 +100,7 @@
 **2026-05-21 過去9年データ検証で確定:** 既存戦略 (GU+PSC) は **「2-3ヶ月続く大強気相場 (D期) でだけ大きく稼ぐシーズン性戦略」**。過去9年で D期相当は 2020-04 / 2024-01 / **2025-07-08** の3回 = 約3年に1回。残り期間 (60%以上) は "offseason" として "ゼロ近辺で耐える" のが本質。詳細は `.claude/rules/backtest.md` 却下リスト #21。
 
 - **D期入り監視**: `regime-shift-notify` (引け後cron, 段階的5シグナル評価) を Slack 通知。検出ロジック不可能 (D期は事後確定) なので「強気モニター」として段階的可視化 (STRONG/MODERATE/EARLY/NEUTRAL)
-- **offseason 補完**: 米株ETF (1547 SPY / 1545 NASDAQ100) 戦略は **2026-05-21 に本番実装済み (A-4 完了)**。breadth<54% (idle 帯) 限定で gap≥0.5%+vol≥1.5x+陽線。WF OOS PF 1.91 / Calmar 5.24。立花API で取引可。シグナル検出 (`us-etf-watchlist-builder`)・自動発注 (`us-etf-entry-executor`)・タイムストップ exit (`us-etf-position-monitor`)・月次ヘルスチェック (`us-etf-health-check`) + cron 配線まで稼働。**残: combined BT への統合は未実施 (検証は `scripts/_us-etf-*.ts` の単独スクリプトで完了済み)**
+- **offseason 補完**: 米株ETF (1547 SPY / 1545 NASDAQ100) 戦略は **2026-05-21 に本番実装済み (A-4 完了)**。breadth<54% (idle 帯) 限定で gap≥0.5%+vol≥1.5x+陽線。WF OOS PF 1.91 / Calmar 5.24。立花API で取引可。**発注は GU/PSC と同じ worker.ts node-cron 15:24・引け成行に統一済 (`us-etf-monitor`, KOH-498)** — 当初の翌朝寄付成行・GitHub Actions 方式は CI遅延で寄付を逃し受付エラーになる構造的バグがあり刷新。月次ヘルスチェック (`us-etf-health-check`)。**combined BT 統合も完了 (KOH-492): `--enable-etf` で GU/PSC+ETF を共有プール検証。ETF追加で NetRet +106pp・稼働率 +7pp、MaxDD +2.7pp で Calmar ほぼ横ばい。詳細は `.claude/rules/backtest.md`「事例: combined BT への ETF 統合」**
 - **戦略変更は禁物**: シーズン性を受け入れる。次のD期 (2027-2028年頃想定) を取り逃さない準備が最重要
 
 ## 技術ルール
