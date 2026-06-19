@@ -2,8 +2,8 @@ name: "[cron-job.org] End of Day"
 
 on:
   # schedule:
-  #   # 15:50 JST = 06:50 UTC
-  #   - cron: "50 6 * * 1-5"
+  #   # 17:00 JST = 08:00 UTC（実トリガーは cron-job.org / job 7369913）
+  #   - cron: "0 8 * * 1-5"
   workflow_dispatch:
     inputs:
       skip_market_day_check:
