@@ -308,7 +308,13 @@ async function runEntries(): Promise<boolean> {
       color: executed.length > 0 ? "good" : "warning",
     });
   } else {
-    console.log(`${tag} エントリーシグナルなし（breadth ${(breadth * 100).toFixed(1)}% idle帯）`);
+    const msg = `${tag} エントリーシグナルなし（breadth ${(breadth * 100).toFixed(1)}% idle帯）`;
+    console.log(msg);
+    await notifySlack({
+      title: "📈 ETF monitor: エントリーシグナルなし",
+      message: msg,
+      color: "warning",
+    });
   }
 
   return anyRetryable;
