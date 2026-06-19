@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { tachibanaFetchQuote, tachibanaFetchQuotesBatch } from "../tachibana-price-client";
+import {
+  tachibanaFetchQuote,
+  tachibanaFetchQuotesBatch,
+  clearTachibanaQuoteCache,
+} from "../tachibana-price-client";
 
 // broker-client モック
 const mockRequestPrice = vi.fn();
@@ -38,6 +42,7 @@ function createPriceResponse(
 describe("tachibanaFetchQuote", () => {
   beforeEach(() => {
     mockRequestPrice.mockReset();
+    clearTachibanaQuoteCache();
   });
 
   it("正常にクォートを取得できる", async () => {
@@ -118,6 +123,7 @@ describe("tachibanaFetchQuote", () => {
 describe("tachibanaFetchQuotesBatch", () => {
   beforeEach(() => {
     mockRequestPrice.mockReset();
+    clearTachibanaQuoteCache();
   });
 
   it("複数銘柄のクォートをバッチ取得できる", async () => {

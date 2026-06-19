@@ -31,14 +31,33 @@ interface PriceData {
   [key: string]: unknown;
 }
 
+// ── 短TTL時価キャッシュ ────────────────────────────────────────────────
+// 15:24 に GU→PSC→ETF を逐次実行する際、重複銘柄（GU watchlist ⊆ PSC watchlist）の
+// 時価を1回の立花アクセスに集約するための worker プロセス内キャッシュ。
+// TTL は「GU→PSC の逐次ギャップ（数秒）はカバーしつつ、:20/:40 のリトライ（20秒間隔）では
+// 必ず再取得される」ように 15 秒。成功結果のみキャッシュし、失敗時のリトライを汚染しない。
+const QUOTE_CACHE_TTL_MS = 15_000;
+const quoteCache = new Map<string, { result: YfQuoteResult; expiresAt: number }>();
+
+/** 時価キャッシュをクリアする（テスト用） */
+export function clearTachibanaQuoteCache(): void {
+  quoteCache.clear();
+}
+
 /**
- * 立花APIから個別銘柄のクォートを取得
+ * 立花APIから個別銘柄のクォートを取得（短TTLキャッシュ付き）
  */
 export async function tachibanaFetchQuote(
   symbol: string,
 ): Promise<YfQuoteResult> {
-  const client = getTachibanaClient();
   const brokerCode = tickerToBrokerCode(symbol);
+
+  const cached = quoteCache.get(brokerCode);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.result;
+  }
+
+  const client = getTachibanaClient();
 
   const res = await client.requestPrice({
     sCLMID: TACHIBANA_CLMID.MARKET_PRICE,
@@ -58,7 +77,12 @@ export async function tachibanaFetchQuote(
     throw new Error(`[tachibana-price] ${symbol}: No data returned`);
   }
 
-  return parsePriceData(list[0], symbol);
+  const result = parsePriceData(list[0], symbol);
+  quoteCache.set(brokerCode, {
+    result,
+    expiresAt: Date.now() + QUOTE_CACHE_TTL_MS,
+  });
+  return result;
 }
 
 const PRICE_CONCURRENCY = 10;

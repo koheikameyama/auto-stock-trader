@@ -96,8 +96,16 @@ export async function main() {
   const pendingOrders = await getPendingOrders();
   console.log(`  未約定注文: ${pendingOrders.length}件`);
 
-  // 残高チェック用（スコア順に約定させ、資金が尽きたらスキップ）
-  let cashBalance = await getCashBalance();
+  // 残高チェック用（スコア順に約定させ、資金が尽きたらスキップ）。
+  // cashBalance は「場中に約定しうる非・成行の買い注文」がある時だけ取得する。
+  // GU/PSC/ETF は引け成行で broker-fill-handler が処理し、本ループでは L154 でスキップされるため
+  // 通常そのような注文は無い。無条件に買余力API（CLMZanKaiKanougaku）を叩くと、15:24 の
+  // クロージングオークション混雑時に -2「システム混雑」で throw し、出口チェックごと tick が落ちる
+  // 単一障害点になっていた（2026-06-19 発生）。実際に使う時だけ取得して無駄なコールを排除する。
+  const hasIntradayFillableBuy = pendingOrders.some(
+    (o) => o.side === "buy" && o.orderType !== "market",
+  );
+  let cashBalance = hasIntradayFillableBuy ? await getCashBalance() : Infinity;
 
   for (const order of pendingOrders) {
     if (!(await isSystemActive())) {
