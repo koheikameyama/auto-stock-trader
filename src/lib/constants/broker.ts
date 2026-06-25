@@ -35,7 +35,16 @@ export const TACHIBANA_SESSION = {
    * 超過した場合は再度ボタン押下が必要。
    */
   LOGIN_ARM_TTL_MS: 10 * 60 * 1000,
+  /** システム混雑エラー(sResultCode=-2)時の最大リトライ回数。
+   * 立花は8:00〜15:30が高負荷帯で「ただいまシステムが大変混み合っております」を
+   * 返すことがある。一時的な負荷なので指数バックオフでリトライする。 */
+  BUSY_RETRY_MAX: 3,
+  /** システム混雑リトライのベース待機（ミリ秒）。指数バックオフ（500/1000/2000ms） */
+  BUSY_RETRY_BASE_MS: 500,
 } as const;
+
+/** システム混雑（一時的なサーバー高負荷）を示す sResultCode */
+export const TACHIBANA_BUSY_RESULT_CODE = "-2";
 
 // ========================================
 // API 機能ID (sCLMID)

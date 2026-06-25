@@ -16,7 +16,8 @@
  *   Slack通知を送信し、ユーザーが15:20前に対応できる。
  */
 
-import { getBuyingPower } from "../core/broker-orders";
+import { fetchBuyingPower } from "../core/broker-orders";
+import { TACHIBANA_BUSY_RESULT_CODE } from "../lib/constants/broker";
 import { notifySlack } from "../lib/slack";
 
 export async function main(): Promise<void> {
@@ -24,21 +25,34 @@ export async function main(): Promise<void> {
 
   console.log(`${tag} セッション生存確認を開始...`);
 
-  const buyingPower = await getBuyingPower();
+  // client.request() 内でシステム混雑(-2)は指数バックオフでリトライ済み。
+  const { buyingPower, resultCode, resultText } = await fetchBuyingPower();
 
   if (buyingPower !== null) {
     console.log(
       `${tag} ✅ セッション正常（買付余力: ${buyingPower.toLocaleString()}円）`,
     );
-  } else {
-    // getBuyingPower が null を返す = sResultCode !== "0" だがエラーはスローされなかった
-    // （電話認証の場合は login() 内で throw されるためここには来ない）
-    console.warn(`${tag} ⚠️ 買余力取得失敗（セッションは生存している可能性あり）`);
-    await notifySlack({
-      title: "⚠️ セッションヘルスチェック: 買余力取得失敗",
-      message:
-        "ブローカーAPIから買余力を取得できませんでした。セッションは生存している可能性がありますが、確認してください。",
-      color: "warning",
-    });
+    return;
   }
+
+  // リトライ後もシステム混雑(-2)が続く場合 = セッションは生存しており、
+  // 単にサーバーが高負荷なだけ。買余力の「値」が要るわけではなく
+  // セッション生存確認が目的なので、誤警告を避けてログのみに留める。
+  if (resultCode === TACHIBANA_BUSY_RESULT_CODE) {
+    console.warn(
+      `${tag} ⚠️ システム混雑のため買余力取得できず（セッションは生存）: ${resultText ?? ""}`,
+    );
+    return;
+  }
+
+  // それ以外の失敗（電話認証の場合は login() 内で throw されここには来ない）
+  console.warn(
+    `${tag} ⚠️ 買余力取得失敗（resultCode=${resultCode}）: ${resultText ?? ""}`,
+  );
+  await notifySlack({
+    title: "⚠️ セッションヘルスチェック: 買余力取得失敗",
+    message:
+      "ブローカーAPIから買余力を取得できませんでした。セッションは生存している可能性がありますが、確認してください。",
+    color: "warning",
+  });
 }

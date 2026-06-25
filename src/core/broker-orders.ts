@@ -284,7 +284,20 @@ export async function getHoldings(): Promise<BrokerHolding[] | null> {
 /**
  * 買余力取得
  */
-export async function getBuyingPower(): Promise<number | null> {
+export interface BuyingPowerResult {
+  /** 買付余力（取得失敗時は null） */
+  buyingPower: number | null;
+  /** APIの結果コード（"0"=正常、"-2"=システム混雑、"2"=セッション切れ等） */
+  resultCode: string;
+  resultText?: string;
+}
+
+/**
+ * 買付余力を取得（結果コード付き）。
+ * client.request() 内でシステム混雑(-2)時の指数バックオフリトライ済み。
+ * 呼び出し側でエラー種別（混雑 vs 恒久的失敗）を区別したい場合に使う。
+ */
+export async function fetchBuyingPower(): Promise<BuyingPowerResult> {
   // 照会系APIのため brokerMode チェックは行わない（読み取り専用）
   const client = getTachibanaClient();
 
@@ -294,9 +307,22 @@ export async function getBuyingPower(): Promise<number | null> {
     sSizyouC: "",
   });
 
-  if (res.sResultCode !== "0") return null;
+  if (res.sResultCode !== "0") {
+    return {
+      buyingPower: null,
+      resultCode: res.sResultCode,
+      resultText: res.sResultText,
+    };
+  }
 
-  return Number(res.sSummaryGenkabuKaituke ?? 0);
+  return {
+    buyingPower: Number(res.sSummaryGenkabuKaituke ?? 0),
+    resultCode: res.sResultCode,
+  };
+}
+
+export async function getBuyingPower(): Promise<number | null> {
+  return (await fetchBuyingPower()).buyingPower;
 }
 
 // ========================================

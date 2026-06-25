@@ -10,10 +10,12 @@ import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import {
   TACHIBANA_API_URLS,
+  TACHIBANA_BUSY_RESULT_CODE,
   TACHIBANA_CLMID,
   TACHIBANA_SESSION,
   type TachibanaEnv,
 } from "../lib/constants/broker";
+import { sleep } from "../lib/retry-utils";
 import { mapNumericKeys } from "../lib/tachibana-key-map";
 import {
   decryptVirtualUrl,
@@ -823,6 +825,15 @@ export class TachibanaClient {
   }
 
   /**
+   * システム混雑エラー(sResultCode=-2)かどうか判定。
+   * 「ただいまシステムが大変混み合っております」= 一時的なサーバー高負荷。
+   * セッションは生存しており、リクエストは処理前に拒否されているため安全にリトライ可能。
+   */
+  private isBusyError(res: TachibanaResponse): boolean {
+    return res.sResultCode === TACHIBANA_BUSY_RESULT_CODE;
+  }
+
+  /**
    * p_no順序エラーかどうか判定（前要求のp_no以下の値を送った場合）
    */
   private isPNoError(res: TachibanaResponse): boolean {
@@ -863,14 +874,30 @@ export class TachibanaClient {
     params: TachibanaRequestParams,
   ): Promise<TachibanaResponse> {
     await this.ensureSession();
-    const res = await this.requestToVirtualUrl(getUrl(), params);
+    let res = await this.requestToVirtualUrl(getUrl(), params);
 
     if (this.isSessionError(res)) {
       console.warn(
         `[TachibanaClient] Session disconnected (${res.sResultText ?? ""}), re-logging in...`,
       );
       await this.reLoginOnce();
-      return this.requestToVirtualUrl(getUrl(), params);
+      res = await this.requestToVirtualUrl(getUrl(), params);
+    }
+
+    // システム混雑(-2)は一時的な高負荷。指数バックオフでリトライする。
+    // 混雑エラーはリクエストが処理される前に拒否されるため、発注系でも
+    // 二重発注のリスクなく再送できる。
+    for (
+      let attempt = 0;
+      attempt < TACHIBANA_SESSION.BUSY_RETRY_MAX && this.isBusyError(res);
+      attempt += 1
+    ) {
+      const waitMs = TACHIBANA_SESSION.BUSY_RETRY_BASE_MS * 2 ** attempt;
+      console.warn(
+        `[TachibanaClient] system busy (${res.sResultText ?? ""}), retrying in ${waitMs}ms (${attempt + 1}/${TACHIBANA_SESSION.BUSY_RETRY_MAX})`,
+      );
+      await sleep(waitMs);
+      res = await this.requestToVirtualUrl(getUrl(), params);
     }
 
     return res;
