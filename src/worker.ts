@@ -127,6 +127,33 @@ async function runPositionMonitorTick() {
   await runJob("position-monitor", runMonitor, true);
 }
 
+// 15:24 エントリー監視: combined BT の資金配分順 (GapUp → PSC → US-ETF) で逐次実行する。
+// 各 monitor は executeEntry 内で cash/openPositions を読み直すため、逐次化するだけで
+// 「GU が先に資金・枠を確保し、PSC は残りから入る」という combined BT の優先順位が再現される
+// （並列 cron だと共有資金のレースで優先順位が非決定的だった）。
+// 加えて、重複銘柄（GU watchlist ⊆ PSC watchlist）の時価が tachibana-price-client の
+// 短TTLキャッシュで1回の立花アクセスに集約され、15:24 のピーク負荷も下がる。
+async function runEntryMonitors() {
+  const monitors: [string, () => Promise<void>][] = [
+    ["gapup-monitor", runGapupMonitor],
+    ["psc-monitor", runPSCMonitor],
+    ["us-etf-monitor", runUsEtfMonitor],
+  ];
+  for (const [name, fn] of monitors) {
+    try {
+      await fn();
+    } catch (err) {
+      // 1戦略の失敗が後続戦略のエントリーを止めないよう隔離する
+      console.error(`[${nowJST()}] entry-monitors: ${name} エラー:`, err);
+      await notifySlack({
+        title: `❌ ${name} でエラーが発生しました`,
+        message: err instanceof Error ? err.message : String(err),
+        color: "danger",
+      }).catch(() => {});
+    }
+  }
+}
+
 // broker-reconciliation を単発で実行（独立スケジュール用）
 async function runBrokerReconciliationJob() {
   await runJob("broker-reconciliation", runBrokerReconciliation, true);
@@ -154,20 +181,13 @@ const schedules = [
   { cron: "30 0 14 * * 1-5",  job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 14:00:30 後場中の回復チェック
   { cron: "30 22 15 * * 1-5", job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 15:22:30 gapup/PSC 発注（15:24）直前スナップショット
   { cron: "30 30 15 * * 1-5", job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 15:30:30 引け直後の最終同期
-  // 15:24:00/20/40 ギャップアップ監視（東証クロージングオークション15:25〜直前に発注）
-  // 接続エラー等のretryableな失敗時に20秒間隔で最大3回試行。成功後はlastScanDateで以降をスキップ
-  { cron: "0 24 15 * * 1-5", job: runGapupMonitor, name: "gapup-monitor", requiresMarketDay: true },
-  { cron: "20 24 15 * * 1-5", job: runGapupMonitor, name: "gapup-monitor", requiresMarketDay: true },
-  { cron: "40 24 15 * * 1-5", job: runGapupMonitor, name: "gapup-monitor", requiresMarketDay: true },
-  // 15:24:00/20/40 高騰後押し目監視（ENTRY_ENABLED=false の間は内部でスキップ）
-  { cron: "0 24 15 * * 1-5", job: runPSCMonitor, name: "psc-monitor", requiresMarketDay: true },
-  { cron: "20 24 15 * * 1-5", job: runPSCMonitor, name: "psc-monitor", requiresMarketDay: true },
-  { cron: "40 24 15 * * 1-5", job: runPSCMonitor, name: "psc-monitor", requiresMarketDay: true },
-  // 15:24:00/20/40 米株ETF 監視（エントリー: idle帯のみ引け成行買い / Exit: 5営業日タイムストップ引け成行売り）
-  // GU/PSC と同じ「場中15:24・引け成行 → 当日引け約定」方式に統一（BT前提一致・CI遅延解消）
-  { cron: "0 24 15 * * 1-5", job: runUsEtfMonitor, name: "us-etf-monitor", requiresMarketDay: true },
-  { cron: "20 24 15 * * 1-5", job: runUsEtfMonitor, name: "us-etf-monitor", requiresMarketDay: true },
-  { cron: "40 24 15 * * 1-5", job: runUsEtfMonitor, name: "us-etf-monitor", requiresMarketDay: true },
+  // 15:24:00/20/40 エントリー監視（東証クロージングオークション15:25〜直前に発注）
+  // GapUp → PSC → US-ETF を1ジョブ内で逐次実行（combined BT の資金配分順を再現＋時価キャッシュ共有）。
+  // 接続エラー等のretryableな失敗時に20秒間隔で最大3回試行。成功後は各monitorのlastScanDateで以降をスキップ。
+  // PSC: ENTRY_ENABLED=false の間は内部でスキップ / US-ETF: idle帯のみ引け成行買い + 5営業日タイムストップ引け成行売り
+  { cron: "0 24 15 * * 1-5", job: runEntryMonitors, name: "entry-monitors", requiresMarketDay: true },
+  { cron: "20 24 15 * * 1-5", job: runEntryMonitors, name: "entry-monitors", requiresMarketDay: true },
+  { cron: "40 24 15 * * 1-5", job: runEntryMonitors, name: "entry-monitors", requiresMarketDay: true },
   // 8:50 プレマーケット セッション確認（電話番号認証の早期検出）
   { cron: "50 8 * * 1-5", job: runSessionHealthCheck, name: "session-health-check", requiresMarketDay: true },
   // 15:15 プレクローズ セッション確認（15:24のエントリー発注前に最終確認。9分の再ログイン・電話認証対応余裕）

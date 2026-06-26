@@ -287,29 +287,31 @@ async function runEntries(): Promise<boolean> {
     executed.push({ ticker, qty, price: refPrice, slPrice, orderNumber: brokerResult.orderNumber });
   }
 
-  // Slack 通知
-  if (executed.length > 0 || failed.length > 0) {
-    const lines: string[] = [];
-    if (executed.length > 0) {
-      lines.push("*✅ 引け成行買い発注（SLは約定後に別建て）*");
-      for (const e of executed) {
-        lines.push(
-          `  ${e.ticker}: ${e.qty}株 @ ¥${e.price.toLocaleString()} (SL ¥${e.slPrice.toFixed(0)})${e.orderNumber ? ` 注文番号=${e.orderNumber}` : ""}`,
-        );
-      }
+  // Slack 通知（GU/PSC と同じく「スキャン完了」通知を常に送る）
+  console.log(
+    `${tag} スキャン完了: 対象=${candidates.length} 発注=${executed.length} 失敗=${failed.length} (breadth ${(breadth * 100).toFixed(1)}%)`,
+  );
+  const lines: string[] = [];
+  if (executed.length > 0) {
+    lines.push("*✅ 引け成行買い発注（SLは約定後に別建て）*");
+    for (const e of executed) {
+      lines.push(
+        `  ${e.ticker}: ${e.qty}株 @ ¥${e.price.toLocaleString()} (SL ¥${e.slPrice.toFixed(0)})${e.orderNumber ? ` 注文番号=${e.orderNumber}` : ""}`,
+      );
     }
-    if (failed.length > 0) {
-      lines.push("*⚠️ 発注スキップ/失敗*");
-      for (const f of failed) lines.push(`  ${f.ticker}: ${f.reason}`);
-    }
-    await notifySlack({
-      title: `📈 ETF monitor: 発注${executed.length}件 / 失敗${failed.length}件`,
-      message: lines.join("\n"),
-      color: executed.length > 0 ? "good" : "warning",
-    });
-  } else {
-    console.log(`${tag} エントリーシグナルなし（breadth ${(breadth * 100).toFixed(1)}% idle帯）`);
   }
+  if (failed.length > 0) {
+    lines.push("*⚠️ 発注スキップ/失敗*");
+    for (const f of failed) lines.push(`  ${f.ticker}: ${f.reason}`);
+  }
+  if (executed.length === 0 && failed.length === 0) {
+    lines.push("シグナルなし");
+  }
+  await notifySlack({
+    title: `[ETF] スキャン完了: ${executed.length}件発注`,
+    message: `スキャン対象: ${candidates.length}銘柄 / breadth: ${(breadth * 100).toFixed(1)}%（idle帯）\n${lines.join("\n")}`,
+    color: executed.length > 0 ? "good" : undefined,
+  });
 
   return anyRetryable;
 }
