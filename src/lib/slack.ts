@@ -883,29 +883,6 @@ export async function notifyBrokerError(
   });
 }
 
-/**
- * 立花証券ログイン承認要求通知
- * 未承認状態で login() が呼ばれたときに送る。システムは自動で停止し、
- * 利用者は電話番号認証を済ませてからダッシュボードの「再開」ボタンを押す。
- */
-export async function notifyBrokerLoginArmRequired(data: {
-  reason: string;
-}): Promise<void> {
-  const appUrl = process.env.APP_URL?.replace(/\/$/, "");
-  const resumeLine = appUrl
-    ? `システム再開: <${appUrl}/api/trading/resume|${appUrl}/api/trading/resume>`
-    : "認証完了後、ダッシュボードの「再開」ボタンまたは `/api/trading/resume` にアクセスしてください。";
-  await notifySlack({
-    title: "🔐 立花証券ログイン承認が必要です（システム停止中）",
-    message: [
-      `理由: ${data.reason}`,
-      "登録電話番号から <tel:0120286592|0120-286-592> に発信して電話番号認証を完了してください。",
-      resumeLine,
-    ].join("\n"),
-    color: "warning",
-  });
-}
-
 interface BacktestNotifyData {
   period: string;
   profitFactor: number;
