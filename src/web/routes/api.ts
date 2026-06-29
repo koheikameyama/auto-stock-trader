@@ -75,7 +75,7 @@ app.get("/status", async (c) => {
 });
 
 /**
- * トレーディング再開処理（armLogin + login を同期実行）
+ * トレーディング再開処理（login を同期実行）
  * POST /trading/toggle と GET /trading/resume の共通ロジック。
  * @returns 成功時は null、失敗時はエラーメッセージ
  */
@@ -93,7 +93,6 @@ async function resumeTrading(source: string): Promise<string | null> {
   await client.clearLoginLock().catch(() => {});
 
   try {
-    await client.armLogin();
     await client.login();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -122,7 +121,7 @@ async function resumeTrading(source: string): Promise<string | null> {
 
 /**
  * POST /api/trading/toggle - 取引の有効/無効を切り替え（緊急停止/再開）
- * 再開時は armLogin + login を同期実行し、電話番号認証後のログイン確定まで一括で行う。
+ * 再開時は login を同期実行し、ログイン確定まで一括で行う。
  */
 app.post("/trading/toggle", async (c) => {
   const body = await c.req.json<{ active: boolean }>();
