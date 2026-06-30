@@ -15,7 +15,7 @@ import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
 import { prisma } from "../../lib/prisma";
-import { getTodayForDB, adjustToTradingDay } from "../../lib/market-date";
+import { getTodayForDB, adjustToTradingDay, getStartOfDayJST } from "../../lib/market-date";
 import { getCashBalance, getEffectiveCapital } from "../position-manager";
 import { canOpenPosition, getDynamicMaxPositionPct } from "../risk-manager";
 import { submitOrder as submitBrokerOrder } from "../broker-orders";
@@ -120,6 +120,26 @@ export async function executeEntry(
   if (!stock) {
     const reason = `銘柄マスタに存在しません: ${ticker}`;
     console.log(`[entry-executor] ${reason}`);
+    return { success: false, reason, retryable: false };
+  }
+
+  // 2.5 戦略横断の二重建て防止（最終防衛線）
+  // 約定前は TradingPosition が無く、monitor の holdingTickers 除外をすり抜けて
+  // 同一バッチ内で GU と PSC が同じ銘柄に二重発注しうる（Issue #322: 2026-06-30 3989.T）。
+  // 当日の未約定（pending）買い注文が同一銘柄に既にあればスキップし、BT の
+  // allOpenTickers（1銘柄1ポジション）挙動に一致させる。
+  const existingPendingBuy = await prisma.tradingOrder.findFirst({
+    where: {
+      stockId: stock.id,
+      side: "buy",
+      status: "pending",
+      createdAt: { gte: getStartOfDayJST() },
+    },
+    select: { strategy: true },
+  });
+  if (existingPendingBuy) {
+    const reason = `同一銘柄に当日の未約定買い注文が既に存在（戦略横断の二重建て防止, 既存戦略=${existingPendingBuy.strategy}）`;
+    console.log(`[entry-executor] ${ticker} スキップ: ${reason}`);
     return { success: false, reason, retryable: false };
   }
 

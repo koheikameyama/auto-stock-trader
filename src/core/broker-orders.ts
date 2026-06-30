@@ -370,29 +370,48 @@ export async function syncBrokerOrderStatuses(): Promise<void> {
 
   // ブローカー注文をMapに変換
   // CLMOrderListの注文番号フィールドは sOrderOrderNumber、執行日は sOrderSikkouDay
+  // brokerBusinessDay 欠落注文（Issue #322）を救済するため、注文番号のみのMapも併せて作る。
   const brokerMap = new Map<string, Record<string, unknown>>();
+  const brokerMapByNum = new Map<string, Record<string, unknown>>();
   for (const bo of brokerOrders) {
     const orderNum = String(bo.sOrderOrderNumber ?? bo.sOrderNumber ?? "");
     const sikkouDay = String(bo.sOrderSikkouDay ?? bo.sEigyouDay ?? "");
     if (orderNum && sikkouDay) {
       brokerMap.set(`${orderNum}_${sikkouDay}`, bo);
     }
+    if (orderNum) {
+      brokerMapByNum.set(orderNum, bo);
+    }
   }
 
   // DB注文とブローカーステータスを比較・更新
   for (const order of orders) {
-    if (!order.brokerOrderId || !order.brokerBusinessDay) continue;
-    const key = `${order.brokerOrderId}_${order.brokerBusinessDay}`;
-    const bo = brokerMap.get(key);
+    if (!order.brokerOrderId) continue;
+    // 通常は orderNumber_businessDay で照合。営業日が空（submitOrder 応答に sEigyouDay が
+    // 無かった注文）でも追跡できるよう、注文番号のみのフォールバック照合を行う（Issue #322）。
+    let bo = order.brokerBusinessDay
+      ? brokerMap.get(`${order.brokerOrderId}_${order.brokerBusinessDay}`)
+      : undefined;
+    if (!bo) bo = brokerMapByNum.get(order.brokerOrderId);
 
     if (!bo) continue;
 
     // sOrderStatusCode（数値コード）を優先、なければ sOrderStatus（名称）を使用
     const brokerStatus = String(bo.sOrderStatusCode ?? bo.sOrderStatus ?? "");
+    // 欠落していた営業日をブローカー応答からバックフィル（recoverMissedFills 等の追跡を回復させる）
+    const resolvedBusinessDay = String(bo.sOrderSikkouDay ?? bo.sEigyouDay ?? "");
+    const needsBusinessDayBackfill =
+      !order.brokerBusinessDay && resolvedBusinessDay !== "";
 
-    if (order.brokerStatus !== brokerStatus) {
+    if (order.brokerStatus !== brokerStatus || needsBusinessDayBackfill) {
       // ブローカー側で失効・取消された注文はDB statusも更新
       const statusUpdate: Record<string, string> = { brokerStatus };
+      if (needsBusinessDayBackfill) {
+        statusUpdate.brokerBusinessDay = resolvedBusinessDay;
+        console.log(
+          `[broker-orders] ${order.stock.tickerCode} order ${order.brokerOrderId}: 欠落していた営業日を ${resolvedBusinessDay} でバックフィル`,
+        );
+      }
       if (
         brokerStatus === TACHIBANA_ORDER_STATUS.EXPIRED ||
         brokerStatus === TACHIBANA_ORDER_STATUS.CANCELLED
@@ -461,10 +480,19 @@ async function executeLiveOrder(
       };
     }
 
+    const businessDay = String(res.sEigyouDay ?? "");
+    if (!businessDay) {
+      // 営業日が返らないと reconciliation の主キー照合（orderNumber_businessDay）が効かず、
+      // 約定追跡が落ちる（Issue #322 の一因）。注文番号フォールバックで救済するが、観測のため警告。
+      console.warn(
+        `[broker-orders] 注文 ${orderNumber}: 応答に営業日(sEigyouDay)が無く空。reconciliation で注文番号フォールバック照合・バックフィルされます`,
+      );
+    }
+
     return {
       success: true,
       orderNumber,
-      businessDay: String(res.sEigyouDay ?? ""),
+      businessDay,
       commission: Number(res.sOrderTesuryou ?? 0),
     };
   } catch (e) {

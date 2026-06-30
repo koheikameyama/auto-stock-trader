@@ -13,6 +13,7 @@ const {
   mockPositionFindMany,
   mockDailyBarFindMany,
   mockGapUpScan,
+  mockGetSameDayPendingBuyTickers,
 } = vi.hoisted(() => ({
   mockGetWatchlist: vi.fn(), // getGuWatchlist のモック
   mockFetchQuotes: vi.fn(),
@@ -22,6 +23,7 @@ const {
   mockPositionFindMany: vi.fn().mockResolvedValue([]),
   mockDailyBarFindMany: vi.fn().mockResolvedValue([]),
   mockGapUpScan: vi.fn().mockReturnValue([]),
+  mockGetSameDayPendingBuyTickers: vi.fn().mockResolvedValue(new Set()),
 }));
 
 vi.mock("../../lib/prisma", () => ({
@@ -38,6 +40,9 @@ vi.mock("../../lib/tachibana-price-client", () => ({
 }));
 vi.mock("../../core/breakout/entry-executor", () => ({
   executeEntry: mockExecuteEntry,
+}));
+vi.mock("../../core/order-executor", () => ({
+  getSameDayPendingBuyTickers: mockGetSameDayPendingBuyTickers,
 }));
 vi.mock("../../lib/slack", () => ({ notifySlack: mockNotifySlack }));
 vi.mock("../../lib/market-date", () => ({
@@ -200,6 +205,17 @@ describe("gapup-monitor main()", () => {
     mockExecuteEntry.mockResolvedValue({ success: true });
     await main();
     expect(mockExecuteEntry).toHaveBeenCalled();
+  });
+
+  // Issue #322: 当日の pending 買い注文（全戦略横断）を保有扱いでスキャナに渡し二重発注を防ぐ
+  it("当日の pending 買い注文ティッカーを holdingTickers としてスキャナに渡す", async () => {
+    setupDefaults();
+    // 先行の PSC 等が同一銘柄で出した未約定買い注文を返す
+    mockGetSameDayPendingBuyTickers.mockResolvedValue(new Set(["7203"]));
+    await main();
+    expect(mockGapUpScan).toHaveBeenCalled();
+    const holdingTickers = mockGapUpScan.mock.calls[0][1] as Set<string>;
+    expect(holdingTickers.has("7203")).toBe(true);
   });
 
   it("エントリー例外→リトライ扱い（次回呼び出しで再実行）", async () => {

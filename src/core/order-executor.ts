@@ -5,6 +5,7 @@
  */
 
 import { prisma } from "../lib/prisma";
+import { getStartOfDayJST } from "../lib/market-date";
 import type { TradingOrder } from "@prisma/client";
 
 /**
@@ -99,7 +100,34 @@ export async function fillOrder(
 }
 
 /**
+ * 当日の未約定（pending）買い注文が存在するティッカー集合を返す（全戦略横断）。
+ *
+ * GU/PSC/ETF は発注時に TradingPosition ではなく TradingOrder(pending) を作り、
+ * ポジションは約定後にしか生成されない。そのため約定前の二重発注を防ぐには、
+ * open/ordered ポジションに加えて「当日の pending 買い注文」も保有扱いで除外する必要がある。
+ * gapup と post-surge-consolidation が同一銘柄に二重建てする事故（Issue #322）を防ぐため
+ * strategy では絞らず全戦略横断で名寄せする。BT の allOpenTickers（1銘柄1ポジション）挙動に一致。
+ */
+export async function getSameDayPendingBuyTickers(): Promise<Set<string>> {
+  const pendingBuys = await prisma.tradingOrder.findMany({
+    where: {
+      side: "buy",
+      status: "pending",
+      createdAt: { gte: getStartOfDayJST() },
+    },
+    include: { stock: { select: { tickerCode: true } } },
+  });
+  return new Set(pendingBuys.map((o) => o.stock.tickerCode));
+}
+
+/**
  * 期限切れ注文をキャンセルする
+ *
+ * 注意: 立花に発注済み（brokerOrderId あり）の注文は、時間ベース単独では失効確定しない。
+ * 引け成行の約定（15:30）とジョブ実行が競合すると、約定済み注文を expired に塗り潰す事故が
+ * 起きる（Issue #322: 2026-06-30 3989.T）。発注済み注文の失効/取消/約定の確定は
+ * reconciliation（syncBrokerOrderStatuses）/ EVENT I/F が立花の実ステータスを確認して行う。
+ * ここで時間失効させるのは brokerOrderId を持たない注文（未送信/デモ）のみに限定する。
  */
 export async function expireOrders(): Promise<number> {
   const now = new Date();
@@ -107,6 +135,7 @@ export async function expireOrders(): Promise<number> {
     where: {
       status: "pending",
       expiresAt: { lte: now },
+      brokerOrderId: null,
     },
     data: { status: "expired" },
   });
