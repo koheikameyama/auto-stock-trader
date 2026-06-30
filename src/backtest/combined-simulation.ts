@@ -127,6 +127,17 @@ export interface SimContext {
    * 初期パラメータは保守的推定で、Phase A の本番ログキャリブレーション後に再調整。
    */
   slippageProfile?: SlippageProfile;
+  /**
+   * 日経平均（^N225）日足終値マップ（date -> close）。
+   * nikkeiDropVetoPct と組み合わせて「当日の日経が前日比 ≤ -N% の暴落日は全戦略の新規エントリーを停止」する。
+   * 省略時は veto 無効（既存挙動）。
+   */
+  indexData?: Map<string, number>;
+  /**
+   * 日経キルスイッチ閾値（%）。当日終値が前日比でこの値以下（例: -3）なら当日の全戦略エントリーを停止。
+   * 省略時は無効。indexData が無い場合も無効。
+   */
+  nikkeiDropVetoPct?: number;
 }
 
 /** breadthゲーティングの方式 */
@@ -812,6 +823,34 @@ export function runCombinedSimulation(
       haltDays++; // DDハルトとは別のハルト事由なので独立カウント
       if (verbose) {
         console.log(`  [${today}] エクイティフィルター: SMA${equityCurveSmaPeriod}下回り（全戦略停止）`);
+      }
+    }
+
+    // ── 1.8 日経キルスイッチ（当日の日経が前日比 ≤ -N% なら全戦略停止） ──
+    // 既存の breadth/SMA50/VIX は前日終値ベースで1日ラグがあるため、
+    // 「同日イントラデイの暴落」に対する 15:24 引け成行発注の veto として機能する。
+    if (
+      ctx.nikkeiDropVetoPct != null &&
+      ctx.indexData &&
+      (boShouldTrade || guShouldTrade || wbShouldTrade || pscShouldTrade || momShouldTrade || etfShouldTrade) &&
+      dayIdx > 0
+    ) {
+      const todayClose = ctx.indexData.get(today);
+      const prevClose = ctx.indexData.get(tradingDays[dayIdx - 1]);
+      if (todayClose != null && prevClose != null && prevClose > 0) {
+        const pctChange = ((todayClose - prevClose) / prevClose) * 100;
+        if (pctChange <= ctx.nikkeiDropVetoPct) {
+          boShouldTrade = false;
+          guShouldTrade = false;
+          wbShouldTrade = false;
+          pscShouldTrade = false;
+          momShouldTrade = false;
+          etfShouldTrade = false;
+          haltDays++;
+          if (verbose) {
+            console.log(`  [${today}] 日経キルスイッチ: ${pctChange.toFixed(2)}% ≤ ${ctx.nikkeiDropVetoPct}%（全戦略停止）`);
+          }
+        }
       }
     }
 
