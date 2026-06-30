@@ -23,7 +23,7 @@ import {
 } from "../lib/constants";
 import { validateStopLoss } from "../core/risk-manager";
 import { fetchStockQuote } from "../core/market-data";
-import { countNonTradingDaysAhead } from "../lib/market-date";
+import { countNonTradingDaysAhead, countTradingDaysBetween } from "../lib/market-date";
 import {
   checkOrderFill,
   fillOrder,
@@ -385,13 +385,11 @@ export async function main() {
     const entryDate = dayjs(position.createdAt).tz(TIMEZONE);
     const now = dayjs().tz(TIMEZONE);
     const isEntryDay = entryDate.format("YYYY-MM-DD") === now.format("YYYY-MM-DD");
-    let holdingBusinessDays = 0;
-    let d = entryDate.add(1, "day");
-    while (d.isBefore(now, "day") || d.isSame(now, "day")) {
-      const dow = d.day();
-      if (dow !== 0 && dow !== 6) holdingBusinessDays++;
-      d = d.add(1, "day");
-    }
+    // 保有営業日数: エントリー翌日〜本日までの実トレーディングデー数（祝日除外）。
+    // 旧実装は月〜金を一律カウントし祝日も1営業日として数えていたため、祝日を跨ぐと
+    // BT（holdingDays = tradingDays index 差）より time-stop が早発火していた（パリティ乖離）。
+    // countTradingDaysBetween は BT の tradingDays と同じ営業日定義（土日+祝日+TSE固有休場を除外）。
+    const holdingBusinessDays = countTradingDaysBetween(entryDate.toDate(), now.toDate());
 
     const entryAtr = position.entryAtr
       ? Number(position.entryAtr)

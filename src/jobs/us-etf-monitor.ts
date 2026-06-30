@@ -19,7 +19,7 @@ import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
 import { prisma } from "../lib/prisma";
-import { getTodayForDB } from "../lib/market-date";
+import { getTodayForDB, countTradingDaysBetween } from "../lib/market-date";
 import { tachibanaFetchQuotesBatch } from "../lib/tachibana-price-client";
 import { submitOrder } from "../core/broker-orders";
 import { TACHIBANA_ORDER } from "../lib/constants/broker";
@@ -411,18 +411,14 @@ async function runTimeStopExits(): Promise<boolean> {
   return anyRetryable;
 }
 
-/** エントリー約定日(createdAt)から現在までの経過営業日数（土日除外、当日含む） */
+/**
+ * エントリー約定日(createdAt)から現在までの経過営業日数（実トレーディングデー、当日含む）。
+ *
+ * 土日に加え日本の祝日・TSE固有休場も除外する。BT（tradingDays index 差）と定義を一致させ、
+ * 祝日跨ぎで time-stop が早発火する乖離を防ぐ。
+ */
 function computeHoldingBusinessDays(entryAt: Date, now: Date): number {
-  const entryDate = dayjs(entryAt).tz(TIMEZONE);
-  const todayJst = dayjs(now).tz(TIMEZONE);
-  let days = 0;
-  let d = entryDate.add(1, "day");
-  while (d.isBefore(todayJst, "day") || d.isSame(todayJst, "day")) {
-    const dow = d.day();
-    if (dow !== 0 && dow !== 6) days++;
-    d = d.add(1, "day");
-  }
-  return days;
+  return countTradingDaysBetween(entryAt, now);
 }
 
 /** スキャン済みフラグをリセットする（テスト用） */

@@ -699,6 +699,12 @@ checkPositionExit(position, bar)
 | position-monitor.ts（ライブ） | `EXIT_GRACE_PERIOD_MS`（1分） | 日足OHLCに買い前の高値/安値が含まれるため |
 | バックテスト | エントリー日（holdingDays=0）はスキップ | 同上（日足ベース） |
 
+### 保有営業日数の数え方（BTパリティ）
+
+タイムストップの `holdingBusinessDays` は **実トレーディングデー（土日＋日本の祝日＋TSE固有休場 12/31・1/2・1/3 を除外）** で数える。`market-date.ts` の `countTradingDaysBetween()` を本番（`position-monitor` / `us-etf-monitor`）が使用し、BT の `holdingDays = tradingDays index 差` と定義を一致させる。
+
+> 旧実装は月〜金を一律カウントし祝日も1営業日として数えていたため、祝日を跨ぐと本番のタイムストップが BT より早発火していた。日本市場は祝日が多く、特に GW・年末年始・飛び石連休で乖離した。`countTradingDaysBetween()` で本番を BT の営業日定義に揃え、この乖離を解消した。
+
 ### 実装ファイル
 
 | ファイル | 内容 |

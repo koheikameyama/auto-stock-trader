@@ -7,6 +7,7 @@ import {
   getStartOfDayJST,
   getEndOfDayJST,
   countNonTradingDaysAhead,
+  countTradingDaysBetween,
   adjustToTradingDay,
 } from "../market-date";
 import dayjs from "dayjs";
@@ -147,6 +148,32 @@ describe("countNonTradingDaysAhead", () => {
     // 2026-07-17 = 金曜、7/20 = 海の日（月曜祝日）
     // → 土日月で3日、翌営業日は7/21火曜
     expect(countNonTradingDaysAhead(jstDate("2026-07-17"))).toBe(3);
+  });
+});
+
+describe("countTradingDaysBetween（BTパリティ: 保有営業日数）", () => {
+  it("エントリー当日（from==to）→ 0", () => {
+    expect(countTradingDaysBetween(jstDate("2026-03-16"), jstDate("2026-03-16"))).toBe(0);
+  });
+
+  it("月→水（連続2営業日）→ 2", () => {
+    // 2026-03-16 月 → 3/17火・3/18水 の2営業日
+    expect(countTradingDaysBetween(jstDate("2026-03-16"), jstDate("2026-03-18"))).toBe(2);
+  });
+
+  it("金→翌月曜（土日を挟む）→ 1", () => {
+    // 2026-03-20 金 → 3/21土・3/22日は数えず、3/23月のみ
+    expect(countTradingDaysBetween(jstDate("2026-03-20"), jstDate("2026-03-23"))).toBe(1);
+  });
+
+  it("祝日跨ぎ（金エントリー→翌火、月曜が海の日）→ 1（祝日は数えない）", () => {
+    // 2026-07-17 金 → 7/18土・7/19日・7/20海の日(月) は除外、7/21火のみ = 1
+    // 旧実装（月〜金を一律カウント）なら 7/20 を1日と数えて 2 になっていた = time-stop 早発火の原因
+    expect(countTradingDaysBetween(jstDate("2026-07-17"), jstDate("2026-07-21"))).toBe(1);
+  });
+
+  it("年末年始跨ぎ（12/30水→1/4月）→ 1（12/31・1/1〜1/3は除外）", () => {
+    expect(countTradingDaysBetween(jstDate("2026-12-30"), jstDate("2027-01-04"))).toBe(1);
   });
 
   it("年末（12/30水 → 1/4月）→ 4", () => {

@@ -129,6 +129,26 @@ export function countNonTradingDaysAhead(date?: Date): number {
 }
 
 /**
+ * fromExclusive の翌日から toInclusive までの「営業日（トレーディングデー）」数を返す。
+ *
+ * 保有営業日数の算出に使う。BT（combined-simulation）の holdingDays =
+ * tradingDays index 差（祝日除外の実営業日数）と定義を一致させるためのヘルパー。
+ * 土日・日本の祝日・TSE固有休場（12/31, 1/2, 1/3）は数えない。
+ *
+ * 例: 金曜エントリー → 翌月曜時点で 1（土日は数えない）。間に祝日があればその分も除外。
+ */
+export function countTradingDaysBetween(fromExclusive: Date, toInclusive: Date): number {
+  let count = 0;
+  let d = dayjs(fromExclusive).tz(JST).add(1, "day");
+  const end = dayjs(toInclusive).tz(JST);
+  while (d.isBefore(end, "day") || d.isSame(end, "day")) {
+    if (isMarketDay(d.toDate())) count++;
+    d = d.add(1, "day");
+  }
+  return count;
+}
+
+/**
  * 指定日が非営業日の場合、直後の営業日に調整する
  * 営業日であればそのまま返す
  *
