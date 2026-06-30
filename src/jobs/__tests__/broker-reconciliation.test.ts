@@ -234,6 +234,52 @@ describe("broker-reconciliation: Phase 3 保有照合", () => {
     // 数量不一致はclosePositionしない
     expect(mockClosePosition).not.toHaveBeenCalled();
   });
+
+  // Issue #322 の穴を塞ぐ: 逆方向照合（ブローカー保有あり ⇄ DB openポジション無し）
+  it("ブローカー保有あり + DB openポジション無し → 孤立保有のdanger通知", async () => {
+    setupForPhase3([]); // DB openポジションなし
+    mockGetHoldings.mockResolvedValue([
+      { ticker: "3989.T", quantity: 200, sellableQuantity: 200, bookValuePerShare: 1398, marketPrice: 1400, marketValue: 280000, unrealizedPnl: 400 },
+    ]);
+    mockOrderFindMany.mockResolvedValue([]); // in-flight注文なし
+
+    await main();
+
+    const orphanCalls = mockNotifySlack.mock.calls.filter((c) =>
+      String((c[0] as { title?: string })?.title ?? "").includes("孤立保有"),
+    );
+    expect(orphanCalls).toHaveLength(1);
+    expect(orphanCalls[0][0]).toMatchObject({ color: "danger" });
+  });
+
+  it("ブローカー保有あり + 同銘柄openポジション有り → 孤立通知しない（管理下）", async () => {
+    setupForPhase3([makePosition({ ticker: "3989.T", quantity: 200 })]);
+    mockGetHoldings.mockResolvedValue([
+      { ticker: "3989.T", quantity: 200, sellableQuantity: 200, bookValuePerShare: 1398, marketPrice: 1400, marketValue: 280000, unrealizedPnl: 400 },
+    ]);
+
+    await main();
+
+    const orphanCalls = mockNotifySlack.mock.calls.filter((c) =>
+      String((c[0] as { title?: string })?.title ?? "").includes("孤立保有"),
+    );
+    expect(orphanCalls).toHaveLength(0);
+  });
+
+  it("ブローカー保有あり + 同銘柄pending買い注文あり → in-flightのため孤立通知しない", async () => {
+    setupForPhase3([]); // DB openポジションなし
+    mockGetHoldings.mockResolvedValue([
+      { ticker: "3989.T", quantity: 100, sellableQuantity: 100, bookValuePerShare: 1398, marketPrice: 1400, marketValue: 140000, unrealizedPnl: 200 },
+    ]);
+    mockOrderFindMany.mockResolvedValue([{ stock: { tickerCode: "3989.T" } }]); // pending買い注文（処理待ち）
+
+    await main();
+
+    const orphanCalls = mockNotifySlack.mock.calls.filter((c) =>
+      String((c[0] as { title?: string })?.title ?? "").includes("孤立保有"),
+    );
+    expect(orphanCalls).toHaveLength(0);
+  });
 });
 
 // ========================================
