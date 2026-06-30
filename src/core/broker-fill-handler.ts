@@ -45,6 +45,11 @@ export async function recoverMissedFills(): Promise<void> {
   if (!pendingOrders.length) return;
 
   for (const order of pendingOrders) {
+    // 営業日が空（Issue #322）の注文は getOrderDetail を引けない。
+    // reconciliation の Phase 1（syncBrokerOrderStatuses）が注文番号フォールバックで
+    // brokerBusinessDay をバックフィルするまでスキップする。
+    if (!order.brokerBusinessDay) continue;
+
     const detail = await getOrderDetail(
       order.brokerOrderId!,
       order.brokerBusinessDay!,

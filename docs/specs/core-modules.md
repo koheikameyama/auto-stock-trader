@@ -193,8 +193,14 @@ interface MarketData {
 |------|------|--------|------|
 | `checkOrderFill` | order, high, low | number \| null | 約定条件チェック（約定価格 or null） |
 | `fillOrder` | orderId, filledPrice | TradingOrder | 注文を約定済みに更新 |
-| `expireOrders` | - | number | 期限切れ注文数 |
+| `expireOrders` | - | number | 期限切れ注文数（**`brokerOrderId` を持たない注文のみ時間失効**） |
 | `getPendingOrders` | - | TradingOrder[] | 未約定注文一覧 |
+| `getSameDayPendingBuyTickers` | - | Set\<string\> | 当日の pending 買い注文ティッカー（全戦略横断） |
+
+### 二重発注防止と約定×失効の競合回避（Issue #322）
+
+- **約定前は `TradingPosition` が無い**: GU/PSC/ETF は発注時に `TradingOrder(pending)` のみ作り、ポジションは約定後に生成される。そのため同一バッチ内の二重発注防止には「当日の pending 買い注文」も保有扱いで除外する必要がある。`getSameDayPendingBuyTickers` を GU/PSC モニターの `holdingTickers` に合算し、`entry-executor` でも同一銘柄の当日 pending 買い注文があればスキップする（戦略横断、BT の `allOpenTickers` 挙動に一致）。
+- **`expireOrders` は時間ベース単独で確定しない**: 引け成行の約定（15:30）とジョブ実行が競合し、約定済み注文を `expired` に塗り潰す事故を防ぐため、立花に発注済み（`brokerOrderId` あり）の注文は時間失効の対象外とする。失効/取消/約定の確定は reconciliation（`syncBrokerOrderStatuses`）/ EVENT I/F が立花の実ステータスで行う。
 
 ### 約定条件
 

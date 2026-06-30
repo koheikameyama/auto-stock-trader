@@ -346,4 +346,66 @@ describe("syncBrokerOrderStatuses", () => {
 
     expect(mockOrderUpdate).not.toHaveBeenCalled();
   });
+
+  // Issue #322: brokerBusinessDay 欠落注文の追跡（注文番号フォールバック + バックフィル）
+  it("brokerBusinessDay 欠落 → 注文番号フォールバックで照合し営業日をバックフィル + status更新", async () => {
+    mockRequest.mockResolvedValue({
+      sResultCode: "0",
+      aOrderList: [
+        {
+          sOrderOrderNumber: "30014370",
+          sOrderSikkouDay: "20260630",
+          sOrderStatusCode: "12", // EXPIRED
+        },
+      ],
+    });
+    mockOrderFindMany.mockResolvedValue([
+      {
+        id: "order-orphan",
+        brokerOrderId: "30014370",
+        brokerBusinessDay: "", // 営業日が空のまま保存されていた
+        brokerStatus: "",
+        status: "pending",
+        stock: { tickerCode: "3989.T" },
+      },
+    ]);
+
+    await syncBrokerOrderStatuses();
+
+    expect(mockOrderUpdate).toHaveBeenCalledWith({
+      where: { id: "order-orphan" },
+      data: expect.objectContaining({
+        brokerStatus: "12",
+        brokerBusinessDay: "20260630", // バックフィルされる
+        status: "expired",
+      }),
+    });
+  });
+
+  it("brokerBusinessDay 欠落 + ブローカー一覧にも該当注文なし → updateを呼ばない", async () => {
+    mockRequest.mockResolvedValue({
+      sResultCode: "0",
+      aOrderList: [
+        {
+          sOrderOrderNumber: "OTHER-999",
+          sOrderSikkouDay: "20260630",
+          sOrderStatusCode: "1",
+        },
+      ],
+    });
+    mockOrderFindMany.mockResolvedValue([
+      {
+        id: "order-missing",
+        brokerOrderId: "30014370",
+        brokerBusinessDay: "",
+        brokerStatus: "",
+        status: "pending",
+        stock: { tickerCode: "3989.T" },
+      },
+    ]);
+
+    await syncBrokerOrderStatuses();
+
+    expect(mockOrderUpdate).not.toHaveBeenCalled();
+  });
 });

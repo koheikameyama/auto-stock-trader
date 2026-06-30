@@ -14,6 +14,7 @@ import { getTodayForDB } from "../lib/market-date";
 import { tachibanaFetchQuotesBatch } from "../lib/tachibana-price-client";
 import { getGuWatchlist } from "./watchlist-builder";
 import { executeEntry } from "../core/breakout/entry-executor";
+import { getSameDayPendingBuyTickers } from "../core/order-executor";
 import { notifySlack } from "../lib/slack";
 import { TIMEZONE } from "../lib/constants";
 import { GAPUP } from "../lib/constants/gapup";
@@ -85,6 +86,9 @@ export async function main(): Promise<void> {
       include: { stock: { select: { tickerCode: true } } },
     });
     const holdingTickers = new Set(openPositions.map((p) => p.stock.tickerCode));
+    // 約定前は TradingPosition が無いため、当日の pending 買い注文（全戦略横断）も保有扱いで除外。
+    // 先行する GU/PSC が出した未約定注文を検知できず同一銘柄に二重建てする事故を防ぐ（Issue #322）。
+    for (const t of await getSameDayPendingBuyTickers()) holdingTickers.add(t);
 
     // リアルタイム時価を一括取得
     const quotesRaw = await tachibanaFetchQuotesBatch(tickers);
