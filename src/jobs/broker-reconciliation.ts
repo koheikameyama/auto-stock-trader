@@ -238,8 +238,6 @@ async function reconcileHoldings(): Promise<void> {
     }),
   ]);
 
-  if (!openPositions.length) return;
-
   // APIエラー時（null）は照合をスキップ（誤爆による全ポジション自動クローズを防止）
   if (brokerHoldings === null) {
     console.warn("[broker-reconciliation] 保有一覧取得失敗 → 照合スキップ");
@@ -247,6 +245,15 @@ async function reconcileHoldings(): Promise<void> {
   }
 
   const holdingMap = new Map(brokerHoldings.map((h) => [h.ticker, h]));
+  const openTickers = new Set(openPositions.map((p) => p.stock.tickerCode));
+
+  // 孤立保有（約定したのにDB未認識）の検出用に in-flight（pending）買い注文の銘柄を把握する。
+  // pending注文は EVENT I/F / recoverMissedFills が約定→ポジション生成を処理中なので孤立扱いしない。
+  const pendingBuyOrders = await prisma.tradingOrder.findMany({
+    where: { status: "pending", side: "buy" },
+    include: { stock: { select: { tickerCode: true } } },
+  });
+  const inFlightTickers = new Set(pendingBuyOrders.map((o) => o.stock.tickerCode));
 
   const now = Date.now();
 
@@ -281,6 +288,28 @@ async function reconcileHoldings(): Promise<void> {
         color: "warning",
       }).catch(() => {});
     }
+  }
+
+  // 逆方向照合: ブローカー保有あり ⇄ DB open ポジション無し
+  // 約定したのに TradingPosition が作られず無管理になった孤立保有を検出する（Issue #322 の穴を塞ぐ）。
+  // 自動取り込みはせず通知のみ（entryPrice/strategy/SL の判断が必要なため。誤爆防止の既存方針に合わせる）。
+  for (const holding of brokerHoldings) {
+    if (holding.quantity <= 0) continue;
+    if (openTickers.has(holding.ticker)) continue; // 管理下にある
+    if (inFlightTickers.has(holding.ticker)) continue; // pending約定の処理待ち（EVENT I/F が生成中）
+
+    console.warn(
+      `[broker-reconciliation] ${holding.ticker}: ブローカー保有あり(${holding.quantity}株)だがDBにopenポジションなし → 孤立保有（無管理・SL未設定の恐れ）`,
+    );
+    await notifySlack({
+      title: `🚨 要対応: 孤立保有を検出（無管理ポジション）`,
+      message:
+        `${holding.ticker} を ${holding.quantity}株 保有していますが、DBにopenポジションがありません。\n` +
+        `SL/トレール/タイムストップが効かない無管理状態の可能性があります（Issue #322 と同型）。\n` +
+        `概算簿価: ¥${holding.bookValuePerShare.toLocaleString()} / 評価額: ¥${holding.marketValue.toLocaleString()} / 評価損益: ¥${holding.unrealizedPnl.toLocaleString()}\n` +
+        `DBへのポジション復元とSL手当てを確認してください。`,
+      color: "danger",
+    }).catch(() => {});
   }
 }
 

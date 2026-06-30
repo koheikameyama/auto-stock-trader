@@ -201,6 +201,7 @@ interface MarketData {
 
 - **約定前は `TradingPosition` が無い**: GU/PSC/ETF は発注時に `TradingOrder(pending)` のみ作り、ポジションは約定後に生成される。そのため同一バッチ内の二重発注防止には「当日の pending 買い注文」も保有扱いで除外する必要がある。`getSameDayPendingBuyTickers` を GU/PSC モニターの `holdingTickers` に合算し、`entry-executor` でも同一銘柄の当日 pending 買い注文があればスキップする（戦略横断、BT の `allOpenTickers` 挙動に一致）。
 - **`expireOrders` は時間ベース単独で確定しない**: 引け成行の約定（15:30）とジョブ実行が競合し、約定済み注文を `expired` に塗り潰す事故を防ぐため、立花に発注済み（`brokerOrderId` あり）の注文は時間失効の対象外とする。失効/取消/約定の確定は reconciliation（`syncBrokerOrderStatuses`）/ EVENT I/F が立花の実ステータスで行う。
+- **孤立保有の逆方向照合**: `broker-reconciliation` の `reconcileHoldings` は従来「DB open ポジション → ブローカー保有」の片方向のみ照合していた。約定したのに `TradingPosition` が作られず無管理になった保有（Issue #322 と同型）を検出するため、**「ブローカー保有 → DB open ポジション無し」の逆方向照合**を追加。in-flight な pending 買い注文の銘柄は EVENT I/F / `recoverMissedFills` が処理中のため除外し、それ以外の孤立保有は danger で Slack 通知する（自動取り込みはせず通知のみ）。
 
 ### 約定条件
 
