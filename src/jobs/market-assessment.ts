@@ -20,6 +20,7 @@ import type { MarketRegime, Sentiment } from "../core/market-regime";
 import { calculateDrawdownStatus } from "../core/drawdown-manager";
 import type { DrawdownStatus } from "../core/drawdown-manager";
 import { calculateMarketBreadth } from "../core/market-breadth";
+import { getNikkeiLastSessionChange } from "../core/market-index";
 
 /** market-assessment の結果（オーケストレーターや stock-scanner に渡す） */
 export interface MarketAssessmentContext {
@@ -58,12 +59,16 @@ export async function main(): Promise<MarketAssessmentContext> {
   let isShadowMode = false;
   let shadowAlert: { type: string; message: string } | null = null;
 
-  // 1. 市場指標データ取得 + Breadth計算（並列）
+  // 1. 市場指標データ取得 + Breadth計算 + 日経DB前日比（並列）
   console.log("[1/2] 市場指標データ + Breadth 取得中...");
-  const [marketData, breadthResult] = await Promise.all([
+  const [marketData, breadthResult, nikkeiDbChange] = await Promise.all([
     fetchMarketData(),
     calculateMarketBreadth().catch((e) => {
       console.warn("Breadth計算に失敗:", e);
+      return null;
+    }),
+    getNikkeiLastSessionChange().catch((e) => {
+      console.warn("日経DB前日比の取得に失敗:", e);
       return null;
     }),
   ]);
@@ -80,6 +85,33 @@ export async function main(): Promise<MarketAssessmentContext> {
       message: "日経平均データの取得に失敗しました。手動確認してください。",
     });
     throw new Error("市場データの取得に失敗しました（nikkei が null）");
+  }
+
+  // 日経インデックスの鮮度ガード（stale-data 誤発火対策）:
+  // 場中前(08:02 JST)の yfinance ライブ値は直近確定セッションの足を1営業日取りこぼし、
+  // stale な前日比でキルスイッチ/CME乖離が誤作動する（2026-06-30 実例）。
+  // breadth と同じく DB(StockDailyBar) を権威ソースとして上書きし、鮮度を揃える。
+  if (nikkeiDbChange) {
+    const liveChange = marketData.nikkei.changePercent;
+    const dbChange = nikkeiDbChange.changePercent;
+    const asOf = nikkeiDbChange.asOfDate.toISOString().slice(0, 10);
+    const drift = Math.abs(liveChange - dbChange);
+    if (drift > MARKET_INDEX.NIKKEI_STALE_TOLERANCE_PCT) {
+      const msg = `日経 live ${liveChange.toFixed(2)}% と DB ${dbChange.toFixed(2)}% (asOf ${asOf}) が ${drift.toFixed(2)}pp 乖離。live が stale の疑い → DB値を採用`;
+      console.warn(`[1.5/2] [stale-guard] ${msg}`);
+      await notifyRiskAlert({
+        type: "日経データstale検知",
+        message: `${msg}\n（market-assessment の日経前日比を DB 権威値で補正しました）`,
+      }).catch((e) => console.warn("stale通知に失敗:", e));
+    } else {
+      console.log(`[1.5/2] 日経DB前日比 ${dbChange.toFixed(2)}% (asOf ${asOf}) — live と整合`);
+    }
+    // DB を真実源として上書き（kill switch / CME乖離 / 表示の鮮度を一貫させる）
+    marketData.nikkei.price = nikkeiDbChange.close;
+    marketData.nikkei.previousClose = nikkeiDbChange.previousClose;
+    marketData.nikkei.changePercent = dbChange;
+  } else {
+    console.warn("[1.5/2] [stale-guard] 日経DB前日比が取得不可。yfinance ライブ値のまま続行（stale の可能性に注意）");
   }
 
   if (!marketData.vix) {

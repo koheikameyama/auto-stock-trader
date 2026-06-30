@@ -50,6 +50,9 @@ export const MARKET_INDEX = {
   CRASH_THRESHOLD: -5, // 急落判定（週間変化率%）
   PANIC_THRESHOLD: -7, // パニック閾値
   NIKKEI_CRISIS_THRESHOLD: -3, // 日経平均キルスイッチ（前日比%で全取引停止）
+  // 場中前(08:02 JST)の yfinance ライブ取得は直近確定セッションの足を取りこぼし stale な前日比を返すことがある。
+  // DB(StockDailyBar)の権威値と live がこの pp 以上乖離したら stale とみなし警告 + DB値を採用する。
+  NIKKEI_STALE_TOLERANCE_PCT: 0.5,
 } as const;
 
 /** 市場breadthフィルター（全戦略共通） */
