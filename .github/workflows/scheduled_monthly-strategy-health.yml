@@ -29,6 +29,14 @@ jobs:
       - run: npx prisma generate
       - name: Run walk-forward analysis (5 strategies, A/B tier)
         run: python scripts/run_monthly_walk_forward.py
+      - name: Upload WF results for combined captain review
+        if: always()  # 一部失敗でも書き出せた分は統合レビューに渡す
+        uses: actions/upload-artifact@v4
+        with:
+          name: wf-results
+          path: wf-results.json
+          if-no-files-found: warn
+          retention-days: 7
 
   combined-compare:
     runs-on: ubuntu-latest
@@ -43,6 +51,11 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npx prisma generate
+      - name: Download WF results (for unified captain review)
+        continue-on-error: true  # WF失敗時は artifact 無し → combined 単独でレビュー
+        uses: actions/download-artifact@v4
+        with:
+          name: wf-results
       - name: Run combined strategy-mix comparison (baseline vs +WB / +MOM / +WB+MOM)
         run: python scripts/run_monthly_combined_compare.py
 

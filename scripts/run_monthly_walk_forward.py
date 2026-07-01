@@ -23,7 +23,10 @@ import urllib.request
 
 
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+# WF 結果の受け渡し先。combined-compare ジョブが artifact 経由で読み込み、
+# WF + combined を束ねた統合 AI レビュー (艦長レイヤー) を生成する。
+WF_RESULTS_PATH = os.getenv("WF_RESULTS_PATH", "wf-results.json")
 
 
 # 監視対象戦略の定義
@@ -206,91 +209,12 @@ def parse_wf_result(stdout: str) -> dict:
     return info
 
 
-def generate_ai_review(results: list[dict]) -> str:
-    """OpenAI gpt-4o-mini で WF 結果を評価する"""
-    if not OPENAI_API_KEY:
-        print("OPENAI_API_KEY 未設定、AI評価をスキップ")
-        return ""
+def notify_slack(results: list[dict]) -> None:
+    """Slack に WF 結果サマリー + ルールベース検知フラグを送信する。
 
-    # プロンプト用データ構築
-    data_sections: list[str] = []
-    for r in results:
-        if not r["success"]:
-            data_sections.append(f"## {r['strategy']}\n実行失敗")
-            continue
-
-        info = r["info"]
-        data_sections.append(
-            f"## {r['strategy']}\n"
-            f"- 判定: {info['judgment']}\n"
-            f"- OOS集計PF: {info['oos_pf']}\n"
-            f"- IS/OOS PF比: {info['is_oos_ratio']}\n"
-            f"- アクティブウィンドウ: {info['active_windows']}\n"
-            f"- 総トレード: {info['total_trades']}\n"
-            f"- 勝率: {info['win_rate']}\n"
-            f"\n{info['window_table']}\n"
-            f"\n{info['param_stability']}"
-        )
-
-    wf_data = "\n\n".join(data_sections)
-
-    # 本番パラメータをプロンプトテンプレートに注入
-    production_params_lines: list[str] = []
-    for r in results:
-        if r["success"] and "production_params" in r["info"]:
-            production_params_lines.append(f"- {r['strategy']}: {r['info']['production_params']}")
-    production_params_text = "\n".join(production_params_lines) if production_params_lines else "（取得失敗）"
-
-    prompt_path = os.path.join(os.path.dirname(__file__), "..", "prompts", "walk-forward-evaluation.txt")
-    with open(prompt_path, encoding="utf-8") as f:
-        system_prompt = f.read().replace("{production_params}", production_params_text)
-
-    messages = [
-        {
-            "role": "system",
-            "content": system_prompt,
-        },
-        {
-            "role": "user",
-            "content": f"今月のWalk-Forward結果:\n\n{wf_data}",
-        },
-    ]
-
-    payload = {
-        "model": "gpt-4o-mini",
-        "messages": messages,
-        "temperature": 0.3,
-        "max_tokens": 500,
-        "response_format": {"type": "json_object"},
-    }
-
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
-        },
-    )
-
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-            content = body["choices"][0]["message"]["content"]
-            parsed = json.loads(content)
-            review = parsed.get("review", "")
-            action = parsed.get("action", "")
-            print(f"\n[AI評価] {review}")
-            print(f"[推奨アクション] {action}")
-            return f"{review}\n\n*推奨アクション:* {action}"
-    except Exception as e:
-        print(f"AI評価失敗: {e}", file=sys.stderr)
-        return ""
-
-
-def notify_slack(results: list[dict], ai_review: str) -> None:
-    """Slack に WF 結果サマリー + AI評価を送信する"""
+    AI評価は WF + combined を束ねる combined-compare ジョブ側 (艦長レイヤー) に集約。
+    ここは決定論的な数値・disable/revival フラグのみを流す。
+    """
     if not SLACK_WEBHOOK_URL:
         print("SLACK_WEBHOOK_URL 未設定、Slack通知をスキップ")
         return
@@ -369,13 +293,6 @@ def notify_slack(results: list[dict], ai_review: str) -> None:
             "short": False,
         })
 
-    if ai_review:
-        fields.append({
-            "title": "AI評価",
-            "value": ai_review,
-            "short": False,
-        })
-
     if has_failure:
         color = "danger"
     elif disable_proposals:
@@ -441,11 +358,16 @@ def main():
             "info": info,
         })
 
-    # AI評価
-    ai_review = generate_ai_review(results)
+    # WF 結果を artifact 用に書き出す (combined-compare ジョブが統合レビューで参照)
+    try:
+        with open(WF_RESULTS_PATH, "w", encoding="utf-8") as f:
+            json.dump(results, f, ensure_ascii=False, indent=2)
+        print(f"WF結果を書き出し: {WF_RESULTS_PATH}")
+    except Exception as e:
+        print(f"WF結果の書き出し失敗: {e}", file=sys.stderr)
 
-    # Slack通知
-    notify_slack(results, ai_review)
+    # Slack通知 (決定論的な数値 + 検知フラグのみ)
+    notify_slack(results)
 
     # サマリー表示
     print(f"\n{'='*60}")
