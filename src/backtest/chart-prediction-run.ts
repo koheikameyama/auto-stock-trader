@@ -152,6 +152,7 @@ async function main() {
   const csvPath = getArg(args, "--csv");
   const mine = args.includes("--mine");
   const minePayoffFlag = args.includes("--mine-payoff");
+  const incremental = args.includes("--incremental");
   const mineMinN = Number(getArg(args, "--min-n") ?? "2000");
   const mineDepth = Number(getArg(args, "--depth") ?? "2");
 
@@ -301,6 +302,13 @@ async function main() {
   console.log(
     "→ 予測器はこの majority-class を有意に超えて初めて「エッジあり」。以下の edge 列で判断する。\n",
   );
+
+  // ── 増分価値検定モード（局面 vs 局面+チャート） ──
+  if (incremental) {
+    runIncremental(rows);
+    await prisma.$disconnect();
+    return;
+  }
 
   // ── 条件マイニングモード ──
   if (mine || minePayoffFlag) {
@@ -848,6 +856,197 @@ function minePayoff(
     `\n※ mean=平均フォワード, med=中央値, win=P(fwd>0), p90/p10=右裾/左裾, tail=p90/|p10|(>1で右肩上がり)。` +
       `\n※ これは ${horizon}日 buy&hold の生分布（ストップ未考慮）。実採用は combined BT + WF 必須（却下リスト参照）。` +
       `\n※ 分割日=${splitDate}。多重検定注意: stable✓ かつ浅い条件を優先。`,
+  );
+}
+
+// ──────────────────────────────────────────
+// 増分価値検定（局面を固定して チャート が上乗せ価値を持つか）
+// ──────────────────────────────────────────
+//
+// ロジスティック回帰 + 時系列 train/test 分割で、以下4モデルの汎化性能を比較:
+//   base(常に多数派) / チャートのみ / 局面のみ / 局面+チャート
+// 「局面+チャート」が「局面のみ」を AUC・log-loss で有意に超えなければ、
+// チャートは局面を超える予測情報を持たない＝組み合わせても無駄、と確定できる。
+
+/** ロジスティック回帰（フルバッチ勾配降下、標準化済み特徴＋バイアス列を想定） */
+function fitLogistic(
+  X: number[][],
+  y: number[],
+  iters = 600,
+  lr = 0.5,
+  l2 = 1e-4,
+): number[] {
+  const n = X.length;
+  const d = X[0].length;
+  const w = new Array(d).fill(0);
+  for (let it = 0; it < iters; it++) {
+    const grad = new Array(d).fill(0);
+    for (let i = 0; i < n; i++) {
+      let z = 0;
+      for (let j = 0; j < d; j++) z += w[j] * X[i][j];
+      const p = 1 / (1 + Math.exp(-z));
+      const err = p - y[i];
+      const row = X[i];
+      for (let j = 0; j < d; j++) grad[j] += err * row[j];
+    }
+    for (let j = 0; j < d; j++) w[j] -= lr * (grad[j] / n + l2 * w[j]);
+  }
+  return w;
+}
+
+function predictProba(w: number[], x: number[]): number {
+  let z = 0;
+  for (let j = 0; j < w.length; j++) z += w[j] * x[j];
+  return 1 / (1 + Math.exp(-z));
+}
+
+/** rank ベース AUC（Mann-Whitney、tie 平均ランク） */
+function aucOf(scores: number[], y: number[]): number {
+  const idx = scores.map((s, i) => [s, i] as [number, number]).sort((a, b) => a[0] - b[0]);
+  const ranks = new Array(scores.length);
+  let i = 0;
+  while (i < idx.length) {
+    let j = i;
+    while (j < idx.length - 1 && idx[j + 1][0] === idx[i][0]) j++;
+    const r = (i + 1 + (j + 1)) / 2;
+    for (let k = i; k <= j; k++) ranks[idx[k][1]] = r;
+    i = j + 1;
+  }
+  let sumPos = 0;
+  let nPos = 0;
+  let nNeg = 0;
+  for (let k = 0; k < y.length; k++) {
+    if (y[k] === 1) {
+      sumPos += ranks[k];
+      nPos++;
+    } else nNeg++;
+  }
+  if (nPos === 0 || nNeg === 0) return NaN;
+  return (sumPos - (nPos * (nPos + 1)) / 2) / (nPos * nNeg);
+}
+
+function evalMetrics(
+  probs: number[],
+  y: number[],
+): { acc: number; logloss: number; auc: number } {
+  let correct = 0;
+  let ll = 0;
+  for (let i = 0; i < y.length; i++) {
+    const p = Math.min(1 - 1e-12, Math.max(1e-12, probs[i]));
+    if ((p >= 0.5 ? 1 : 0) === y[i]) correct++;
+    ll += -(y[i] * Math.log(p) + (1 - y[i]) * Math.log(1 - p));
+  }
+  return { acc: correct / y.length, logloss: ll / y.length, auc: aucOf(probs, y) };
+}
+
+const INCREMENTAL_CHART_KEYS: (keyof PredictionFeatures)[] = [
+  "smaSlope25",
+  "priceVsSma5",
+  "priceVsSma25",
+  "priceVsSma75",
+  "mom5",
+  "mom20",
+  "atrPct",
+  "volRatio",
+  "rangePos20",
+  "distFromHigh20",
+  "rsi14",
+];
+
+function runIncremental(rows: PredRow[]): void {
+  // 局面3変数 + チャート特徴が全て揃う行のみ使用
+  const usable = rows.filter(
+    (r) =>
+      r.vix != null &&
+      r.breadth != null &&
+      r.n225AboveSma50 != null &&
+      INCREMENTAL_CHART_KEYS.every((k) => r.features[k] != null),
+  );
+
+  // 時系列 60/40 分割（train=前, test=後。リークなし）
+  const sorted = usable.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const splitIdx = Math.floor(sorted.length * 0.6);
+  const trainAll = sorted.slice(0, splitIdx);
+  const test = sorted.slice(splitIdx);
+
+  // 学習コスト抑制のため train を最大 80k に等間隔サンプリング（決定論的）
+  const CAP = 80000;
+  const step = trainAll.length > CAP ? Math.ceil(trainAll.length / CAP) : 1;
+  const train = step > 1 ? trainAll.filter((_, i) => i % step === 0) : trainAll;
+
+  const regimeOf = (r: PredRow): number[] => [r.vix!, r.breadth!, r.n225AboveSma50 ? 1 : 0];
+  const chartOf = (r: PredRow): number[] => INCREMENTAL_CHART_KEYS.map((k) => r.features[k]!);
+
+  const models: { name: string; feat: (r: PredRow) => number[] }[] = [
+    { name: "チャートのみ", feat: chartOf },
+    { name: "局面のみ", feat: regimeOf },
+    { name: "局面+チャート", feat: (r) => [...regimeOf(r), ...chartOf(r)] },
+  ];
+
+  const yTrain = train.map((r) => (r.label === "up" ? 1 : 0));
+  const yTest = test.map((r) => (r.label === "up" ? 1 : 0));
+  const baseUp = yTrain.reduce((s, v) => s + v, 0) / yTrain.length;
+
+  console.log("── 増分価値検定（局面 vs 局面+チャート、ロジスティック回帰・時系列分割） ──");
+  console.log(
+    `使用サンプル ${usable.length.toLocaleString()}件（train ${train.length.toLocaleString()} / test ${test.length.toLocaleString()}、分割日=${test[0]?.date}）`,
+  );
+  console.log(
+    `${"model".padEnd(16)}| ${"test acc".padStart(8)} | ${"logloss".padStart(8)} | ${"AUC".padStart(6)}`,
+  );
+  console.log("-".repeat(50));
+
+  // base(常に train 多数派): 確率一定 = baseUp
+  const baseProbs = test.map(() => baseUp);
+  const baseM = evalMetrics(baseProbs, yTest);
+  console.log(
+    `${"base(常に多数派)".padEnd(16)}| ${(baseM.acc * 100).toFixed(1).padStart(7)}% | ${baseM.logloss.toFixed(4).padStart(8)} | ${baseM.auc.toFixed(3).padStart(6)}`,
+  );
+
+  const results: Record<string, { auc: number; logloss: number }> = {};
+  for (const m of models) {
+    // 標準化（train 統計）
+    const rawTrain = train.map(m.feat);
+    const d = rawTrain[0].length;
+    const mean = new Array(d).fill(0);
+    const std = new Array(d).fill(0);
+    for (const row of rawTrain) for (let j = 0; j < d; j++) mean[j] += row[j];
+    for (let j = 0; j < d; j++) mean[j] /= rawTrain.length;
+    for (const row of rawTrain)
+      for (let j = 0; j < d; j++) std[j] += (row[j] - mean[j]) ** 2;
+    for (let j = 0; j < d; j++) std[j] = Math.sqrt(std[j] / rawTrain.length) || 1;
+
+    const stdz = (row: number[]) => [1, ...row.map((v, j) => (v - mean[j]) / std[j])]; // バイアス列付き
+    const Xtr = rawTrain.map(stdz);
+    const w = fitLogistic(Xtr, yTrain);
+    const probsTest = test.map((r) => predictProba(w, stdz(m.feat(r))));
+    const met = evalMetrics(probsTest, yTest);
+    results[m.name] = { auc: met.auc, logloss: met.logloss };
+    console.log(
+      `${m.name.padEnd(16)}| ${(met.acc * 100).toFixed(1).padStart(7)}% | ${met.logloss.toFixed(4).padStart(8)} | ${met.auc.toFixed(3).padStart(6)}`,
+    );
+  }
+
+  // 判定
+  const a = results["局面のみ"];
+  const b = results["局面+チャート"];
+  const dAuc = b.auc - a.auc;
+  const dLoss = a.logloss - b.logloss; // 正 = チャート追加で改善
+  console.log("\n── 判定：チャートは局面に上乗せ価値を持つか ──");
+  console.log(
+    `  ΔAUC(局面+チャート − 局面) = ${dAuc >= 0 ? "+" : ""}${dAuc.toFixed(4)}` +
+      `   Δlogloss(改善) = ${dLoss >= 0 ? "+" : ""}${dLoss.toFixed(4)}`,
+  );
+  const verdict =
+    dAuc < 0.005
+      ? "上乗せ価値ほぼゼロ（ΔAUC<0.005）→ チャートは局面を超える予測情報を持たない"
+      : dAuc < 0.02
+      ? "上乗せ僅少（ΔAUC 0.005〜0.02）→ 実務的にはほぼ無視できる"
+      : "上乗せ有意（ΔAUC≥0.02）→ 要精査（WF/combined BTで再検証）";
+  console.log(`  → ${verdict}`);
+  console.log(
+    "\n※ AUC 0.5=無情報、1.0=完全。logloss 低いほど良。base の AUC は 0.5 付近が正常。" +
+      "\n※ 時系列60/40分割・train統計で標準化しリークなし。5日 buy&hold 方向の予測。",
   );
 }
 
