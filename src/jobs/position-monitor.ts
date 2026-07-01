@@ -164,8 +164,10 @@ export async function main() {
     }
 
     const quote = await fetchStockQuote(order.stock.tickerCode);
-    if (!quote) {
-      console.log(`  → ${order.stock.tickerCode}: 株価取得失敗`);
+    // 立花APIは寄付前・未約定時に price=0（全OHLC=0）を返す。0を有効値として扱うと
+    // 疑似約定/損切りが誤発火するため、取得失敗と同等にスキップする。
+    if (!quote || quote.price <= 0) {
+      console.log(`  → ${order.stock.tickerCode}: 株価取得失敗（未約定/価格0含む）`);
       continue;
     }
 
@@ -377,7 +379,15 @@ export async function main() {
     }
 
     const quote = await fetchStockQuote(position.stock.tickerCode);
-    if (!quote) continue;
+    // price=0（寄付前・未約定のガラ気配）を安値0とみなすと SL を即座に割り込み、
+    // 幻の損切り（exitPrice 0）+ 冗長な成行売り(11482)を招くためスキップする。
+    // 実際のSLはブローカー逆指値が担保し、次tickで正常価格が取れれば再評価される。
+    if (!quote || quote.price <= 0) {
+      console.warn(
+        `  → ${position.stock.tickerCode}: 価格0/未約定のため出口判定スキップ（幻の損切り防止）`,
+      );
+      continue;
+    }
 
     const entryPriceNum = Number(position.entryPrice);
 
@@ -639,7 +649,7 @@ export async function main() {
     }
 
     const quote = await fetchStockQuote(position.stock.tickerCode);
-    if (!quote) continue;
+    if (!quote || quote.price <= 0) continue; // price=0（未約定）は決済価格に使えないためスキップ
 
     // エントリー当日は当日高値を使わない（エントリー前の値動きを含むため）
     const earningsEntryDay = dayjs(position.createdAt).tz(TIMEZONE).format("YYYY-MM-DD");
@@ -716,7 +726,7 @@ export async function main() {
     if (!position.stock.isRestricted) continue;
 
     const quote = await fetchStockQuote(position.stock.tickerCode);
-    if (!quote) continue;
+    if (!quote || quote.price <= 0) continue; // price=0（未約定）は決済価格に使えないためスキップ
 
     const supervisionReason = `監理・整理銘柄強制売却（${position.stock.supervisionFlag ?? "制限"}）`;
 
@@ -807,7 +817,7 @@ export async function main() {
 
     for (const position of remainingPositions) {
       const quote = await fetchStockQuote(position.stock.tickerCode);
-      if (!quote) continue;
+      if (!quote || quote.price <= 0) continue; // price=0（未約定）は決済価格に使えないためスキップ
 
       const entryPriceNum = Number(position.entryPrice);
       const currentProfitPct =
