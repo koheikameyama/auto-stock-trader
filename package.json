@@ -30,6 +30,8 @@
     "ipo-calendar-notify": "tsx src/jobs/jpx-new-listing-notify.ts",
     "anomaly-detector": "tsx src/jobs/anomaly-detector.ts",
     "backtest:combined": "tsx src/backtest/combined-run.ts",
+    "backtest:chart-prediction": "tsx src/backtest/chart-prediction-run.ts",
+    "backtest:chart-prediction-llm": "tsx src/backtest/chart-prediction-llm-run.ts",
     "backtest:health-check": "tsx src/backtest/health-check-run.ts",
     "backtest:gapup": "tsx src/backtest/gapup-run.ts",
     "backtest:gapdown-reversal": "tsx src/backtest/gapdown-reversal-run.ts",
