@@ -23,6 +23,7 @@ import { main as runUsEtfMonitor } from "./jobs/us-etf-monitor";
 import { main as runBrokerReconciliation } from "./jobs/broker-reconciliation";
 import { main as runSessionHealthCheck } from "./jobs/session-health-check";
 import { main as runEnsureBrokerSL } from "./jobs/ensure-broker-sl";
+import { main as runDailySocialPost } from "./jobs/daily-social-post";
 import { app } from "./web/app";
 import { setJobState } from "./web/routes/dashboard";
 import { prisma } from "./lib/prisma";
@@ -159,6 +160,11 @@ async function runBrokerReconciliationJob() {
   await runJob("broker-reconciliation", runBrokerReconciliation, true);
 }
 
+// 日次ログの SNS 公開投稿（引け後）。投稿失敗は他ジョブに波及させない。
+async function runDailySocialPostJob() {
+  await runJob("daily-social-post", runDailySocialPost, true);
+}
+
 // スケジュール定義（全て JST）
 // ※ position-monitor のみ Worker cron で実行
 // ※ バッチジョブ（end-of-day, jpx-delisting-sync）は cron-job.org → /api/cron/* に移行
@@ -198,6 +204,8 @@ const schedules = [
   // 7:00-8:55 は前場開始前のバックアップ
   { cron: "*/5 17 * * 1-5", job: runEnsureBrokerSL, name: "ensure-broker-sl", requiresMarketDay: false },
   { cron: "*/5 7-8 * * 1-5", job: runEnsureBrokerSL, name: "ensure-broker-sl", requiresMarketDay: false },
+  // 16:00 日次ログの SNS 公開投稿（end-of-day 15:50・引け直後同期 15:30:30 の後）
+  { cron: "0 0 16 * * 1-5", job: runDailySocialPostJob, name: "daily-social-post", requiresMarketDay: true },
 ];
 
 // cron 登録
