@@ -13,6 +13,7 @@ vi.mock("../../lib/prisma", () => ({
     tradingPosition: {
       findFirst: vi.fn(),
       findUnique: vi.fn(),
+      update: vi.fn(),
     },
   },
 }));
@@ -360,6 +361,93 @@ describe("handleBrokerFill", () => {
           pnl: 0,
         }),
       );
+    });
+  });
+
+  describe("SL約定（逆指値・TradingOrderなし）", () => {
+    function makeSLPosition(overrides?: Record<string, unknown>) {
+      return {
+        id: "pos-sl-1",
+        quantity: 200,
+        strategy: "gapup",
+        entryPrice: 1398,
+        stopLossPrice: 1366,
+        trailingStopPrice: null,
+        slBrokerOrderId: "123456",
+        slBrokerBusinessDay: "20260701",
+        stock: { tickerCode: "3989.T", name: "シェアリングテクノロジー" },
+        ...overrides,
+      };
+    }
+
+    it("TradingOrderが無くslBrokerOrderId一致のopenポジションがあればSL約定としてクローズする", async () => {
+      mockPrisma.tradingOrder.findFirst.mockResolvedValue(null);
+      mockPrisma.tradingPosition.findFirst.mockResolvedValue(makeSLPosition() as never);
+      mockGetOrderDetail.mockResolvedValue(
+        makeOrderDetail({
+          aYakuzyouSikkouList: [{ sYakuzyouPrice: "1334", sYakuzyouSuryou: "200" }],
+        }) as never,
+      );
+      mockPrisma.tradingPosition.findUnique.mockResolvedValue({ status: "open" } as never);
+
+      await handleBrokerFill(makeEvent({ orderNumber: "123456", businessDay: "20260701" }));
+
+      // 実約定価格 ¥1334 でクローズ、想定決済価格(SL 1366)を referencePrice に
+      expect(mockClosePosition).toHaveBeenCalledWith(
+        "pos-sl-1",
+        1334,
+        expect.objectContaining({ exitReason: "SL約定（ブローカー自律執行）", exitPrice: 1334 }),
+        1366,
+      );
+      // slBrokerOrderId をクリア
+      expect(mockPrisma.tradingPosition.update).toHaveBeenCalledWith({
+        where: { id: "pos-sl-1" },
+        data: { slBrokerOrderId: null, slBrokerBusinessDay: null },
+      });
+      expect(mockNotifyOrderFilled).toHaveBeenCalledWith(
+        expect.objectContaining({ side: "sell", filledPrice: 1334, exitReason: "SL約定" }),
+      );
+    });
+
+    it("ポジションが既にクローズ済みなら二重クローズしない（べき等）", async () => {
+      mockPrisma.tradingOrder.findFirst.mockResolvedValue(null);
+      mockPrisma.tradingPosition.findFirst.mockResolvedValue(makeSLPosition() as never);
+      mockGetOrderDetail.mockResolvedValue(
+        makeOrderDetail({
+          aYakuzyouSikkouList: [{ sYakuzyouPrice: "1334", sYakuzyouSuryou: "200" }],
+        }) as never,
+      );
+      mockPrisma.tradingPosition.findUnique.mockResolvedValue({ status: "closed" } as never);
+
+      await handleBrokerFill(makeEvent({ orderNumber: "123456", businessDay: "20260701" }));
+
+      expect(mockClosePosition).not.toHaveBeenCalled();
+    });
+
+    it("SL約定価格が異常に低い場合は自動クローズを中止する", async () => {
+      mockPrisma.tradingOrder.findFirst.mockResolvedValue(null);
+      mockPrisma.tradingPosition.findFirst.mockResolvedValue(makeSLPosition() as never);
+      // entry 1398 × 0.9 = 1258.2 未満 → 異常値
+      mockGetOrderDetail.mockResolvedValue(
+        makeOrderDetail({
+          aYakuzyouSikkouList: [{ sYakuzyouPrice: "800", sYakuzyouSuryou: "200" }],
+        }) as never,
+      );
+      mockPrisma.tradingPosition.findUnique.mockResolvedValue({ status: "open" } as never);
+
+      await handleBrokerFill(makeEvent({ orderNumber: "123456", businessDay: "20260701" }));
+
+      expect(mockClosePosition).not.toHaveBeenCalled();
+    });
+
+    it("SL注文がまだ全部約定でない場合は何もしない", async () => {
+      mockPrisma.tradingOrder.findFirst.mockResolvedValue(null);
+      mockPrisma.tradingPosition.findFirst.mockResolvedValue(makeSLPosition() as never);
+      mockGetOrderDetail.mockResolvedValue(makeOrderDetail({ sOrderStatus: "1" }) as never); // UNFILLED
+
+      await handleBrokerFill(makeEvent({ orderNumber: "123456", businessDay: "20260701" }));
+
+      expect(mockClosePosition).not.toHaveBeenCalled();
     });
   });
 

@@ -8,7 +8,7 @@
  */
 
 import { prisma } from "../lib/prisma";
-import { TACHIBANA_ORDER_STATUS } from "../lib/constants/broker";
+import { TACHIBANA_ORDER_STATUS, BROKER_RECONCILIATION } from "../lib/constants/broker";
 import { getOrderDetail } from "./broker-orders";
 import { fillOrder } from "./order-executor";
 import { openPosition, closePosition, getPositionPnl, extractRegimeInfoFromSnapshot } from "./position-manager";
@@ -104,6 +104,19 @@ export async function handleBrokerFill(
     });
 
     if (!order) {
+      // TradingOrder が無い注文番号 = ブローカーSL（逆指値）の可能性。
+      // SL注文は broker-sl-manager が TradingPosition.slBrokerOrderId に番号を持つだけで
+      // TradingOrder を作らないため、通常経路では拾えない。ここでフォールバック検索して
+      // SL約定をリアルタイムにクローズする（従来は reconcileHoldings の保有照合＝最大数時間遅延でしか
+      // 検知できず、その空白時間に position-monitor が約定済みポジションを二重決済していた）。
+      const slPosition = await prisma.tradingPosition.findFirst({
+        where: { status: "open", slBrokerOrderId: orderNumber },
+        include: { stock: { select: { tickerCode: true, name: true } } },
+      });
+      if (slPosition) {
+        await handleBrokerSLFill(slPosition);
+        return;
+      }
       console.log(
         `[broker-fill] Unknown order: ${orderNumber} (day=${businessDay})`,
       );
@@ -389,6 +402,129 @@ async function handleSellFill(
     entryPrice,
     pnl,
     exitReason,
+  });
+}
+
+// ========================================
+// ブローカーSL（逆指値）約定処理
+// ========================================
+
+/**
+ * ブローカーSL（逆指値）約定をリアルタイムに処理してポジションをクローズする。
+ *
+ * SL注文は TradingOrder を持たず TradingPosition.slBrokerOrderId で追跡されるため、
+ * handleBrokerFill の通常経路（TradingOrder 検索）では拾えない。WebSocket EC 通知の
+ * 注文番号が open ポジションの slBrokerOrderId に一致した時に本関数へフォールバックする。
+ *
+ * broker-reconciliation の handleMissingHolding（保有照合・遅延バックアップ）と同型の処理を
+ * リアルタイム化したもの。両者は closePosition 前の status ガードでべき等（二重クローズしない）。
+ */
+export async function handleBrokerSLFill(position: {
+  id: string;
+  quantity: number;
+  strategy: string;
+  entryPrice: unknown;
+  stopLossPrice: unknown;
+  trailingStopPrice: unknown;
+  slBrokerOrderId: string | null;
+  slBrokerBusinessDay: string | null;
+  stock: { tickerCode: string; name: string };
+}): Promise<void> {
+  const ticker = position.stock.tickerCode;
+  if (!position.slBrokerOrderId || !position.slBrokerBusinessDay) return;
+
+  const detail = await getOrderDetail(
+    position.slBrokerOrderId,
+    position.slBrokerBusinessDay,
+  ).catch(() => null);
+  if (!detail) return;
+
+  const brokerStatus = String(detail.sOrderStatusCode ?? detail.sOrderStatus ?? "");
+  // まだ全部約定でない（トリガー前 / 一部約定）→ 何もしない。reconciliation が後続で拾う。
+  if (brokerStatus !== TACHIBANA_ORDER_STATUS.FULLY_FILLED) return;
+
+  // 加重平均約定価格を計算（複数回約定に対応）
+  const execList = (detail.aYakuzyouSikkouList as Record<string, unknown>[]) ?? [];
+  let totalAmount = 0;
+  let totalQuantity = 0;
+  for (const exec of execList) {
+    const price = Number(exec.sYakuzyouPrice ?? exec.sExecPrice ?? 0);
+    const qty = Number(exec.sYakuzyouSuryou ?? exec.sExecQuantity ?? 0);
+    totalAmount += price * qty;
+    totalQuantity += qty;
+  }
+  const filledPrice = totalQuantity > 0 ? Math.round(totalAmount / totalQuantity) : 0;
+  if (filledPrice <= 0) {
+    console.warn(
+      `[broker-fill] SL ${position.slBrokerOrderId} (${ticker}): 約定価格を取得できず、reconciliation に委譲`,
+    );
+    return;
+  }
+
+  // 約定価格の異常値ガード（reconciliation と同基準）
+  const entryPrice = Number(position.entryPrice ?? 0);
+  if (
+    entryPrice > 0 &&
+    filledPrice < entryPrice * BROKER_RECONCILIATION.MIN_FILL_PRICE_RATIO
+  ) {
+    console.error(
+      `[broker-fill] ${ticker}: SL約定価格が異常 (¥${filledPrice} << エントリー¥${entryPrice}) → 自動クローズ中止`,
+    );
+    await notifySlack({
+      title: `🚨 SL約定価格異常: ${ticker}`,
+      message: `SL注文 ${position.slBrokerOrderId} の約定価格が異常です\n約定価格: ¥${filledPrice.toLocaleString()}\nエントリー価格: ¥${entryPrice.toLocaleString()}\n自動クローズを中止しました。手動で確認してください\npositionId: ${position.id}`,
+      color: "danger",
+    }).catch(() => {});
+    return;
+  }
+
+  // べき等性: reconciliation / WS 3段リトライ等との二重クローズを防止
+  const fresh = await prisma.tradingPosition.findUnique({
+    where: { id: position.id },
+    select: { status: true },
+  });
+  if (!fresh || fresh.status !== "open") {
+    console.log(
+      `[broker-fill] ${ticker}: ポジション既に ${fresh?.status ?? "不明"}、SL約定処理スキップ`,
+    );
+    return;
+  }
+
+  // SL発動時の想定決済価格 = trailing 優先、なければ stopLoss（sell slippage 記録用）
+  const referencePrice =
+    Number(position.trailingStopPrice ?? position.stopLossPrice ?? 0) || null;
+
+  const closed = await closePosition(
+    position.id,
+    filledPrice,
+    {
+      exitReason: "SL約定（ブローカー自律執行）",
+      exitPrice: filledPrice,
+      marketContext: null,
+    } as object,
+    referencePrice,
+  );
+
+  // slBrokerOrderId をクリア（reconciliation の再処理・再発注防止）
+  await prisma.tradingPosition.update({
+    where: { id: position.id },
+    data: { slBrokerOrderId: null, slBrokerBusinessDay: null },
+  });
+
+  console.log(
+    `[broker-fill] ${ticker}: SL約定リアルタイム検知 @ ¥${filledPrice.toLocaleString()} → ポジションクローズ`,
+  );
+
+  await notifyOrderFilled({
+    tickerCode: ticker,
+    name: position.stock.name,
+    side: "sell",
+    strategy: position.strategy,
+    filledPrice,
+    quantity: position.quantity,
+    entryPrice: entryPrice > 0 ? entryPrice : undefined,
+    pnl: getPositionPnl(closed),
+    exitReason: "SL約定",
   });
 }
 
