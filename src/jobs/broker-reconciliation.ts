@@ -460,3 +460,16 @@ async function cancelOrphanedBuyOrders(): Promise<void> {
     }).catch(() => {});
   }
 }
+
+// 単発実行（`npm run reconcile`）: WebSocket見逃し・reconciliation取りこぼしの手動復旧用。
+// worker の cron を待たずに Phase1(注文同期→businessDayバックフィル)→Phase2(見逃し約定リカバリ)→
+// Phase3(保有照合) を1回実行する。本番 .env で `tsx src/jobs/broker-reconciliation.ts`。
+const isDirectRun = process.argv[1]?.includes("broker-reconciliation");
+if (isDirectRun) {
+  main()
+    .catch((error) => {
+      console.error("Broker Reconciliation エラー:", error);
+      process.exit(1);
+    })
+    .finally(() => prisma.$disconnect());
+}

@@ -13,6 +13,7 @@
     "stock-scan": "tsx src/jobs/stock-scanner.ts",
     "watchlist-build": "tsx src/jobs/watchlist-builder.ts",
     "monitor": "tsx src/jobs/position-monitor.ts",
+    "reconcile": "tsx src/jobs/broker-reconciliation.ts",
     "eod": "tsx src/jobs/end-of-day.ts",
     "breadth-notify": "tsx src/jobs/breadth-notify.ts",
     "regime-shift-notify": "tsx src/jobs/regime-shift-notify.ts",

@@ -51,12 +51,22 @@ const NUMERIC_KEY_MAP: Record<string, string> = {
   "541": "sOrderSizyouC",
 
   // 注文一覧・詳細 - 実測キー (CLMOrderList / CLMOrderListDetail)
+  "94":  "aOrderList",           // CLMOrderList の注文配列（未マップだと syncBrokerOrderStatuses が空になり注文同期が全て no-op になっていた）
+  // CLMOrderList 要素の実測キー（2026-07-02 本番 4812.T で確認。従来の "378" 等は要素キーと不一致で
+  // 注文番号/営業日/売買が読めず、businessDay バックフィル・約定リカバリ・孤立検出が全て機能していなかった）
+  "646": "sOrderOrderNumber",    // 注文番号（例: "2016584"）
+  "653": "sOrderSikkouDay",      // 執行(営業)日（例: "20260702"）
+  "618": "sBaibaiKubun",         // 売買区分（"1"売/"3"買）
+  "638": "sOrderIssueCode",      // 銘柄コード
   "378": "sOrderOrderNumber",    // 注文番号
   "656": "sOrderStatus",         // 注文状態テキスト（"全部約定" 等）※"542" はドキュメント記載
   "657": "sOrderStatusCode",     // 注文状態コード（"10" = FULLY_FILLED）
   "96":  "aYakuzyouSikkouList",  // 約定執行リスト
-  "878": "sYakuzyouPrice",       // 約定価格（実測: デモAPI 9984で878=¥4626, 879=100を確認）
-  "879": "sYakuzyouSuryou",      // 約定株数（実測: 同上。95a39a6fで逆にされていたが誤りだった）
+  // v4r9 実測（2026-07-02 本番 4812.T）: 878=約定日時, 879=約定価格, 880=約定数量 で1つズレる。
+  // 旧 878=価格/879=数量 は demo(v4r8) 実測値で、本番 v4r9 の約定価格に日時が入り overflow していた。
+  "878": "sYakuzyouDay",         // 約定日時 YYYYMMDDHHMMSS（旧マップは sYakuzyouPrice=誤り）
+  "879": "sYakuzyouPrice",       // 約定価格
+  "880": "sYakuzyouSuryou",      // 約定数量
 
   // 現物保有銘柄
   "859": "sUriOrderIssueCode",

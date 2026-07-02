@@ -95,13 +95,38 @@ export async function handleBrokerFill(
 
   try {
     // 1. DB で該当注文を検索
-    const order = await prisma.tradingOrder.findFirst({
+    let order = await prisma.tradingOrder.findFirst({
       where: {
         brokerOrderId: orderNumber,
         brokerBusinessDay: businessDay,
       },
       include: { stock: true },
     });
+
+    // businessDay 欠落注文（Issue #322）の救済:
+    // submitOrder 応答に sEigyouDay が無いと brokerBusinessDay=null で保存され、WS通知が持つ
+    // businessDay と完全一致せず約定を取りこぼす（reconciliation の同期を待つしかなかった）。
+    // 注文番号 + businessDay=null の pending 注文を拾い、通知の businessDay をバックフィルして回収する。
+    if (!order) {
+      const nullDayOrder = await prisma.tradingOrder.findFirst({
+        where: {
+          brokerOrderId: orderNumber,
+          brokerBusinessDay: null,
+          status: "pending",
+        },
+        include: { stock: true },
+      });
+      if (nullDayOrder) {
+        await prisma.tradingOrder.update({
+          where: { id: nullDayOrder.id },
+          data: { brokerBusinessDay: businessDay },
+        });
+        order = { ...nullDayOrder, brokerBusinessDay: businessDay };
+        console.log(
+          `[broker-fill] ${nullDayOrder.stock.tickerCode} order ${orderNumber}: 欠落していた営業日を ${businessDay} でバックフィルし WS 約定を回収`,
+        );
+      }
+    }
 
     if (!order) {
       // TradingOrder が無い注文番号 = ブローカーSL（逆指値）の可能性。

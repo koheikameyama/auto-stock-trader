@@ -23,7 +23,6 @@ import { main as runUsEtfMonitor } from "./jobs/us-etf-monitor";
 import { main as runBrokerReconciliation } from "./jobs/broker-reconciliation";
 import { main as runSessionHealthCheck } from "./jobs/session-health-check";
 import { main as runEnsureBrokerSL } from "./jobs/ensure-broker-sl";
-import { main as runDailySocialPost } from "./jobs/daily-social-post";
 import { app } from "./web/app";
 import { setJobState } from "./web/routes/dashboard";
 import { prisma } from "./lib/prisma";
@@ -160,11 +159,6 @@ async function runBrokerReconciliationJob() {
   await runJob("broker-reconciliation", runBrokerReconciliation, true);
 }
 
-// 日次ログの SNS 公開投稿（引け後）。投稿失敗は他ジョブに波及させない。
-async function runDailySocialPostJob() {
-  await runJob("daily-social-post", runDailySocialPost, true);
-}
-
 // スケジュール定義（全て JST）
 // ※ position-monitor のみ Worker cron で実行
 // ※ バッチジョブ（end-of-day, jpx-delisting-sync）は cron-job.org → /api/cron/* に移行
@@ -194,6 +188,7 @@ const schedules = [
   { cron: "30 0 14 * * 1-5",  job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 14:00:30 後場中の回復チェック
   { cron: "30 22 15 * * 1-5", job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 15:22:30 gapup/PSC 発注（15:24）直前スナップショット
   { cron: "30 30 15 * * 1-5", job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 15:30:30 引け直後の最終同期
+  { cron: "30 45 15 * * 1-5", job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 15:45:30 引け後の冗長リカバリ（デプロイ等で15:30:30を取りこぼした場合の保険）
   // 15:24:00/20/40 エントリー監視（東証クロージングオークション15:25〜直前に発注）
   // GapUp → PSC → US-ETF を1ジョブ内で逐次実行（combined BT の資金配分順を再現＋時価キャッシュ共有）。
   // 接続エラー等のretryableな失敗時に20秒間隔で最大3回試行。成功後は各monitorのlastScanDateで以降をスキップ。
@@ -211,8 +206,8 @@ const schedules = [
   // 7:00-8:55 は前場開始前のバックアップ
   { cron: "*/5 17 * * 1-5", job: runEnsureBrokerSL, name: "ensure-broker-sl", requiresMarketDay: false },
   { cron: "*/5 7-8 * * 1-5", job: runEnsureBrokerSL, name: "ensure-broker-sl", requiresMarketDay: false },
-  // 16:00 日次ログの SNS 公開投稿（end-of-day 15:50・引け直後同期 15:30:30 の後）
-  { cron: "0 0 16 * * 1-5", job: runDailySocialPostJob, name: "daily-social-post", requiresMarketDay: true },
+  // ※ daily-social-post（Bluesky日次投稿）は GitHub Actions cron に移行済み
+  //    （.github/workflows/scheduled_daily-social-post.yml、16:00 JST 平日）
 ];
 
 // cron 登録
