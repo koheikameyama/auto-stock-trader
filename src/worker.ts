@@ -51,7 +51,7 @@ const cronTasks: ScheduledTask[] = [];
 // ダッシュボードに状態を共有
 setJobState(jobState);
 
-// 休場日スキップのログ重複防止（position-monitorの毎分実行対策）
+// 休場日スキップのログ重複防止（position-monitor の複数回実行対策）
 const holidaySkipLogged = new Set<string>();
 
 async function runJob(
@@ -122,8 +122,8 @@ function nowJST(): string {
   return dayjs().tz(TIMEZONE).format("YYYY-MM-DD HH:mm:ss");
 }
 
-// 市場時間の毎分tick: position-monitor 単体で実行
-// （broker-reconciliation は立花のAPI高負荷警告を受けて1日6回の独立スケジュールへ移行）
+// 市場時間の定時tick（1日5回）: position-monitor 単体で実行
+// （立花のAPI高負荷警告を受け毎分→5回に削減。broker-reconciliation も1日6回の独立スケジュール）
 async function runPositionMonitorTick() {
   await runJob("position-monitor", runMonitor, true);
 }
@@ -170,14 +170,21 @@ async function runDailySocialPostJob() {
 // ※ バッチジョブ（end-of-day, jpx-delisting-sync）は cron-job.org → /api/cron/* に移行
 // ※ news-collector, weekly-review は GitHub Actions cron に移行済み
 const schedules = [
-  // 9:00-11:30, 12:30-15:30 毎分 ポジション監視（平日・市場時間）
-  // broker-reconciliation は下記の独立スケジュール（1日6回）に移行済み（立花API高負荷警告対応）
-  { cron: "0-59 9 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false },
-  { cron: "* 10 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false },
-  { cron: "0-30 11 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false },
-  { cron: "30-59 12 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false },
-  { cron: "* 13-14 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false },
-  { cron: "0-30 15 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false },
+  // ポジション監視（平日・市場時間、1日5回）
+  // 立花のAPI高負荷警告（2026-03-10 / 2026-07-02 再警告）対応: 毎分(約330回/日) → 5回/日 で ~98% 削減。
+  // position-monitor の毎分・銘柄ごとの時価取得（CLMMfdsGetMarketPrice）が全立花API呼び出しの約8割を占め、
+  // 立花が名指しで禁止する「場中(8:00-15:30)ポーリング」の主因だった。頻度を下げても機能劣化が限定的な根拠:
+  //   1. 下落保護(SL)は ensure-broker-sl が発注済みのブローカー逆指値が担保 → 場中の価格ポーリング不要
+  //   2. GU/PSC/ETF は日足バックテストで検証された戦略。トレーリング引き上げ・タイムストップ決済は
+  //      「引け基準」で判定するのがBTに忠実で、分足ポーリングは検証外の過剰忠実度だった
+  //   3. WebSocket EVENT I/F が約定同期を主系として担う
+  // 実行時刻は broker-reconciliation（9:05/10:30/12:35/14:00/15:22/15:30）と同じ分を避けてピーク負荷を分散。
+  // 引け前(15:20)の実行が BT の close 基準決済に相当し最重要。他は日中のトレーリング更新・保険。
+  { cron: "35 9 * * 1-5",  job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false }, // 9:35 前場寄り後（寄付ボラ通過後）
+  { cron: "20 11 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false }, // 11:20 前場引け前
+  { cron: "0 13 * * 1-5",  job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false }, // 13:00 後場寄り後
+  { cron: "30 14 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false }, // 14:30 後場中盤
+  { cron: "20 15 * * 1-5", job: runPositionMonitorTick, name: "position-monitor-tick", requiresMarketDay: false }, // 15:20 引け前（BT close 基準決済に相当・最重要）
   // broker-reconciliation（1日6回の独立スケジュール。position-monitor の :00 実行と競合回避のため :30 秒にオフセット）
   // 立花のAPI高負荷警告（2026-03-10）対応: 毎分 → 6回/日 で ~98% 削減。
   // WebSocket EVENT I/F がリアルタイム約定同期を主系として担うため、照合頻度を下げても機能劣化は限定的。
