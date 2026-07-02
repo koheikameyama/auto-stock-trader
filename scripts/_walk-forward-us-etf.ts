@@ -44,9 +44,17 @@ interface Metrics {
   maxDD: number;
 }
 
-const TICKERS = ["1547", "1545"];
-const START_DATE = "2018-01-01";
-const END_DATE = "2026-04-30";
+// CLI 上書き可（後方互換: 未指定なら米株ETF既定 + idle帯フィルタON）
+//   例: npx tsx scripts/_walk-forward-us-etf.ts --tickers 1326.T,1540.T --no-filter --cost 0.2
+function _arg(flag: string): string | undefined {
+  const i = process.argv.indexOf(flag);
+  return i >= 0 && i + 1 < process.argv.length ? process.argv[i + 1] : undefined;
+}
+const TICKERS = (_arg("--tickers") ?? "1547,1545").split(",").map((t) => t.trim());
+const START_DATE = _arg("--start") ?? "2018-01-01";
+const END_DATE = _arg("--end") ?? "2026-04-30";
+const USE_BREADTH_FILTER = !process.argv.includes("--no-filter");
+const ROUND_TRIP_COST = Number(_arg("--cost") ?? "0"); // 往復コスト%（各トレードから控除）
 const TIME_STOP_DAYS = 5;
 const VOL_LOOKBACK = 25;
 const IS_MONTHS = 12;
@@ -110,7 +118,7 @@ function runStrategy(
           ticker,
           entryDate: bars[position.entryIdx].date,
           exitDate: today.date,
-          pnlPct: ((slPrice - position.entryPrice) / position.entryPrice) * 100,
+          pnlPct: ((slPrice - position.entryPrice) / position.entryPrice) * 100 - ROUND_TRIP_COST,
         });
         position = null;
         continue;
@@ -120,7 +128,7 @@ function runStrategy(
           ticker,
           entryDate: bars[position.entryIdx].date,
           exitDate: today.date,
-          pnlPct: ((today.close - position.entryPrice) / position.entryPrice) * 100,
+          pnlPct: ((today.close - position.entryPrice) / position.entryPrice) * 100 - ROUND_TRIP_COST,
         });
         position = null;
         continue;
@@ -135,10 +143,12 @@ function runStrategy(
       const volSurge = today.volume / avgVol;
 
       if (gap >= p.gapMinPct && isUpDay && volSurge >= p.volumeSurgeRatio) {
-        // breadth フィルター: 前日の日本株 breadth < 54% (idle 帯) のみエントリー
-        const breadth = breadthMap.get(prev.date);
-        if (breadth == null || breadth >= MARKET_BREADTH.THRESHOLD) {
-          continue;
+        // breadth フィルター: 前日の日本株 breadth < 54% (idle 帯) のみエントリー（--no-filter で無効化）
+        if (USE_BREADTH_FILTER) {
+          const breadth = breadthMap.get(prev.date);
+          if (breadth == null || breadth >= MARKET_BREADTH.THRESHOLD) {
+            continue;
+          }
         }
         position = { entryIdx: i, entryPrice: today.close };
       }

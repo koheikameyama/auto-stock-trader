@@ -33,14 +33,21 @@ interface Trade {
   reason: "sl" | "time" | "open";
 }
 
-const TICKERS = ["1547", "1545"];
-const START_DATE = "2018-01-01";
-const END_DATE = "2026-04-30";
+// CLI 上書き可（後方互換: 未指定なら米株ETF既定）
+//   例: npx tsx scripts/_us-etf-backtest-mvp.ts --tickers 1326.T,1540.T --start 2018-01-01 --end 2026-06-30
+function _arg(flag: string): string | undefined {
+  const i = process.argv.indexOf(flag);
+  return i >= 0 && i + 1 < process.argv.length ? process.argv[i + 1] : undefined;
+}
+const TICKERS = (_arg("--tickers") ?? "1547,1545").split(",").map((t) => t.trim());
+const START_DATE = _arg("--start") ?? "2018-01-01";
+const END_DATE = _arg("--end") ?? "2026-04-30";
 const GAP_MIN_PCT = 0.005;
 const VOLUME_SURGE_RATIO = 1.5;
 const SL_PCT = 0.02;
 const TIME_STOP_DAYS = 5;
 const VOL_LOOKBACK = 25;
+const ROUND_TRIP_COST = Number(_arg("--cost") ?? "0"); // 往復コスト%（各トレードから控除）
 
 async function fetchData(ticker: string): Promise<OHLCV[]> {
   const rows = await prisma.stockDailyBar.findMany({
@@ -86,7 +93,7 @@ function runStrategy(
           ticker,
           entryDate: bars[position.entryIdx].date,
           exitDate: today.date,
-          pnlPct: ((slPrice - position.entryPrice) / position.entryPrice) * 100,
+          pnlPct: ((slPrice - position.entryPrice) / position.entryPrice) * 100 - ROUND_TRIP_COST,
           reason: "sl",
         });
         position = null;
@@ -97,7 +104,7 @@ function runStrategy(
           ticker,
           entryDate: bars[position.entryIdx].date,
           exitDate: today.date,
-          pnlPct: ((today.close - position.entryPrice) / position.entryPrice) * 100,
+          pnlPct: ((today.close - position.entryPrice) / position.entryPrice) * 100 - ROUND_TRIP_COST,
           reason: "time",
         });
         position = null;
@@ -132,7 +139,7 @@ function runStrategy(
       ticker,
       entryDate: bars[position.entryIdx].date,
       exitDate: last.date,
-      pnlPct: ((last.close - position.entryPrice) / position.entryPrice) * 100,
+      pnlPct: ((last.close - position.entryPrice) / position.entryPrice) * 100 - ROUND_TRIP_COST,
       reason: "open",
     });
   }
