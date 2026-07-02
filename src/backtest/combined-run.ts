@@ -30,7 +30,8 @@ import { MOMENTUM_BACKTEST_DEFAULTS, MOMENTUM_LARGECAP_PARAMS } from "./momentum
 import { precomputeWeeklyBreakSignals } from "./weekly-break-simulation";
 import { WEEKLY_BREAK_BACKTEST_DEFAULTS, WEEKLY_BREAK_LARGECAP_PARAMS } from "./weekly-break-config";
 import { precomputeUSEtfSignals, type PrecomputedUSEtfSignals } from "./us-etf-simulation";
-import { US_ETF_DEFAULT_CONFIG, type USEtfBacktestConfig } from "./us-etf-config";
+import { precomputeUSEtfDipSignals, US_ETF_DIP_PARAMS } from "./us-etf-dip-simulation";
+import { US_ETF_DEFAULT_CONFIG, US_ETF_DIP_DEFAULT_CONFIG, type USEtfBacktestConfig } from "./us-etf-config";
 import { fetchHistoricalFromDB, fetchVixFromDB, fetchIndexFromDB } from "./data-fetcher";
 import { calculateCapitalUtilization, calculateMetrics } from "./metrics";
 import { runCombinedSimulation, type PositionLimits, type BreadthMode } from "./combined-simulation";
@@ -374,6 +375,11 @@ async function main() {
   const wbMaxArg = getArg(args, "--wb-max");
   const enableEtf = args.includes("--enable-etf");
   const etfMaxArg = getArg(args, "--etf-max");
+  // --enable-etf-dip: ETF 押し目(RSI2 mean-reversion)を ETF スロットで動かす（--enable-etf と排他）
+  const enableEtfDip = args.includes("--enable-etf-dip");
+  const etfDipMaxArg = getArg(args, "--etf-dip-max");
+  // --etf-dip-idle: ETF押し目を idle帯(breadth<54%)限定で発火（GU/PSCと資金競合させない補完設計）
+  const etfDipIdle = args.includes("--etf-dip-idle");
   const maxPerSectorArg = getArg(args, "--max-per-sector");
   const compareSector = args.includes("--compare-sector");
   const compareSectorRotation = args.includes("--compare-sector-rotation");
@@ -588,6 +594,33 @@ async function main() {
     }
   }
 
+  // --enable-etf-dip: ETF 押し目シグナル precompute + allData マージ（ETFスロットを使用、--enable-etf と排他）
+  if (enableEtfDip) {
+    if (enableEtf) throw new Error("--enable-etf と --enable-etf-dip は同時指定できません");
+    etfConfig = { ...US_ETF_DIP_DEFAULT_CONFIG, breadthMax: etfDipIdle ? MARKET_BREADTH.THRESHOLD : 1.0 };
+    const etfRawData = await fetchHistoricalFromDB(etfConfig.tickers, startDate, endDate);
+    const etfDataMap = new Map<string, import("../core/technical-analysis").OHLCVData[]>();
+    let totalBars = 0;
+    for (const ticker of etfConfig.tickers) {
+      const bars = etfRawData.get(ticker);
+      if (bars && bars.length > 0) {
+        etfDataMap.set(ticker, bars);
+        totalBars += bars.length;
+        allData.set(ticker, bars);
+      }
+    }
+    console.log(`[data] ETF押し目 universe: ${etfConfig.tickers.join(", ")} (${totalBars}本)`);
+    etfSignals = precomputeUSEtfDipSignals(etfDataMap, etfConfig, US_ETF_DIP_PARAMS, precomputed.dailyBreadth);
+    let sigTotal = 0;
+    for (const arr of etfSignals.values()) sigTotal += arr.length;
+    console.log(`[data] ETF押し目 シグナル: ${sigTotal}件 / ${etfSignals.size}日 (RSI2<=${US_ETF_DIP_PARAMS.rsiMax} + SMA${US_ETF_DIP_PARAMS.trendPeriod}, ${etfDipIdle ? `idle帯 breadth<${(MARKET_BREADTH.THRESHOLD * 100).toFixed(0)}%` : "breadthフィルタなし"})`);
+    for (const [ticker, bars] of etfDataMap) {
+      const map = new Map<string, number>();
+      bars.forEach((b, idx) => map.set(dayjs(b.date).format("YYYY-MM-DD"), idx));
+      precomputed.dateIndexMap.set(ticker, map);
+    }
+  }
+
   const ctx = {
     guConfig,
     pscConfig,
@@ -619,6 +652,7 @@ async function main() {
     ...(enableMomentum ? { momMax: Number(momMaxArg ?? 2) } : {}),
     ...(enableWbLargecap ? { wbMax: Number(wbMaxArg ?? 2) } : {}),
     ...(enableEtf ? { etfMax: Number(etfMaxArg ?? 2) } : {}),
+    ...(enableEtfDip ? { etfMax: Number(etfDipMaxArg ?? 2) } : {}),
     ...(maxPerSectorArg !== undefined ? { maxPerSector: Number(maxPerSectorArg) } : {}),
   };
 
@@ -2753,6 +2787,7 @@ async function main() {
   if (enableWbLargecap) slotsParts.push(`WB${defaultLimits.wbMax ?? 0}`);
   if (enableMomentum) slotsParts.push(`MOM${defaultLimits.momMax ?? 0}`);
   if (enableEtf) slotsParts.push(`ETF${defaultLimits.etfMax ?? 0}`);
+  if (enableEtfDip) slotsParts.push(`ETFdip${defaultLimits.etfMax ?? 0}`);
   console.log(`ポジション枠: ${slotsParts.join(" + ")}`);
   const result = runCombinedSimulation(ctx, defaultLimits);
 
@@ -2776,6 +2811,9 @@ async function main() {
   }
   if (enableEtf) {
     printMetrics(result.etfMetrics, "US ETF (1547/1545, idle帯)");
+  }
+  if (enableEtfDip) {
+    printMetrics(result.etfMetrics, "ETF押し目 (RSI2 mean-rev, 常時)");
   }
 
   const exitReasons = new Map<string, number>();

@@ -49,3 +49,25 @@ export const US_ETF_DEFAULT_CONFIG: USEtfBacktestConfig = {
 
 /** リスク%を百分率（1.5 = 1.5%）に変換 */
 export const US_ETF_RISK_PER_TRADE_PCT = US_ETF_DEFAULT_CONFIG.riskPct * 100;
+
+/**
+ * ETF 押し目(dip / mean-reversion)戦略の設定
+ *
+ * WF (_walk-forward-us-etf-dip.ts) で堅牢✓ を確認した構造:
+ *   - ユニバース: 指数ごと代表4本 (S&P500, NASDAQ100, TOPIX, 日経225)
+ *   - エントリー: RSI(2)<=5 + SMA50上抜け、breadth フィルターなし (常時)
+ *   - 出口: SL -3%, タイムストップ 7営業日 (gap版の processEtfExits を再利用)
+ *   - gap/vol/breadthMax は dip では未使用 (型の互換のため保持)
+ */
+export const US_ETF_DIP_DEFAULT_CONFIG: USEtfBacktestConfig = {
+  tickers: ["1547", "1545", "1306", "1321"],
+  gapMinPct: 0, // 未使用
+  volumeSurgeRatio: 0, // 未使用
+  volumeLookbackDays: 25, // 未使用
+  breadthMax: 1.0, // dip は breadth フィルターなし
+  slPct: 0.03,
+  timeStopDays: 7,
+  riskPct: 0.015,
+  costModelEnabled: true,
+  unitShares: 1,
+};
