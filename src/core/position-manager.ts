@@ -40,8 +40,16 @@ export async function computeRealizedPnl(): Promise<number> {
 /**
  * 実質資金を取得する
  *
- * TACHIBANA_ENV=production: ブローカーAPIの買余力 + 投資中金額
+ * TACHIBANA_ENV=production: ブローカーAPIの買余力 + 投資中金額 + 未約定買い注文の拘束額
  * それ以外: DBのtotalBudget + 累計確定損益
+ *
+ * production で pending 拘束額を足し戻す理由:
+ * 立花は買い注文の受付時点で買付可能額(buyingPower)を即時拘束するが、投資中金額
+ * (investedAmount) は open ポジションだけを数えるため、同一の 15:24 バッチ内で先行戦略
+ * (GapUp→PSC→ETF の順) が pending 発注すると、その拘束分だけ effectiveCapital が過小評価
+ * され、後続戦略の集中率上限(50%)チェックが誤って発火していた（2026-07-02: GapUp 4812.T の
+ * 発注後に PSC 9304.T が「集中率上限」で棄却）。pending(=buyingPower から拘束済) を足し戻すと
+ * 非production の「totalBudget = 現金 + open + pending」と同じ総額セマンティクスに揃う。
  */
 export async function getEffectiveCapital(config?: TradingConfig | null): Promise<number> {
   if (isTachibanaProduction) {
@@ -49,8 +57,11 @@ export async function getEffectiveCapital(config?: TradingConfig | null): Promis
     if (apiBuyingPower == null) {
       throw new Error("証券APIから買余力を取得できませんでした");
     }
-    const investedAmount = await getInvestedAmount();
-    return apiBuyingPower + investedAmount;
+    const [investedAmount, pendingBuyAmount] = await Promise.all([
+      getInvestedAmount(),
+      getPendingBuyAmount(),
+    ]);
+    return apiBuyingPower + investedAmount + pendingBuyAmount;
   }
 
   const cfg = config ?? await prisma.tradingConfig.findFirst({ orderBy: { createdAt: "desc" } });
@@ -269,22 +280,11 @@ export async function getCashBalance(): Promise<number> {
     return apiBuyingPower;
   }
 
-  const [effectiveCapital, openPositions, pendingBuyOrders] = await Promise.all([
+  const [effectiveCapital, investedAmount, pendingAmount] = await Promise.all([
     getEffectiveCapital(),
-    prisma.tradingPosition.findMany({ where: { status: "open" } }),
-    prisma.tradingOrder.findMany({
-      where: { side: "buy", status: "pending" },
-      select: { limitPrice: true, quantity: true },
-    }),
+    getInvestedAmount(),
+    getPendingBuyAmount(),
   ]);
-
-  const investedAmount = openPositions.reduce((sum, pos) => {
-    return sum + Number(pos.entryPrice) * pos.quantity;
-  }, 0);
-
-  const pendingAmount = pendingBuyOrders.reduce((sum, order) => {
-    return sum + Number(order.limitPrice) * order.quantity;
-  }, 0);
 
   return effectiveCapital - investedAmount - pendingAmount;
 }
@@ -297,5 +297,36 @@ export async function getCashBalance(): Promise<number> {
 async function getInvestedAmount(): Promise<number> {
   const openPositions = await prisma.tradingPosition.findMany({ where: { status: "open" } });
   return openPositions.reduce((sum, pos) => sum + Number(pos.entryPrice) * pos.quantity, 0);
+}
+
+/**
+ * 未約定(pending)買い注文の拘束額を計算する
+ *
+ * GU/PSC/ETF は引け成行(limitPrice=null)のため、limitPrice が無い場合は
+ * entrySnapshot のスナップショット価格で概算する。pending と open は排他状態
+ * (約定時に fillOrder で pending→filled にした後に open ポジションを作成)なので、
+ * getInvestedAmount と合算しても二重計上にならない。
+ */
+async function getPendingBuyAmount(): Promise<number> {
+  const pendingBuys = await prisma.tradingOrder.findMany({
+    where: { side: "buy", status: "pending" },
+    select: { quantity: true, limitPrice: true, entrySnapshot: true },
+  });
+  return pendingBuys.reduce((sum, order) => {
+    const price =
+      order.limitPrice != null
+        ? Number(order.limitPrice)
+        : extractSnapshotPrice(order.entrySnapshot);
+    return sum + price * order.quantity;
+  }, 0);
+}
+
+/** entrySnapshot.trigger.currentPrice を安全に取り出す（取れなければ 0） */
+function extractSnapshotPrice(snapshot: unknown): number {
+  if (!snapshot || typeof snapshot !== "object") return 0;
+  const trigger = (snapshot as { trigger?: unknown }).trigger;
+  if (!trigger || typeof trigger !== "object") return 0;
+  const price = (trigger as { currentPrice?: unknown }).currentPrice;
+  return typeof price === "number" && Number.isFinite(price) ? price : 0;
 }
 
