@@ -2,9 +2,10 @@ name: "[Scheduled] Daily Social Post"
 
 on:
   schedule:
-    # 16:00 JST = 07:00 UTC（平日）。引け後同期（15:45 JST）の後に日次ログを Bluesky へ公開投稿。
+    # 17:30 JST = 08:30 UTC（平日）。end-of-day（17:00 JST）で当日の StockDailyBar / VIX が
+    # 確定した後に日次ログを Bluesky へ公開投稿する（breadth/VIX を当日値で出すため）。
     # 数分〜数十分のズレは許容範囲（時間厳密性不要）なので GitHub Actions cron を使用。
-    - cron: "0 7 * * 1-5"
+    - cron: "30 8 * * 1-5"
   workflow_dispatch:
     inputs:
       skip_market_day_check:
