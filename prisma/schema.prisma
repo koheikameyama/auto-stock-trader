@@ -508,3 +508,29 @@ model UsEtfSignal {
   @@index([detectedDate(sort: Desc)])
   @@index([executed])
 }
+
+/// 自社株買いカタリスト戦略のエントリーシグナル (KOH-502 / KOH-504)
+/// TDnet「自己株式取得に係る事項の決定」を idle帯で検出し記録。
+/// Phase A(観察モード, observeOnly=true)は記録+Slackのみで発注しない。
+model BuybackSignal {
+  id                String    @id @default(cuid())
+  tdnetId           String    @unique // やのしんTDnetの開示ID(重複防止)
+  disclosedAt       DateTime // 開示日時(pubdate, JST)
+  entryDate         DateTime  @db.Date // 想定エントリー営業日(開示15時以降=翌営業日)
+  ticker            String // 4桁コード(.T なし)
+  title             String // 開示タイトル(監査用)
+  entryClose        Decimal?  @db.Decimal(12, 2) // 想定エントリー価格(直近終値, best-effort)
+  slPrice           Decimal?  @db.Decimal(12, 2) // -12% 固定カタストロフ損切り
+  japanBreadth      Decimal?  @db.Decimal(5, 4) // 検出時 breadth
+  isIdle            Boolean   @default(false) // idle帯(breadth<54%)で発火するか
+  observeOnly       Boolean   @default(true) // Phase A は true(発注しない)
+  executed          Boolean   @default(false)
+  executedAt        DateTime?
+  brokerOrderNumber String?
+  positionId        String?
+  skipReason        String?
+  createdAt         DateTime  @default(now())
+
+  @@index([entryDate(sort: Desc)])
+  @@index([isIdle])
+}
