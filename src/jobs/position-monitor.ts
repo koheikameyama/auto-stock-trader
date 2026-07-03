@@ -48,10 +48,11 @@ import {
   parseSplitFactor,
 } from "../core/corporate-event-handler";
 import { fetchCorporateEvents } from "../core/market-data";
-import { notifyOrderFilled, notifyRiskAlert } from "../lib/slack";
+import { notifyOrderFilled, notifyRiskAlert, notifySlack } from "../lib/slack";
 import { cancelOrder, submitOrder } from "../core/broker-orders";
+import type { BrokerOrderResult } from "../core/broker-orders";
 import { cancelBrokerSL, updateBrokerSL } from "../core/broker-sl-manager";
-import { TACHIBANA_ORDER_STATUS } from "../lib/constants/broker";
+import { TACHIBANA_ORDER_STATUS, isTachibanaProduction } from "../lib/constants/broker";
 import type { ExitSnapshot } from "../types/snapshots";
 import type { TradingStrategy } from "../core/market-regime";
 import dayjs from "dayjs";
@@ -66,6 +67,99 @@ async function isSystemActive(): Promise<boolean> {
     orderBy: { createdAt: "desc" },
   });
   return !config || config.isActive;
+}
+
+type ExitablePosition = Awaited<ReturnType<typeof getOpenPositions>>[number];
+
+/**
+ * ポジション決済の共通実行: SL逆指値取消 → 成行売り → **売り注文が成功した場合のみ** close + 約定通知。
+ *
+ * 旧実装は submitOrder の結果を無視し、close/notifyOrderFilled を無条件に実行していた。
+ * このため成行売りが 11482（売付可能株数不足: SL取消失敗で株が拘束）等で拒否されても
+ * DB は closed、Slack は「約定」を出す "幻の決済" が発生し、ブローカーに無管理ポジションが残った。
+ *
+ * 本ヘルパーは (1) SL取消の成否を確認（残存なら決済見送り）、(2) 成行売りの success を確認し、
+ * 失敗時は close/通知せず 🚨 を上げて null を返すことで幻の決済を防ぐ。
+ */
+async function executeExitSell(params: {
+  position: ExitablePosition;
+  exitPrice: number;
+  exitSnapshot: ExitSnapshot;
+  exitReason: string;
+}): Promise<Awaited<ReturnType<typeof closePosition>> | null> {
+  const { position, exitPrice, exitSnapshot, exitReason } = params;
+  const ticker = position.stock.tickerCode;
+
+  // 1. SL逆指値を取消（成行売りの売付可能を確保）
+  await cancelBrokerSL(position.id);
+
+  // 2. 取消の成否を確認。cancelBrokerSL は成功/既消化時のみ slBrokerOrderId を null 化するため、
+  //    残っていれば取消失敗 = 立花側にSL注文が残り成行売りは 11482 で弾かれる → 決済を見送る。
+  if (isTachibanaProduction) {
+    const fresh = await prisma.tradingPosition.findUnique({
+      where: { id: position.id },
+      select: { slBrokerOrderId: true },
+    });
+    if (fresh?.slBrokerOrderId) {
+      console.warn(
+        `[position-monitor] ${ticker}: SL取消失敗（${fresh.slBrokerOrderId}残存）→ 決済見送り（幻の決済防止）`,
+      );
+      await notifySlack({
+        title: "🚨 決済スキップ: SL取消失敗",
+        message:
+          `${ticker} ${exitReason}\n` +
+          `逆指値SL(${fresh.slBrokerOrderId})を取消できず、成行売りは売付可能不足で弾かれます。\n` +
+          `close/通知は行いません（幻の決済防止）。次サイクルで再試行。手動確認を推奨。\n` +
+          `positionId: ${position.id}`,
+        color: "danger",
+      }).catch(() => {});
+      return null;
+    }
+  }
+
+  // 3. 成行売り
+  const sellResult = await submitOrder({
+    ticker,
+    side: "sell",
+    quantity: position.quantity,
+    limitPrice: null,
+  }).catch(
+    (err): BrokerOrderResult => {
+      console.error(`[position-monitor] sell order error: ${err}`);
+      return { success: false, error: String(err) };
+    },
+  );
+
+  // 4. 売り注文が拒否/失敗 → close/通知せず 🚨（幻の決済を防止）
+  if (!sellResult.success) {
+    console.warn(
+      `[position-monitor] ${ticker}: 成行売り失敗（${sellResult.error}）→ 決済見送り（幻の決済防止）`,
+    );
+    await notifySlack({
+      title: "🚨 決済スキップ: 成行売り失敗",
+      message:
+        `${ticker} ${exitReason} の成行売りが失敗しました。\n` +
+        `ポジションは維持し close/通知は行いません（幻の決済防止）。\n` +
+        `エラー: ${sellResult.error}\npositionId: ${position.id}`,
+      color: "danger",
+    }).catch(() => {});
+    return null;
+  }
+
+  // 5. 売り注文成功時のみ close + 約定通知。約定価格の確定は reconciliation がバックフィルする。
+  const closed = await closePosition(position.id, exitPrice, exitSnapshot as object);
+  await notifyOrderFilled({
+    tickerCode: ticker,
+    name: position.stock.name,
+    side: "sell",
+    strategy: position.strategy,
+    filledPrice: exitPrice,
+    quantity: position.quantity,
+    entryPrice: Number(position.entryPrice),
+    pnl: getPositionPnl(closed),
+    exitReason,
+  });
+  return closed;
 }
 
 export async function main() {
@@ -540,34 +634,8 @@ export async function main() {
           : null,
       };
 
-      // ブローカー連携: SL注文取消 + 成行売り発注
-      await cancelBrokerSL(position.id);
-      await submitOrder({
-        ticker: position.stock.tickerCode,
-        side: "sell",
-        quantity: position.quantity,
-        limitPrice: null,
-      }).catch((err) =>
-        console.error(`[position-monitor] sell order error: ${err}`),
-      );
-
-      const closedPosition = await closePosition(
-        position.id,
-        exitPrice,
-        exitSnapshot as object,
-      );
-
-      await notifyOrderFilled({
-        tickerCode: position.stock.tickerCode,
-        name: position.stock.name,
-        side: "sell",
-        strategy: position.strategy,
-        filledPrice: exitPrice,
-        quantity: position.quantity,
-        entryPrice: Number(position.entryPrice),
-        pnl: getPositionPnl(closedPosition),
-        exitReason,
-      });
+      // ブローカー連携: SL取消 → 成行売り → 売り成功時のみ close + 通知（幻の決済防止）
+      await executeExitSell({ position, exitPrice, exitSnapshot, exitReason });
     } else {
       // maxHigh/trailingStopPrice を更新
       const updateData: Record<string, number | null> = {};
@@ -676,36 +744,15 @@ export async function main() {
       `  → ${position.stock.tickerCode}: ${earningsReason} @ ¥${quote.price.toLocaleString()}`,
     );
 
-    // ブローカー連携: SL注文取消 + 成行売り発注
-    await cancelBrokerSL(position.id);
-    await submitOrder({
-      ticker: position.stock.tickerCode,
-      side: "sell",
-      quantity: position.quantity,
-      limitPrice: null,
-    }).catch((err) =>
-      console.error(`[position-monitor] sell order error: ${err}`),
-    );
-
-    const closed = await closePosition(
-      position.id,
-      quote.price,
-      exitSnapshot as object,
-    );
-
-    await notifyOrderFilled({
-      tickerCode: position.stock.tickerCode,
-      name: position.stock.name,
-      side: "sell",
-      strategy: position.strategy,
-      filledPrice: quote.price,
-      quantity: position.quantity,
-      entryPrice: Number(position.entryPrice),
-      pnl: getPositionPnl(closed),
+    // ブローカー連携: SL取消 → 成行売り → 売り成功時のみ close + 通知（幻の決済防止）
+    const closed = await executeExitSell({
+      position,
+      exitPrice: quote.price,
+      exitSnapshot,
       exitReason: earningsReason,
     });
 
-    earningsCloseCount++;
+    if (closed) earningsCloseCount++;
   }
 
   if (earningsCloseCount > 0) {
@@ -751,36 +798,15 @@ export async function main() {
       `  → ${position.stock.tickerCode}: ${supervisionReason} @ ¥${quote.price.toLocaleString()}`,
     );
 
-    // ブローカー連携: SL注文取消 + 成行売り発注
-    await cancelBrokerSL(position.id);
-    await submitOrder({
-      ticker: position.stock.tickerCode,
-      side: "sell",
-      quantity: position.quantity,
-      limitPrice: null,
-    }).catch((err) =>
-      console.error(`[position-monitor] sell order error: ${err}`),
-    );
-
-    const closed = await closePosition(
-      position.id,
-      quote.price,
-      exitSnapshot as object,
-    );
-
-    await notifyOrderFilled({
-      tickerCode: position.stock.tickerCode,
-      name: position.stock.name,
-      side: "sell",
-      strategy: position.strategy,
-      filledPrice: quote.price,
-      quantity: position.quantity,
-      entryPrice: Number(position.entryPrice),
-      pnl: getPositionPnl(closed),
+    // ブローカー連携: SL取消 → 成行売り → 売り成功時のみ close + 通知（幻の決済防止）
+    const closed = await executeExitSell({
+      position,
+      exitPrice: quote.price,
+      exitSnapshot,
       exitReason: supervisionReason,
     });
 
-    supervisionCloseCount++;
+    if (closed) supervisionCloseCount++;
   }
 
   if (supervisionCloseCount > 0) {
@@ -855,36 +881,15 @@ export async function main() {
           `  → ${position.stock.tickerCode}: ${defensiveReason} @ ¥${quote.price.toLocaleString()}`,
         );
 
-        // ブローカー連携: SL注文取消 + 成行売り発注
-        await cancelBrokerSL(position.id);
-        await submitOrder({
-          ticker: position.stock.tickerCode,
-          side: "sell",
-          quantity: position.quantity,
-          limitPrice: null,
-        }).catch((err) =>
-          console.error(`[position-monitor] sell order error: ${err}`),
-        );
-
-        const closed = await closePosition(
-          position.id,
-          quote.price,
-          exitSnapshot as object,
-        );
-
-        await notifyOrderFilled({
-          tickerCode: position.stock.tickerCode,
-          name: position.stock.name,
-          side: "sell",
-          strategy: position.strategy,
-          filledPrice: quote.price,
-          quantity: position.quantity,
-          entryPrice: Number(position.entryPrice),
-          pnl: getPositionPnl(closed),
+        // ブローカー連携: SL取消 → 成行売り → 売り成功時のみ close + 通知（幻の決済防止）
+        const closed = await executeExitSell({
+          position,
+          exitPrice: quote.price,
+          exitSnapshot,
           exitReason: defensiveReason,
         });
 
-        defensiveCloseCount++;
+        if (closed) defensiveCloseCount++;
       }
     }
 
