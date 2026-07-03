@@ -20,6 +20,7 @@ import { main as runMonitor } from "./jobs/position-monitor";
 import { main as runGapupMonitor } from "./jobs/gapup-monitor";
 import { main as runPSCMonitor } from "./jobs/post-surge-consolidation-monitor";
 import { main as runUsEtfMonitor } from "./jobs/us-etf-monitor";
+import { main as runBuybackMonitor } from "./jobs/buyback-monitor";
 import { main as runBrokerReconciliation } from "./jobs/broker-reconciliation";
 import { main as runSessionHealthCheck } from "./jobs/session-health-check";
 import { main as runEnsureBrokerSL } from "./jobs/ensure-broker-sl";
@@ -177,6 +178,12 @@ async function runBrokerReconciliationJob() {
   await runJob("broker-reconciliation", runBrokerReconciliation, true);
 }
 
+// 自社株買いカタリスト観察モニター（KOH-504 Phase A）。買いの適時開示は引け後に出るため
+// 15:24 の entry-monitors とは別に夕方に実行。当日+前日の開示を取得してDB記録+Slack（発注なし）。
+async function runBuybackMonitorJob() {
+  await runJob("buyback-monitor", runBuybackMonitor, true);
+}
+
 // スケジュール定義（全て JST）
 // ※ position-monitor のみ Worker cron で実行
 // ※ バッチジョブ（end-of-day, jpx-delisting-sync）は cron-job.org → /api/cron/* に移行
@@ -214,6 +221,10 @@ const schedules = [
   { cron: "0 24 15 * * 1-5", job: runEntryMonitors, name: "entry-monitors", requiresMarketDay: true },
   { cron: "20 24 15 * * 1-5", job: runEntryMonitors, name: "entry-monitors", requiresMarketDay: true },
   { cron: "40 24 15 * * 1-5", job: runEntryMonitors, name: "entry-monitors", requiresMarketDay: true },
+  // 自社株買いカタリスト観察（KOH-504 Phase A）: 20:00 JST。引け後に出揃う「自己株式取得に係る
+  // 事項の決定」を当日+前日分取得し idle帯判定して BuybackSignal に記録+Slack（発注なし）。
+  // 遅い開示は2日窓+tdnetId べき等 upsert で翌日実行時に回収。
+  { cron: "0 20 * * 1-5", job: runBuybackMonitorJob, name: "buyback-monitor", requiresMarketDay: true },
   // 8:50 プレマーケット セッション確認（電話番号認証の早期検出）
   { cron: "50 8 * * 1-5", job: runSessionHealthCheck, name: "session-health-check", requiresMarketDay: true },
   // 15:15 プレクローズ セッション確認（15:24のエントリー発注前に最終確認。9分の再ログイン・電話認証対応余裕）
