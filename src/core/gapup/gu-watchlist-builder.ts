@@ -17,7 +17,7 @@
 
 import { prisma } from "../../lib/prisma";
 import { TECHNICAL_MIN_DATA } from "../../lib/constants";
-import { STOP_LOSS, POSITION_SIZING, UNIT_SHARES } from "../../lib/constants";
+import { STOP_LOSS, POSITION_SIZING, UNIT_SHARES, STRATEGY_UNIVERSE_MAX_PRICE } from "../../lib/constants";
 import { SCORING } from "../../lib/constants/scoring";
 import { readHistoricalFromDB } from "../market-data";
 import { analyzeTechnicals } from "../technical-analysis";
@@ -167,8 +167,11 @@ export async function buildGuWatchlist(): Promise<GuWatchlistBuildResult> {
 
   // 2. 実効資金を取得（余力フィルター用、1回だけ）
   const effectiveCapital = await getEffectiveCapital();
-  const maxPrice = getMaxBuyablePrice(effectiveCapital);
-  console.log(`[gu-watchlist-builder] 実効資金: ¥${effectiveCapital.toLocaleString()}, 最大株価: ¥${maxPrice.toLocaleString()}`);
+  // 資金連動の上限（集中率50%保証）と、BT検証で最適と確定した戦略ユニバース上限(¥2,500)の小さい方を採用。
+  // 実効資金が ¥543,600 を超えると getMaxBuyablePrice が ¥2,500 を超えて広がり、BTでノイズと判明した
+  // 中価格帯(≥¥2,500)を GU/PSC が拾い始めるため、固定キャップでエッジ帯に固定する（GU/PSCはこのウォッチリストを共有）。
+  const maxPrice = Math.min(getMaxBuyablePrice(effectiveCapital), STRATEGY_UNIVERSE_MAX_PRICE);
+  console.log(`[gu-watchlist-builder] 実効資金: ¥${effectiveCapital.toLocaleString()}, 最大株価: ¥${maxPrice.toLocaleString()}（ユニバース上限¥${STRATEGY_UNIVERSE_MAX_PRICE.toLocaleString()}でキャップ）`);
 
   // 3. OHLCVデータを一括取得（DBから）
   const historicalMap = await readHistoricalFromDB(allTickerCodes);
