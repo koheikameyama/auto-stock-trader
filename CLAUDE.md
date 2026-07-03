@@ -101,7 +101,7 @@
 
 - **D期入り監視**: `regime-shift-notify` (引け後cron, 段階的5シグナル評価) を Slack 通知。検出ロジック不可能 (D期は事後確定) なので「強気モニター」として段階的可視化 (STRONG/MODERATE/EARLY/NEUTRAL)
 - **offseason 補完**: 米株ETF (1547 SPY / 1545 NASDAQ100) 戦略は **2026-05-21 に本番実装済み (A-4 完了)**。breadth<54% (idle 帯) 限定で gap≥0.5%+vol≥1.5x+陽線。WF OOS PF 1.91 / Calmar 5.24。立花API で取引可。**発注は GU/PSC と同じ worker.ts node-cron 15:24・引け成行に統一済 (`us-etf-monitor`, KOH-498)** — 当初の翌朝寄付成行・GitHub Actions 方式は CI遅延で寄付を逃し受付エラーになる構造的バグがあり刷新。月次ヘルスチェック (`us-etf-health-check`)。**combined BT 統合も完了 (KOH-492): `--enable-etf` で GU/PSC+ETF を共有プール検証。ETF追加で NetRet +106pp・稼働率 +7pp、MaxDD +2.7pp で Calmar ほぼ横ばい。詳細は `.claude/rules/backtest.md`「事例: combined BT への ETF 統合」**
-- **offseason 補完(検証済み・Pending)**: 自社株買いカタリスト (KOH-502, 2026-07-03)。TDnet「自己株式取得に係る事項の決定」を idle帯(breadth<54%)で開示翌営業日引けエントリー、-12%固定SL+20営業日タイムストップ。**却下リスト史上初の「価格と無相関・offseason稼働」エッジ**(単独8年8勝, idle帯 PF 2.11)。¥500K combined では GapUp(PF4.4)の資金を食い Calmar -38% で不合格だが **¥10M combined では Calmar +3%/MaxDD改善/稼働率+10pp で合格** → **MOM/WB LC と同じ「¥10M+で条件付き採用」**。実装は `--enable-buyback`(フラグOFFでbaseline不変)で残置。詳細は `.claude/rules/backtest.md`「事例: 自社株買いカタリスト戦略の検証」
+- **offseason 補完(検証済み・本番実装Pending)**: 自社株買いカタリスト (KOH-502, 2026-07-03)。TDnet「自己株式取得に係る事項の決定」を idle帯(breadth<54%)で開示翌営業日引けエントリー、-12%固定SL+20営業日タイムストップ。**却下リスト史上初の「価格と無相関・offseason稼働」エッジ**(単独8年8勝, idle帯 PF 2.11)。**¥500K でも フルサイクル窓(2019-2026)で Calmar 4.7→12.1(+157%)・MaxDD 31.5→19.6%(-12pp) と大勝ち**（offseasonの遊休現金を使い MaxDD 激減）。負けるのは 2024-03〜 の持続D期窓だけ(GU/PSC が全資金を回す局面で補完不要)。レジーム転換Exit は買いのドリフトを切るので非推奨。実装は `--enable-buyback`(フラグOFFでbaseline不変)で残置。本番化は live TDnet取得+worker.ts統合(ETF A-4相当)が別途必要。詳細は `.claude/rules/backtest.md`「事例: 自社株買いカタリスト戦略の検証」
 - **戦略変更は禁物**: シーズン性を受け入れる。次のD期 (2027-2028年頃想定) を取り逃さない準備が最重要
 
 ## 技術ルール

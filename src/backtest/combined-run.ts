@@ -388,6 +388,8 @@ async function main() {
   const buybackMaxArg = getArg(args, "--buyback-max");
   const buybackJsonPath = getArg(args, "--buyback-json");
   const buybackRiskArg = getArg(args, "--buyback-risk");
+  // --buyback-regime-exit: breadth が band(≥54%)に戻ったら買いを全決済（GU/PSCと食い合わせない）
+  const buybackRegimeExit = args.includes("--buyback-regime-exit");
   const maxPerSectorArg = getArg(args, "--max-per-sector");
   const compareSector = args.includes("--compare-sector");
   const compareSectorRotation = args.includes("--compare-sector-rotation");
@@ -656,6 +658,7 @@ async function main() {
     etfSignals,
     buybackConfig,
     buybackSignals,
+    buybackRegimeExit,
     budget,
     verbose: !quietMode && verbose,
     allData,

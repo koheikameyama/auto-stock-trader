@@ -54,6 +54,8 @@ export interface SimContext {
   /** 自社株買いカタリスト戦略 (KOH-502)。出口が ETF と同型のため型を再利用 */
   buybackConfig?: USEtfBacktestConfig;
   buybackSignals?: PrecomputedUSEtfSignals;
+  /** true: breadth が band(≥54%)に転換したら買いを全決済し資金をGU/PSCに返す(レジーム転換Exit) */
+  buybackRegimeExit?: boolean;
   budget: number;
   verbose: boolean;
   allData: Map<string, OHLCVData[]>;
@@ -675,7 +677,7 @@ export function runCombinedSimulation(
     typeof maxPositions === "number"
       ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, etfMax: maxPositions, buybackMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, slippageProfile = "none" } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, slippageProfile = "none" } = ctx;
   const guBreadthMode = breadthModeGu ?? breadthMode;
   const pscBreadthMode = breadthModePsc ?? breadthMode;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
@@ -764,6 +766,30 @@ export function runCombinedSimulation(
     if (buybackConfigLocal) {
       // 買いは ETF と同型の出口（固定SL + タイムストップ）なので processEtfExits を再利用
       processEtfExits(buybackPositions, buybackConfigLocal, dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, buybackClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile);
+    }
+    // レジーム転換Exit: breadth が band(≥54%)に戻ったら買いを全決済し資金をGU/PSCに返す（食い合い回避）
+    if (buybackConfigLocal && buybackRegimeExit && buybackPositions.length > 0) {
+      const brToday = precomputed.dailyBreadth.get(today);
+      if (brToday != null && brToday >= buybackConfigLocal.breadthMax) {
+        const regClose: number[] = [];
+        for (let i = 0; i < buybackPositions.length; i++) {
+          const pos = buybackPositions[i];
+          const rIdx = dateIndexMap.get(pos.ticker)?.get(today);
+          if (rIdx == null) continue;
+          const entryDayIdx = tradingDayIndex.get(pos.entryDate) ?? -1;
+          if (entryDayIdx >= 0 && dayIdx - entryDayIdx === 0) continue; // 建玉当日は決済しない
+          const bar = allData.get(pos.ticker)![rIdx];
+          closePosition(pos, bar.close, "regime_exit", dayIdx, tradingDays, buybackConfigLocal.costModelEnabled, verbose, marginInterestRate, slippageProfile);
+          const proceeds = bar.close * pos.quantity - (pos.exitCommission ?? 0) - (pos.tax ?? 0);
+          pendingSettlement.push({ amount: proceeds, availableDayIdx: dayIdx + settlementDays });
+          regClose.push(i);
+        }
+        for (let i = regClose.length - 1; i >= 0; i--) {
+          buybackClosedTrades.push(buybackPositions[regClose[i]]);
+          lastExitDayIdx.set(buybackPositions[regClose[i]].ticker, dayIdx);
+          buybackPositions.splice(regClose[i], 1);
+        }
+      }
     }
 
     // ── 1.5 ディフェンシブモード ──

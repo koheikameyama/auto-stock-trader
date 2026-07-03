@@ -121,6 +121,7 @@ export interface SimulatedPosition {
     | "time_stop"
     | "defensive_exit"
     | "rotation_exit"
+    | "regime_exit"
     | "still_open"
     | null;
   pnl: number | null;
