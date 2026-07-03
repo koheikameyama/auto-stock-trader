@@ -17,6 +17,7 @@ import { executeEntry } from "../core/breakout/entry-executor";
 import { getSameDayPendingBuyTickers } from "../core/order-executor";
 import { notifySlack } from "../lib/slack";
 import { TIMEZONE } from "../lib/constants";
+import { TRADING_DEFAULTS } from "../lib/constants/trading";
 import { GAPUP } from "../lib/constants/gapup";
 import { POST_SURGE_CONSOLIDATION } from "../lib/constants/post-surge-consolidation";
 import { PostSurgeConsolidationScanner } from "../core/post-surge-consolidation/psc-scanner";
@@ -148,35 +149,52 @@ export async function main(): Promise<void> {
       color: triggers.length > 0 ? "good" : undefined,
     });
 
-    // 1日1件制限
-    const topTriggers = triggers.slice(0, 1);
+    // 枠まで複数エントリー（旧「1日1件制限」は撤廃、KOH-505）。
+    // 根拠: GU/PSC 単体WFで複数エントリーが頑健（IS/OOS比 ~1.0）、combined 長期BT(2024-03〜)で
+    // 複数化により Calmar 7.16→20.31 / MaxDD 10.6%→6.0% と大幅改善。
+    // triggers は holdingTickers（保有＋当日pending買い）除外済み・優先度降順ソート済み。
+    if (triggers.length === 0) {
+      lastScanDate = today;
+      return;
+    }
 
-    // トリガー0件 → 当日はシグナルなしで確定 → フラグセット
-    if (topTriggers.length === 0) {
+    // 当日の空きPSC枠を算出（既存の open/ordered な PSC ポジション分を差し引く）。
+    // 同一ループ内の枠超過は slotsLeft の自前カウントで防ぎ、二重建ては holdingTickers 除外で別途担保。
+    const pscOpenCount = openPositions.filter((p) => p.strategy === "post-surge-consolidation").length;
+    let slotsLeft = TRADING_DEFAULTS.MAX_POSITIONS_PSC - pscOpenCount;
+    if (slotsLeft <= 0) {
+      console.log(`${tag} PSC枠が既に埋まっています（${pscOpenCount}/${TRADING_DEFAULTS.MAX_POSITIONS_PSC}）`);
       lastScanDate = today;
       return;
     }
 
     let anyRetryable = false;
-    for (const trigger of topTriggers) {
+    for (const trigger of triggers) {
+      if (slotsLeft <= 0) break; // 枠を使い切ったら当日確定
       console.log(
         `${tag} トリガー発火: ${trigger.ticker} 価格=¥${trigger.currentPrice} モメンタム=${(trigger.momentumReturn * 100).toFixed(1)}% 出来高サージ=${trigger.volumeSurgeRatio.toFixed(2)}x`,
       );
       try {
         const result = await executeEntry(trigger, "post-surge-consolidation");
-        if (!result.success) {
-          if (result.retryable) {
-            anyRetryable = true;
-            console.log(
-              `${tag} エントリー失敗（リトライ可能）: ${trigger.ticker} / ${result.reason ?? "不明"}`,
-            );
-          } else {
-            await notifySlack({
-              title: `[PSC] エントリー失敗: ${trigger.ticker}`,
-              message: `理由: ${result.reason ?? "不明"}\n価格: ¥${trigger.currentPrice.toLocaleString()} / モメンタム: ${(trigger.momentumReturn * 100).toFixed(1)}%`,
-              color: "warning",
-            });
-          }
+        if (result.success) {
+          slotsLeft--;
+          continue;
+        }
+        const reason = result.reason ?? "不明";
+        // 当日これ以上どの銘柄も建てられない構造的理由 → 打ち止め（当日確定）
+        if (/最大同時保有数|現金残高不足|予算不足|日次損失制限/.test(reason)) {
+          console.log(`${tag} 当日打ち止め: ${trigger.ticker} / ${reason}`);
+          break;
+        }
+        // 銘柄固有の理由（集中率上限・投資比率上限・セクター上限・SLクランプ等）→ 次候補へ
+        if (result.retryable) {
+          console.log(`${tag} スキップ（次候補へ）: ${trigger.ticker} / ${reason}`);
+        } else {
+          await notifySlack({
+            title: `[PSC] エントリー失敗: ${trigger.ticker}`,
+            message: `理由: ${reason}\n価格: ¥${trigger.currentPrice.toLocaleString()} / モメンタム: ${(trigger.momentumReturn * 100).toFixed(1)}%`,
+            color: "warning",
+          });
         }
       } catch (err) {
         console.error(`${tag} エントリーエラー: ${trigger.ticker}`, err);
@@ -184,6 +202,7 @@ export async function main(): Promise<void> {
       }
     }
 
+    // 一時障害が無ければ（成功 or 銘柄固有スキップ or 枠/資金の打ち止め）当日確定
     if (!anyRetryable) {
       lastScanDate = today;
     } else {
