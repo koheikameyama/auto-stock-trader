@@ -186,9 +186,14 @@ export async function main(): Promise<void> {
           console.log(`${tag} 当日打ち止め: ${trigger.ticker} / ${reason}`);
           break;
         }
-        // 銘柄固有の理由（集中率上限・投資比率上限・セクター上限・SLクランプ等）→ 次候補へ
+        // executeEntry が retryable=true を返すのは一時障害（ブローカーのネットワーク/セッション障害・
+        // 流動性不足など）。次候補は試しつつ、当日フラグを立てず次分の cron で全体を再スキャンさせる
+        // （約定済みは holdingTickers で除外されるため二重建てにならない）。
+        // retryable=false は銘柄固有の構造的リジェクト（集中率上限・投資比率上限・セクター上限等）→
+        // Slack warning を出して次候補へ（当日確定でよい）。
         if (result.retryable) {
-          console.log(`${tag} スキップ（次候補へ）: ${trigger.ticker} / ${reason}`);
+          anyRetryable = true;
+          console.log(`${tag} リトライ待機（次候補も試行）: ${trigger.ticker} / ${reason}`);
         } else {
           await notifySlack({
             title: `[PSC] エントリー失敗: ${trigger.ticker}`,
