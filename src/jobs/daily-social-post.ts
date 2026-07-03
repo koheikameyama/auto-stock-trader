@@ -19,6 +19,7 @@ import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import { prisma } from "../lib/prisma";
 import { postToBluesky } from "../lib/bluesky";
+import { notifySlack } from "../lib/slack";
 import { getStartOfDayJST, getEndOfDayJST } from "../lib/market-date";
 import { TIMEZONE } from "../lib/constants";
 import { detectRegimeShift, getLevelEmoji } from "../core/regime-shift-detector";
@@ -198,6 +199,14 @@ export async function main() {
   const text = await buildDailySocialText();
   console.log("--- 投稿内容 ---\n" + text + "\n----------------");
   await postToBluesky(text);
+
+  // 成功時は投稿内容をそのまま Slack にも流す（投稿できたか目視確認するため）。
+  // Slack 送信の失敗は投稿処理を巻き込まない（notifySlack は内部で握りつぶす）。
+  await notifySlack({
+    title: "🦋 Bluesky 日次投稿",
+    message: text,
+    color: "good",
+  });
 }
 
 const isDirectRun = process.argv[1]?.includes("daily-social-post");
