@@ -53,6 +53,24 @@ setJobState(jobState);
 // 休場日スキップのログ重複防止（position-monitor の複数回実行対策）
 const holidaySkipLogged = new Set<string>();
 
+// ジョブの最大実行時間。これを超えたらハング扱いで reject し、finally でロックを解放する。
+// （broker-reconciliation 等が外部API/イベントストリームの応答待ちで永久にハングし、
+//  jobState.running に居座って以降の実行が全てスキップされる事故を防ぐ安全弁。intraday
+//  ジョブはいずれも通常数秒〜数十秒で完了するため、5分は正常系を巻き込まない十分な余裕。）
+const JOB_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** promise がタイムアウトしたら reject する。成否どちらでもタイマーは解放する。 */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${ms}ms（ハング疑い: ロック解放）`)),
+      ms,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function runJob(
   name: string,
   job: () => Promise<void>,
@@ -93,7 +111,7 @@ async function runJob(
   console.log(`[${nowJST()}] ${name} 開始`);
 
   try {
-    await job();
+    await withTimeout(job(), JOB_TIMEOUT_MS, name);
     const entry = jobState.lastRun.get(name);
     if (entry) entry.completedAt = new Date();
     console.log(`[${nowJST()}] ${name} 完了`);
