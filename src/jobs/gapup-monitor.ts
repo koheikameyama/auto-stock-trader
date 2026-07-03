@@ -17,6 +17,7 @@ import { executeEntry } from "../core/breakout/entry-executor";
 import { getSameDayPendingBuyTickers } from "../core/order-executor";
 import { notifySlack } from "../lib/slack";
 import { TIMEZONE } from "../lib/constants";
+import { TRADING_DEFAULTS } from "../lib/constants/trading";
 import { GAPUP } from "../lib/constants/gapup";
 import { GapUpScanner } from "../core/gapup/gapup-scanner";
 import type { GapUpQuoteData } from "../core/gapup/gapup-scanner";
@@ -147,35 +148,53 @@ export async function main(): Promise<void> {
       color: gapupTriggers.length > 0 ? "good" : undefined,
     });
 
-    // 1日1件制限: RR降順ソート済みの先頭シグナルのみエントリー（WF検証済み: PF 2.45→2.73）
-    const topTriggers = gapupTriggers.slice(0, 1);
+    // 枠まで複数エントリー（旧「1日1件制限」は撤廃、KOH-505）。
+    // 根拠: GU/PSC 単体WFで複数エントリーが頑健（IS/OOS比 ~1.0）、combined 長期BT(2024-03〜)で
+    // 複数化により Calmar 7.16→20.31 / MaxDD 10.6%→6.0% と大幅改善。首位が集中率上限等で
+    // 弾かれても次候補を拾えるようになり、機会の取りこぼしを防ぐ。
+    // gapupTriggers は holdingTickers（保有＋当日pending買い）除外済み・gapPct×volumeSurge 降順ソート済み。
+    if (gapupTriggers.length === 0) {
+      lastScanDate = today;
+      return;
+    }
 
-    // トリガー0件 → 当日はシグナルなしで確定 → フラグセット
-    if (topTriggers.length === 0) {
+    // 当日の空きGU枠を算出（既存の open/ordered な GU ポジション分を差し引く）。
+    // 同一ループ内の枠超過は slotsLeft の自前カウントで防ぎ、二重建ては holdingTickers 除外で別途担保。
+    const guOpenCount = openPositions.filter((p) => p.strategy === "gapup").length;
+    let slotsLeft = TRADING_DEFAULTS.MAX_POSITIONS_GU - guOpenCount;
+    if (slotsLeft <= 0) {
+      console.log(`${tag} GU枠が既に埋まっています（${guOpenCount}/${TRADING_DEFAULTS.MAX_POSITIONS_GU}）`);
       lastScanDate = today;
       return;
     }
 
     let anyRetryable = false;
-    for (const trigger of topTriggers) {
+    for (const trigger of gapupTriggers) {
+      if (slotsLeft <= 0) break; // 枠を使い切ったら当日確定
       console.log(
         `${tag} トリガー発火: ${trigger.ticker} 価格=¥${trigger.currentPrice} 出来高サージ=${trigger.volumeSurgeRatio.toFixed(2)}x`,
       );
       try {
         const result = await executeEntry(trigger, "gapup");
-        if (!result.success) {
-          if (result.retryable) {
-            anyRetryable = true;
-            console.log(
-              `${tag} エントリー失敗（リトライ可能）: ${trigger.ticker} / ${result.reason ?? "不明"}`,
-            );
-          } else {
-            await notifySlack({
-              title: `[GU] エントリー失敗: ${trigger.ticker}`,
-              message: `理由: ${result.reason ?? "不明"}\n価格: ¥${trigger.currentPrice.toLocaleString()} / 出来高サージ: ${trigger.volumeSurgeRatio.toFixed(2)}x`,
-              color: "warning",
-            });
-          }
+        if (result.success) {
+          slotsLeft--;
+          continue;
+        }
+        const reason = result.reason ?? "不明";
+        // 当日これ以上どの銘柄も建てられない構造的理由 → 打ち止め（当日確定）
+        if (/最大同時保有数|現金残高不足|予算不足|日次損失制限/.test(reason)) {
+          console.log(`${tag} 当日打ち止め: ${trigger.ticker} / ${reason}`);
+          break;
+        }
+        // 銘柄固有の理由（集中率上限・投資比率上限・セクター上限・SLクランプ等）→ 次候補へ
+        if (result.retryable) {
+          console.log(`${tag} スキップ（次候補へ）: ${trigger.ticker} / ${reason}`);
+        } else {
+          await notifySlack({
+            title: `[GU] エントリー失敗: ${trigger.ticker}`,
+            message: `理由: ${reason}\n価格: ¥${trigger.currentPrice.toLocaleString()} / 出来高サージ: ${trigger.volumeSurgeRatio.toFixed(2)}x`,
+            color: "warning",
+          });
         }
       } catch (err) {
         console.error(`${tag} エントリーエラー: ${trigger.ticker}`, err);
@@ -184,7 +203,7 @@ export async function main(): Promise<void> {
       }
     }
 
-    // リトライ不要（成功 or 非リトライエラー）でのみフラグをセット
+    // 一時障害が無ければ（成功 or 銘柄固有スキップ or 枠/資金の打ち止め）当日確定
     if (!anyRetryable) {
       lastScanDate = today;
     } else {
