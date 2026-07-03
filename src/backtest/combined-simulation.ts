@@ -127,6 +127,12 @@ export interface SimContext {
    */
   marginInterestRate?: number;
   /**
+   * GU/PSC の「1日あたり最大エントリー数」制限（本番の slice(0,1)=1件 を BT で再現・比較する用途）。
+   * 省略時は制限なし（枠 guMax/pscMax まで複数エントリー、既存挙動）。
+   */
+  guMaxDailyEntries?: number;
+  pscMaxDailyEntries?: number;
+  /**
    * スリッページモデル (KOH-428 Phase B)
    * none / light / standard / heavy から選択。省略時は "none"（既存挙動維持）。
    * 初期パラメータは保守的推定で、Phase A の本番ログキャリブレーション後に再調整。
@@ -677,7 +683,7 @@ export function runCombinedSimulation(
     typeof maxPositions === "number"
       ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, etfMax: maxPositions, buybackMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, slippageProfile = "none" } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none" } = ctx;
   const guBreadthMode = breadthModeGu ?? breadthMode;
   const pscBreadthMode = breadthModePsc ?? breadthMode;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
@@ -1036,8 +1042,10 @@ export function runCombinedSimulation(
     // ── 2b. GapUp エントリー ──
     if (guShouldTrade && breadthMulGu > 0 && !shouldSkipByVixRegime(todayRegime, guVixSkipLevel) && guPositions.length < limits.guMax && totalUnderLimit() && cash > 0) {
       const signals = gapupSignals.get(today) ?? [];
+      let guEntriesToday = 0;
       for (const signal of signals) {
         if (guPositions.length >= limits.guMax || !totalUnderLimit()) break;
+        if (guMaxDailyEntries != null && guEntriesToday >= guMaxDailyEntries) break;
         if (allOpenTickers.has(signal.ticker)) continue;
         if (isSectorAtLimit(signal.ticker)) continue;
         if (!isInRotationTop(signal.ticker)) continue;
@@ -1077,6 +1085,7 @@ export function runCombinedSimulation(
           limitLockDays: 0, entryCommission, exitCommission: null, totalCost: null, tax: null, grossPnl: null, netPnl: null,
         });
         allOpenTickers.add(signal.ticker);
+        guEntriesToday++;
       }
     }
 
@@ -1130,8 +1139,10 @@ export function runCombinedSimulation(
     // ── 2d. PSC エントリー ──
     if (pscConfigLocal && pscSignals && pscShouldTrade && breadthMulPsc > 0 && todayRegime !== "crisis" && pscPositions.length < pscMaxPos && totalUnderLimit() && cash > 0) {
       const signals = pscSignals.get(today) ?? [];
+      let pscEntriesToday = 0;
       for (const signal of signals) {
         if (pscPositions.length >= pscMaxPos || !totalUnderLimit()) break;
+        if (pscMaxDailyEntries != null && pscEntriesToday >= pscMaxDailyEntries) break;
         if (allOpenTickers.has(signal.ticker)) continue;
         if (isSectorAtLimit(signal.ticker)) continue;
         if (!isInRotationTop(signal.ticker)) continue;
@@ -1171,6 +1182,7 @@ export function runCombinedSimulation(
           limitLockDays: 0, entryCommission, exitCommission: null, totalCost: null, tax: null, grossPnl: null, netPnl: null,
         });
         allOpenTickers.add(signal.ticker);
+        pscEntriesToday++;
       }
     }
 
