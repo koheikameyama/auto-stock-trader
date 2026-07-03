@@ -51,6 +51,9 @@ export interface SimContext {
   momSignals?: PrecomputedMomentumSignals;
   etfConfig?: USEtfBacktestConfig;
   etfSignals?: PrecomputedUSEtfSignals;
+  /** 自社株買いカタリスト戦略 (KOH-502)。出口が ETF と同型のため型を再利用 */
+  buybackConfig?: USEtfBacktestConfig;
+  buybackSignals?: PrecomputedUSEtfSignals;
   budget: number;
   verbose: boolean;
   allData: Map<string, OHLCVData[]>;
@@ -219,6 +222,7 @@ export interface SimResult {
   pscMetrics: PerformanceMetrics;
   momMetrics: PerformanceMetrics;
   etfMetrics: PerformanceMetrics;
+  buybackMetrics: PerformanceMetrics;
   equityCurve: DailyEquity[];
   allTrades: SimulatedPosition[];
   /** 戦略別トレード（相関分析用） */
@@ -228,6 +232,7 @@ export interface SimResult {
   pscTrades: SimulatedPosition[];
   momTrades: SimulatedPosition[];
   etfTrades: SimulatedPosition[];
+  buybackTrades: SimulatedPosition[];
   /** 累計入金額（初期資金 + 月次追加の合計） */
   totalCapitalAdded: number;
   /** ドローダウンハルトが発動した営業日数 */
@@ -654,6 +659,8 @@ export interface PositionLimits {
   momMax?: number;
   /** 米株ETF (1547/1545) 戦略の最大ポジション数 */
   etfMax?: number;
+  /** 自社株買いカタリスト戦略 (KOH-502) の最大ポジション数 */
+  buybackMax?: number;
   /** 全戦略合算の最大ポジション数（undefined = 制限なし） */
   totalMax?: number;
   /** 同セクターに保有可能な最大ポジション数（全戦略横断、undefined = 制限なし） */
@@ -666,9 +673,9 @@ export function runCombinedSimulation(
 ): SimResult {
   const limits: PositionLimits =
     typeof maxPositions === "number"
-      ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, etfMax: maxPositions, totalMax: maxPositions }
+      ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, etfMax: maxPositions, buybackMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, slippageProfile = "none" } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, slippageProfile = "none" } = ctx;
   const guBreadthMode = breadthModeGu ?? breadthMode;
   const pscBreadthMode = breadthModePsc ?? breadthMode;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
@@ -680,10 +687,12 @@ export function runCombinedSimulation(
   const pscConfigLocal = pscConfig ? { ...pscConfig } : null;
   const momConfigLocal = momConfig ? { ...momConfig } : null;
   const etfConfigLocal = etfConfig ? { ...etfConfig } : null;
+  const buybackConfigLocal = buybackConfig ? { ...buybackConfig } : null;
   const wbMaxPos = limits.wbMax ?? 0;
   const pscMaxPos = limits.pscMax ?? 0;
   const momMaxPos = limits.momMax ?? 0;
   const etfMaxPos = limits.etfMax ?? 0;
+  const buybackMaxPos = limits.buybackMax ?? 0;
 
   let cash = budget;
   let totalCapitalAdded = budget;
@@ -695,12 +704,14 @@ export function runCombinedSimulation(
   const pscPositions: SimulatedPosition[] = [];
   const momPositions: SimulatedPosition[] = [];
   const etfPositions: SimulatedPosition[] = [];
+  const buybackPositions: SimulatedPosition[] = [];
   const boClosedTrades: SimulatedPosition[] = [];
   const guClosedTrades: SimulatedPosition[] = [];
   const wbClosedTrades: SimulatedPosition[] = [];
   const pscClosedTrades: SimulatedPosition[] = [];
   const momClosedTrades: SimulatedPosition[] = [];
   const etfClosedTrades: SimulatedPosition[] = [];
+  const buybackClosedTrades: SimulatedPosition[] = [];
   const lastExitDayIdx = new Map<string, number>();
   const equityCurve: DailyEquity[] = [];
 
@@ -750,6 +761,10 @@ export function runCombinedSimulation(
     if (etfConfigLocal) {
       processEtfExits(etfPositions, etfConfigLocal, dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, etfClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile);
     }
+    if (buybackConfigLocal) {
+      // 買いは ETF と同型の出口（固定SL + タイムストップ）なので processEtfExits を再利用
+      processEtfExits(buybackPositions, buybackConfigLocal, dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, buybackClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile);
+    }
 
     // ── 1.5 ディフェンシブモード ──
     processDefensive(boPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, boClosedTrades, lastExitDayIdx, boConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
@@ -765,6 +780,9 @@ export function runCombinedSimulation(
     }
     if (etfConfigLocal) {
       processDefensive(etfPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, etfClosedTrades, lastExitDayIdx, etfConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
+    }
+    if (buybackConfigLocal) {
+      processDefensive(buybackPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, buybackClosedTrades, lastExitDayIdx, buybackConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
     }
 
     // ── 1.55 モメンタム ローテーション決済（rebalance日にトップN外に落ちた銘柄をクローズ） ──
@@ -801,6 +819,7 @@ export function runCombinedSimulation(
     let pscShouldTrade = ddHalt.shouldTrade;
     let momShouldTrade = ddHalt.shouldTrade;
     let etfShouldTrade = ddHalt.shouldTrade;
+    let buybackShouldTrade = ddHalt.shouldTrade;
     const { weeklyDDPct, monthlyDDPct } = ddHalt;
     if (!ddHalt.shouldTrade) {
       haltDays++;
@@ -820,6 +839,7 @@ export function runCombinedSimulation(
       pscShouldTrade = false;
       momShouldTrade = false;
       etfShouldTrade = false;
+      buybackShouldTrade = false;
       haltDays++; // DDハルトとは別のハルト事由なので独立カウント
       if (verbose) {
         console.log(`  [${today}] エクイティフィルター: SMA${equityCurveSmaPeriod}下回り（全戦略停止）`);
@@ -832,7 +852,7 @@ export function runCombinedSimulation(
     if (
       ctx.nikkeiDropVetoPct != null &&
       ctx.indexData &&
-      (boShouldTrade || guShouldTrade || wbShouldTrade || pscShouldTrade || momShouldTrade || etfShouldTrade) &&
+      (boShouldTrade || guShouldTrade || wbShouldTrade || pscShouldTrade || momShouldTrade || etfShouldTrade || buybackShouldTrade) &&
       dayIdx > 0
     ) {
       const todayClose = ctx.indexData.get(today);
@@ -846,6 +866,7 @@ export function runCombinedSimulation(
           pscShouldTrade = false;
           momShouldTrade = false;
           etfShouldTrade = false;
+          buybackShouldTrade = false;
           haltDays++;
           if (verbose) {
             console.log(`  [${today}] 日経キルスイッチ: ${pctChange.toFixed(2)}% ≤ ${ctx.nikkeiDropVetoPct}%（全戦略停止）`);
@@ -862,6 +883,7 @@ export function runCombinedSimulation(
       ...pscPositions.map((p) => p.ticker),
       ...momPositions.map((p) => p.ticker),
       ...etfPositions.map((p) => p.ticker),
+      ...buybackPositions.map((p) => p.ticker),
     ]);
 
     // breadthモードによるサイズ係数（0=見送り / 0.5=半分 / 1.0=通常）
@@ -889,7 +911,7 @@ export function runCombinedSimulation(
     );
 
     // ── 2a. Breakout エントリー ──
-    const totalPositions = () => boPositions.length + guPositions.length + wbPositions.length + pscPositions.length + momPositions.length + etfPositions.length;
+    const totalPositions = () => boPositions.length + guPositions.length + wbPositions.length + pscPositions.length + momPositions.length + etfPositions.length + buybackPositions.length;
     const totalUnderLimit = () => limits.totalMax === undefined || totalPositions() < limits.totalMax;
     // 連敗スロットル: 直近Nトレード全戦略合算のWinRateが閾値を下回ったらサイズ縮小
     let streakScale = 1.0;
@@ -1228,9 +1250,58 @@ export function runCombinedSimulation(
       }
     }
 
+    // ── 2g. 自社株買いカタリスト エントリー（開示翌営業日 × idle帯 breadth<54%、precompute済みシグナル） ──
+    // ETFと同じサイジング（リスク% × cash、固定SLで枠決定）。買いは100株単位。
+    if (
+      buybackConfigLocal &&
+      buybackSignals &&
+      buybackShouldTrade &&
+      todayRegime !== "crisis" &&
+      buybackPositions.length < buybackMaxPos &&
+      totalUnderLimit() &&
+      cash > 0
+    ) {
+      const signals = buybackSignals.get(today) ?? [];
+      for (const signal of signals) {
+        if (buybackPositions.length >= buybackMaxPos || !totalUnderLimit()) break;
+        if (allOpenTickers.has(signal.ticker)) continue;
+        if (isSectorAtLimit(signal.ticker)) continue;
+
+        const stopLossPrice = signal.stopLossPrice;
+        if (stopLossPrice >= signal.entryPrice) continue;
+        const riskPerShare = signal.entryPrice - stopLossPrice;
+        if (riskPerShare <= 0) continue;
+
+        const riskAmount = cash * (buybackConfigLocal.riskPct);
+        const rawQuantity = Math.floor(riskAmount / riskPerShare);
+        const unit = buybackConfigLocal.unitShares;
+        let quantity = Math.floor(rawQuantity / unit) * unit;
+        if (quantity <= 0) continue;
+        const effEntry = applySlippage(signal.entryPrice, "buy", "entry_market", slippageProfile);
+        if (effEntry * quantity > cash) {
+          quantity = Math.floor(cash / effEntry / unit) * unit;
+          if (quantity <= 0) continue;
+        }
+
+        const tradeValue = effEntry * quantity;
+        const entryCommission = buybackConfigLocal.costModelEnabled ? calculateCommission(tradeValue) : 0;
+        cash -= tradeValue + entryCommission;
+
+        buybackPositions.push({
+          ticker: signal.ticker, entryDate: today, entryPrice: effEntry,
+          takeProfitPrice: 0, stopLossPrice: Math.round(stopLossPrice), quantity,
+          volumeSurgeRatio: 1, regime: todayRegime,
+          maxHighDuringHold: effEntry, minLowDuringHold: effEntry, trailingStopPrice: null, entryAtr: 0,
+          exitDate: null, exitPrice: null, exitReason: null, pnl: null, pnlPct: null, holdingDays: null,
+          limitLockDays: 0, entryCommission, exitCommission: null, totalCost: null, tax: null, grossPnl: null, netPnl: null,
+        });
+        allOpenTickers.add(signal.ticker);
+      }
+    }
+
     // ── 3. エクイティスナップショット ──
     let positionsValue = 0;
-    for (const pos of [...boPositions, ...guPositions, ...wbPositions, ...pscPositions, ...momPositions, ...etfPositions]) {
+    for (const pos of [...boPositions, ...guPositions, ...wbPositions, ...pscPositions, ...momPositions, ...etfPositions, ...buybackPositions]) {
       const eqBarIdx = dateIndexMap.get(pos.ticker)?.get(today);
       const markPrice = eqBarIdx != null ? allData.get(pos.ticker)![eqBarIdx].close : pos.entryPrice;
       positionsValue += markPrice * pos.quantity;
@@ -1242,20 +1313,21 @@ export function runCombinedSimulation(
       cash: Math.round(cash),
       positionsValue: Math.round(positionsValue),
       totalEquity: Math.round(cash + positionsValue + pendingTotal),
-      openPositionCount: boPositions.length + guPositions.length + wbPositions.length + pscPositions.length + momPositions.length + etfPositions.length,
+      openPositionCount: boPositions.length + guPositions.length + wbPositions.length + pscPositions.length + momPositions.length + etfPositions.length + buybackPositions.length,
       ...(capitalAddedToday > 0 ? { capitalAdded: capitalAddedToday } : {}),
     });
   }
 
-  for (const pos of [...boPositions, ...guPositions, ...wbPositions, ...pscPositions, ...momPositions, ...etfPositions]) pos.exitReason = "still_open";
+  for (const pos of [...boPositions, ...guPositions, ...wbPositions, ...pscPositions, ...momPositions, ...etfPositions, ...buybackPositions]) pos.exitReason = "still_open";
 
-  const allTrades = [...boClosedTrades, ...guClosedTrades, ...wbClosedTrades, ...pscClosedTrades, ...momClosedTrades, ...etfClosedTrades, ...boPositions, ...guPositions, ...wbPositions, ...pscPositions, ...momPositions, ...etfPositions];
+  const allTrades = [...boClosedTrades, ...guClosedTrades, ...wbClosedTrades, ...pscClosedTrades, ...momClosedTrades, ...etfClosedTrades, ...buybackClosedTrades, ...boPositions, ...guPositions, ...wbPositions, ...pscPositions, ...momPositions, ...etfPositions, ...buybackPositions];
   const boAllTrades = [...boClosedTrades, ...boPositions.filter((p) => p.exitReason === "still_open")];
   const guAllTrades = [...guClosedTrades, ...guPositions.filter((p) => p.exitReason === "still_open")];
   const wbAllTrades = [...wbClosedTrades, ...wbPositions.filter((p) => p.exitReason === "still_open")];
   const pscAllTrades = [...pscClosedTrades, ...pscPositions.filter((p) => p.exitReason === "still_open")];
   const momAllTrades = [...momClosedTrades, ...momPositions.filter((p) => p.exitReason === "still_open")];
   const etfAllTrades = [...etfClosedTrades, ...etfPositions.filter((p) => p.exitReason === "still_open")];
+  const buybackAllTrades = [...buybackClosedTrades, ...buybackPositions.filter((p) => p.exitReason === "still_open")];
 
   return {
     totalMetrics: calculateMetrics(allTrades, equityCurve, budget),
@@ -1265,6 +1337,7 @@ export function runCombinedSimulation(
     pscMetrics: calculateMetrics(pscAllTrades, equityCurve, budget),
     momMetrics: calculateMetrics(momAllTrades, equityCurve, budget),
     etfMetrics: calculateMetrics(etfAllTrades, equityCurve, budget),
+    buybackMetrics: calculateMetrics(buybackAllTrades, equityCurve, budget),
     equityCurve,
     allTrades,
     boTrades: boAllTrades,
@@ -1273,6 +1346,7 @@ export function runCombinedSimulation(
     pscTrades: pscAllTrades,
     momTrades: momAllTrades,
     etfTrades: etfAllTrades,
+    buybackTrades: buybackAllTrades,
     totalCapitalAdded,
     haltDays,
   };

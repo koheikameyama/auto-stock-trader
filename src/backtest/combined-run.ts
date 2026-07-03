@@ -32,6 +32,9 @@ import { WEEKLY_BREAK_BACKTEST_DEFAULTS, WEEKLY_BREAK_LARGECAP_PARAMS } from "./
 import { precomputeUSEtfSignals, type PrecomputedUSEtfSignals } from "./us-etf-simulation";
 import { precomputeUSEtfDipSignals, US_ETF_DIP_PARAMS } from "./us-etf-dip-simulation";
 import { US_ETF_DEFAULT_CONFIG, US_ETF_DIP_DEFAULT_CONFIG, type USEtfBacktestConfig } from "./us-etf-config";
+import { precomputeBuybackSignals, buildBuybackEventMap } from "./buyback-simulation";
+import { BUYBACK_DEFAULT_CONFIG } from "./buyback-config";
+import * as fs from "node:fs";
 import { fetchHistoricalFromDB, fetchVixFromDB, fetchIndexFromDB } from "./data-fetcher";
 import { calculateCapitalUtilization, calculateMetrics } from "./metrics";
 import { runCombinedSimulation, type PositionLimits, type BreadthMode } from "./combined-simulation";
@@ -380,6 +383,11 @@ async function main() {
   const etfDipMaxArg = getArg(args, "--etf-dip-max");
   // --etf-dip-idle: ETF押し目を idle帯(breadth<54%)限定で発火（GU/PSCと資金競合させない補完設計）
   const etfDipIdle = args.includes("--etf-dip-idle");
+  // --enable-buyback: 自社株買いカタリスト (KOH-502) を第6戦略として idle帯で動かす
+  const enableBuyback = args.includes("--enable-buyback");
+  const buybackMaxArg = getArg(args, "--buyback-max");
+  const buybackJsonPath = getArg(args, "--buyback-json");
+  const buybackRiskArg = getArg(args, "--buyback-risk");
   const maxPerSectorArg = getArg(args, "--max-per-sector");
   const compareSector = args.includes("--compare-sector");
   const compareSectorRotation = args.includes("--compare-sector-rotation");
@@ -621,6 +629,21 @@ async function main() {
     }
   }
 
+  // --enable-buyback: 自社株買いカタリスト シグナルを外部JSONから注入して precompute
+  // 銘柄は既存ユニバース(allData)内なので追加データマージ不要。idle帯フィルタは precompute 側。
+  let buybackConfig: USEtfBacktestConfig | undefined;
+  let buybackSignals: PrecomputedUSEtfSignals | undefined;
+  if (enableBuyback) {
+    if (!buybackJsonPath) throw new Error("--enable-buyback には --buyback-json <path> が必須です");
+    buybackConfig = { ...BUYBACK_DEFAULT_CONFIG, ...(buybackRiskArg ? { riskPct: Number(buybackRiskArg) } : {}) };
+    const raw = JSON.parse(fs.readFileSync(buybackJsonPath, "utf-8")) as { events: { ticker: string; date: string }[] };
+    const eventMap = buildBuybackEventMap(raw.events ?? []);
+    buybackSignals = precomputeBuybackSignals(eventMap, allData, precomputed.dateIndexMap, precomputed.dailyBreadth, buybackConfig);
+    let sigTotal = 0;
+    for (const arr of buybackSignals.values()) sigTotal += arr.length;
+    console.log(`[data] 買いカタリスト シグナル: ${sigTotal}件 / ${buybackSignals.size}日 (idle帯 breadth<${(buybackConfig.breadthMax * 100).toFixed(0)}%, SL-${(buybackConfig.slPct * 100).toFixed(0)}% / ${buybackConfig.timeStopDays}d, 開示${raw.events?.length ?? 0}件中)`);
+  }
+
   const ctx = {
     guConfig,
     pscConfig,
@@ -631,6 +654,8 @@ async function main() {
     momSignals,
     etfConfig,
     etfSignals,
+    buybackConfig,
+    buybackSignals,
     budget,
     verbose: !quietMode && verbose,
     allData,
@@ -653,6 +678,7 @@ async function main() {
     ...(enableWbLargecap ? { wbMax: Number(wbMaxArg ?? 2) } : {}),
     ...(enableEtf ? { etfMax: Number(etfMaxArg ?? 2) } : {}),
     ...(enableEtfDip ? { etfMax: Number(etfDipMaxArg ?? 2) } : {}),
+    ...(enableBuyback ? { buybackMax: Number(buybackMaxArg ?? 2) } : {}),
     ...(maxPerSectorArg !== undefined ? { maxPerSector: Number(maxPerSectorArg) } : {}),
   };
 
@@ -2788,6 +2814,7 @@ async function main() {
   if (enableMomentum) slotsParts.push(`MOM${defaultLimits.momMax ?? 0}`);
   if (enableEtf) slotsParts.push(`ETF${defaultLimits.etfMax ?? 0}`);
   if (enableEtfDip) slotsParts.push(`ETFdip${defaultLimits.etfMax ?? 0}`);
+  if (enableBuyback) slotsParts.push(`BUYBACK${defaultLimits.buybackMax ?? 0}`);
   console.log(`ポジション枠: ${slotsParts.join(" + ")}`);
   const result = runCombinedSimulation(ctx, defaultLimits);
 
@@ -2814,6 +2841,9 @@ async function main() {
   }
   if (enableEtfDip) {
     printMetrics(result.etfMetrics, "ETF押し目 (RSI2 mean-rev, 常時)");
+  }
+  if (enableBuyback) {
+    printMetrics(result.buybackMetrics, "自社株買い (取得決定, idle帯)");
   }
 
   const exitReasons = new Map<string, number>();
