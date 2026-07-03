@@ -1,0 +1,44 @@
+name: Buyback Phase A Review
+
+# 自社株買い Phase A（KOH-504 観察モード）の観察レビュー
+# 毎週金曜 09:00 JST（= 00:00 UTC）に production BuybackSignal を SELECT し Slack 通知。
+# 2026-07-31 以降は「本レビュー（Phase B 可否）」セクションが自動付加される。
+# 週次・低頻度のため GitHub Actions cron（数十分のズレ許容）で運用。
+
+on:
+  schedule:
+    - cron: "0 0 * * 5"
+  workflow_dispatch: {}
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install psycopg2-binary requests
+
+      - name: Run Phase A review
+        env:
+          PROD_DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: python scripts/buyback_phase_a_review.py
+
+      - name: Notify Slack on failure
+        if: failure()
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "❌ 自社株買い Phase A レビューに失敗しました"
+          SLACK_MESSAGE: |
+            観察レビューのワークフローがエラーで終了しました
+            詳細はGitHub Actionsログを確認してください
+          SLACK_COLOR: danger
+          SLACK_FOOTER: "Auto Stock Trader"
