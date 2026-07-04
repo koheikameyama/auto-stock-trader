@@ -29,6 +29,9 @@ dayjs.extend(timezone);
 
 const DISCLAIMER = "※個人の自動売買システムの記録です。投資助言ではありません";
 
+/** 公開プロダクト（相場局面モニター）の URL。投稿からの送客導線。 */
+const PUBLIC_SITE_URL = "https://stock-buddy.net";
+
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
 
 function fmtPct(v: number): string {
@@ -188,6 +191,9 @@ export async function buildDailySocialText(): Promise<string> {
     regimeLine,
     todayLine,
     ...(summaryLine ? [summaryLine] : []),
+    "",
+    "▼相場局面を毎日チェック",
+    PUBLIC_SITE_URL,
     "",
     DISCLAIMER,
   ];

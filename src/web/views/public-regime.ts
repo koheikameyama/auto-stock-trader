@@ -29,17 +29,32 @@ const LEVEL_COLOR: Record<SignalLevel, string> = {
 const FAVICON =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8C%A1%EF%B8%8F%3C/text%3E%3C/svg%3E";
 
-function baseHead(title: string, description: string): string {
+function baseHead(
+  title: string,
+  description: string,
+  ogTitle: string = title,
+  ogDescription: string = description,
+): string {
   return `<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
 <meta name="description" content="${description}">
-<meta property="og:title" content="${title}">
-<meta property="og:description" content="${description}">
+<meta property="og:title" content="${ogTitle}">
+<meta property="og:description" content="${ogDescription}">
 <meta property="og:type" content="website">
+<meta property="og:site_name" content="相場局面モニター">
+<meta name="twitter:card" content="summary">
 <link rel="icon" href="${FAVICON}">
 <style>${STYLES}</style>`;
 }
+
+/** OGP・共有カード用の局面ラベル（日本語・短め） */
+const LEVEL_JA_SHORT: Record<SignalLevel, string> = {
+  STRONG_BULL: "大強気相場",
+  MODERATE_BULL: "強気優勢",
+  EARLY_SIGNAL: "強気の初期サイン",
+  NEUTRAL: "中立・様子見",
+};
 
 const STYLES = `
 :root{
@@ -115,7 +130,13 @@ export function publicRegimePage(data: PublicRegimeData | null): string {
       </div>`
     : UNAVAILABLE_VERDICT;
 
-  return `<!doctype html><html lang="ja"><head>${baseHead(title, description)}</head>
+  // シェアされた時に現局面がカードに出るよう OGP を動的化
+  const ogTitle = data
+    ? `${data.emoji} 日本株の相場局面：${LEVEL_JA_SHORT[data.level]}（${data.asOfDate}）`
+    : title;
+  const ogDescription = data ? data.summary : description;
+
+  return `<!doctype html><html lang="ja"><head>${baseHead(title, description, ogTitle, ogDescription)}</head>
 <body>
   <div class="wrap">
     <span class="brand"><span class="dot" style="background:${data ? LEVEL_COLOR[data.level] : "#8792a2"}"></span>相場局面モニター</span>
