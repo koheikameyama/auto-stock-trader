@@ -23,6 +23,7 @@ import { calculateCommission, calculateTax, calculateMarginInterest, applySlippa
 import type { SlippageProfile } from "../core/trading-costs";
 import { getLimitDownPrice } from "../lib/constants/price-limits";
 import { determineMarketRegime, getRegimeRiskScale } from "../core/market-regime";
+import { getDynamicMaxPositionPct } from "../core/risk-manager";
 import { UNIT_SHARES, DRAWDOWN } from "../lib/constants/trading";
 import { calculateMetrics } from "./metrics";
 import type {
@@ -149,6 +150,13 @@ export interface SimContext {
    * 省略時は無効。indexData が無い場合も無効。
    */
   nikkeiDropVetoPct?: number;
+  /**
+   * 本番 entry-executor の「1銘柄あたり集中率上限」(getDynamicMaxPositionPct: 33〜50%) を再現する。
+   * true で GU/PSC/WB のエントリー数量を effectiveCapital（= cash + 建玉entry評価 + 未受渡代金）×
+   * 33〜50% 以内の100株単位に切り下げる（本番と同じく棄却ではなく縮小）。
+   * 省略時は false（キャップなし = 既存挙動。リスク% と cash のみでサイジング）。
+   */
+  positionCapEnabled?: boolean;
 }
 
 /** breadthゲーティングの方式 */
@@ -683,7 +691,7 @@ export function runCombinedSimulation(
     typeof maxPositions === "number"
       ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, etfMax: maxPositions, buybackMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none" } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none", positionCapEnabled = false } = ctx;
   const guBreadthMode = breadthModeGu ?? breadthMode;
   const pscBreadthMode = breadthModePsc ?? breadthMode;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
@@ -722,6 +730,21 @@ export function runCombinedSimulation(
   const buybackClosedTrades: SimulatedPosition[] = [];
   const lastExitDayIdx = new Map<string, number>();
   const equityCurve: DailyEquity[] = [];
+
+  // 本番 entry-executor の集中率上限を再現: 数量を getDynamicMaxPositionPct(実効資金, 株価) 以内に切り下げる。
+  // 実効資金は本番定義（総資産 = totalBudget + realizedPnl）に合わせ、cash + 建玉のentry評価 + 未受渡代金で近似。
+  const applyPositionCap = (quantity: number, price: number): number => {
+    if (!positionCapEnabled || quantity <= 0) return quantity;
+    let openValue = 0;
+    for (const pos of [...boPositions, ...guPositions, ...wbPositions, ...pscPositions, ...momPositions, ...etfPositions, ...buybackPositions]) {
+      openValue += pos.entryPrice * pos.quantity;
+    }
+    const pendingTotal = pendingSettlement.reduce((sum, s) => sum + s.amount, 0);
+    const effectiveCapital = cash + openValue + pendingTotal;
+    const maxPct = getDynamicMaxPositionPct(effectiveCapital, price);
+    const maxByCap = Math.floor((effectiveCapital * maxPct) / 100 / price / UNIT_SHARES) * UNIT_SHARES;
+    return Math.min(quantity, maxByCap);
+  };
 
   for (let dayIdx = 0; dayIdx < tradingDays.length; dayIdx++) {
     const today = tradingDays[dayIdx];
@@ -1068,6 +1091,7 @@ export function runCombinedSimulation(
           const combinedScale = regimeScale * streakScale;
           if (combinedScale < 1.0) quantity = Math.floor((quantity * combinedScale) / UNIT_SHARES) * UNIT_SHARES;
         }
+        quantity = applyPositionCap(quantity, signal.entryPrice);
         if (quantity <= 0) continue;
         const effEntry = applySlippage(signal.entryPrice, "buy", "entry_market", slippageProfile);
         if (effEntry * quantity > cash) continue;
@@ -1116,6 +1140,7 @@ export function runCombinedSimulation(
           const combinedScale = regimeScale * streakScale;
           if (combinedScale < 1.0) quantity = Math.floor((quantity * combinedScale) / UNIT_SHARES) * UNIT_SHARES;
         }
+        quantity = applyPositionCap(quantity, signal.entryPrice);
         if (quantity <= 0) continue;
         const effEntry = applySlippage(signal.entryPrice, "buy", "entry_market", slippageProfile);
         if (effEntry * quantity > cash) continue;
@@ -1165,6 +1190,7 @@ export function runCombinedSimulation(
           const combinedScale = regimeScale * streakScale;
           if (combinedScale < 1.0) quantity = Math.floor((quantity * combinedScale) / UNIT_SHARES) * UNIT_SHARES;
         }
+        quantity = applyPositionCap(quantity, signal.entryPrice);
         if (quantity <= 0) continue;
         const effEntry = applySlippage(signal.entryPrice, "buy", "entry_market", slippageProfile);
         if (effEntry * quantity > cash) continue;

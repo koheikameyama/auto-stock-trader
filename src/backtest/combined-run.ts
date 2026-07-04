@@ -408,8 +408,12 @@ async function main() {
   const compareStrategyMix = args.includes("--compare-strategy-mix");
   const compareNikkeiDrop = args.includes("--compare-nikkei-drop");
   const corrReport = args.includes("--corr-report");
+  // --position-cap: 本番 entry-executor の1銘柄集中率上限(getDynamicMaxPositionPct: 33〜50%)をBTでも適用
+  const positionCapEnabled = args.includes("--position-cap");
+  // --compare-concentration: 集中率上限の有無を比較（本番はキャップあり・BT既定はキャップなしの乖離を定量化）
+  const compareConcentration = args.includes("--compare-concentration");
 
-  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || corrReport;
+  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || corrReport || compareConcentration;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const pscConfig: PostSurgeConsolidationBacktestConfig = {
@@ -672,6 +676,8 @@ async function main() {
     equityCurveSmaPeriod: 0,
     tickerSectorMap,
     indexData: indexData.size > 0 ? indexData : undefined,
+    // 既定 false（キャップなし = 従来のBT挙動）。--position-cap 指定時のみ本番同等の集中率上限を適用
+    positionCapEnabled,
   };
 
   const defaultLimits: PositionLimits = {
@@ -2027,6 +2033,89 @@ async function main() {
       console.log(
         `${row.label.padEnd(24)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(7)} | ${m.maxDrawdown.toFixed(1).padStart(5)}% | ${m.netReturnPct.toFixed(1).padStart(6)}% | ${calmar.toFixed(2).padStart(6)} | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
       );
+      overallResults.push({ label: row.label, allTrades: result.allTrades, equityCurve: result.equityCurve });
+    }
+
+    // レジーム別内訳
+    console.log("\n=== レジーム別トレード指標 ===");
+    for (const regime of REGIMES) {
+      console.log(`\n[${regime.label}] ${regime.from} 〜 ${regime.to}`);
+      console.log(
+        `  ${"設定".padEnd(24)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"Expect".padStart(7)} | ${"NetPnL".padStart(12)}`,
+      );
+      console.log("  " + "-".repeat(76));
+
+      for (const r of overallResults) {
+        const inRange = r.allTrades.filter(
+          (t) => t.entryDate >= regime.from && t.entryDate <= regime.to,
+        );
+        const sub = calculateMetrics(inRange, r.equityCurve, budget);
+        const pfStr = sub.profitFactor === Infinity ? "∞" : sub.profitFactor.toFixed(2);
+        const expStr = (sub.expectancy >= 0 ? "+" : "") + sub.expectancy.toFixed(2) + "%";
+        const netPnlStr = (sub.totalNetPnl >= 0 ? "+" : "") + `¥${sub.totalNetPnl.toLocaleString()}`;
+        console.log(
+          `  ${r.label.padEnd(24)}| ${String(sub.totalTrades).padStart(6)} | ${sub.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expStr.padStart(7)} | ${netPnlStr.padStart(12)}`,
+        );
+      }
+    }
+
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // --compare-concentration: 1銘柄あたり集中率上限（getDynamicMaxPositionPct: 33〜50%）の有無を比較。
+  // 本番 entry-executor はほぼ全トレードでこのキャップが発動して数量を縮小している
+  // （SL幅 ≤3% + リスク2% → リスクベース数量は資金の67%以上になり、常に33〜50%へ切り下げ）が、
+  // combined BT は従来キャップなしでサイジングしており、本番↔BTの構造的乖離になっている。
+  if (compareConcentration) {
+    const REGIMES: { label: string; from: string; to: string }[] = [
+      { label: "A: 平穏ボックス", from: "2024-03-01", to: "2024-07-31" },
+      { label: "B: ブラマン+余震", from: "2024-08-01", to: "2024-12-31" },
+      { label: "C: 関税ショック", from: "2025-02-01", to: "2025-04-30" },
+      { label: "D: 大強気相場", from: "2025-05-01", to: "2026-02-28" },
+      { label: "E: 直近急落", from: "2026-03-01", to: "2026-04-20" },
+    ];
+
+    const grid: { label: string; cap: boolean }[] = [
+      { label: "キャップなし (BT既定)", cap: false },
+      { label: "集中率33-50% (本番同等)", cap: true },
+    ];
+
+    console.log("\n=== 1銘柄あたり集中率上限 比較 (GU/PSC/WB) ===");
+    console.log(`期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}`);
+    console.log(
+      `${"設定".padEnd(24)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"Expect".padStart(7)} | ${"MaxDD".padStart(6)} | ${"NetRet".padStart(7)} | ${"Calmar".padStart(6)} | ${"稼働率".padStart(6)}`,
+    );
+    console.log("-".repeat(102));
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    const overallResults: { label: string; allTrades: SimulatedPosition[]; equityCurve: DailyEquity[] }[] = [];
+
+    for (const row of grid) {
+      const result = runCombinedSimulation(
+        { ...ctx, positionCapEnabled: row.cap },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const util = calculateCapitalUtilization(result.equityCurve);
+      const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
+      const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      console.log(
+        `${row.label.padEnd(24)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(7)} | ${m.maxDrawdown.toFixed(1).padStart(5)}% | ${m.netReturnPct.toFixed(1).padStart(6)}% | ${calmar.toFixed(2).padStart(6)} | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
+      );
+
+      // 戦略別内訳（キャップがGU/PSCどちらのサイズを削っているかを可視化）
+      for (const [name, sm] of [["GapUp", result.guMetrics], ["PSC", result.pscMetrics]] as const) {
+        if (sm.totalTrades === 0) continue;
+        const sPf = sm.profitFactor === Infinity ? "∞" : sm.profitFactor.toFixed(2);
+        const sNetPnl = (sm.totalNetPnl >= 0 ? "+" : "") + `¥${Math.round(sm.totalNetPnl).toLocaleString()}`;
+        console.log(
+          `  └ ${name.padEnd(8)}: ${String(sm.totalTrades).padStart(4)}件 / WinR ${sm.winRate.toFixed(1)}% / PF ${sPf} / NetPnL ${sNetPnl}`,
+        );
+      }
       overallResults.push({ label: row.label, allTrades: result.allTrades, equityCurve: result.equityCurve });
     }
 
