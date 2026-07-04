@@ -534,3 +534,14 @@ model BuybackSignal {
   @@index([entryDate(sort: Desc)])
   @@index([isIdle])
 }
+
+/// 相場局面プロダクト（KOH-515 Phase 0）のメールウェイトリスト。
+/// 「有料アラートが欲しい人」の登録を受け、需要検証に使う。
+model WaitlistEntry {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  source    String? // 登録元の文脈（例: "regime-public"）
+  createdAt DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
+}

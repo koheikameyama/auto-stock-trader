@@ -14,33 +14,18 @@
 
 import { Hono } from "hono";
 import {
-  detectRegimeShift,
   getLevelEmoji,
   getLevelLabel,
   getLevelSummary,
   SIGNAL_LABELS,
-  type BullMarketResult,
   type BullMarketSignals,
 } from "../../core/regime-shift-detector";
-import { getTodayForDB } from "../../lib/market-date";
+import { getRegimeCached } from "../regime-cache";
 
 const app = new Hono();
 
-/** 局面は引け後に日次更新のため、5分キャッシュで DB 負荷を抑える */
-const CACHE_TTL_MS = 5 * 60 * 1000;
-
 /** 全シグナル数（D期までの距離計算・分母表示に使用） */
 const SIGNAL_TOTAL = Object.keys(SIGNAL_LABELS).length;
-
-let cache: { at: number; result: BullMarketResult } | null = null;
-
-async function getRegime(): Promise<BullMarketResult> {
-  const now = Date.now();
-  if (cache && now - cache.at < CACHE_TTL_MS) return cache.result;
-  const result = await detectRegimeShift({ asOfDate: getTodayForDB() });
-  cache = { at: now, result };
-  return result;
-}
 
 /** Date → JST基準の YYYY-MM-DD（asOfDate は UTC 00:00 = JST日付として保存されている） */
 function toDateStr(d: Date): string {
@@ -53,7 +38,7 @@ function toDateStr(d: Date): string {
  */
 app.get("/", async (c) => {
   try {
-    const r = await getRegime();
+    const r = await getRegimeCached();
     return c.json({
       asOfDate: toDateStr(r.asOfDate),
       level: r.level,
@@ -73,7 +58,7 @@ app.get("/", async (c) => {
  */
 app.get("/full", async (c) => {
   try {
-    const r = await getRegime();
+    const r = await getRegimeCached();
     const missing = (Object.keys(r.signals) as (keyof BullMarketSignals)[])
       .filter((k) => !r.signals[k])
       .map((k) => SIGNAL_LABELS[k]);
