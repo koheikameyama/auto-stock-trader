@@ -18,6 +18,7 @@ import apiRoute from "./routes/api";
 import cronRoute from "./routes/cron";
 import rejectedSignalsRoute from "./routes/rejected-signals";
 import regimeRoute from "./routes/regime";
+import publicRoute from "./routes/public";
 
 export const app = new Hono();
 
@@ -32,7 +33,9 @@ app.use("*", async (c, next) => {
   if (
     c.req.path === "/api/health" ||
     c.req.path.startsWith("/api/cron") ||
-    c.req.path === "/api/regime"
+    c.req.path === "/api/regime" ||
+    c.req.path === "/live" ||
+    c.req.path.startsWith("/live/")
   ) {
     return next();
   }
@@ -141,6 +144,9 @@ app.route("/weekly", weeklyRoute);
 app.route("/unfilled-orders", unfilledOrdersRoute);
 app.route("/news", newsRoute);
 app.route("/rejected-signals", rejectedSignalsRoute);
+
+// 相場局面プロダクト 公開ページ（/live は公開）
+app.route("/live", publicRoute);
 
 // 相場局面 API（/api/regime は公開、/api/regime/full は認証内側）
 app.route("/api/regime", regimeRoute);
