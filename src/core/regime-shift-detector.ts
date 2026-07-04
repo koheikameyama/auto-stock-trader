@@ -235,3 +235,27 @@ export function getLevelEmoji(level: SignalLevel): string {
 export function getLevelLabel(level: SignalLevel): string {
   return LEVEL_LABEL[level];
 }
+
+/**
+ * 局面レベルの一言サマリー（無料サブセット / API・UI 共通）。
+ * 客観的な「相場の状態」の記述に留め、売買推奨（「買い時」等）は含めない。
+ */
+const LEVEL_SUMMARY: Record<SignalLevel, string> = {
+  STRONG_BULL: "大強気相場。5つのシグナルが全点灯し、トレンドが最も強い局面。",
+  MODERATE_BULL: "強気優勢。多くのシグナルが点灯し、上昇基調が続いている局面。",
+  EARLY_SIGNAL: "強気の初期サイン。点灯し始めているが、確度はまだ途上の局面。",
+  NEUTRAL: "中立。強気シグナルは乏しく、方向感に欠ける局面。",
+};
+
+export function getLevelSummary(level: SignalLevel): string {
+  return LEVEL_SUMMARY[level];
+}
+
+/** 各シグナルの表示ラベル（API・UI 共通） */
+export const SIGNAL_LABELS: Record<keyof BullMarketSignals, string> = {
+  breadthAboveThreshold5Days: "breadth が5営業日連続 54%以上",
+  breadthRecovery10pp: "breadth が直近30日で +10pp 以上回復",
+  nikkeiAboveSma50: "日経 > SMA50",
+  nikkeiSma50Rising: "日経 SMA50 が上向き",
+  vixLow: "VIX < 25",
+};
