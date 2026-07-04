@@ -371,6 +371,10 @@ async function main() {
   const compareBreadth = args.includes("--compare-breadth");
   const compareBreadthModes = args.includes("--compare-breadth-modes");
   const compareBreadthZoom = args.includes("--compare-breadth-zoom");
+  // --compare-breadth-split: 分割点 T の全体最適 sweep。
+  // T ごとに GU/PSC の band lower・ETF breadthMax・buyback breadthMax を同時に T へ動かし、
+  // portfolio 全体の Calmar が最大になる「active⇔idle帯」の境界を探す (KOH-514)。
+  const compareBreadthSplit = args.includes("--compare-breadth-split");
   const compareMaxPrice = args.includes("--compare-max-price");
   const enableMomentum = args.includes("--enable-momentum");
   const momMaxArg = getArg(args, "--mom-max");
@@ -409,7 +413,7 @@ async function main() {
   const compareNikkeiDrop = args.includes("--compare-nikkei-drop");
   const corrReport = args.includes("--corr-report");
 
-  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || corrReport;
+  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || corrReport;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const pscConfig: PostSurgeConsolidationBacktestConfig = {
@@ -1227,6 +1231,117 @@ async function main() {
         );
       }
     }
+
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // ── 分割点 T の全体最適 sweep（KOH-514） ──
+  // 「GU/PSC active(≥T) ⇔ 補完戦略 idle帯(<T)」の境界 T を動かし、portfolio 全体の Calmar 最大点を探す。
+  // T ごとに (1) GU/PSC の band lower=T, (2) ETF breadthMax=T, (3) buyback breadthMax=T を同時に動かす。
+  // ETF/buyback の idle帯フィルタは precompute 時に適用されるため、T ごとにシグナルを再 precompute する。
+  if (compareBreadthSplit) {
+    const UPPER = MARKET_BREADTH.UPPER_CAP; // 0.80 固定（過熱veto、今回は下限のみ sweep）
+    const Ts = [0.46, 0.48, 0.5, 0.52, 0.54, 0.56, 0.58, 0.6];
+
+    // GU/PSC: precompute 側 filter を切り、band を simulation 側で T ごとに適用
+    const guCfgNoFilter: GapUpBacktestConfig = { ...guConfig, marketTrendFilter: false };
+    const pscCfgNoFilter: PostSurgeConsolidationBacktestConfig = { ...pscConfig, marketTrendFilter: false };
+    const guSigOpen = precomputeGapUpDailySignals(guCfgNoFilter, allData, precomputed);
+    const pSigOpen = precomputePSCDailySignals(pscCfgNoFilter, allData, precomputed);
+
+    // ETF データを再取得（T ごとに breadthMax=T で再 precompute するため）
+    let etfDataMapLocal: Map<string, import("../core/technical-analysis").OHLCVData[]> | undefined;
+    if (enableEtf && etfConfig) {
+      const etfRaw = await fetchHistoricalFromDB(etfConfig.tickers, startDate, endDate);
+      etfDataMapLocal = new Map();
+      for (const t of etfConfig.tickers) {
+        const b = etfRaw.get(t);
+        if (b && b.length > 0) etfDataMapLocal.set(t, b);
+      }
+    }
+
+    // buyback イベントマップを再構築（T ごとに breadthMax=T で再 precompute するため）
+    let buybackEventMapLocal: ReturnType<typeof buildBuybackEventMap> | undefined;
+    if (enableBuyback && buybackConfig && buybackJsonPath) {
+      const raw = JSON.parse(fs.readFileSync(buybackJsonPath, "utf-8")) as { events: { ticker: string; date: string }[] };
+      buybackEventMapLocal = buildBuybackEventMap(raw.events ?? []);
+    }
+
+    const complements: string[] = [];
+    if (enableEtf) complements.push("ETF");
+    if (enableBuyback) complements.push("buyback");
+
+    console.log("\n=== 分割点 T の全体最適 sweep（GU/PSC active(≥T) ⇔ 補完 idle帯(<T)） ===");
+    console.log(`期間: ${startDate} → ${endDate} / 予算: ¥${budget.toLocaleString()} / 補完: ${complements.length ? complements.join("+") : "なし(GU/PSCのみ)"}`);
+    console.log(`upper cap: ${(UPPER * 100).toFixed(0)}% 固定`);
+    console.log(
+      `${"T (下限)".padEnd(10)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"MaxDD".padStart(6)} | ${"NetRet".padStart(8)} | ${"Calmar".padStart(6)} | ${"稼働率".padStart(6)}`,
+    );
+    console.log("-".repeat(84));
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    const rows: { T: number; total: PerformanceMetrics; gu: PerformanceMetrics; psc: PerformanceMetrics; etf: PerformanceMetrics; buyback: PerformanceMetrics }[] = [];
+
+    for (const T of Ts) {
+      const mode: BreadthMode = { type: "band", lower: T, upper: UPPER };
+
+      // 補完戦略を breadthMax=T で再 precompute
+      let etfCfgT = etfConfig;
+      let etfSigT = etfSignals;
+      if (etfDataMapLocal && etfConfig) {
+        etfCfgT = { ...etfConfig, breadthMax: T };
+        etfSigT = precomputeUSEtfSignals(etfDataMapLocal, precomputed.dailyBreadth, etfCfgT);
+      }
+      let bbCfgT = buybackConfig;
+      let bbSigT = buybackSignals;
+      if (buybackEventMapLocal && buybackConfig) {
+        bbCfgT = { ...buybackConfig, breadthMax: T };
+        bbSigT = precomputeBuybackSignals(buybackEventMapLocal, allData, precomputed.dateIndexMap, precomputed.dailyBreadth, bbCfgT);
+      }
+
+      const result = runCombinedSimulation(
+        {
+          ...ctx,
+          guConfig: guCfgNoFilter,
+          pscConfig: pscCfgNoFilter,
+          gapupSignals: guSigOpen,
+          pscSignals: pSigOpen,
+          breadthMode: mode,
+          etfConfig: etfCfgT,
+          etfSignals: etfSigT,
+          buybackConfig: bbCfgT,
+          buybackSignals: bbSigT,
+        },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const util = calculateCapitalUtilization(result.equityCurve);
+      const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      const label = `${(T * 100).toFixed(0)}%${Math.abs(T - MARKET_BREADTH.THRESHOLD) < 1e-6 ? "★" : ""}`;
+      console.log(
+        `${label.padEnd(10)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${m.maxDrawdown.toFixed(1).padStart(5)}% | ${m.netReturnPct.toFixed(1).padStart(7)}% | ${calmar.toFixed(2).padStart(6)} | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
+      );
+      rows.push({ T, total: m, gu: result.guMetrics, psc: result.pscMetrics, etf: result.etfMetrics, buyback: result.buybackMetrics });
+    }
+
+    // 戦略別内訳（Trades / PF / NetPnL）
+    console.log("\n=== 戦略別内訳（GU / PSC / ETF / buyback） ===");
+    console.log(
+      `${"T".padEnd(6)}| ${"GU Trd".padStart(6)} ${"GU PF".padStart(6)} | ${"PSC Trd".padStart(7)} ${"PSC PF".padStart(6)} | ${"ETF Trd".padStart(7)} ${"ETF PF".padStart(6)} | ${"BB Trd".padStart(6)} ${"BB PF".padStart(6)}`,
+    );
+    console.log("-".repeat(92));
+    const pf = (x: PerformanceMetrics) => (x.profitFactor === Infinity ? "∞" : x.profitFactor.toFixed(2));
+    for (const r of rows) {
+      const label = `${(r.T * 100).toFixed(0)}%${Math.abs(r.T - MARKET_BREADTH.THRESHOLD) < 1e-6 ? "★" : ""}`;
+      console.log(
+        `${label.padEnd(6)}| ${String(r.gu.totalTrades).padStart(6)} ${pf(r.gu).padStart(6)} | ${String(r.psc.totalTrades).padStart(7)} ${pf(r.psc).padStart(6)} | ${String(r.etf.totalTrades).padStart(7)} ${pf(r.etf).padStart(6)} | ${String(r.buyback.totalTrades).padStart(6)} ${pf(r.buyback).padStart(6)}`,
+      );
+    }
+    console.log("\n★ = 現行本番値 (54%)");
 
     console.log("");
     await prisma.$disconnect();
