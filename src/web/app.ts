@@ -18,19 +18,56 @@ import apiRoute from "./routes/api";
 import cronRoute from "./routes/cron";
 import rejectedSignalsRoute from "./routes/rejected-signals";
 import regimeRoute from "./routes/regime";
-import publicRoute from "./routes/public";
+import publicRoute, { renderPublicRegimePage } from "./routes/public";
 
 export const app = new Hono();
+
+/**
+ * host 分離:
+ *   - stock-buddy.net (apex/www) = 公開プロダクト（相場局面）。admin は露出しない
+ *   - admin.stock-buddy.net / localhost / その他 = 従来の個人 admin（Basic認証）
+ */
+const PUBLIC_HOSTS = new Set(["stock-buddy.net", "www.stock-buddy.net"]);
+
+function isPublicHost(hostHeader: string | undefined): boolean {
+  const host = (hostHeader ?? "").toLowerCase().split(":")[0];
+  return PUBLIC_HOSTS.has(host);
+}
+
+/**
+ * 公開ホストで許可するパス（これ以外は 404 で admin を隠す）。
+ * /api/cron は cron-job.org / GitHub Actions が stock-buddy.net を叩くため許可する
+ * （cronRoute 側で Bearer CRON_SECRET 認証されており、公開ホストでも安全）。
+ */
+function isPublicAllowedPath(path: string): boolean {
+  return (
+    path === "/" ||
+    path === "/live" ||
+    path.startsWith("/live/") ||
+    path === "/api/regime" ||
+    path === "/api/health" ||
+    path.startsWith("/api/cron")
+  );
+}
 
 // Health check (no auth)
 app.get("/api/health", (c) => {
   return c.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+// 公開ホスト（stock-buddy.net）は公開パス以外を 404。admin ルート・認証プロンプトを露出させない
+app.use("*", async (c, next) => {
+  if (isPublicHost(c.req.header("host")) && !isPublicAllowedPath(c.req.path)) {
+    return c.notFound();
+  }
+  return next();
+});
+
 // Basic認証（ヘルスチェック・cron・公開レジームAPIは除外）
 // 注: /api/regime は公開（無料サブセット）。/api/regime/full は除外しないので認証内側のまま。
 app.use("*", async (c, next) => {
   if (
+    isPublicHost(c.req.header("host")) ||
     c.req.path === "/api/health" ||
     c.req.path.startsWith("/api/cron") ||
     c.req.path === "/api/regime" ||
@@ -131,6 +168,14 @@ app.get("/icon-512.svg", (c) => {
   c.header("Content-Type", "image/svg+xml");
   c.header("Cache-Control", "public, max-age=604800");
   return c.body(ICON_SVG_512);
+});
+
+// ルート「/」は host で出し分け: 公開ホスト → 公開ページ / admin ホスト → dashboard
+app.get("/", async (c, next) => {
+  if (isPublicHost(c.req.header("host"))) {
+    return renderPublicRegimePage(c);
+  }
+  await next();
 });
 
 // Page routes

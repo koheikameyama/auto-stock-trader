@@ -8,7 +8,7 @@
  * Phase 1 でルート（stock-buddy.net /）に host ベースで載せ替える。
  */
 
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { prisma } from "../../lib/prisma";
 import { getRegimeCached } from "../regime-cache";
 import {
@@ -28,8 +28,8 @@ const app = new Hono();
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const EMAIL_MAX_LEN = 254;
 
-/** GET /live — 公開ページ（現局面を SSR） */
-app.get("/", async (c) => {
+/** 公開ページ（現局面を SSR）をレンダリング。/live と 公開ホストのルート「/」で共用。 */
+export async function renderPublicRegimePage(c: Context): Promise<Response> {
   let data: PublicRegimeData | null = null;
   try {
     const r = await getRegimeCached();
@@ -44,7 +44,10 @@ app.get("/", async (c) => {
     console.error("[public/live] regime unavailable:", e);
   }
   return c.html(publicRegimePage(data));
-});
+}
+
+/** GET /live — 公開ページ */
+app.get("/", (c) => renderPublicRegimePage(c));
 
 /** POST /live/waitlist — メール登録 */
 app.post("/waitlist", async (c) => {
