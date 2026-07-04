@@ -32,6 +32,16 @@ const DISCLAIMER = "※個人の自動売買システムの記録です。投資
 /** 公開プロダクト（相場局面モニター）の URL。投稿からの送客導線。 */
 const PUBLIC_SITE_URL = "https://stock-buddy.net";
 
+/**
+ * X の投稿画面を本文入りで開く Web Intent。
+ * スマホ Slack でタップ → X が下書き入りで開く → 投稿するだけ（コピペ不要・API課金なし）。
+ */
+const X_INTENT_BASE = "https://twitter.com/intent/tweet";
+
+function buildXIntentUrl(text: string): string {
+  return `${X_INTENT_BASE}?text=${encodeURIComponent(text)}`;
+}
+
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
 
 function fmtPct(v: number): string {
@@ -207,10 +217,13 @@ export async function main() {
   await postToBluesky(text);
 
   // 成功時は投稿内容をそのまま Slack にも流す（投稿できたか目視確認するため）。
+  // あわせて X の Web Intent リンクを添える → スマホ Slack でタップすれば
+  // X が本文入りの下書きで開き、コピペせず手動投稿できる。
   // Slack 送信の失敗は投稿処理を巻き込まない（notifySlack は内部で握りつぶす）。
+  const xIntentUrl = buildXIntentUrl(text);
   await notifySlack({
     title: "🦋 Bluesky 日次投稿",
-    message: text,
+    message: `${text}\n\n<${xIntentUrl}|📱 タップして X に投稿（下書きが開きます）>`,
     color: "good",
   });
 }
