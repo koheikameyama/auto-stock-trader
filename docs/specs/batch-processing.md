@@ -169,6 +169,8 @@ watchlist-builderは2種類のウォッチリストを同時に構築する。
 | run-backtest-gapup | scheduled_daily-backtest-gapup.yml | `0 8 * * 1-5` | 平日 17:00 JST | ギャップアップ戦略バックテスト（直近12ヶ月） |
 | monthly-walk-forward | scheduled_monthly-walk-forward.yml | `0 2 1-7 * 6` | 毎月第1土曜 11:00 JST | breakout+gapup WF分析（戦略エッジ監視） |
 | monthly-strategy-health | scheduled_monthly-strategy-health.yml | `0 2 1-7 * 6` | 毎月第1土曜 11:00 JST | 全戦略 WF + combined比較 + ETFヘルスチェック |
+| morning-social-post | scheduled_morning-social-post.yml | `45 22 * * 0-4` | 平日 7:45 JST | 朝の相場局面を Bluesky に公開投稿（強気モニターのレベル + breadth/VIX + 公開ページ導線）。X は Slack の Web Intent リンクから手動投稿 |
+| daily-social-post | scheduled_daily-social-post.yml | `30 8 * * 1-5` | 平日 17:30 JST | 日次ログ（相場環境 + 確定トレード成績）を Bluesky に公開投稿。end-of-day（17:00 JST）でデータ確定後に実行。X は Slack の Web Intent リンクから手動投稿 |
 
 各ワークフローには `workflow_dispatch` トリガーがあり、手動実行も可能。平日ジョブは `check-market-day` ステップで休場日・システム停止チェックを行う。
 
