@@ -77,7 +77,7 @@ export function layout(
           content="black-translucent"
         />
         <link rel="manifest" href="/manifest.json" />
-        <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+        <link rel="icon" type="image/x-icon" href="/favicon-admin.ico" />
         <link rel="apple-touch-icon" href="/icon-192.svg" />
         <style>
           ${CSS}

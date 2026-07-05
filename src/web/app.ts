@@ -156,15 +156,22 @@ self.addEventListener('fetch', (e) => {
   return c.body(sw);
 });
 
-// favicon.ico（管理ダッシュボード・公開ページ共通）。起動時に一度だけ読み込む
-const FAVICON_ICO = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "assets", "favicon.ico"),
-);
+// favicon（起動時に一度だけ読み込む）
+// /favicon.ico = 公開ページ（濃紺ロゴ） / /favicon-admin.ico = 管理ダッシュボード（バーガンディ）
+const ASSETS_DIR = join(dirname(fileURLToPath(import.meta.url)), "assets");
+const FAVICON_ICO = readFileSync(join(ASSETS_DIR, "favicon.ico"));
+const FAVICON_ADMIN_ICO = readFileSync(join(ASSETS_DIR, "favicon-admin.ico"));
 
 app.get("/favicon.ico", (c) => {
   c.header("Content-Type", "image/x-icon");
   c.header("Cache-Control", "public, max-age=604800");
   return c.body(FAVICON_ICO);
+});
+
+app.get("/favicon-admin.ico", (c) => {
+  c.header("Content-Type", "image/x-icon");
+  c.header("Cache-Control", "public, max-age=604800");
+  return c.body(FAVICON_ADMIN_ICO);
 });
 
 // SVG icon endpoints
