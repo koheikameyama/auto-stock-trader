@@ -100,15 +100,15 @@ app.get("/manifest.json", async (c) => {
     theme_color: "#0f172a",
     icons: [
       {
-        src: "/icon-192.svg",
+        src: "/icon-192.png",
         sizes: "192x192",
-        type: "image/svg+xml",
+        type: "image/png",
         purpose: "any",
       },
       {
-        src: "/icon-512.svg",
+        src: "/icon-512.png",
         sizes: "512x512",
-        type: "image/svg+xml",
+        type: "image/png",
         purpose: "any",
       },
     ],
@@ -174,23 +174,20 @@ app.get("/favicon-admin.ico", (c) => {
   return c.body(FAVICON_ADMIN_ICO);
 });
 
-// SVG icon endpoints
-const ICON_SVG_192 =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="32" fill="#0f172a"/><text x="96" y="130" text-anchor="middle" font-size="120">📈</text></svg>';
+// PWAアイコン（faviconと同じロゴのPNG、起動時に一度だけ読み込む）
+const ICON_192_PNG = readFileSync(join(ASSETS_DIR, "icon-192.png"));
+const ICON_512_PNG = readFileSync(join(ASSETS_DIR, "icon-512.png"));
 
-const ICON_SVG_512 =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="64" fill="#0f172a"/><text x="256" y="350" text-anchor="middle" font-size="300">📈</text></svg>';
-
-app.get("/icon-192.svg", (c) => {
-  c.header("Content-Type", "image/svg+xml");
+app.get("/icon-192.png", (c) => {
+  c.header("Content-Type", "image/png");
   c.header("Cache-Control", "public, max-age=604800");
-  return c.body(ICON_SVG_192);
+  return c.body(ICON_192_PNG);
 });
 
-app.get("/icon-512.svg", (c) => {
-  c.header("Content-Type", "image/svg+xml");
+app.get("/icon-512.png", (c) => {
+  c.header("Content-Type", "image/png");
   c.header("Cache-Control", "public, max-age=604800");
-  return c.body(ICON_SVG_512);
+  return c.body(ICON_512_PNG);
 });
 
 // ルート「/」は host で出し分け: 公開ホスト → 公開ページ / admin ホスト → dashboard
