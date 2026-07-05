@@ -1,5 +1,8 @@
 /**
- * 朝の相場局面 SNS 公開投稿（寄り前 7:45 JST / 平日）
+ * 朝の相場局面 SNS 公開投稿（寄り前 / 平日）
+ *
+ * morning-analysis ワークフロー（cron-job.org 8:00 JST 起動）内で
+ * market-assessment 成功後に実行される（KOH-521）。
  *
  * 夜の日次ログ（daily-social-post、17:30 JST）が「結果」担当なのに対し、
  * 本ジョブは「状態」担当。相場局面モニター（KOH-515 Phase 0）の利用シーンは

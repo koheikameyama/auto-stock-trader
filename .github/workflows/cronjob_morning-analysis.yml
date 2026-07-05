@@ -18,6 +18,7 @@ on:
           - assess
           # - holding  # [DISABLED] breakout戦略に一本化のため無効化（2026-03-25）
           - watchlist
+          - social
           # - scan  # [DISABLED] breakout戦略に一本化のため無効化（2026-03-25）
       skip_market_day_check:
         description: "休場日チェックをスキップ"
@@ -36,6 +37,8 @@ env:
   TACHIBANA_SECOND_PASSWORD: ${{ secrets.TACHIBANA_SECOND_PASSWORD }}
   TACHIBANA_ENV: ${{ secrets.TACHIBANA_ENV }}
   YFINANCE_PROXY: ${{ secrets.YFINANCE_PROXY }}
+  BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
+  BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
 
 jobs:
   check-market-day:
@@ -170,8 +173,40 @@ jobs:
   #       uses: ./.github/actions/start-yfinance
   #     - run: npm run stock-scan
 
+  # 朝の相場局面 SNS 公開投稿（KOH-518 / KOH-521）
+  # 当初は独立ワークフロー（GitHub Actions cron 7:45 JST）だったが初回スケジュールが
+  # 発火せず、市場評価の完了に連動させる方が確実なため本ワークフローに統合した。
+  # レジーム判定は前日終値ベース（DB由来）なので market-assessment の結果には依存しないが、
+  # 「市場評価が出たら状態を投稿する」という朝の流れに合わせて assess 成功後に実行する。
+  morning-social-post:
+    needs: [check-market-day, market-assessment]
+    if: |
+      always() &&
+      needs.check-market-day.outputs.should_run == 'true' &&
+      needs.market-assessment.result != 'failure' &&
+      (github.event_name != 'workflow_dispatch' || inputs.job == 'all' || inputs.job == 'social')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - name: Post morning regime to Bluesky
+        run: npm run social:post-morning
+
   notify-failure:
-    needs: [check-market-day, news-collect, market-assessment, watchlist-builder]
+    needs:
+      [
+        check-market-day,
+        news-collect,
+        market-assessment,
+        watchlist-builder,
+        morning-social-post,
+      ]
     if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     permissions:
