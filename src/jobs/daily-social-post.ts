@@ -21,16 +21,13 @@ import { prisma } from "../lib/prisma";
 import { postToBluesky } from "../lib/bluesky";
 import { notifySlack } from "../lib/slack";
 import { getStartOfDayJST, getEndOfDayJST } from "../lib/market-date";
-import { TIMEZONE } from "../lib/constants";
+import { TIMEZONE, PUBLIC_SITE_URL } from "../lib/constants";
 import { detectRegimeShift, getLevelEmoji } from "../core/regime-shift-detector";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const DISCLAIMER = "※個人の自動売買システムの記録です。投資助言ではありません";
-
-/** 公開プロダクト（相場局面モニター）の URL。投稿からの送客導線。 */
-const PUBLIC_SITE_URL = "https://stock-buddy.net";
 
 /**
  * X の投稿画面を本文入りで開く Web Intent。

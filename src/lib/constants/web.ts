@@ -2,6 +2,9 @@
  * Web UI・ルート設定
  */
 
+// 公開プロダクト（相場局面モニター）の正規URL。メール・SNS投稿などから参照する単一の真実
+export const PUBLIC_SITE_URL = "https://stock-buddy.net/";
+
 // チャートSVGパディング
 export const CHART_PADDING = {
   TOP: 10,
