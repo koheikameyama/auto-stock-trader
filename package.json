@@ -34,7 +34,6 @@
     "backtest:combined": "tsx src/backtest/combined-run.ts",
     "backtest:chart-prediction": "tsx src/backtest/chart-prediction-run.ts",
     "backtest:chart-prediction-llm": "tsx src/backtest/chart-prediction-llm-run.ts",
-    "backtest:health-check": "tsx src/backtest/health-check-run.ts",
     "backtest:gapup": "tsx src/backtest/gapup-run.ts",
     "backtest:gapdown-reversal": "tsx src/backtest/gapdown-reversal-run.ts",
     "backtest:psc": "tsx src/backtest/post-surge-consolidation-run.ts",
