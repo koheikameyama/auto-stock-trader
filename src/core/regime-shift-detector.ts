@@ -186,10 +186,10 @@ const LEVEL_EMOJI: Record<SignalLevel, string> = {
 };
 
 const LEVEL_LABEL: Record<SignalLevel, string> = {
-  STRONG_BULL: "STRONG_BULL (D期確定モード)",
-  MODERATE_BULL: "MODERATE_BULL (D期候補)",
-  EARLY_SIGNAL: "EARLY_SIGNAL (強気サイン)",
-  NEUTRAL: "NEUTRAL (静観)",
+  STRONG_BULL: "大強気相場",
+  MODERATE_BULL: "強気優勢",
+  EARLY_SIGNAL: "強気の初期サイン",
+  NEUTRAL: "中立",
 };
 
 export function formatBullMarketMessage(r: BullMarketResult): string {
