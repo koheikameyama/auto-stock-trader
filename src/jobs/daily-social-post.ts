@@ -27,7 +27,7 @@ import { detectRegimeShift, getLevelEmoji } from "../core/regime-shift-detector"
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-const DISCLAIMER = "※個人の自動売買システムの記録です。投資助言ではありません";
+export const DISCLAIMER = "※個人の自動売買システムの記録です。投資助言ではありません";
 
 /**
  * X の投稿画面を本文入りで開く Web Intent。
@@ -35,7 +35,7 @@ const DISCLAIMER = "※個人の自動売買システムの記録です。投資
  */
 const X_INTENT_BASE = "https://twitter.com/intent/tweet";
 
-function buildXIntentUrl(text: string): string {
+export function buildXIntentUrl(text: string): string {
   return `${X_INTENT_BASE}?text=${encodeURIComponent(text)}`;
 }
 
