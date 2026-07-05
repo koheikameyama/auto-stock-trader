@@ -4,9 +4,10 @@
  * regime-shift-detector の出力を JSON で公開する。相場局面ダッシュボード
  * (KOH-499 / KOH-515) の Web・配信 共通のデータソース。
  *
- * - GET /api/regime      : 公開・無料サブセット（レベル + 一言のみ）。
- *                          案B「無料は物足りなさを残す」に従い、指標値・内訳は返さない。
- * - GET /api/regime/full : 指標値・5シグナル内訳・D期への距離。将来の有料エンタイトルメントで
+ * - GET /api/regime      : 公開・無料サブセット。レベル + 一言 + 主要指標の生値（breadth / VIX）+
+ *                          シグナル本数まで（SNS 投稿と同じ開示範囲、KOH-522）。
+ *                          シグナルの内訳・D期への距離は返さない（有料予定）。
+ * - GET /api/regime/full : 5シグナル内訳・D期への距離を含む全量。将来の有料エンタイトルメントで
  *                          gate する。現状は app.ts の Basic 認証内側に置き、無料側に詳細を漏らさない。
  *
  * 局面データは引け後に日次更新のため、短時間の in-memory キャッシュで DB 負荷を抑える。
@@ -34,7 +35,8 @@ function toDateStr(d: Date): string {
 
 /**
  * GET /api/regime — 公開・無料サブセット
- * レベル・ラベル・絵文字・一言サマリー・基準日のみ。指標値や内訳は返さない。
+ * レベル・ラベル・絵文字・一言サマリー・基準日 + breadth / VIX の生値とシグナル本数。
+ * シグナルの内訳（どれが点灯しているか）や D期への距離は /full のみ。
  */
 app.get("/", async (c) => {
   try {
@@ -45,6 +47,10 @@ app.get("/", async (c) => {
       levelLabel: getLevelLabel(r.level),
       emoji: getLevelEmoji(r.level),
       summary: getLevelSummary(r.level),
+      breadth: r.current.breadth,
+      vix: Number.isFinite(r.current.vix) ? r.current.vix : null,
+      signalCount: r.signalCount,
+      signalTotal: SIGNAL_TOTAL,
     });
   } catch (e) {
     console.error("[api/regime] detection failed:", e);

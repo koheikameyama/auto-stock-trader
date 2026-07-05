@@ -1,9 +1,10 @@
 /**
  * 相場局面プロダクト（KOH-515 Phase 0）の公開ページ。
  *
- * 案B「無料は物足りなさを残す」:
- *   - 無料で見せるのは局面レベル + 一言サマリー + 基準日のみ
- *   - 指標値・シグナル内訳・D期への距離・アラートはロック表示（有料の予告）
+ * 無料枠 = SNS 投稿（朝・夜の Bluesky）と同じ開示範囲（KOH-522 で整合）:
+ *   - 局面レベル + 一言サマリー + 基準日
+ *   - 主要指標の生値（breadth / VIX）と強気シグナル本数（N/5）
+ *   - シグナルの内訳（どれが点灯しているか）・D期への距離・アラートはロック表示（有料の予告）
  *   - メールのウェイトリスト登録で需要検証
  *
  * 法務ガード（KOH-500）: 客観的な「相場の状態」の記述に留め、個別銘柄の推奨・「買い時」表現はしない。
@@ -17,6 +18,14 @@ export interface PublicRegimeData {
   emoji: string;
   summary: string;
   asOfDate: string;
+  /** SMA25 上回り比率（0-1）。SNS 投稿と同じ生値開示 */
+  breadth: number;
+  /** VIX 終値。取得不可時は null（N/A 表示） */
+  vix: number | null;
+  /** 強気シグナル点灯本数（内訳は非公開のまま） */
+  signalCount: number;
+  /** シグナル総数（分母） */
+  signalTotal: number;
 }
 
 const LEVEL_COLOR: Record<SignalLevel, string> = {
@@ -79,6 +88,7 @@ h1{font-size:clamp(22px,5vw,30px);line-height:1.2;margin:18px 0 8px;letter-spaci
 .lamp::after{content:"";width:26px;height:26px;border-radius:50%;background:var(--lamp-c);box-shadow:0 0 0 6px color-mix(in srgb,var(--lamp-c) 20%,transparent)}
 .lv-name{font-family:var(--mono);font-weight:700;font-size:17px;letter-spacing:.02em;color:var(--lamp-c)}
 .one-line{font-size:14px;color:var(--text);margin-top:3px}
+.metrics{font-family:var(--mono);font-size:12.5px;color:var(--text-muted);margin-top:6px}
 .asof{font-family:var(--mono);font-size:11px;color:var(--text-faint);margin-top:5px}
 .locked{display:flex;flex-direction:column;gap:1px;border-top:1px solid var(--border)}
 .locked-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 20px;background:var(--surface-2);color:var(--text-faint);font-size:13px}
@@ -122,6 +132,7 @@ export function publicRegimePage(data: PublicRegimeData | null): string {
         <div>
           <div class="lv-name">${data.emoji} ${data.levelLabel}</div>
           <div class="one-line">${data.summary}</div>
+          <div class="metrics">breadth ${(data.breadth * 100).toFixed(1)}% ／ VIX ${data.vix !== null && Number.isFinite(data.vix) ? data.vix.toFixed(1) : "N/A"} ／ 強気シグナル ${data.signalCount}/${data.signalTotal}</div>
           <div class="asof">${data.asOfDate} 引け時点</div>
         </div>
       </div>`
@@ -143,8 +154,7 @@ export function publicRegimePage(data: PublicRegimeData | null): string {
     <div class="card">
       ${verdict}
       <div class="locked">
-        <div class="locked-row"><span>主要指標（breadth / VIX / 日経）</span><span class="lk">🔒</span></div>
-        <div class="locked-row"><span>5シグナルの点灯状況</span><span class="lk">🔒</span></div>
+        <div class="locked-row"><span>5シグナルの内訳（どれが点灯しているか）</span><span class="lk">🔒</span></div>
         <div class="locked-row"><span>大強気相場まであと何が必要か</span><span class="lk">🔒</span></div>
         <div class="locked-row"><span>局面が変わったら即通知（アラート）</span><span class="lk">🔒</span></div>
       </div>

@@ -16,6 +16,7 @@ import {
   getLevelEmoji,
   getLevelLabel,
   getLevelSummary,
+  SIGNAL_LABELS,
 } from "../../core/regime-shift-detector";
 import {
   publicRegimePage,
@@ -40,6 +41,10 @@ export async function renderPublicRegimePage(c: Context): Promise<Response> {
       emoji: getLevelEmoji(r.level),
       summary: getLevelSummary(r.level),
       asOfDate: r.asOfDate.toISOString().slice(0, 10),
+      breadth: r.current.breadth,
+      vix: Number.isFinite(r.current.vix) ? r.current.vix : null,
+      signalCount: r.signalCount,
+      signalTotal: Object.keys(SIGNAL_LABELS).length,
     };
   } catch (e) {
     console.error("[public/live] regime unavailable:", e);
