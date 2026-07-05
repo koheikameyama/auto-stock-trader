@@ -66,7 +66,7 @@ export async function main() {
   // X の Web Intent リンクを添えて手動投稿を1タップにする。
   const xIntentUrl = buildXIntentUrl(text);
   await notifySlack({
-    title: "🌅 Bluesky 朝の局面投稿",
+    title: "🌅 朝の局面投稿",
     message: `${text}\n\n<${xIntentUrl}|📱 タップして X に投稿（下書きが開きます）>`,
     color: "good",
   });
