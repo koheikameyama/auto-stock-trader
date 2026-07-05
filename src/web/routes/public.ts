@@ -10,6 +10,7 @@
 
 import { Hono, type Context } from "hono";
 import { prisma } from "../../lib/prisma";
+import { sendWaitlistWelcomeEmail } from "../../lib/mail";
 import { getRegimeCached } from "../regime-cache";
 import {
   getLevelEmoji,
@@ -65,12 +66,34 @@ app.post("/waitlist", async (c) => {
   }
 
   try {
-    // 二重登録は静かに成功扱い（冪等）
-    await prisma.waitlistEntry.upsert({
+    // 二重登録は静かに成功扱い（冪等）。新規登録時のみ確認メールを送る。
+    const existing = await prisma.waitlistEntry.findUnique({
       where: { email },
-      create: { email, source: "regime-public" },
-      update: {},
+      select: { id: true },
     });
+    if (!existing) {
+      try {
+        await prisma.waitlistEntry.create({
+          data: { email, source: "regime-public" },
+        });
+        // メール送信の失敗は登録成功を妨げない（no-op 設定時も含めて握りつぶす）
+        await sendWaitlistWelcomeEmail(email).catch((e) => {
+          console.error("[public/waitlist] welcome email failed:", e);
+        });
+      } catch (e) {
+        // 同時二重送信での unique 制約違反(P2002)は既登録として成功扱い（メールは送らない）
+        if (
+          !(
+            e &&
+            typeof e === "object" &&
+            "code" in e &&
+            (e as { code?: string }).code === "P2002"
+          )
+        ) {
+          throw e;
+        }
+      }
+    }
   } catch (e) {
     console.error("[public/waitlist] save failed:", e);
     return c.html(
