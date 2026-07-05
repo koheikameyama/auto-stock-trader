@@ -39,25 +39,25 @@ describe("formatBullMarketMessage", () => {
     };
   }
 
-  it("5/5 で 🔥 STRONG_BULL ラベル + 全 ✅", () => {
+  it("5/5 で 🔥 大強気相場 ラベル + 全 ✅", () => {
     const text = formatBullMarketMessage(build(5));
     expect(text).toContain("🔥");
-    expect(text).toContain("STRONG_BULL");
+    expect(text).toContain("大強気相場");
     expect((text.match(/✅/g) || []).length).toBe(5);
   });
 
-  it("4/5 で 🟢 MODERATE_BULL ラベル + 4 ✅ 1 ❌", () => {
+  it("4/5 で 🟢 強気優勢 ラベル + 4 ✅ 1 ❌", () => {
     const text = formatBullMarketMessage(build(4));
     expect(text).toContain("🟢");
-    expect(text).toContain("MODERATE_BULL");
+    expect(text).toContain("強気優勢");
     expect((text.match(/✅/g) || []).length).toBe(4);
     expect((text.match(/❌/g) || []).length).toBe(1);
   });
 
-  it("0/5 で ⚪ NEUTRAL ラベル + 全 ❌", () => {
+  it("0/5 で ⚪ 中立 ラベル + 全 ❌", () => {
     const text = formatBullMarketMessage(build(0));
     expect(text).toContain("⚪");
-    expect(text).toContain("NEUTRAL");
+    expect(text).toContain("中立");
     expect((text.match(/❌/g) || []).length).toBe(5);
   });
 });
