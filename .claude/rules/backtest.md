@@ -125,43 +125,53 @@
 breadth フィルターは本質的に「弱気相場ノイズ除去」として機能しており、これを外して個別シグナルの厳しさで補う発想は構造的に成立しない。
 **「弱気相場では便乗しない（休む）が正解」**が原則として確定した。
 
-## 月次戦略ヘルスチェック (2026-05-01〜)
+## 月次戦略ヘルスチェック (2026-05-01〜、2026-07-05 KOH-516 でスリム化)
 
 GitHub Actions の `scheduled_monthly-strategy-health.yml` が毎月第1土曜 11:00 JST に自動実行する。
 
-### 監視対象 (3階層分類)
+> **KOH-516 スリム化の背景 (2026-07-05)**: 旧構成 (B階層WF + strategy-mix比較) は offseason に
+> 構造的な誤警報を毎月出していた。(1) baseline Calmar<7.0 warning は「D期一発依存のシーズン性戦略」
+> (却下#21) にとって offseason の想定内圧縮であり劣化ではない。(2) offseason は baseline Calmar が
+> 下がるため、休止中の大型株戦略が単発combinedで「勝った」ように見え、KOH-512 で否決済みの +WB を
+> 「本番投入候補」と提案する誤検知が実際に発生 (2026-07)。KOH-511/512 で大型株戦略は substitute と
+> 決着済みのため月次比較自体を撤去した。
+> なお「ライブ↔BT乖離」は `scheduled_monthly-slippage-report`、オペ健全性は `cronjob_anomaly-detector`
+> が別系統でカバー済み。D期入り検知は `regime-shift-notify` (強気モニター) が担当。
 
-| 階層 | 戦略 | チェック内容 | 通知トリガー |
-|---|---|---|---|
-| **A: 現役** | gapup, psc | 月次WF、 active戦略の劣化検知 | 直近3窓のOOS PFが全て<1.0 → ⚠️ ENTRY_ENABLED=false 提案 |
-| **B: 復活候補** | weekly-break(--largecap), momentum(--largecap) | 月次WF + 月次combined比較 | 全体判定「堅牢」かつ直近2窓OOS PF≥1.5 → ⚠️ 復活検討提案 |
-| **C: 構造的却下** | breakout, nr7, gapdown-reversal, ma-pullback, ddr, evs, ogf, earnings-gap, stop-high, squeeze-breakout | 対象外 (年1回手動見直し) | - |
+### 監視対象
+
+| 対象 | チェック内容 | 通知トリガー |
+|---|---|---|
+| **現役** gapup, psc | 月次WF、構造的劣化検知 | 直近3窓のOOS PF が全て<1.0 → ⚠️ ENTRY_ENABLED=false 提案。**季節性ガード: トレード数<5 の窓 (offseasonの発火薄) は評価対象外** |
+| **baseline (GU3+PSC2)** | combined BT (直近24ヶ月ローリング, ¥500K) の絶対値監視 | Calmar < 5.0 (danger) / MaxDD > 13% (warning) / > 18% (danger)。**Calmar < 7.0 は FYI (info) 格下げ = offseason 想定内の圧縮として参考表示のみ** |
+| **米株ETF** | `us-etf-health` (実トレード集計) | 変更なし |
+| **構造的却下** breakout, nr7, gapdown-reversal, ma-pullback, ddr, evs, ogf, earnings-gap, stop-high, squeeze-breakout | 対象外 (年1回手動見直し) | - |
+| **大型株 (WB/MOM largecap)** | **月次監視撤去 (KOH-516)** | ¥10M+ 運用移行時に手動再評価 (下記「復活判定の論理」) |
 
 ### ジョブ構成
 
-1. **walk-forward** (4戦略×WF, ~50-60分): `scripts/run_monthly_walk_forward.py`
-2. **combined-compare** (4構成比較, ~10分): `scripts/run_monthly_combined_compare.py`
-   - baseline (GU3+PSC2) / +WB / +MOM / +WB+MOM の Calmar 比較
-   - suspended構成が baseline を Calmar で超過したら ⚠️ 通知
-   - **baseline 絶対値劣化検知** (2026-05-02 追加):
-     - Calmar < 7.0 (warning) / < 5.0 (danger)
-     - MaxDD > 13% (warning) / > 18% (danger)
-     - danger水準は本番運用見直しのトリガー
+1. **walk-forward** (gapup+psc×WF, ~25分): `scripts/run_monthly_walk_forward.py`
+2. **baseline-health** (~10分): `scripts/run_monthly_baseline_health.py`
+   - baseline (GU3+PSC2) をプレーン combined BT で実行し絶対値劣化を検知
+   - **BT窓は直近24ヶ月ローリング** (旧: 2024-03-01 固定開始 → 毎月窓が伸びて Calmar が機械的に希釈され閾値と比較不能だった)
+   - 予算 ¥500K (閾値の較正元 2026-04-22 Calmar 9.37 / MaxDD 10.0% と同一条件。旧スクリプトは ¥10M で較正元と不整合だった)
+3. **us-etf-health**: 変更なし
 
-### 復活判定の論理
+### 復活判定の論理 (¥10M+ 移行時の手動再評価用)
 
-WFで「堅牢」が出ただけでは本番投入しない (個別BTは資金無限の理想値)。**最終判断は combined-compare の Calmar 改善**:
+WFで「堅牢」が出ただけでは本番投入しない (個別BTは資金無限の理想値)。**最終判断は combined の Calmar 改善**:
 
 - WF堅牢化 → "再評価のトリガー" (相場局面の変化を検知)
 - combined Calmar > baseline → "本番投入候補"
 - 両方揃って初めて手動で `combined-run.ts` の defaultLimits 変更を検討
+- KOH-512 (2026-07-04) が典型例: WB=WF◎/combined✗、MOM=WF✗/combined◎ でどちらも投入せず
 
 ### C階層を回さない理由
 
 - `breakout / nr7 / gapdown-reversal / ma-pullback / ddr / evs / ogf` は **戦略構造そのものの欠陥** (相場局面に依存しないPF<1.0)
 - `earnings-gap` はデータ不足で常に「検証不能」 → ノイズになる
 - `stop-high` は除外 (要評価ならStrategy順次追加)
-- `squeeze-breakout` は **2026-06-04 に B→C へ格下げ**。WF で恒常的に過学習 (2026-06 OOS PF 0.65 / IS/OOS比 2.51、6窓中2休止) かつ既に `ENTRY_ENABLED=false`。復活判定の前提「直近2窓OOS PF≥1.5」を満たす見込みがなく、毎月回しても復活提案は出ずノイズになるだけ。再評価が必要なら C階層と同じく年1回手動で `STRATEGIES` に戻す
+- `squeeze-breakout` は **2026-06-04 に格下げ**。WF で恒常的に過学習 (2026-06 OOS PF 0.65 / IS/OOS比 2.51、6窓中2休止) かつ既に `ENTRY_ENABLED=false`
 
 ## バックテストの基本方針
 
