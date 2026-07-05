@@ -10,6 +10,8 @@
  *   MAIL_FROM      … 送信元（例: "相場局面モニター <noreply@stock-buddy.net>"）
  */
 
+import { PUBLIC_SITE_URL } from "./constants/web";
+
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const MAIL_FROM = process.env.MAIL_FROM;
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
@@ -74,6 +76,9 @@ export async function sendWaitlistWelcomeEmail(to: string): Promise<boolean> {
     "公開の準備が整い次第、このメールアドレス宛にご案内をお送りします。",
     "しばらくお待ちください。",
     "",
+    "▼ 現在の相場局面はこちらから今すぐご覧いただけます",
+    PUBLIC_SITE_URL,
+    "",
     "※このメールに心当たりがない場合は、破棄していただいて問題ありません。",
     "※本メールは送信専用です。ご返信いただいても対応できません。",
   ].join("\n");
@@ -87,7 +92,14 @@ export async function sendWaitlistWelcomeEmail(to: string): Promise<boolean> {
     </div>
     <div style="padding:24px;color:#0f172a;line-height:1.7;font-size:15px;">
       <p style="margin:0 0 16px;">先行案内リストにご登録いただきありがとうございます。</p>
-      <p style="margin:0 0 16px;">公開の準備が整い次第、このメールアドレス宛にご案内をお送りします。しばらくお待ちください。</p>
+      <p style="margin:0 0 24px;">公開の準備が整い次第、このメールアドレス宛にご案内をお送りします。しばらくお待ちください。</p>
+      <p style="margin:0 0 8px;">現在の相場局面は、今すぐこちらからご覧いただけます。</p>
+      <p style="margin:0 0 8px;">
+        <a href="${PUBLIC_SITE_URL}" style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600;font-size:15px;">今すぐ現在の相場局面を見る →</a>
+      </p>
+      <p style="margin:0;color:#64748b;font-size:13px;">
+        ボタンが開けない場合はこちら: <a href="${PUBLIC_SITE_URL}" style="color:#2563eb;">${PUBLIC_SITE_URL}</a>
+      </p>
       <p style="margin:24px 0 0;color:#64748b;font-size:13px;">
         ※このメールに心当たりがない場合は、破棄していただいて問題ありません。<br>
         ※本メールは送信専用です。ご返信いただいても対応できません。
