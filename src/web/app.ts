@@ -2,6 +2,10 @@
  * Hono アプリ定義・ルート登録
  */
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { Hono } from "hono";
 import { basicAuth } from "hono/basic-auth";
 
@@ -42,6 +46,7 @@ function isPublicHost(hostHeader: string | undefined): boolean {
 function isPublicAllowedPath(path: string): boolean {
   return (
     path === "/" ||
+    path === "/favicon.ico" ||
     path === "/live" ||
     path.startsWith("/live/") ||
     path === "/api/regime" ||
@@ -149,6 +154,17 @@ self.addEventListener('fetch', (e) => {
 `;
   c.header("Content-Type", "application/javascript");
   return c.body(sw);
+});
+
+// favicon.ico（管理ダッシュボード・公開ページ共通）。起動時に一度だけ読み込む
+const FAVICON_ICO = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "assets", "favicon.ico"),
+);
+
+app.get("/favicon.ico", (c) => {
+  c.header("Content-Type", "image/x-icon");
+  c.header("Cache-Control", "public, max-age=604800");
+  return c.body(FAVICON_ICO);
 });
 
 // SVG icon endpoints

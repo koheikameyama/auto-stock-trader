@@ -26,9 +26,6 @@ const LEVEL_COLOR: Record<SignalLevel, string> = {
   NEUTRAL: "#8792a2",
 };
 
-const FAVICON =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8C%A1%EF%B8%8F%3C/text%3E%3C/svg%3E";
-
 function baseHead(
   title: string,
   description: string,
@@ -44,7 +41,7 @@ function baseHead(
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="相場局面モニター">
 <meta name="twitter:card" content="summary">
-<link rel="icon" href="${FAVICON}">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
 <style>${STYLES}</style>`;
 }
 
