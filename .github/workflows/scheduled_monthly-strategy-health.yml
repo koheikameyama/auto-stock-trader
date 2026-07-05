@@ -18,7 +18,7 @@ env:
 jobs:
   walk-forward:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -27,9 +27,9 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npx prisma generate
-      - name: Run walk-forward analysis (5 strategies, A/B tier)
+      - name: Run walk-forward analysis (active strategies gapup / psc)
         run: python scripts/run_monthly_walk_forward.py
-      - name: Upload WF results for combined captain review
+      - name: Upload WF results for baseline captain review
         if: always()  # 一部失敗でも書き出せた分は統合レビューに渡す
         uses: actions/upload-artifact@v4
         with:
@@ -38,11 +38,13 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  combined-compare:
+  # 旧 combined-compare (strategy-mix 比較) は KOH-516 で撤去。
+  # 大型株戦略の復活比較は KOH-511/512 で決着済み (substitute)。再評価は ¥10M+ 移行時に手動。
+  baseline-health:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     needs: walk-forward
-    if: always()  # WFが失敗しても比較は実行する (独立した判断材料)
+    if: always()  # WFが失敗しても baseline ヘルスは実行する (独立した判断材料)
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -52,12 +54,12 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - name: Download WF results (for unified captain review)
-        continue-on-error: true  # WF失敗時は artifact 無し → combined 単独でレビュー
+        continue-on-error: true  # WF失敗時は artifact 無し → baseline 単独でレビュー
         uses: actions/download-artifact@v4
         with:
           name: wf-results
-      - name: Run combined strategy-mix comparison (baseline vs +WB / +MOM / +WB+MOM)
-        run: python scripts/run_monthly_combined_compare.py
+      - name: Run baseline health check (GU3+PSC2, 直近24ヶ月ローリング)
+        run: python scripts/run_monthly_baseline_health.py
 
   us-etf-health:
     runs-on: ubuntu-latest
@@ -75,7 +77,7 @@ jobs:
         run: npm run us-etf-health
 
   notify-failure:
-    needs: [walk-forward, combined-compare, us-etf-health]
+    needs: [walk-forward, baseline-health, us-etf-health]
     if: failure()
     runs-on: ubuntu-latest
     steps:
@@ -85,7 +87,7 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_TITLE: "❌ Monthly Strategy Health Check 失敗"
           SLACK_MESSAGE: |
-            戦略ヘルスチェック (WF + combined比較) が失敗しました。
+            戦略ヘルスチェック (WF + baselineヘルス) が失敗しました。
             詳細はGitHub Actionsログを確認してください。
           SLACK_COLOR: danger
           SLACK_FOOTER: "Auto Stock Trader"

@@ -1,14 +1,19 @@
 """
 Monthly Walk-Forward Analysis Runner
 
-A階層(現役): gapup, psc → 劣化検知 (停止提案)
-B階層(復活候補): weekly-break(--largecap), momentum(--largecap)
-                → 堅牢化検知 (復活検討提案)
+現役戦略 (gapup, psc) のみを対象に WF を回し、構造的劣化を検知する (停止提案)。
+
+B階層 (weekly-break/momentum --largecap の復活監視) は KOH-516 で撤去 (2026-07-05)。
+KOH-511/512 で「大型株戦略は substitute であり加算候補ではない」と決着済みのため、
+毎月比較しても offseason に baseline Calmar が下がるたび誤った復活提案を出すだけだった。
+再評価は ¥10M+ 運用への移行時に手動で行う (CLAUDE.md 復活判定の論理を参照)。
 
 C階層(構造的却下: breakout/nr7/gapdown-reversal/ma-pullback/ddr/evs/ogf/earnings-gap/
 stop-high/squeeze-breakout) は対象外。年1回手動見直し。
-squeeze-breakout は WF で恒常的に過学習 (2026-06 OOS PF 0.65) かつ既に
-ENTRY_ENABLED=false のため、毎月回してもノイズにしかならず C階層へ格下げ (2026-06-04)。
+
+劣化検知の季節性ガード (KOH-516): GU/PSC は「D期でだけ稼ぐシーズン性戦略」(却下リスト #21)。
+offseason はトレードが薄く OOS PF が低くても「劣化」の証拠にならないため、
+トレード数 < MIN_TRADES_PER_WINDOW の窓は disable 判定の評価対象から除外する。
 
 Usage:
   python scripts/run_monthly_walk_forward.py
@@ -24,40 +29,30 @@ import urllib.request
 
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 
-# WF 結果の受け渡し先。combined-compare ジョブが artifact 経由で読み込み、
-# WF + combined を束ねた統合 AI レビュー (艦長レイヤー) を生成する。
+# WF 結果の受け渡し先。baseline-health ジョブが artifact 経由で読み込み、
+# WF + baseline を束ねた統合 AI レビュー (艦長レイヤー) を生成する。
 WF_RESULTS_PATH = os.getenv("WF_RESULTS_PATH", "wf-results.json")
 
 
-# 監視対象戦略の定義
-# tier: "active"   = 本番稼働中 → 劣化したら ENTRY_ENABLED=false 提案
-#       "suspended" = combined資金競合等で本番停止中 → 堅牢化したら復活検討提案
-STRATEGIES: list[dict] = [
-    {"name": "gapup", "tier": "active", "extra_args": []},
-    {"name": "psc", "tier": "active", "extra_args": []},
-    {"name": "weekly-break", "tier": "suspended", "extra_args": ["--largecap"]},
-    {"name": "momentum", "tier": "suspended", "extra_args": ["--largecap"]},
-]
+# 監視対象戦略 (現役のみ。B階層=復活監視は KOH-516 で撤去)
+STRATEGIES: list[str] = ["gapup", "psc"]
+
+# disable 判定でこのトレード数未満の OOS 窓を「証拠」に数えない (offseason の発火薄ノイズ除外)
+MIN_TRADES_PER_WINDOW = 5
 
 
-def run_walk_forward(strategy: str, extra_args: list[str]) -> tuple[int, str]:
+def run_walk_forward(strategy: str) -> tuple[int, str]:
     """Walk-forward スクリプトを実行し、(returncode, stdout) を返す"""
     cmd = f"walk-forward:{strategy}"
-    label = strategy + (f" {' '.join(extra_args)}" if extra_args else "")
     print(f"\n{'='*60}")
-    print(f"  {label} walk-forward 実行開始")
+    print(f"  {strategy} walk-forward 実行開始")
     print(f"{'='*60}\n")
 
-    npm_args = ["npm", "run", cmd]
-    if extra_args:
-        npm_args.append("--")
-        npm_args.extend(extra_args)
-
     result = subprocess.run(
-        npm_args,
+        ["npm", "run", cmd],
         capture_output=True,
         text=True,
-        timeout=900,  # 15分タイムアウト (largecap時に時間がかかる戦略があるため)
+        timeout=900,  # 15分タイムアウト
     )
 
     # stdoutをそのまま表示（GitHub Actionsログ用）
@@ -69,67 +64,63 @@ def run_walk_forward(strategy: str, extra_args: list[str]) -> tuple[int, str]:
     return result.returncode, result.stdout
 
 
-def parse_window_oos_pfs(stdout: str) -> list[float | None]:
-    """[ウィンドウ別] テーブルから各窓の OOS PF を抽出する。
+def parse_window_oos(stdout: str) -> list[dict]:
+    """[ウィンドウ別] テーブルから各窓の OOS PF とトレード数を抽出する。
 
-    休止窓は None。"∞" は math.inf として扱う。窓番号順 (1, 2, 3, ...) で返す。
+    休止窓は pf=None, trades=None。"∞" は math.inf として扱う。窓番号順で返す。
     """
-    pfs: list[float | None] = []
+    windows: list[dict] = []
     section = re.search(r"\[ウィンドウ別\](.*?)(?=\[パラメータ安定性\]|\[本番パラメータ\]|\Z)", stdout, re.DOTALL)
     if not section:
-        return pfs
+        return windows
     for line in section.group(1).splitlines():
         # 例: "  1    |   3.45 |   2.01 |  56.0%  |          25 | ..."
         # 例: "  2    |   2.34 |    休止 |      -  |           - | ..."
-        m = re.match(r"\s*(\d+)\s*\|\s*[\d.∞]+\s*\|\s*([\d.∞休止]+)\s*\|", line)
+        m = re.match(
+            r"\s*(\d+)\s*\|\s*[\d.∞]+\s*\|\s*([\d.∞休止]+)\s*\|\s*[\d.\-\s]+%?\s*\|\s*([\d\-]+)\s*\|",
+            line,
+        )
         if not m:
             continue
         oos_str = m.group(2).strip()
+        trades_str = m.group(3).strip()
         if "休止" in oos_str:
-            pfs.append(None)
-        elif oos_str == "∞":
-            pfs.append(float("inf"))
-        else:
-            try:
-                pfs.append(float(oos_str))
-            except ValueError:
-                pfs.append(None)
-    return pfs
+            windows.append({"pf": None, "trades": None})
+            continue
+        try:
+            pf = float("inf") if oos_str == "∞" else float(oos_str)
+        except ValueError:
+            windows.append({"pf": None, "trades": None})
+            continue
+        trades = int(trades_str) if trades_str.isdigit() else None
+        windows.append({"pf": pf, "trades": trades})
+    return windows
 
 
-def detect_disable_proposal(oos_pfs: list[float | None], threshold: float = 1.0, lookback: int = 3) -> dict | None:
-    """直近のOOS窓 lookback 個 (休止を除く) が全て threshold 未満なら停止提案を返す"""
-    active = [p for p in oos_pfs if p is not None]
-    if len(active) < lookback:
+def detect_disable_proposal(
+    windows: list[dict],
+    threshold: float = 1.0,
+    lookback: int = 3,
+    min_trades: int = MIN_TRADES_PER_WINDOW,
+) -> dict | None:
+    """直近のOOS窓 lookback 個が全て threshold 未満なら停止提案を返す。
+
+    季節性ガード (KOH-516): 休止窓に加え、トレード数 < min_trades の窓も
+    「劣化の証拠」に数えない。offseason は breadth フィルターで発火が薄くなり、
+    数件のトレードで PF<1.0 が続くのは劣化でなくサンプル不足のため。
+    """
+    qualified = [
+        w["pf"] for w in windows
+        if w["pf"] is not None and (w["trades"] or 0) >= min_trades
+    ]
+    if len(qualified) < lookback:
         return None
-    recent = active[-lookback:]
+    recent = qualified[-lookback:]
     if all(p < threshold for p in recent):
         return {
             "lookback": lookback,
             "threshold": threshold,
-            "recent_pfs": recent,
-        }
-    return None
-
-
-def detect_revival_proposal(judgment: str, oos_pfs: list[float | None], threshold: float = 1.5, lookback: int = 2) -> dict | None:
-    """suspended 戦略向け: 全体判定が「堅牢」かつ直近OOS窓 lookback 個 (休止を除く) が
-    全て threshold 以上なら本番復活検討の提案を返す。
-
-    threshold=1.5 は「OOS PF >= 1.5 が継続的に出ている」という強めの条件。
-    本番投入は combined BT で Calmar 改善が確認できた時に最終判断するため、
-    ここは "再評価のトリガー" の役割。
-    """
-    if "堅牢" not in judgment:
-        return None
-    active = [p for p in oos_pfs if p is not None]
-    if len(active) < lookback:
-        return None
-    recent = active[-lookback:]
-    if all(p >= threshold for p in recent):
-        return {
-            "lookback": lookback,
-            "threshold": threshold,
+            "min_trades": min_trades,
             "recent_pfs": recent,
         }
     return None
@@ -146,7 +137,7 @@ def parse_wf_result(stdout: str) -> dict:
         "win_rate": "N/A",
         "window_table": "",
         "param_stability": "",
-        "window_oos_pfs": [],
+        "window_oos": [],
         "disable_proposal": None,
     }
 
@@ -200,11 +191,9 @@ def parse_wf_result(stdout: str) -> dict:
     if m:
         info["production_params"] = m.group(1).strip()
 
-    # 窓別 OOS PF + 提案判定
-    # disable_proposal / revival_proposal は呼び出し側で tier に応じて参照する
-    info["window_oos_pfs"] = parse_window_oos_pfs(stdout)
-    info["disable_proposal"] = detect_disable_proposal(info["window_oos_pfs"])
-    info["revival_proposal"] = detect_revival_proposal(info["judgment"], info["window_oos_pfs"])
+    # 窓別 OOS (PF + トレード数) + 停止提案判定 (季節性ガード付き)
+    info["window_oos"] = parse_window_oos(stdout)
+    info["disable_proposal"] = detect_disable_proposal(info["window_oos"])
 
     return info
 
@@ -212,8 +201,8 @@ def parse_wf_result(stdout: str) -> dict:
 def notify_slack(results: list[dict]) -> None:
     """Slack に WF 結果サマリー + ルールベース検知フラグを送信する。
 
-    AI評価は WF + combined を束ねる combined-compare ジョブ側 (艦長レイヤー) に集約。
-    ここは決定論的な数値・disable/revival フラグのみを流す。
+    AI評価は WF + baseline を束ねる baseline-health ジョブ側 (艦長レイヤー) に集約。
+    ここは決定論的な数値・disable フラグのみを流す。
     """
     if not SLACK_WEBHOOK_URL:
         print("SLACK_WEBHOOK_URL 未設定、Slack通知をスキップ")
@@ -222,29 +211,23 @@ def notify_slack(results: list[dict]) -> None:
     fields = []
     has_failure = False
     disable_proposals: list[str] = []
-    revival_proposals: list[str] = []
 
     for r in results:
         strategy = r["strategy"]
-        tier = r["tier"]
         info = r["info"]
         success = r["success"]
-        tier_label = "[現役]" if tier == "active" else "[停止中]"
 
         if not success:
             has_failure = True
             fields.append({
-                "title": f"{tier_label} {strategy}",
+                "title": f"[現役] {strategy}",
                 "value": "実行失敗",
                 "short": True,
             })
             continue
 
-        is_robust = "堅牢" in info["judgment"]
-        emoji = "" if is_robust else ""
-
         fields.append({
-            "title": f"{tier_label} {strategy} {emoji}",
+            "title": f"[現役] {strategy}",
             "value": (
                 f"判定: {info['judgment']}\n"
                 f"OOS PF: {info['oos_pf']} / IS/OOS比: {info['is_oos_ratio']}\n"
@@ -253,42 +236,22 @@ def notify_slack(results: list[dict]) -> None:
             "short": False,
         })
 
-        # active戦略のみ disable提案を見る
-        if tier == "active":
-            proposal = info.get("disable_proposal")
-            if proposal:
-                recent_str = " → ".join(f"{p:.2f}" for p in proposal["recent_pfs"])
-                disable_proposals.append(
-                    f"*{strategy}*: 直近{proposal['lookback']}窓のOOS PF が全て{proposal['threshold']}未満 ({recent_str})"
-                )
-
-        # suspended戦略のみ revival提案を見る
-        if tier == "suspended":
-            proposal = info.get("revival_proposal")
-            if proposal:
-                recent_str = " → ".join(f"{p:.2f}" for p in proposal["recent_pfs"])
-                revival_proposals.append(
-                    f"*{strategy}*: 全体判定「堅牢」かつ直近{proposal['lookback']}窓のOOS PF が全て{proposal['threshold']}以上 ({recent_str})"
-                )
+        proposal = info.get("disable_proposal")
+        if proposal:
+            recent_str = " → ".join(f"{p:.2f}" for p in proposal["recent_pfs"])
+            disable_proposals.append(
+                f"*{strategy}*: 直近{proposal['lookback']}窓のOOS PF が全て{proposal['threshold']}未満 ({recent_str})"
+            )
 
     if disable_proposals:
         fields.append({
-            "title": ":octagonal_sign: ENTRY_ENABLED=false 提案 (active戦略の劣化)",
+            "title": ":octagonal_sign: ENTRY_ENABLED=false 提案 (現役戦略の構造的劣化)",
             "value": (
-                "以下の戦略で OOS の継続劣化を検知。本番停止を検討してください:\n"
+                "以下の戦略で OOS の継続劣化を検知 "
+                f"(トレード数<{MIN_TRADES_PER_WINDOW}の offseason 発火薄窓は評価対象外):\n"
                 + "\n".join(disable_proposals)
-                + "\n\n判断は手動。承認後 `lib/constants/<strategy>.ts` の ENTRY_ENABLED を false に変更"
-            ),
-            "short": False,
-        })
-
-    if revival_proposals:
-        fields.append({
-            "title": ":sparkles: 復活検討提案 (suspended戦略の堅牢化)",
-            "value": (
-                "以下の停止中戦略で OOS が継続的に堅牢化。combined BT で Calmar 改善を確認の上、本番投入を検討してください:\n"
-                + "\n".join(revival_proposals)
-                + "\n\n次ステップ: `npm run backtest:combined -- --enable-wb-largecap` 等で Calmar 比較 (combined-compare ジョブの結果も参照)"
+                + "\n\n判断は手動。offseason の季節性で説明できないか（breadth 帯・十分な発火があるのに負けているか）を確認の上、"
+                "承認後 `lib/constants/<strategy>.ts` の ENTRY_ENABLED を false に変更"
             ),
             "short": False,
         })
@@ -296,12 +259,10 @@ def notify_slack(results: list[dict]) -> None:
     if has_failure:
         color = "danger"
     elif disable_proposals:
-        color = "danger"  # active劣化は高優先
-    elif revival_proposals:
-        color = "warning"
+        color = "danger"  # 現役劣化は高優先
     else:
         color = "good"
-    title = "Monthly Walk-Forward 結果"
+    title = "Monthly Walk-Forward 結果 (現役: gapup / psc)"
 
     payload = {
         "attachments": [{
@@ -330,12 +291,9 @@ def main():
     results = []
     any_failure = False
 
-    for s in STRATEGIES:
-        strategy = s["name"]
-        tier = s["tier"]
-        extra_args = s["extra_args"]
+    for strategy in STRATEGIES:
         try:
-            returncode, stdout = run_walk_forward(strategy, extra_args)
+            returncode, stdout = run_walk_forward(strategy)
             success = returncode == 0
             info = parse_wf_result(stdout) if success else {}
         except subprocess.TimeoutExpired:
@@ -352,13 +310,11 @@ def main():
 
         results.append({
             "strategy": strategy,
-            "tier": tier,
-            "extra_args": extra_args,
             "success": success,
             "info": info,
         })
 
-    # WF 結果を artifact 用に書き出す (combined-compare ジョブが統合レビューで参照)
+    # WF 結果を artifact 用に書き出す (baseline-health ジョブが統合レビューで参照)
     try:
         with open(WF_RESULTS_PATH, "w", encoding="utf-8") as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
@@ -377,8 +333,7 @@ def main():
         status = "OK" if r["success"] else "FAIL"
         judgment = r["info"].get("judgment", "N/A") if r["success"] else "実行失敗"
         pf = r["info"].get("oos_pf", "N/A") if r["success"] else "N/A"
-        tier_label = "active" if r["tier"] == "active" else "suspended"
-        print(f"  [{tier_label:9s}] {r['strategy']:18s} [{status}] 判定: {judgment}  OOS PF: {pf}")
+        print(f"  {r['strategy']:18s} [{status}] 判定: {judgment}  OOS PF: {pf}")
 
     if any_failure:
         sys.exit(1)
