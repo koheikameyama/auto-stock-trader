@@ -173,16 +173,10 @@ async function runEntryMonitors() {
   }
 }
 
-// broker-reconciliation を単発で実行（独立スケジュール用）
-async function runBrokerReconciliationJob() {
-  await runJob("broker-reconciliation", runBrokerReconciliation, true);
-}
-
-// 自社株買いカタリスト観察モニター（KOH-504 Phase A）。買いの適時開示は引け後に出るため
-// 15:24 の entry-monitors とは別に夕方に実行。当日+前日の開示を取得してDB記録+Slack（発注なし）。
-async function runBuybackMonitorJob() {
-  await runJob("buyback-monitor", runBuybackMonitor, true);
-}
+// ※ schedules の job は raw の main 関数を渡すこと。cron 登録側が runJob(s.name, ...) で
+//   ラップするため、job 内で同名の runJob を呼ぶと二重ネストになり、内側が
+//   「前回の実行がまだ完了していません」で100%自己スキップする（KOH-528: この事故で
+//   broker-reconciliation と buyback-monitor が 2026-04-22 以降一度も実行されていなかった）。
 
 // スケジュール定義（全て JST）
 // ※ position-monitor のみ Worker cron で実行
@@ -207,13 +201,13 @@ const schedules = [
   // broker-reconciliation（1日6回の独立スケジュール。position-monitor の :00 実行と競合回避のため :30 秒にオフセット）
   // 立花のAPI高負荷警告（2026-03-10）対応: 毎分 → 6回/日 で ~98% 削減。
   // WebSocket EVENT I/F がリアルタイム約定同期を主系として担うため、照合頻度を下げても機能劣化は限定的。
-  { cron: "30 5 9 * * 1-5",   job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 9:05:30 前場開始直後の初期化
-  { cron: "30 30 10 * * 1-5", job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 10:30:30 前場中の回復チェック
-  { cron: "30 35 12 * * 1-5", job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 12:35:30 後場開始直後
-  { cron: "30 0 14 * * 1-5",  job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 14:00:30 後場中の回復チェック
-  { cron: "30 22 15 * * 1-5", job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 15:22:30 gapup/PSC 発注（15:24）直前スナップショット
-  { cron: "30 30 15 * * 1-5", job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 15:30:30 引け直後の最終同期
-  { cron: "30 45 15 * * 1-5", job: runBrokerReconciliationJob, name: "broker-reconciliation", requiresMarketDay: true }, // 15:45:30 引け後の冗長リカバリ（デプロイ等で15:30:30を取りこぼした場合の保険）
+  { cron: "30 5 9 * * 1-5",   job: runBrokerReconciliation,    name: "broker-reconciliation", requiresMarketDay: true }, // 9:05:30 前場開始直後の初期化
+  { cron: "30 30 10 * * 1-5", job: runBrokerReconciliation,    name: "broker-reconciliation", requiresMarketDay: true }, // 10:30:30 前場中の回復チェック
+  { cron: "30 35 12 * * 1-5", job: runBrokerReconciliation,    name: "broker-reconciliation", requiresMarketDay: true }, // 12:35:30 後場開始直後
+  { cron: "30 0 14 * * 1-5",  job: runBrokerReconciliation,    name: "broker-reconciliation", requiresMarketDay: true }, // 14:00:30 後場中の回復チェック
+  { cron: "30 22 15 * * 1-5", job: runBrokerReconciliation,    name: "broker-reconciliation", requiresMarketDay: true }, // 15:22:30 gapup/PSC 発注（15:24）直前スナップショット
+  { cron: "30 30 15 * * 1-5", job: runBrokerReconciliation,    name: "broker-reconciliation", requiresMarketDay: true }, // 15:30:30 引け直後の最終同期
+  { cron: "30 45 15 * * 1-5", job: runBrokerReconciliation,    name: "broker-reconciliation", requiresMarketDay: true }, // 15:45:30 引け後の冗長リカバリ（デプロイ等で15:30:30を取りこぼした場合の保険）
   // 15:24:00/20/40 エントリー監視（東証クロージングオークション15:25〜直前に発注）
   // GapUp → PSC → US-ETF を1ジョブ内で逐次実行（combined BT の資金配分順を再現＋時価キャッシュ共有）。
   // 接続エラー等のretryableな失敗時に20秒間隔で最大3回試行。成功後は各monitorのlastScanDateで以降をスキップ。
@@ -224,7 +218,7 @@ const schedules = [
   // 自社株買いカタリスト観察（KOH-504 Phase A）: 20:00 JST。引け後に出揃う「自己株式取得に係る
   // 事項の決定」を当日+前日分取得し idle帯判定して BuybackSignal に記録+Slack（発注なし）。
   // 遅い開示は2日窓+tdnetId べき等 upsert で翌日実行時に回収。
-  { cron: "0 20 * * 1-5", job: runBuybackMonitorJob, name: "buyback-monitor", requiresMarketDay: true },
+  { cron: "0 20 * * 1-5", job: runBuybackMonitor,    name: "buyback-monitor", requiresMarketDay: true },
   // 8:50 プレマーケット セッション確認（電話番号認証の早期検出）
   { cron: "50 8 * * 1-5", job: runSessionHealthCheck, name: "session-health-check", requiresMarketDay: true },
   // 15:15 プレクローズ セッション確認（15:24のエントリー発注前に最終確認。9分の再ログイン・電話認証対応余裕）
