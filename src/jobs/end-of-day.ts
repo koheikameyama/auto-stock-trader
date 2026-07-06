@@ -16,9 +16,12 @@ import { fetchStockQuote } from "../core/market-data";
 import { closePosition, getCashBalance, getTotalPortfolioValue, getPositionPnl } from "../core/position-manager";
 import type { ExitSnapshot } from "../types/snapshots";
 import { expireOrders } from "../core/order-executor";
+import { syncBrokerOrderStatuses } from "../core/broker-orders";
+import { recoverMissedFills } from "../core/broker-fill-handler";
+import { TACHIBANA_ORDER_STATUS } from "../lib/constants/broker";
 import { getDailyPnl } from "../core/risk-manager";
 import { updatePeakEquity } from "../core/drawdown-manager";
-import { notifyDailyReport, notifyOrderFilled } from "../lib/slack";
+import { notifyDailyReport, notifyOrderFilled, notifySlack } from "../lib/slack";
 import { chatCompletion } from "../lib/openai";
 import dayjs from "dayjs";
 
@@ -262,15 +265,72 @@ export async function main() {
   const expiredCount = await expireOrders();
   console.log(`  ${expiredCount}件キャンセル`);
 
-  // 当日の未約定注文もキャンセル
-  const pendingCount = await prisma.tradingOrder.updateMany({
+  // 当日の未約定注文の整理。
+  // ブローカー状態を確認せず DB 上で cancelled にすると、約定同期の遅延・欠落時に
+  // 「実際は約定済みの注文」を取り消し扱いにして無管理ポジションを生む
+  // （2026-07-06 事故, KOH-528: WS 不調 + reconciliation 停止で引け約定2件が
+  //  未反映のまま本処理で cancelled 化された）。
+  // 先に約定同期リカバリを掛け、それでも pending の注文は
+  //   - ブローカーで未約定終了（取消/失効）が確認できたもの → cancelled
+  //   - brokerOrderId なし（ブローカー未発注）→ cancelled
+  //   - 状態を確認できないもの → pending のまま残して Slack アラート（誤キャンセル防止）
+  try {
+    await syncBrokerOrderStatuses();
+    await recoverMissedFills();
+  } catch (e) {
+    console.warn("  約定同期リカバリでエラー（続行）:", e);
+  }
+
+  const pendingToday = await prisma.tradingOrder.findMany({
     where: {
       status: "pending",
       createdAt: { gte: getTodayForDB() },
     },
-    data: { status: "cancelled" },
+    include: { stock: { select: { tickerCode: true } } },
   });
-  console.log(`  当日未約定注文キャンセル: ${pendingCount.count}件`);
+
+  // 未約定のまま当日を終えたことが確定しているブローカー状態
+  const TERMINAL_UNFILLED_STATUSES: string[] = [
+    TACHIBANA_ORDER_STATUS.CANCELLED,
+    TACHIBANA_ORDER_STATUS.EXPIRED,
+  ];
+
+  let cancelledCount = 0;
+  const unresolved: typeof pendingToday = [];
+  for (const order of pendingToday) {
+    const confirmedUnfilled =
+      !order.brokerOrderId ||
+      TERMINAL_UNFILLED_STATUSES.includes(order.brokerStatus ?? "");
+    if (confirmedUnfilled) {
+      await prisma.tradingOrder.update({
+        where: { id: order.id },
+        data: { status: "cancelled" },
+      });
+      cancelledCount++;
+    } else {
+      unresolved.push(order);
+    }
+  }
+  console.log(`  当日未約定注文キャンセル: ${cancelledCount}件`);
+
+  if (unresolved.length > 0) {
+    const lines = unresolved.map(
+      (o) =>
+        `${o.stock.tickerCode} 注文${o.brokerOrderId}（brokerStatus=${o.brokerStatus ?? "未取得"}）`,
+    );
+    console.warn(
+      `  ブローカー状態を確認できない pending 注文が ${unresolved.length}件 → キャンセルせず保留:`,
+      lines.join(" / "),
+    );
+    await notifySlack({
+      title: "⚠️ EOD: 状態未確認の注文を保留",
+      message:
+        `以下の注文はブローカーで未約定終了を確認できなかったため cancelled にしていません。\n` +
+        `約定済みの可能性があります。翌朝の reconciliation で同期されますが、手動確認を推奨します。\n` +
+        lines.join("\n"),
+      color: "warning",
+    }).catch(() => {});
+  }
 
   // 3. 日次サマリー計算
   console.log("[3/5] 日次サマリー計算...");
