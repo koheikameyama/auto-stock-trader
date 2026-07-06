@@ -12,6 +12,11 @@ import { Hono, type Context } from "hono";
 import { prisma } from "../../lib/prisma";
 import { sendWaitlistWelcomeEmail } from "../../lib/mail";
 import { getRegimeCached } from "../regime-cache";
+import { getPerformanceCached } from "../performance-cache";
+import type {
+  PerformanceSnapshot,
+  ClosedTradePerf,
+} from "../../core/public-performance";
 import {
   getLevelEmoji,
   getLevelLabel,
@@ -22,6 +27,8 @@ import {
   publicRegimePage,
   waitlistResultPage,
   type PublicRegimeData,
+  type PublicPerformanceData,
+  type PublicPerformanceRecentRow,
 } from "../views/public-regime";
 
 const app = new Hono();
@@ -29,6 +36,49 @@ const app = new Hono();
 /** ざっくりしたメール形式チェック（RFC 完全準拠は不要、明らかな誤入力を弾く目的） */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const EMAIL_MAX_LEN = 254;
+
+function fmtPct(v: number): string {
+  return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
+}
+
+/** "YYYY-MM-DD" → "M/D" */
+function mdLabel(jstDate: string): string {
+  const [, m, d] = jstDate.split("-").map(Number);
+  return `${m}/${d}`;
+}
+
+/** 決済1件を表示用の行に変換（SNS 投稿と同じ開示範囲・同じ文言） */
+function toRecentRow(t: ClosedTradePerf): PublicPerformanceRecentRow {
+  return {
+    exitLabel: mdLabel(t.exitDate),
+    retLabel: fmtPct(t.returnPct),
+    positive: t.returnPct >= 0,
+    entryLabel: t.entry
+      ? `${mdLabel(t.entryDate)} ${t.entry.emoji}breadth ${t.entry.breadthPct.toFixed(0)}%で仕込み`
+      : null,
+  };
+}
+
+/** PerformanceSnapshot → 公開ページ表示用データ（銘柄名・絶対額なし） */
+function toPublicPerformance(
+  snap: PerformanceSnapshot | null,
+): PublicPerformanceData | null {
+  if (!snap) return null;
+
+  let monthLabel: string | null = null;
+  if (snap.month) {
+    const pf = snap.month.pf;
+    const pfStr = pf == null ? "—" : pf === Infinity ? "∞" : pf.toFixed(2);
+    monthLabel = `${snap.month.wins}勝${snap.month.losses}敗 ／ PF ${pfStr}`;
+  }
+
+  return {
+    monthLabel,
+    cumulativeLabel:
+      snap.cumulativeReturnPct != null ? fmtPct(snap.cumulativeReturnPct) : null,
+    recent: snap.recentClosed.map(toRecentRow),
+  };
+}
 
 /** 公開ページ（現局面を SSR）をレンダリング。/live と 公開ホストのルート「/」で共用。 */
 export async function renderPublicRegimePage(c: Context): Promise<Response> {
@@ -49,7 +99,11 @@ export async function renderPublicRegimePage(c: Context): Promise<Response> {
   } catch (e) {
     console.error("[public/live] regime unavailable:", e);
   }
-  return c.html(publicRegimePage(data));
+
+  // 実績は取得失敗・データなしでもページ自体は表示する（セクションのみ非表示）
+  const perf = toPublicPerformance(await getPerformanceCached());
+
+  return c.html(publicRegimePage(data, perf));
 }
 
 /** GET /live — 公開ページ */

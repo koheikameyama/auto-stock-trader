@@ -28,6 +28,30 @@ export interface PublicRegimeData {
   signalTotal: number;
 }
 
+/** 実績セクションの決済1行分（表示用に整形済みの文字列を受け取る） */
+export interface PublicPerformanceRecentRow {
+  /** 決済日ラベル（例: "7/6"） */
+  exitLabel: string;
+  /** 損益率ラベル（例: "+4.2%"） */
+  retLabel: string;
+  positive: boolean;
+  /** 仕込み時局面ラベル（例: "6/30 🟢breadth 62%で仕込み"）。復元不能時は null */
+  entryLabel: string | null;
+}
+
+/**
+ * 実績セクション（KOH-525）。SNS 投稿と同じ開示範囲:
+ * 勝敗/PF/累計% と決済損益%＋仕込み時局面のみ。銘柄名・絶対額は出さない。
+ */
+export interface PublicPerformanceData {
+  /** 今月の成績ラベル（例: "4勝2敗 ／ PF 2.10"）。今月決済なしなら null */
+  monthLabel: string | null;
+  /** 運用開始からの累計リターンラベル（例: "+12.3%"）。算出不能なら null */
+  cumulativeLabel: string | null;
+  /** 直近の決済（新しい順） */
+  recent: PublicPerformanceRecentRow[];
+}
+
 const LEVEL_COLOR: Record<SignalLevel, string> = {
   STRONG_BULL: "#d9772e",
   MODERATE_BULL: "#2f9e5f",
@@ -104,6 +128,17 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .fine{margin:10px 0 0;font-size:11.5px;color:var(--text-faint)}
 .foot{margin-top:28px;padding-top:18px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);display:flex;flex-direction:column;gap:7px}
 .foot .row{display:flex;gap:8px;align-items:flex-start}
+.perf{margin-top:20px;padding:20px}
+.perf h2{font-size:16px;margin:0 0 4px}
+.perf .sub{margin:0 0 14px;font-size:12.5px;color:var(--text-muted)}
+.perf-stats{display:flex;flex-wrap:wrap;gap:8px 18px;font-family:var(--mono);font-size:13px;margin-bottom:14px}
+.perf-stats .k{color:var(--text-faint);margin-right:6px}
+.perf-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.perf-list li{display:flex;align-items:baseline;gap:10px;padding:8px 0;border-top:1px solid var(--border);font-size:13px}
+.perf-list .ret{font-family:var(--mono);font-weight:700;min-width:56px;text-align:right}
+.perf-list .ret.pos{color:#2f9e5f}
+.perf-list .ret.neg{color:#c4554d}
+.perf-list .ctx{color:var(--text-muted)}
 .result{text-align:center;padding:8px 0 4px}
 .result .big{font-size:40px;line-height:1}
 .result h1{margin:14px 0 6px}
@@ -121,7 +156,44 @@ const UNAVAILABLE_VERDICT = `
   </div>
 </div>`;
 
-export function publicRegimePage(data: PublicRegimeData | null): string {
+/** 実績カード。表示できるデータが何もなければ空文字（セクションごと非表示） */
+function performanceSection(perf: PublicPerformanceData | null): string {
+  if (!perf) return "";
+  const hasStats = perf.monthLabel !== null || perf.cumulativeLabel !== null;
+  if (!hasStats && perf.recent.length === 0) return "";
+
+  const stats = [
+    ...(perf.monthLabel !== null
+      ? [`<span><span class="k">今月</span>${perf.monthLabel}</span>`]
+      : []),
+    ...(perf.cumulativeLabel !== null
+      ? [`<span><span class="k">累計</span>${perf.cumulativeLabel}</span>`]
+      : []),
+  ].join("");
+
+  const rows = perf.recent
+    .map(
+      (r) => `<li>
+        <span class="ret ${r.positive ? "pos" : "neg"}">${r.retLabel}</span>
+        <span class="ctx">${r.exitLabel} 決済${r.entryLabel ? ` ・ ${r.entryLabel}` : ""}</span>
+      </li>`,
+    )
+    .join("");
+
+  return `
+    <div class="card perf">
+      <h2>📒 運用実績（このシステムの記録）</h2>
+      <p class="sub">この局面判定に従って運用している自動売買の決済記録。銘柄・金額は非公開、%のみ。</p>
+      ${hasStats ? `<div class="perf-stats">${stats}</div>` : ""}
+      ${rows ? `<ul class="perf-list">${rows}</ul>` : ""}
+      <p class="fine">※個人の自動売買システムの記録です。投資助言ではなく、将来の成果を保証するものでもありません。</p>
+    </div>`;
+}
+
+export function publicRegimePage(
+  data: PublicRegimeData | null,
+  perf: PublicPerformanceData | null = null,
+): string {
   const title = "相場局面モニター";
   const description =
     "日本株の相場局面（強気か・休むべきか）を毎日ひと目で。breadth・VIX・日経の客観データから局面を判定します。";
@@ -168,6 +240,7 @@ export function publicRegimePage(data: PublicRegimeData | null): string {
         <p class="fine">登録は先行案内のみに使用します。いつでも解除できます。</p>
       </div>
     </div>
+    ${performanceSection(perf)}
 
     <div class="foot">
       <div class="row"><span>⚖️</span><span>本サービスは客観的な市場データの提示のみを行い、個別銘柄の売買を推奨するものではありません。投資判断はご自身の責任で行ってください。</span></div>
