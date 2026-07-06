@@ -13,7 +13,7 @@ import { prisma } from "../lib/prisma";
 import { getTodayForDB, getStartOfDayJST, getEndOfDayJST, addTradingDays, toJSTDateForDB } from "../lib/market-date";
 import { STRATEGY_SWITCHING } from "../lib/constants";
 import { fetchStockQuote } from "../core/market-data";
-import { closePosition, getCashBalance, getTotalPortfolioValue, getPositionPnl } from "../core/position-manager";
+import { closePosition, getCashBalance, getTotalPortfolioValue, getPositionPnl, getPendingBuyAmount } from "../core/position-manager";
 import type { ExitSnapshot } from "../types/snapshots";
 import { expireOrders } from "../core/order-executor";
 import { syncBrokerOrderStatuses } from "../core/broker-orders";
@@ -379,8 +379,19 @@ export async function main() {
     }
   }
 
-  const portfolioValue = await getTotalPortfolioValue(priceMap);
+  // 引け約定の同期が遅れている間、買付分は「買余力(cashBalance)の減額」としてだけ
+  // 現れ、open ポジションにはまだ存在しない。pending 買い注文の拘束額を保有評価額に
+  // 計上しないと、その日のサマリーだけ equity が買付額ぶん欠損する
+  // （KOH-530: 7/6 は同期 17:33 vs 本処理 17:02 のレースで公開累計が -59% に崩れた）。
+  const pendingBuyAmount = await getPendingBuyAmount();
+  const portfolioValue =
+    (await getTotalPortfolioValue(priceMap)) + pendingBuyAmount;
   const cashBalance = await getCashBalance();
+  if (pendingBuyAmount > 0) {
+    console.log(
+      `  約定同期待ちの買い拘束額 ¥${pendingBuyAmount.toLocaleString()} を保有評価額に計上`,
+    );
+  }
 
   console.log(
     `  決済数: ${totalTrades}, 勝: ${wins}, 負: ${losses}, 損益: ¥${totalPnl.toLocaleString()}, エントリー: ${filledBuyOrders.length}件`,
