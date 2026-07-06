@@ -307,7 +307,7 @@ async function getInvestedAmount(): Promise<number> {
  * (約定時に fillOrder で pending→filled にした後に open ポジションを作成)なので、
  * getInvestedAmount と合算しても二重計上にならない。
  */
-async function getPendingBuyAmount(): Promise<number> {
+export async function getPendingBuyAmount(): Promise<number> {
   const pendingBuys = await prisma.tradingOrder.findMany({
     where: { side: "buy", status: "pending" },
     select: { quantity: true, limitPrice: true, entrySnapshot: true },

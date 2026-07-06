@@ -119,10 +119,36 @@ function jstMonthStart(): Date {
 }
 
 /**
+ * サマリー日（@db.Date = 「JST日付を UTC 00:00 として保存」規約）時点で保有して
+ * いたポジションのエントリーコスト合計。約定同期の遅延で portfolioValue=0 のまま
+ * 保存されたサマリー行の補正用（事後にはポジション行が揃っているため復元できる）。
+ */
+async function heldPositionsCostAt(summaryDate: Date): Promise<number> {
+  // JST のその日の終わり = UTC 同日 15:00
+  const dayEndUtc = dayjs.utc(summaryDate).add(15, "hour").toDate();
+  const positions = await prisma.tradingPosition.findMany({
+    where: {
+      createdAt: { lt: dayEndUtc },
+      OR: [{ exitedAt: null }, { exitedAt: { gte: dayEndUtc } }],
+    },
+    select: { entryPrice: true, quantity: true },
+  });
+  return positions.reduce(
+    (sum, p) => sum + Number(p.entryPrice) * p.quantity,
+    0,
+  );
+}
+
+/**
  * 運用開始からの累計リターン%（金額は返さず % のみ）。
  * total equity = portfolioValue（保有評価額）+ cashBalance（現金/買余力）。
  * 最古と最新の TradingDailySummary の total equity 比から算出する。
  * サマリが1件以下 or 初日 equity が 0 の場合は null。
+ *
+ * 約定同期が end-of-day より遅れた日は「cashBalance は買付分減額済みなのに
+ * portfolioValue=0」の壊れたサマリーが残り得る（KOH-530）。最新行がその状態の
+ * ときは、当日引け時点で保有していたポジションのエントリーコストで補完する
+ * （正常な行では保有ゼロ = 補完も 0 なので影響しない）。
  */
 export async function cumulativeReturnPct(): Promise<number | null> {
   const [first, last] = await Promise.all([
@@ -132,14 +158,19 @@ export async function cumulativeReturnPct(): Promise<number | null> {
     }),
     prisma.tradingDailySummary.findFirst({
       orderBy: { date: "desc" },
-      select: { portfolioValue: true, cashBalance: true },
+      select: { date: true, portfolioValue: true, cashBalance: true },
     }),
   ]);
   if (!first || !last) return null;
 
   const base = Number(first.portfolioValue) + Number(first.cashBalance);
-  const latest = Number(last.portfolioValue) + Number(last.cashBalance);
   if (base <= 0) return null;
+
+  let latestPortfolio = Number(last.portfolioValue);
+  if (latestPortfolio === 0) {
+    latestPortfolio = await heldPositionsCostAt(last.date);
+  }
+  const latest = latestPortfolio + Number(last.cashBalance);
 
   return (latest / base - 1) * 100;
 }
