@@ -53,6 +53,20 @@ export async function main(): Promise<void> {
     now.toDate(),
   );
 
+  // null = やのしん障害(全試行失敗)。「開示なし」と区別して fail-loud する (KOH-529)
+  if (disclosures === null) {
+    console.error(`${tag} やのしん取得失敗(全${BUYBACK.FETCH_RETRY_ATTEMPTS}試行)。本日の観察は欠測`);
+    await notifySlack({
+      title: "[BUYBACK/観察] ⚠️ やのしん障害で取得失敗（本日は欠測）",
+      message: [
+        `全${BUYBACK.FETCH_RETRY_ATTEMPTS}試行(10分間隔)が失敗。「開示0件」ではなくAPI障害です。`,
+        `7日ルックバック+tdnetIdべき等により、明日以降のラン成功で自動回収されます。`,
+      ].join("\n"),
+      color: "danger",
+    });
+    return;
+  }
+
   // 既知の開示(前夜までに記録済み)は通知から除外する。7日窓では大半が既知になるため
   const known = new Set(
     (

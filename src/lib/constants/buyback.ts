@@ -29,6 +29,10 @@ export const BUYBACK = {
    * 連続数晩の障害でも後続ジョブが取り逃しを回収できる幅を持たせる。tdnetId upsert でべき等。
    */
   FETCH_LOOKBACK_DAYS: 7,
+  /** 取得試行回数。やのしんの障害は数十分単位で続くため、間隔を空けて跨ぐ (KOH-529) */
+  FETCH_RETRY_ATTEMPTS: 3,
+  /** 試行間の待機ms(10分)。20:00のcronから最大+20分で障害の谷を越える */
+  FETCH_RETRY_WAIT_MS: 10 * 60 * 1000,
 } as const;
 
 /**
