@@ -24,6 +24,11 @@ export const BUYBACK = {
   OBSERVE_ONLY: (process.env.BUYBACK_OBSERVE_ONLY || "true") !== "false",
   /** 開示がこの時刻(JST hour)以降なら翌営業日エントリー(引け後開示) */
   POST_CLOSE_HOUR: 15,
+  /**
+   * 開示取得のルックバック日数。やのしんは丸1日級の障害が起きる(2026-07-05〜06実測)ため、
+   * 連続数晩の障害でも後続ジョブが取り逃しを回収できる幅を持たせる。tdnetId upsert でべき等。
+   */
+  FETCH_LOOKBACK_DAYS: 7,
 } as const;
 
 /**

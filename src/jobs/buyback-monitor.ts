@@ -46,16 +46,30 @@ export async function main(): Promise<void> {
   const breadth = assessment?.breadth != null ? Number(assessment.breadth) : null;
   const isIdleToday = breadth != null && breadth < MARKET_BREADTH.THRESHOLD;
 
-  // 当日＋前日の開示を取得(引け後の遅い開示・前日夜間分を取りこぼさない。tdnetId でべき等)
+  // 直近7日分の開示を取得(やのしん障害が連続しても後続ジョブで回収できる幅。tdnetId でべき等)
   const now = dayjs().tz(TIMEZONE);
   const disclosures = await fetchBuybackDisclosures(
-    now.subtract(1, "day").toDate(),
+    now.subtract(BUYBACK.FETCH_LOOKBACK_DAYS, "day").toDate(),
     now.toDate(),
   );
 
-  const recorded: { code: string; company: string; entryDate: string; idle: boolean }[] = [];
+  // 既知の開示(前夜までに記録済み)は通知から除外する。7日窓では大半が既知になるため
+  const known = new Set(
+    (
+      await prisma.buybackSignal.findMany({
+        where: { tdnetId: { in: disclosures.map((d) => d.tdnetId) } },
+        select: { tdnetId: true },
+      })
+    ).map((r) => r.tdnetId),
+  );
+
+  const todayDb = getTodayForDB();
+  const recorded: { code: string; company: string; entryDate: string; idle: boolean; late: boolean }[] = [];
   for (const dsc of disclosures) {
+    if (known.has(dsc.tdnetId)) continue;
     const entryDate = computeEntryDate(dsc.pubdate);
+    // 障害キャッチアップ等で想定エントリー日を過ぎて検出した開示は記録のみ(発注対象外としてマーク)
+    const isLate = entryDate.getTime() < todayDb.getTime();
     const tickerT = `${dsc.code}.T`;
 
     // 想定エントリー価格(best-effort: 直近終値)
@@ -80,7 +94,11 @@ export async function main(): Promise<void> {
         japanBreadth: breadth,
         isIdle: isIdleToday,
         observeOnly: BUYBACK.OBSERVE_ONLY,
-        skipReason: BUYBACK.OBSERVE_ONLY ? "観察モード(Phase A・発注禁止)" : null,
+        skipReason: isLate
+          ? "遅延検出(想定エントリー日超過・記録のみ)"
+          : BUYBACK.OBSERVE_ONLY
+            ? "観察モード(Phase A・発注禁止)"
+            : null,
       },
       update: {}, // 既存は不変(初回検出時の breadth/価格を保持)
     });
@@ -90,6 +108,7 @@ export async function main(): Promise<void> {
       company: dsc.companyName,
       entryDate: dayjs(entryDate).format("YYYY-MM-DD"),
       idle: isIdleToday,
+      late: isLate,
     });
   }
 
@@ -109,7 +128,9 @@ export async function main(): Promise<void> {
         : `*⚪ band帯(breadth ${breadthStr} ≥ 54%) → GU/PSC稼働中につき見送り対象*`,
     );
     for (const r of recorded) {
-      lines.push(`  ${r.code} ${r.company}（想定エントリー ${r.entryDate}）`);
+      lines.push(
+        `  ${r.code} ${r.company}（想定エントリー ${r.entryDate}${r.late ? "・遅延検出/記録のみ" : ""}）`,
+      );
     }
     lines.push("");
     lines.push("※ 観察モード(Phase A): DB記録のみ、発注なし");
