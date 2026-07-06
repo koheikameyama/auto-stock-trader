@@ -4,8 +4,11 @@
  * ログイン時に取得した sUrlEventWebSocket（wss://）に接続し、
  * 約定通知（EC）やキープアライブ（KP）をリアルタイムで受信する。
  *
- * メッセージ形式: \x01（SOH）区切りのキー・バリューペア
- * 例: "p_no\x011\x01p_date\x012026.03.20-10:00:00.000\x01p_cmd\x01KP"
+ * メッセージ形式: ペア間は \x01（SOH）区切り、キーと値の間は \x02（STX）区切り
+ * 例: "p_no\x021\x01p_date\x022026.07.06-17:44:11.367\x01p_cmd\x02KP\x01"
+ * （2026-07-06 デモ実測 + go-tachibanaapi 実装で確認。旧実装は「\x01 区切りでキー・値が
+ *   交互」と誤解釈しており、p_cmd が一切取れず全メッセージを破棄 → KP タイマーが
+ *   リセットされず30秒毎に再接続ループ + EC 約定通知の全取りこぼしが起きていた, KOH-528）
  */
 
 import { EventEmitter } from "events";
@@ -30,11 +33,10 @@ const DEFAULT_EVENT_TYPES = ["ST", "KP", "EC", "SS", "US"];
 /**
  * KP（キープアライブ）タイムアウト（ms）— この時間 KP/メッセージが途切れたら再接続。
  *
- * 立花の KP 送信間隔は 15秒。タイムアウトを送信間隔と同値(15秒)にすると、
- * ネットワーク遅延・イベントループの詰まり・GC の数ms のジッタでも 15秒を超えて
- * 誤って再接続が頻発する（heartbeat == timeout アンチパターン）。
- * 送信間隔の2倍(30秒)にして KP 1回の取りこぼしを許容し、2回連続(=30秒無音)で
- * 初めて再接続する。真の切断は30秒以内に検知でき、再接続 churn による EC 取りこぼしを防ぐ。
+ * 立花の KP 送信間隔は 5秒（2026-07-06 デモ実測。旧記載の15秒は誤り）。
+ * タイムアウト30秒 = KP 5〜6回分の無音を許容してから再接続する。
+ * heartbeat == timeout アンチパターン（ジッタで誤再接続が頻発）を避けつつ、
+ * 真の切断は30秒以内に検知でき、再接続 churn による EC 取りこぼしを防ぐ。
  */
 const KP_TIMEOUT_MS = 30_000;
 
@@ -121,20 +123,27 @@ export function msUntilNextConnectionWindow(now?: Date): number {
 // ========================================
 
 /**
- * \x01 区切りメッセージをパースしてフィールドマップにする
+ * EVENT I/F メッセージをパースしてフィールドマップにする
  *
- * 例: "p_no\x011\x01p_cmd\x01KP" → { p_no: "1", p_cmd: "KP" }
+ * ペア間は \x01（SOH）、キーと値の間は \x02（STX）で区切られる。
+ * 例: "p_no\x021\x01p_cmd\x02KP\x01" → { p_no: "1", p_cmd: "KP" }
  */
 export function parseEventMessage(
   message: string,
 ): Record<string, string> {
   const fields: Record<string, string> = {};
-  const parts = message.split("\x01");
 
-  for (let i = 0; i < parts.length - 1; i += 2) {
-    const key = parts[i]!.trim();
-    const value = parts[i + 1] ?? "";
-    if (key) fields[key] = value;
+  for (const pair of message.split("\x01")) {
+    if (!pair) continue;
+    const sep = pair.indexOf("\x02");
+    if (sep === -1) {
+      // 値なし（キーのみ）のペア
+      const key = pair.trim();
+      if (key) fields[key] = "";
+      continue;
+    }
+    const key = pair.slice(0, sep).trim();
+    if (key) fields[key] = pair.slice(sep + 1);
   }
 
   return fields;
@@ -266,26 +275,41 @@ export class BrokerEventStream extends EventEmitter {
   }
 
   private handleMessage(message: string): void {
+    // どんなメッセージでも「受信できた」こと自体が接続の生存証明。
+    // パース結果に依らず先にタイマーをリセットする（パース不能メッセージで
+    // タイマーが放置され誤再接続する事故を防ぐ）。
+    this.resetKpTimer();
+
     const fields = parseEventMessage(message);
     const cmd = fields.p_cmd;
 
-    if (!cmd) return;
+    if (!cmd) {
+      console.warn(
+        `[BrokerEventStream] p_cmd なしメッセージ: ${JSON.stringify(message.slice(0, 200))}`,
+      );
+      return;
+    }
+
+    // サーバー側エラー通知（例: p_errno=2, p_err="session inactive."）
+    if (fields.p_errno && fields.p_errno !== "0") {
+      console.warn(
+        `[BrokerEventStream] Server error: errno=${fields.p_errno} err=${fields.p_err ?? ""} (cmd=${cmd})`,
+      );
+      this.emit("serverError", { errno: fields.p_errno, message: fields.p_err ?? "", cmd });
+    }
 
     switch (cmd) {
       case "KP":
-        this.resetKpTimer();
         this.emit("keepalive");
         break;
 
       case "EC":
-        this.resetKpTimer();
         this.handleExecutionEvent(fields);
         break;
 
       case "ST":
       case "SS":
       case "US":
-        this.resetKpTimer();
         console.log(
           `[BrokerEventStream] ${cmd} message:`,
           JSON.stringify(fields),
@@ -294,14 +318,14 @@ export class BrokerEventStream extends EventEmitter {
         break;
 
       default:
-        this.resetKpTimer();
         break;
     }
   }
 
   private handleExecutionEvent(fields: Record<string, string>): void {
-    const orderNumber = fields.p_order_number ?? fields.sOrderNumber ?? "";
-    const businessDay = fields.p_eigyou_day ?? fields.sEigyouDay ?? "";
+    // v4r9 EVENT I/F の EC 通知フィールド: p_ON=注文番号, p_ED=営業日(YYYYMMDD)
+    const orderNumber = fields.p_ON ?? "";
+    const businessDay = fields.p_ED ?? "";
 
     if (!orderNumber) {
       console.warn(

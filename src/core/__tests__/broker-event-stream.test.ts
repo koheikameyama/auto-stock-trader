@@ -13,23 +13,24 @@ import type { ExecutionEvent } from "../broker-event-stream";
 // ========================================
 
 describe("parseEventMessage", () => {
-  it("SOH区切りのキー・バリューペアをパースする", () => {
-    const msg = "p_no\x011\x01p_cmd\x01KP";
-    const result = parseEventMessage(msg);
-    expect(result).toEqual({ p_no: "1", p_cmd: "KP" });
-  });
-
-  it("複数フィールドをパースする", () => {
-    const msg =
-      "p_no\x011\x01p_date\x012026.03.20-10:00:00.000\x01p_cmd\x01EC\x01p_order_number\x01123456\x01p_eigyou_day\x0120260320";
+  it("KPメッセージをパースする（2026-07-06 デモ実測フォーマット）", () => {
+    const msg = "p_no\x0210\x01p_date\x022026.07.06-17:44:11.367\x01p_cmd\x02KP\x01";
     const result = parseEventMessage(msg);
     expect(result).toEqual({
-      p_no: "1",
-      p_date: "2026.03.20-10:00:00.000",
-      p_cmd: "EC",
-      p_order_number: "123456",
-      p_eigyou_day: "20260320",
+      p_no: "10",
+      p_date: "2026.07.06-17:44:11.367",
+      p_cmd: "KP",
     });
+  });
+
+  it("USメッセージをパースする（2026-07-06 デモ実測フォーマット）", () => {
+    const msg =
+      "p_no\x023\x01p_date\x022026.07.06-17:44:06.257\x01p_cmd\x02US\x01p_PV\x02MSGSV\x01p_ENO\x0260\x01p_ALT\x020\x01p_CT\x0220260706083726\x01p_MC\x0200\x01p_GSCD\x02\x01p_SHSB\x02\x01p_UC\x0201\x01p_UU\x020101\x01p_EDK\x020\x01p_US\x02100\x01";
+    const result = parseEventMessage(msg);
+    expect(result.p_cmd).toBe("US");
+    expect(result.p_ENO).toBe("60");
+    expect(result.p_US).toBe("100");
+    expect(result.p_GSCD).toBe(""); // 値が空のフィールド
   });
 
   it("空文字列を処理する", () => {
@@ -37,16 +38,30 @@ describe("parseEventMessage", () => {
     expect(result).toEqual({});
   });
 
-  it("奇数個のパーツ（末尾にキーのみ）を処理する", () => {
-    const msg = "p_no\x011\x01p_cmd";
+  it("値なし（キーのみ）のペアを処理する", () => {
+    const msg = "p_no\x021\x01p_cmd";
     const result = parseEventMessage(msg);
-    expect(result).toEqual({ p_no: "1" });
+    expect(result).toEqual({ p_no: "1", p_cmd: "" });
   });
 
   it("値が空文字のフィールドを処理する", () => {
-    const msg = "p_no\x01\x01p_cmd\x01KP";
+    const msg = "p_no\x02\x01p_cmd\x02KP\x01";
     const result = parseEventMessage(msg);
     expect(result).toEqual({ p_no: "", p_cmd: "KP" });
+  });
+
+  it("値に\\x01を含まない通常のECメッセージをパースする", () => {
+    const msg =
+      "p_no\x025\x01p_date\x022026.07.06-15:30:01.000\x01p_cmd\x02EC\x01p_ON\x026015922\x01p_ED\x0220260706\x01p_IC\x029304\x01";
+    const result = parseEventMessage(msg);
+    expect(result).toEqual({
+      p_no: "5",
+      p_date: "2026.07.06-15:30:01.000",
+      p_cmd: "EC",
+      p_ON: "6015922",
+      p_ED: "20260706",
+      p_IC: "9304",
+    });
   });
 });
 
@@ -153,18 +168,18 @@ describe("BrokerEventStream", () => {
 
       // handleMessage を直接テスト（WebSocket接続なし）
       const handleMessage = (stream as unknown as { handleMessage: (msg: string) => void }).handleMessage.bind(stream);
-      handleMessage("p_no\x011\x01p_cmd\x01KP");
+      handleMessage("p_no\x0210\x01p_date\x022026.07.06-17:44:11.367\x01p_cmd\x02KP\x01");
 
       expect(handler).toHaveBeenCalledOnce();
     });
 
-    it("ECメッセージでexecutionイベントを発火する", () => {
+    it("ECメッセージでexecutionイベントを発火する（p_ON/p_ED）", () => {
       const handler = vi.fn();
       stream.on("execution", handler);
 
       const handleMessage = (stream as unknown as { handleMessage: (msg: string) => void }).handleMessage.bind(stream);
       handleMessage(
-        "p_no\x011\x01p_cmd\x01EC\x01p_order_number\x01789012\x01p_eigyou_day\x0120260320",
+        "p_no\x021\x01p_cmd\x02EC\x01p_ON\x02789012\x01p_ED\x0220260320\x01p_IC\x029304\x01",
       );
 
       expect(handler).toHaveBeenCalledOnce();
@@ -179,7 +194,7 @@ describe("BrokerEventStream", () => {
       stream.on("status", handler);
 
       const handleMessage = (stream as unknown as { handleMessage: (msg: string) => void }).handleMessage.bind(stream);
-      handleMessage("p_no\x011\x01p_cmd\x01ST");
+      handleMessage("p_no\x021\x01p_cmd\x02ST\x01");
 
       expect(handler).toHaveBeenCalledOnce();
       expect(handler.mock.calls[0][0]).toEqual({
@@ -193,7 +208,7 @@ describe("BrokerEventStream", () => {
       stream.on("status", handler);
 
       const handleMessage = (stream as unknown as { handleMessage: (msg: string) => void }).handleMessage.bind(stream);
-      handleMessage("p_no\x011\x01p_cmd\x01SS");
+      handleMessage("p_no\x021\x01p_cmd\x02SS\x01");
 
       expect(handler).toHaveBeenCalledOnce();
       expect(handler.mock.calls[0][0].type).toBe("SS");
@@ -204,13 +219,13 @@ describe("BrokerEventStream", () => {
       stream.on("status", handler);
 
       const handleMessage = (stream as unknown as { handleMessage: (msg: string) => void }).handleMessage.bind(stream);
-      handleMessage("p_no\x011\x01p_cmd\x01US");
+      handleMessage("p_no\x021\x01p_cmd\x02US\x01");
 
       expect(handler).toHaveBeenCalledOnce();
       expect(handler.mock.calls[0][0].type).toBe("US");
     });
 
-    it("p_cmdがないメッセージは無視する", () => {
+    it("p_cmdがないメッセージはイベントを発火しない", () => {
       const keepaliveHandler = vi.fn();
       const executionHandler = vi.fn();
       const statusHandler = vi.fn();
@@ -219,11 +234,29 @@ describe("BrokerEventStream", () => {
       stream.on("status", statusHandler);
 
       const handleMessage = (stream as unknown as { handleMessage: (msg: string) => void }).handleMessage.bind(stream);
-      handleMessage("p_no\x011\x01p_date\x012026.03.20");
+      handleMessage("p_no\x021\x01p_date\x022026.03.20\x01");
 
       expect(keepaliveHandler).not.toHaveBeenCalled();
       expect(executionHandler).not.toHaveBeenCalled();
       expect(statusHandler).not.toHaveBeenCalled();
+    });
+
+    it("サーバーエラー通知（p_errno≠0）でserverErrorイベントを発火する", () => {
+      const handler = vi.fn();
+      stream.on("serverError", handler);
+
+      // 2026-07-06 デモ実測（session inactive）
+      const handleMessage = (stream as unknown as { handleMessage: (msg: string) => void }).handleMessage.bind(stream);
+      handleMessage(
+        "p_no\x021\x01p_date\x022026.07.06-17:45:26.324\x01p_errno\x022\x01p_err\x02session inactive.\x01p_cmd\x02ST\x01",
+      );
+
+      expect(handler).toHaveBeenCalledOnce();
+      expect(handler.mock.calls[0][0]).toEqual({
+        errno: "2",
+        message: "session inactive.",
+        cmd: "ST",
+      });
     });
   });
 
@@ -233,24 +266,9 @@ describe("BrokerEventStream", () => {
       stream.on("execution", handler);
 
       const handleMessage = (stream as unknown as { handleMessage: (msg: string) => void }).handleMessage.bind(stream);
-      handleMessage("p_no\x011\x01p_cmd\x01EC");
+      handleMessage("p_no\x021\x01p_cmd\x02EC\x01");
 
       expect(handler).not.toHaveBeenCalled();
-    });
-
-    it("sOrderNumberフィールドからも注文番号を取得できる", () => {
-      const handler = vi.fn();
-      stream.on("execution", handler);
-
-      const handleMessage = (stream as unknown as { handleMessage: (msg: string) => void }).handleMessage.bind(stream);
-      handleMessage(
-        "p_no\x011\x01p_cmd\x01EC\x01sOrderNumber\x01555555\x01sEigyouDay\x0120260320",
-      );
-
-      expect(handler).toHaveBeenCalledOnce();
-      const event: ExecutionEvent = handler.mock.calls[0][0];
-      expect(event.orderNumber).toBe("555555");
-      expect(event.businessDay).toBe("20260320");
     });
   });
 
