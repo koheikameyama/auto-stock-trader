@@ -2,10 +2,13 @@
  * Slack通知ユーティリティ（自動売買システム用）
  */
 
-const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
+// GitHub Actions では未登録の secret が空文字 "" として注入されるため、
+// 空文字は未設定（undefined）として正規化し、?? / || のフォールバックが効くようにする。
+const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || undefined;
 
 /** SNS投稿（morning/daily-social-post）通知の専用webhook。未設定時はデフォルトにフォールバック */
-export const SNS_POST_SLACK_WEBHOOK_URL = process.env.SNS_POST_SLACK_WEBHOOK_URL;
+export const SNS_POST_SLACK_WEBHOOK_URL =
+  process.env.SNS_POST_SLACK_WEBHOOK_URL || undefined;
 
 type SlackColor = "good" | "warning" | "danger" | string;
 
@@ -27,7 +30,7 @@ interface SlackNotifyOptions {
  * Slackにメッセージを送信
  */
 export async function notifySlack(options: SlackNotifyOptions): Promise<void> {
-  const url = options.webhookUrl ?? SLACK_WEBHOOK_URL;
+  const url = options.webhookUrl || SLACK_WEBHOOK_URL;
   if (!url) {
     console.log(
       "⚠️  SLACK_WEBHOOK_URL not configured, skipping notification",
