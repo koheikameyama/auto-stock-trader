@@ -114,7 +114,9 @@ function makePosition(overrides: {
     trailingStopPrice: overrides.trailingStopPrice ?? null,
     slBrokerOrderId: slId,
     slBrokerBusinessDay: slId ? (overrides.slBrokerBusinessDay ?? "20260403") : null,
-    createdAt: overrides.createdAt ?? new Date(Date.now() - 10 * 60 * 1000), // 10分前
+    // 既定は前営業日以前の開設（missing-holding/ SL約定リカバリの検知対象）。当日開設は保有反映ラグで
+    // スキップされるため、その挙動は専用テストで createdAt を当日に上書きして検証する。
+    createdAt: overrides.createdAt ?? new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), // 2日前
     stock: {
       tickerCode: overrides.ticker ?? "7203.T",
       name: "トヨタ自動車",
@@ -213,6 +215,23 @@ describe("broker-reconciliation: Phase 3 保有照合", () => {
         title: expect.stringContaining("要確認"),
         color: "warning",
       }),
+    );
+  });
+
+  it("当日開設ポジションはブローカー保有なしでもスキップする（引け後の保有反映ラグによる誤警報防止）", async () => {
+    const todayPosition = makePosition({
+      slBrokerOrderId: null,
+      createdAt: new Date(Date.now() - 15 * 60 * 1000), // 当日・15分前（5分猶予は超過済み）
+    });
+    setupForPhase3([todayPosition]);
+    mockGetHoldings.mockResolvedValue([]); // 当日約定の保有反映ラグでブローカー保有なし
+
+    await main();
+
+    // 当日開設なのでSL約定リカバリも「要確認」誤警報通知もしない
+    expect(mockClosePosition).not.toHaveBeenCalled();
+    expect(mockNotifySlack).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: expect.stringContaining("要確認") }),
     );
   });
 

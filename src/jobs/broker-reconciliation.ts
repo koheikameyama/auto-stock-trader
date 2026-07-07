@@ -318,6 +318,17 @@ async function reconcileHoldings(): Promise<void> {
     const holding = holdingMap.get(ticker);
 
     if (!holding) {
+      // 引け成行約定は立花の保有一覧（CLMGenbutuKabuList）への反映が引け後しばらく遅れ、当日は
+      // 載らないことがある。当日開設ポジションを場外照合で「保有なし」と誤判定しないようスキップする。
+      // 当日約定ポジションが当日にSL約定することは構造上あり得ず（SLは翌営業日以降のみ約定）、本物の
+      // 欠落（オーバーナイトSL約定・不整合）は翌営業日9:05以降の照合で保有反映後に検知する。
+      // 5分の HOLDINGS_GRACE_PERIOD_MS は引け後の反映ラグに足りず、15:45 の場外照合で誤警報が出ていた。
+      if (dayjs(position.createdAt).tz(TIMEZONE).isSame(nowJST, "day")) {
+        console.log(
+          `[broker-reconciliation] ${ticker}: 当日開設・ブローカー保有未反映（引け後の反映ラグ）とみなしスキップ`,
+        );
+        continue;
+      }
       // ブローカーに保有なし → SL約定の可能性
       console.log(
         `[broker-reconciliation] ${ticker}: DBオープンポジションあり、ブローカー保有なし → SL約定を確認`,

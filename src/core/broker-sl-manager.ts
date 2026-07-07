@@ -11,6 +11,7 @@
 import dayjs from "dayjs";
 import { prisma } from "../lib/prisma";
 import { TIME_STOP } from "../lib/constants";
+import { TACHIBANA_ORDER_RESULT } from "../lib/constants/broker";
 import { adjustToTradingDay } from "../lib/market-date";
 import {
   submitOrder,
@@ -111,15 +112,26 @@ export async function submitBrokerSL(params: {
         fields,
       }).catch(() => {});
     } else if (!result.success) {
-      console.error(
-        `[broker-sl] Failed to submit SL order for ${params.ticker}: ${result.error}`,
+      // 11102（受付時間外）は引け後の即時SL発注で必ず出る良性エラー。ensure-broker-sl が
+      // 後で発注するため danger 通知は出さず警告ログに留める（引け成行約定ごとの誤警報防止）。
+      const isOutsideHours = (result.error ?? "").includes(
+        `sub:${TACHIBANA_ORDER_RESULT.OUTSIDE_ACCEPTANCE_HOURS}`,
       );
-      if (shouldNotifySLError(`submit:${params.ticker}:${result.error}`)) {
-        await notifySlack({
-          title: "SL注文発注失敗",
-          message: `${params.ticker}: ${result.error}`,
-          color: "danger",
-        }).catch(() => {});
+      if (isOutsideHours) {
+        console.warn(
+          `[broker-sl] ${params.ticker}: 受付時間外(11102)によりSL発注不可 → ensure-broker-sl に委譲: ${result.error}`,
+        );
+      } else {
+        console.error(
+          `[broker-sl] Failed to submit SL order for ${params.ticker}: ${result.error}`,
+        );
+        if (shouldNotifySLError(`submit:${params.ticker}:${result.error}`)) {
+          await notifySlack({
+            title: "SL注文発注失敗",
+            message: `${params.ticker}: ${result.error}`,
+            color: "danger",
+          }).catch(() => {});
+        }
       }
     }
   } catch (err) {

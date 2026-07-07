@@ -15,6 +15,7 @@ import {
   TACHIBANA_ORDER,
   TACHIBANA_ORDER_STATUS,
   TACHIBANA_ORDER_QUERY,
+  TACHIBANA_ORDER_RESULT,
   isTachibanaProduction,
 } from "../lib/constants/broker";
 import { TIMEZONE } from "../lib/constants";
@@ -464,8 +465,14 @@ async function executeLiveOrder(
     const subCode = String(res.sOrderResultCode ?? "0");
     if (subCode !== "0") {
       const responseJson = JSON.stringify(res);
-      console.error("[broker-orders] 発注失敗 response:", responseJson);
-      await notifySlack({ title: "発注失敗 APIレスポンス", message: responseJson, color: "danger" });
+      // 11102（受付時間外）は引け成行約定直後の即時SL発注で必ず出る良性エラー。
+      // ensure-broker-sl が後で発注するため danger 通知は出さず警告ログに留める（誤警報防止）。
+      if (subCode === TACHIBANA_ORDER_RESULT.OUTSIDE_ACCEPTANCE_HOURS) {
+        console.warn("[broker-orders] 受付時間外(11102)により発注不可 response:", responseJson);
+      } else {
+        console.error("[broker-orders] 発注失敗 response:", responseJson);
+        await notifySlack({ title: "発注失敗 APIレスポンス", message: responseJson, color: "danger" });
+      }
       return {
         success: false,
         error: `[sub:${subCode}] ${res.sOrderResultText ?? "Unknown error"}`,
