@@ -14,12 +14,14 @@
 **`npx prisma` を実行する前に、必ず接続先DBを確認すること。**
 
 ```bash
-# .envのDATABASE_URLを確認
-grep DATABASE_URL .env
+# .envのDATABASE_URLを確認（.env は dotenvx で暗号化されているため grep 不可）
+npx dotenvx get DATABASE_URL
 ```
 
 - `localhost` または `127.0.0.1` → ローカルDB → 実行OK
 - それ以外（`railway.app` 等） → **本番DB → 絶対に実行しない**
+
+**注意（2026-07-07〜）**: `.env` は dotenvx で暗号化されており、`npx prisma migrate dev` を素で実行しても復号されず接続エラーになる。Prisma CLI は必ず `npm run db:migrate` などのラップ済み npm script、または `npx dotenvx run -- npx prisma <cmd>` 経由で実行すること。
 
 **この確認を怠ったことで、本番DBに `prisma migrate resolve --applied` を誤実行した事故が発生した（2026-02-22）。**
 
@@ -38,15 +40,16 @@ grep DATABASE_URL .env
 
 ```bash
 # 接続先確認（必須）
-grep DATABASE_URL .env  # localhost であることを確認
+npx dotenvx get DATABASE_URL  # localhost であることを確認
 
-# ローカルでマイグレーション作成
-npx prisma migrate dev --name <変更内容>
+# ローカルでマイグレーション作成（dotenvx 経由で .env を復号）
+npm run db:migrate -- --name <変更内容>
+# または: npx dotenvx run -- npx prisma migrate dev --name <変更内容>
 
 # または手動マイグレーション作成（シャドウDBエラー時）
 mkdir -p prisma/migrations/YYYYMMDDHHMMSS_<変更内容>
 # migration.sql を作成
-# → npx prisma migrate resolve --applied はローカルDBのみ
+# → prisma migrate resolve --applied はローカルDBのみ（dotenvx run 経由）
 
 # ローカルでPrisma Clientを再生成
 npx prisma generate

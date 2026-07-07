@@ -138,6 +138,24 @@ position-monitor は Railway Worker の node-cron で市場時間中を毎分実
 cp .env.example .env
 ```
 
+#### .env の暗号化（dotenvx）
+
+`.env` は [dotenvx](https://dotenvx.com) で暗号化して保管します（平文のシークレットをディスクに置かない）。
+
+```bash
+# 値を設定したら暗号化（復号鍵 .env.keys が生成される）
+npx dotenvx encrypt
+
+# 値の確認・変更は dotenvx 経由で行う
+npx dotenvx get DATABASE_URL
+npx dotenvx set SOME_KEY "value"
+```
+
+- npm scripts は `dotenvx run --` でラップ済みのため、`npm run <script>` は自動的に復号された環境変数で動作します
+- **`.env`（暗号化済み）と `.env.keys`（復号鍵）はどちらも git にコミットしません**（公開リポジトリのため）。`.env.keys` は必ずパスワードマネージャー等に別途バックアップしてください
+- Prisma CLI を直接使う場合は `npx dotenvx run -- npx prisma <cmd>` または `npm run db:migrate` を使用します
+- Railway / GitHub Actions は従来どおり環境変数（Railway Variables / GitHub Secrets）から注入されるため dotenvx の影響を受けません（`.env` 不在時は警告のみで続行）
+
 #### ブローカー・市場データ設定
 
 トレーディング動作を制御する2つの環境変数:

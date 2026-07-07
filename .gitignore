@@ -27,6 +27,8 @@ yarn-error.log*
 # local env files
 .env
 .env*.local
+# dotenvx 復号鍵（暗号化した .env とセットで絶対にコミットしない）
+.env.keys
 
 # claude code local settings
 .claude/settings.local.json

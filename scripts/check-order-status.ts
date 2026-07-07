@@ -3,7 +3,7 @@
  * Usage: npx tsx scripts/check-order-status.ts 1963
  */
 
-import "dotenv/config";
+import "@dotenvx/dotenvx/config";
 import { getTachibanaClient } from "../src/core/broker-client";
 import { TACHIBANA_CLMID } from "../src/lib/constants/broker";
 import { tickerToBrokerCode } from "../src/lib/ticker-utils";

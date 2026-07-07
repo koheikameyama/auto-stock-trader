@@ -5,7 +5,7 @@
  * Usage: npx tsx scripts/debug-event-stream.ts
  */
 
-import "dotenv/config";
+import "@dotenvx/dotenvx/config";
 import { getTachibanaClient } from "../src/core/broker-client";
 import { getBrokerEventStream } from "../src/core/broker-event-stream";
 
