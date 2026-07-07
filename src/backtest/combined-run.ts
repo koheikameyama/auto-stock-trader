@@ -3046,6 +3046,56 @@ async function main() {
   console.log(`ポジション枠: ${slotsParts.join(" + ")}`);
   const result = runCombinedSimulation(ctx, defaultLimits);
 
+  // --dump-equity <path>: 日次エクイティカーブ + breadth + N225 を JSON 出力（グラフ用）
+  const dumpEquityPath = getArg(args, "--dump-equity");
+  if (dumpEquityPath) {
+    const rows = result.equityCurve.map((e) => ({
+      date: e.date,
+      totalEquity: Math.round(e.totalEquity),
+      openPositionCount: e.openPositionCount,
+      breadth: precomputed.dailyBreadth.get(e.date) ?? null,
+      n225: indexData.get(e.date) ?? null,
+    }));
+    fs.writeFileSync(
+      dumpEquityPath,
+      JSON.stringify(
+        { startDate, endDate, budget, totalCapitalAdded: result.totalCapitalAdded, rows },
+        null,
+        2,
+      ),
+    );
+    console.log(`\n📈 エクイティカーブを出力: ${dumpEquityPath} (${rows.length}日)`);
+  }
+
+  // --dump-trades <path>: 全トレード明細を戦略ラベル付きで JSON 出力（要因分析用）
+  const dumpTradesPath = getArg(args, "--dump-trades");
+  if (dumpTradesPath) {
+    const label = (t: SimulatedPosition, s: string) => ({
+      strategy: s,
+      ticker: t.ticker,
+      entryDate: t.entryDate,
+      exitDate: t.exitDate,
+      entryPrice: t.entryPrice,
+      exitPrice: t.exitPrice,
+      quantity: t.quantity,
+      exitReason: t.exitReason,
+      pnl: t.pnl == null ? null : Math.round(t.pnl),
+      pnlPct: t.pnlPct,
+      holdingDays: t.holdingDays,
+    });
+    const rows = [
+      ...result.guTrades.map((t) => label(t, "GU")),
+      ...result.pscTrades.map((t) => label(t, "PSC")),
+      ...result.boTrades.map((t) => label(t, "BO")),
+      ...result.wbTrades.map((t) => label(t, "WB")),
+      ...result.momTrades.map((t) => label(t, "MOM")),
+      ...result.etfTrades.map((t) => label(t, "ETF")),
+      ...result.buybackTrades.map((t) => label(t, "BUYBACK")),
+    ].sort((a, b) => (a.exitDate ?? "9999").localeCompare(b.exitDate ?? "9999"));
+    fs.writeFileSync(dumpTradesPath, JSON.stringify({ startDate, endDate, budget, rows }, null, 2));
+    console.log(`📋 トレード明細を出力: ${dumpTradesPath} (${rows.length}件)`);
+  }
+
   console.log("\n" + "=".repeat(60));
   console.log("統合バックテスト結果");
   console.log("=".repeat(60));
