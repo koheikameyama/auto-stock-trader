@@ -18,6 +18,7 @@ import riskRoute from "./routes/risk";
 import weeklyRoute from "./routes/weekly";
 import unfilledOrdersRoute from "./routes/unfilled-orders";
 import newsRoute from "./routes/news";
+import waitlistRoute from "./routes/waitlist";
 import apiRoute from "./routes/api";
 import cronRoute from "./routes/cron";
 import rejectedSignalsRoute from "./routes/rejected-signals";
@@ -208,6 +209,7 @@ app.route("/risk", riskRoute);
 app.route("/weekly", weeklyRoute);
 app.route("/unfilled-orders", unfilledOrdersRoute);
 app.route("/news", newsRoute);
+app.route("/waitlist", waitlistRoute);
 app.route("/rejected-signals", rejectedSignalsRoute);
 
 // 相場局面プロダクト 公開ページ（/live は公開）
