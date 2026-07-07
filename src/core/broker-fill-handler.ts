@@ -111,7 +111,8 @@ export async function handleBrokerFill(
       const nullDayOrder = await prisma.tradingOrder.findFirst({
         where: {
           brokerOrderId: orderNumber,
-          brokerBusinessDay: null,
+          // 過去データは空文字で保存されているケースがあるため null と両方を救済（KOH-532）
+          OR: [{ brokerBusinessDay: null }, { brokerBusinessDay: "" }],
           status: "pending",
         },
         include: { stock: true },
@@ -139,7 +140,7 @@ export async function handleBrokerFill(
         include: { stock: { select: { tickerCode: true, name: true } } },
       });
       if (slPosition) {
-        await handleBrokerSLFill(slPosition);
+        await handleBrokerSLFill(slPosition, businessDay);
         return;
       }
       console.log(
@@ -444,23 +445,46 @@ async function handleSellFill(
  * broker-reconciliation の handleMissingHolding（保有照合・遅延バックアップ）と同型の処理を
  * リアルタイム化したもの。両者は closePosition 前の status ガードでべき等（二重クローズしない）。
  */
-export async function handleBrokerSLFill(position: {
-  id: string;
-  quantity: number;
-  strategy: string;
-  entryPrice: unknown;
-  stopLossPrice: unknown;
-  trailingStopPrice: unknown;
-  slBrokerOrderId: string | null;
-  slBrokerBusinessDay: string | null;
-  stock: { tickerCode: string; name: string };
-}): Promise<void> {
+export async function handleBrokerSLFill(
+  position: {
+    id: string;
+    quantity: number;
+    strategy: string;
+    entryPrice: unknown;
+    stopLossPrice: unknown;
+    trailingStopPrice: unknown;
+    slBrokerOrderId: string | null;
+    slBrokerBusinessDay: string | null;
+    stock: { tickerCode: string; name: string };
+  },
+  eventBusinessDay?: string,
+): Promise<void> {
   const ticker = position.stock.tickerCode;
-  if (!position.slBrokerOrderId || !position.slBrokerBusinessDay) return;
+  if (!position.slBrokerOrderId) return;
+
+  // 引け後発注のSLは submitOrder 応答に sEigyouDay が無く slBrokerBusinessDay が
+  // 欠落する（Issue #322 / KOH-532）。EC イベントが営業日を持っているのでバックフィルして続行する。
+  let slBusinessDay = position.slBrokerBusinessDay || null;
+  if (!slBusinessDay && eventBusinessDay) {
+    await prisma.tradingPosition.update({
+      where: { id: position.id },
+      data: { slBrokerBusinessDay: eventBusinessDay },
+    });
+    slBusinessDay = eventBusinessDay;
+    console.log(
+      `[broker-fill] ${ticker}: SL ${position.slBrokerOrderId} の欠落営業日を EC イベントの ${eventBusinessDay} でバックフィル`,
+    );
+  }
+  if (!slBusinessDay) {
+    console.warn(
+      `[broker-fill] ${ticker}: SL ${position.slBrokerOrderId} の営業日が不明で約定確認不可、reconciliation に委譲`,
+    );
+    return;
+  }
 
   const detail = await getOrderDetail(
     position.slBrokerOrderId,
-    position.slBrokerBusinessDay,
+    slBusinessDay,
   ).catch(() => null);
   if (!detail) return;
 

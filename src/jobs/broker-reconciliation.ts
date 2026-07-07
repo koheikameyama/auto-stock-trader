@@ -110,6 +110,12 @@ async function syncBrokerSLStatuses(): Promise<void> {
       stock: { select: { tickerCode: true } },
     },
   });
+  if (positions.length === 0) return;
+
+  // 引け後発注のSLは submitOrder 応答に sEigyouDay が無く slBrokerBusinessDay が
+  // 欠落する（Issue #322 / KOH-532）。CLMOrderList の注文番号照合でバックフィルしないと
+  // 本関数・handleMissingHolding・cancelBrokerSL の全てが素通りし、SL約定を検知できない。
+  await backfillMissingSLBusinessDays(positions);
 
   for (const pos of positions) {
     if (!pos.slBrokerOrderId || !pos.slBrokerBusinessDay) continue;
@@ -177,6 +183,49 @@ async function syncBrokerSLStatuses(): Promise<void> {
       // 立花側をキャンセルするとsl*フィールドがクリアされる → Phase 1.6 が再発注
       await cancelBrokerSL(pos.id);
     }
+  }
+}
+
+/**
+ * slBrokerBusinessDay 欠落（null / 空文字）のSL注文を CLMOrderList の注文番号照合で
+ * バックフィルする（syncBrokerOrderStatuses の TradingOrder 救済と同型、KOH-532）。
+ * DB更新に加えて引数の positions 要素も直接書き換え、同一実行内の後続処理に反映する。
+ */
+async function backfillMissingSLBusinessDays(
+  positions: Array<{
+    id: string;
+    slBrokerOrderId: string | null;
+    slBrokerBusinessDay: string | null;
+    stock: { tickerCode: string };
+  }>,
+): Promise<void> {
+  const missing = positions.filter(
+    (p) => p.slBrokerOrderId && !p.slBrokerBusinessDay,
+  );
+  if (missing.length === 0) return;
+
+  const res = await getOrders({ statusFilter: "" }).catch(() => null);
+  if (!res || res.sResultCode !== "0") return;
+
+  const brokerOrders = (res.aOrderList as Record<string, unknown>[]) ?? [];
+  const dayByOrderNum = new Map<string, string>();
+  for (const bo of brokerOrders) {
+    const orderNum = String(bo.sOrderOrderNumber ?? bo.sOrderNumber ?? "");
+    const day = String(bo.sOrderSikkouDay ?? bo.sEigyouDay ?? "");
+    if (orderNum && day) dayByOrderNum.set(orderNum, day);
+  }
+
+  for (const pos of missing) {
+    const day = dayByOrderNum.get(pos.slBrokerOrderId!);
+    if (!day) continue;
+    await prisma.tradingPosition.update({
+      where: { id: pos.id },
+      data: { slBrokerBusinessDay: day },
+    });
+    pos.slBrokerBusinessDay = day;
+    console.log(
+      `[broker-reconciliation] ${pos.stock.tickerCode}: SL注文 ${pos.slBrokerOrderId} の欠落営業日を ${day} でバックフィル`,
+    );
   }
 }
 

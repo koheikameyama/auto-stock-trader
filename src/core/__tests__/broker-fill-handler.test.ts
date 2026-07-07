@@ -449,6 +449,47 @@ describe("handleBrokerFill", () => {
 
       expect(mockClosePosition).not.toHaveBeenCalled();
     });
+
+    it("slBrokerBusinessDay 欠落（空文字）でも EC イベントの営業日でバックフィルしてクローズする（KOH-532）", async () => {
+      mockPrisma.tradingOrder.findFirst.mockResolvedValue(null);
+      mockPrisma.tradingPosition.findFirst.mockResolvedValue(
+        makeSLPosition({ slBrokerBusinessDay: "" }) as never,
+      );
+      mockGetOrderDetail.mockResolvedValue(
+        makeOrderDetail({
+          aYakuzyouSikkouList: [{ sYakuzyouPrice: "1334", sYakuzyouSuryou: "200" }],
+        }) as never,
+      );
+      mockPrisma.tradingPosition.findUnique.mockResolvedValue({ status: "open" } as never);
+
+      await handleBrokerFill(makeEvent({ orderNumber: "123456", businessDay: "20260707" }));
+
+      // EC イベントの営業日でバックフィル
+      expect(mockPrisma.tradingPosition.update).toHaveBeenCalledWith({
+        where: { id: "pos-sl-1" },
+        data: { slBrokerBusinessDay: "20260707" },
+      });
+      // バックフィルした営業日で約定詳細を取得してクローズ
+      expect(mockGetOrderDetail).toHaveBeenCalledWith("123456", "20260707");
+      expect(mockClosePosition).toHaveBeenCalledWith(
+        "pos-sl-1",
+        1334,
+        expect.objectContaining({ exitReason: "SL約定（ブローカー自律執行）" }),
+        1366,
+      );
+    });
+
+    it("slBrokerBusinessDay も EC イベントの営業日も無い場合は何もしない（reconciliation に委譲）", async () => {
+      mockPrisma.tradingOrder.findFirst.mockResolvedValue(null);
+      mockPrisma.tradingPosition.findFirst.mockResolvedValue(
+        makeSLPosition({ slBrokerBusinessDay: null }) as never,
+      );
+
+      await handleBrokerFill(makeEvent({ orderNumber: "123456", businessDay: "" }));
+
+      expect(mockGetOrderDetail).not.toHaveBeenCalled();
+      expect(mockClosePosition).not.toHaveBeenCalled();
+    });
   });
 
   describe("加重平均約定価格", () => {
