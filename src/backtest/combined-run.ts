@@ -394,6 +394,10 @@ async function main() {
   const buybackRiskArg = getArg(args, "--buyback-risk");
   // --buyback-regime-exit: breadth が band(≥54%)に戻ったら買いを全決済（GU/PSCと食い合わせない）
   const buybackRegimeExit = args.includes("--buyback-regime-exit");
+  // --enable-panic: パニック底反発 (KOH-531) — 指数ETFイベント(外部JSON)をETFレッグに注入して検証
+  const enablePanic = args.includes("--enable-panic");
+  const panicJsonPath = getArg(args, "--panic-json");
+  const panicMaxArg = getArg(args, "--panic-max");
   const maxPerSectorArg = getArg(args, "--max-per-sector");
   const compareSector = args.includes("--compare-sector");
   const compareSectorRotation = args.includes("--compare-sector-rotation");
@@ -636,6 +640,35 @@ async function main() {
     }
   }
 
+  // --enable-panic: パニック底反発 (KOH-531) — 指数ETFイベントを ETF レッグに注入して precompute。
+  // シグナル(breadth<40% & N225連続下落>=3)は外部JSON(イベント日=エントリー日=当日引け)で注入。
+  // 出口は buyback と同型 (-12%SL + 20日TS)、ETFなので unitShares=1。VIX crisis ガードは
+  // バイパスする(パニック戦略は定義上 crisis 中に買うため。SimContext.etfCrisisBypass 参照)。
+  if (enablePanic) {
+    if (enableEtf || enableEtfDip) throw new Error("--enable-panic は --enable-etf / --enable-etf-dip と同時指定できません");
+    if (!panicJsonPath) throw new Error("--enable-panic には --panic-json <path> が必須です");
+    const raw = JSON.parse(fs.readFileSync(panicJsonPath, "utf-8")) as { events: { ticker: string; date: string }[] };
+    const panicTickers = [...new Set((raw.events ?? []).map((e) => e.ticker))];
+    etfConfig = { ...BUYBACK_DEFAULT_CONFIG, tickers: panicTickers, unitShares: 1 };
+    const panicRawData = await fetchHistoricalFromDB(panicTickers, startDate, endDate);
+    let totalBars = 0;
+    for (const ticker of panicTickers) {
+      const bars = panicRawData.get(ticker);
+      if (bars && bars.length > 0) {
+        allData.set(ticker, bars);
+        totalBars += bars.length;
+        const map = new Map<string, number>();
+        bars.forEach((b, idx) => map.set(dayjs(b.date).format("YYYY-MM-DD"), idx));
+        precomputed.dateIndexMap.set(ticker, map);
+      }
+    }
+    console.log(`[data] パニック底反発 universe: ${panicTickers.join(", ")} (${totalBars}本)`);
+    etfSignals = precomputeBuybackSignals(buildBuybackEventMap(raw.events ?? []), allData, precomputed.dateIndexMap, precomputed.dailyBreadth, etfConfig);
+    let sigTotal = 0;
+    for (const arr of etfSignals.values()) sigTotal += arr.length;
+    console.log(`[data] パニック底反発 シグナル: ${sigTotal}件 / ${etfSignals.size}日 (イベント${raw.events?.length ?? 0}件中, idle帯 breadth<${(etfConfig.breadthMax * 100).toFixed(0)}%, SL-${(etfConfig.slPct * 100).toFixed(0)}% / ${etfConfig.timeStopDays}d, crisisバイパス)`);
+  }
+
   // --enable-buyback: 自社株買いカタリスト シグナルを外部JSONから注入して precompute
   // 銘柄は既存ユニバース(allData)内なので追加データマージ不要。idle帯フィルタは precompute 側。
   let buybackConfig: USEtfBacktestConfig | undefined;
@@ -664,6 +697,7 @@ async function main() {
     buybackConfig,
     buybackSignals,
     buybackRegimeExit,
+    ...(enablePanic ? { etfCrisisBypass: true } : {}),
     budget,
     verbose: !quietMode && verbose,
     allData,
@@ -686,6 +720,7 @@ async function main() {
     ...(enableWbLargecap ? { wbMax: Number(wbMaxArg ?? 2) } : {}),
     ...(enableEtf ? { etfMax: Number(etfMaxArg ?? 2) } : {}),
     ...(enableEtfDip ? { etfMax: Number(etfDipMaxArg ?? 2) } : {}),
+    ...(enablePanic ? { etfMax: Number(panicMaxArg ?? 1) } : {}),
     ...(enableBuyback ? { buybackMax: Number(buybackMaxArg ?? 2) } : {}),
     ...(maxPerSectorArg !== undefined ? { maxPerSector: Number(maxPerSectorArg) } : {}),
   };
@@ -3006,6 +3041,7 @@ async function main() {
   if (enableMomentum) slotsParts.push(`MOM${defaultLimits.momMax ?? 0}`);
   if (enableEtf) slotsParts.push(`ETF${defaultLimits.etfMax ?? 0}`);
   if (enableEtfDip) slotsParts.push(`ETFdip${defaultLimits.etfMax ?? 0}`);
+  if (enablePanic) slotsParts.push(`PANIC${defaultLimits.etfMax ?? 0}`);
   if (enableBuyback) slotsParts.push(`BUYBACK${defaultLimits.buybackMax ?? 0}`);
   console.log(`ポジション枠: ${slotsParts.join(" + ")}`);
   const result = runCombinedSimulation(ctx, defaultLimits);
@@ -3033,6 +3069,9 @@ async function main() {
   }
   if (enableEtfDip) {
     printMetrics(result.etfMetrics, "ETF押し目 (RSI2 mean-rev, 常時)");
+  }
+  if (enablePanic) {
+    printMetrics(result.etfMetrics, "パニック底反発 (br<40%×連続下落, idle帯)");
   }
   if (enableBuyback) {
     printMetrics(result.buybackMetrics, "自社株買い (取得決定, idle帯)");

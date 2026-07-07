@@ -56,6 +56,12 @@ export interface SimContext {
   buybackSignals?: PrecomputedUSEtfSignals;
   /** true: breadth が band(≥54%)に転換したら買いを全決済し資金をGU/PSCに返す(レジーム転換Exit) */
   buybackRegimeExit?: boolean;
+  /**
+   * true: ETFレッグの VIX crisis ガード（新規エントリー禁止 + defensive_exit 強制決済）をバイパスする。
+   * パニック底反発検証 (KOH-531, --enable-panic) 専用 — 戦略が定義上 crisis 中に買うため。
+   * 未指定(既定)では従来挙動のまま。
+   */
+  etfCrisisBypass?: boolean;
   budget: number;
   verbose: boolean;
   allData: Map<string, OHLCVData[]>;
@@ -683,7 +689,7 @@ export function runCombinedSimulation(
     typeof maxPositions === "number"
       ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, etfMax: maxPositions, buybackMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none" } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, etfCrisisBypass, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none" } = ctx;
   const guBreadthMode = breadthModeGu ?? breadthMode;
   const pscBreadthMode = breadthModePsc ?? breadthMode;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
@@ -810,7 +816,7 @@ export function runCombinedSimulation(
     if (momConfigLocal) {
       processDefensive(momPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, momClosedTrades, lastExitDayIdx, momConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
     }
-    if (etfConfigLocal) {
+    if (etfConfigLocal && !etfCrisisBypass) {
       processDefensive(etfPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, etfClosedTrades, lastExitDayIdx, etfConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
     }
     if (buybackConfigLocal) {
@@ -1244,7 +1250,7 @@ export function runCombinedSimulation(
       etfConfigLocal &&
       etfSignals &&
       etfShouldTrade &&
-      todayRegime !== "crisis" &&
+      (todayRegime !== "crisis" || etfCrisisBypass) &&
       etfPositions.length < etfMaxPos &&
       totalUnderLimit() &&
       cash > 0
