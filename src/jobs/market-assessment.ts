@@ -57,7 +57,9 @@ function buildMarketFields(
 export async function main(): Promise<MarketAssessmentContext> {
   console.log("=== Market Assessment 開始 ===");
   let isShadowMode = false;
-  let shadowAlert: { type: string; message: string } | null = null;
+  // 最終結果通知（Slack）はどの経路でも notifyMarketAssessment カードに統一する。
+  // shadow系（キルスイッチ/ドローダウン/見送り）も含めここに結果を集約し、末尾で1回だけ送る。
+  let finalOutcome: { shouldTrade: boolean; sentiment: Sentiment; reasoning: string } | null = null;
 
   // 1. 市場指標データ取得 + Breadth計算 + 日経DB前日比（並列）
   console.log("[1/2] 市場指標データ + Breadth 取得中...");
@@ -136,11 +138,16 @@ export async function main(): Promise<MarketAssessmentContext> {
   // 1.7. CME先物ナイトセッション乖離率チェック
   let cmeDivergencePct: number | null = null;
   const cmeStatus = getCMEStatus();
-  if (marketData.cmeFutures && marketData.usdjpy && marketData.nikkei.previousClose > 0) {
+  if (marketData.cmeFutures && marketData.usdjpy && marketData.nikkei.price > 0) {
+    // CME乖離率は「今夜のCME先物 → 翌営業日の寄り付きギャップ」を測る指標。
+    // 基準は直近確定終値(marketData.nikkei.price)。その1つ前の終値(previousClose)を
+    // 使うと直近セッションの値動きを二重計上し、乖離率が誤って膨らむ
+    // （2026-07-08: 7/7 -2.12% 下落を二重計上し CMEキルスイッチが -3.04% で誤発火。
+    //   正しい基準では -0.94% で発火しない）。
     cmeDivergencePct = calculateCmeDivergence(
       marketData.cmeFutures.price,
       marketData.usdjpy.price,
-      marketData.nikkei.previousClose,
+      marketData.nikkei.price,
     );
     const staleNote = cmeStatus === "closed" ? "（CME休場中 — データは前セッション終値）" : "";
     console.log(`[1.7/2] CME先物乖離率: ${cmeDivergencePct.toFixed(2)}%${staleNote}`);
@@ -152,7 +159,6 @@ export async function main(): Promise<MarketAssessmentContext> {
       const preMarket = determinePreMarketRegime(cmeDivergencePct);
       if (preMarket.minLevel === "crisis") {
         console.log(`  → ${preMarket.reason}`);
-        shadowAlert = { type: "CME先物乖離率キルスイッチ", message: preMarket.reason! };
         const assessmentData = {
           ...buildMarketFields(marketData, { breadth: breadthValue, cmeDivergencePct }),
           sentiment: "crisis" as const,
@@ -165,6 +171,7 @@ export async function main(): Promise<MarketAssessmentContext> {
           update: assessmentData,
           create: { date: getTodayForDB(), ...assessmentData },
         });
+        finalOutcome = { shouldTrade: false, sentiment: "crisis", reasoning: assessmentData.reasoning };
         isShadowMode = true;
       } else if (preMarket.minLevel) {
         console.log(`  → ${preMarket.reason}（レジーム下限を${preMarket.minLevel}に引き上げ）`);
@@ -205,7 +212,6 @@ export async function main(): Promise<MarketAssessmentContext> {
   ) {
     const reason = `日経平均 ${marketData.nikkei.changePercent.toFixed(2)}% ≤ ${MARKET_INDEX.NIKKEI_CRISIS_THRESHOLD}%: 急落キルスイッチ発動。全取引停止`;
     console.log(`[1.8.5/2] ${reason}`);
-    shadowAlert = { type: "日経平均キルスイッチ", message: reason };
     const assessmentData = {
       ...buildMarketFields(marketData, { breadth: breadthValue, cmeDivergencePct }),
       sentiment: "crisis" as const,
@@ -218,6 +224,7 @@ export async function main(): Promise<MarketAssessmentContext> {
       update: assessmentData,
       create: { date: getTodayForDB(), ...assessmentData },
     });
+    finalOutcome = { shouldTrade: false, sentiment: "crisis", reasoning: assessmentData.reasoning };
     isShadowMode = true;
   }
 
@@ -234,7 +241,6 @@ export async function main(): Promise<MarketAssessmentContext> {
 
   if (drawdown.shouldHaltTrading) {
     console.log(`ドローダウンにより取引停止: ${drawdown.reason}`);
-    shadowAlert = { type: "ドローダウン停止", message: drawdown.reason };
     const latestAssessment = await prisma.marketAssessment.findFirst({
       orderBy: { createdAt: "desc" },
       select: { sentiment: true },
@@ -257,6 +263,7 @@ export async function main(): Promise<MarketAssessmentContext> {
       update: drawdownAssessmentData,
       create: { date: getTodayForDB(), ...drawdownAssessmentData },
     });
+    finalOutcome = { shouldTrade: false, sentiment: drawdownSentiment, reasoning: drawdownAssessmentData.reasoning };
     isShadowMode = true;
   }
 
@@ -305,6 +312,7 @@ export async function main(): Promise<MarketAssessmentContext> {
       update: assessmentData,
       create: { date: getTodayForDB(), ...assessmentData },
     });
+    finalOutcome = assessment;
 
     if (!assessment.shouldTrade) {
       console.log("取引見送り → シャドウスコアリングへ");
@@ -314,14 +322,14 @@ export async function main(): Promise<MarketAssessmentContext> {
     console.log("[2/2] VIXベース市場評価: スキップ（シャドウモード）");
   }
 
-  // Slack通知（1箇所で送信）
-  if (shadowAlert) {
-    await notifyRiskAlert(shadowAlert);
-  } else if (assessment) {
+  // Slack通知（1箇所で送信）: キルスイッチ/ドローダウン/見送り/実行のどの結果でも
+  // 「市場評価」カード形式に統一する（stale検知・データ取得エラーの警告は途中で
+  // notifyRiskAlert 済み＝診断用の別通知として残す）。
+  if (finalOutcome) {
     await notifyMarketAssessment({
-      shouldTrade: assessment.shouldTrade,
-      sentiment: assessment.sentiment,
-      reasoning: assessment.reasoning,
+      shouldTrade: finalOutcome.shouldTrade,
+      sentiment: finalOutcome.sentiment,
+      reasoning: finalOutcome.reasoning,
       nikkeiChange: marketData.nikkei.changePercent,
       vix: marketData.vix.price,
       sp500Change: marketData.sp500?.changePercent ?? null,

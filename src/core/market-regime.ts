@@ -222,15 +222,19 @@ export type TradingStrategy = "breakout" | "gapup" | "momentum" | "earnings-gap"
 /**
  * CME先物乖離率を計算する
  *
- * @param cmeFuturesPrice CME日経先物価格（USD建て）
- * @param usdjpy USD/JPYレート
- * @param nikkeiPreviousClose 日経225前日終値
+ * 乖離率(%) = (CME先物価格 / 日経の直近確定終値 - 1) × 100
+ *
+ * @param cmeFuturesPrice CME日経先物価格（NKD=F, 円建て）
+ * @param usdjpy USD/JPYレート（NKD=Fは円建てのため未使用）
+ * @param nikkeiLastClose 日経225の直近確定セッション終値（＝寄り付き前から見た「前日終値」、
+ *   marketData.nikkei.price）。直近1つ前のセッション終値(previousClose)ではない点に注意。
+ *   previousClose を渡すと直近セッションの値動きを二重計上し乖離率が誤って膨らむ。
  */
 export function calculateCmeDivergence(
   cmeFuturesPrice: number,
   _usdjpy: number,
-  nikkeiPreviousClose: number,
+  nikkeiLastClose: number,
 ): number {
   // NKD=F は円建てなので USD/JPY 換算は不要
-  return ((cmeFuturesPrice / nikkeiPreviousClose) - 1) * 100;
+  return ((cmeFuturesPrice / nikkeiLastClose) - 1) * 100;
 }

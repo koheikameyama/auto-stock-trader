@@ -80,14 +80,13 @@ async function restoreContextFromDB(): Promise<MarketAssessmentContext> {
 
   // CME乖離率を再計算してレジーム引き上げ
   let cmeDivergencePct: number | null = null;
-  if (record.cmeFuturesPrice && record.usdjpy && record.nikkeiPrice && record.nikkeiChange) {
-    const nikkeiPrice = Number(record.nikkeiPrice);
-    const nikkeiChange = Number(record.nikkeiChange);
-    const previousClose = nikkeiPrice / (1 + nikkeiChange / 100);
+  if (record.cmeFuturesPrice && record.usdjpy && record.nikkeiPrice) {
+    // CME乖離率の基準は直近確定終値(nikkeiPrice)。market-assessment と揃える
+    // （previousClose を再構築して渡すと直近セッションの値動きを二重計上する）。
     cmeDivergencePct = calculateCmeDivergence(
       Number(record.cmeFuturesPrice),
       Number(record.usdjpy),
-      previousClose,
+      Number(record.nikkeiPrice),
     );
 
     const preMarket = determinePreMarketRegime(cmeDivergencePct);
