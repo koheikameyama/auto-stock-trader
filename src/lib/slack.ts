@@ -4,6 +4,9 @@
 
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
 
+/** SNS投稿（morning/daily-social-post）通知の専用webhook。未設定時はデフォルトにフォールバック */
+export const SNS_POST_SLACK_WEBHOOK_URL = process.env.SNS_POST_SLACK_WEBHOOK_URL;
+
 type SlackColor = "good" | "warning" | "danger" | string;
 
 interface SlackField {

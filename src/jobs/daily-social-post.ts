@@ -24,7 +24,7 @@ import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import { prisma } from "../lib/prisma";
 import { postToBluesky } from "../lib/bluesky";
-import { notifySlack } from "../lib/slack";
+import { notifySlack, SNS_POST_SLACK_WEBHOOK_URL } from "../lib/slack";
 import { TIMEZONE, PUBLIC_SITE_URL } from "../lib/constants";
 import { detectRegimeShift, getLevelEmoji } from "../core/regime-shift-detector";
 import {
@@ -218,6 +218,7 @@ export async function main() {
     title: "🦋 Bluesky 日次投稿",
     message: `${text}\n\n<${xIntentUrl}|📱 タップして X に投稿（下書きが開きます）>`,
     color: "good",
+    webhookUrl: SNS_POST_SLACK_WEBHOOK_URL,
   });
 }
 
