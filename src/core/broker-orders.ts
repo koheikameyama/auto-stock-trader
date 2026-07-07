@@ -492,7 +492,9 @@ async function executeLiveOrder(
     return {
       success: true,
       orderNumber,
-      businessDay,
+      // 空文字を undefined に正規化: 呼び出し側の `?? null` を空文字がすり抜けると
+      // brokerBusinessDay="" で保存され、null 前提のバックフィル救済（KOH-532）が効かなくなる
+      businessDay: businessDay || undefined,
       commission: Number(res.sOrderTesuryou ?? 0),
     };
   } catch (e) {

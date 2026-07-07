@@ -216,6 +216,73 @@ describe("broker-reconciliation: Phase 3 保有照合", () => {
     );
   });
 
+  // KOH-532: 引け後発注SLの slBrokerBusinessDay 欠落（空文字）をバックフィルして約定検知
+  it("SL営業日欠落（空文字）→ Phase 1.5 が CLMOrderList からバックフィルし、Phase 3 がSL約定でクローズする", async () => {
+    const position = makePosition({
+      slBrokerOrderId: "7000898",
+      slBrokerBusinessDay: "",
+    });
+    setupForPhase3([position]);
+    mockGetHoldings.mockResolvedValue([]); // ブローカー保有なし（SL約定済み）
+    // Phase 1.5 バックフィル + Phase 4 で参照される注文一覧（売りSL・全部約定）
+    mockGetOrders.mockResolvedValue({
+      sResultCode: "0",
+      aOrderList: [
+        {
+          sOrderOrderNumber: "7000898",
+          sOrderSikkouDay: "20260707",
+          sOrderStatusCode: "10",
+          sBaibaiKubun: "1", // 売り → Phase 4 の孤立買い検出対象外
+        },
+      ],
+    });
+    mockGetOrderDetail.mockResolvedValue({
+      sOrderStatusCode: "10", // FULLY_FILLED
+      sGyakusasiZyouken: "900", // DB stopLossPrice と一致（Phase 1.5 乖離チェック素通り）
+      sOrderSuryou: "100",
+      aYakuzyouSikkouList: [{ sYakuzyouPrice: "890", sYakuzyouSuryou: "100" }],
+    });
+
+    await main();
+
+    // 欠落営業日がバックフィルされる
+    expect(mockPositionUpdate).toHaveBeenCalledWith({
+      where: { id: "pos-1" },
+      data: { slBrokerBusinessDay: "20260707" },
+    });
+    // バックフィルした営業日で約定詳細を照会
+    expect(mockGetOrderDetail).toHaveBeenCalledWith("7000898", "20260707");
+    // Phase 3 がSL約定リカバリでクローズ
+    expect(mockClosePosition).toHaveBeenCalledWith(
+      "pos-1",
+      890,
+      expect.objectContaining({ exitReason: expect.stringContaining("SL約定") }),
+    );
+  });
+
+  it("SL営業日欠落 + CLMOrderList にも見つからない → バックフィルせず警告通知のみ", async () => {
+    const position = makePosition({
+      slBrokerOrderId: "7000898",
+      slBrokerBusinessDay: "",
+    });
+    setupForPhase3([position]);
+    mockGetHoldings.mockResolvedValue([]);
+    mockGetOrders.mockResolvedValue({ sResultCode: "0", aOrderList: [] });
+
+    await main();
+
+    expect(mockPositionUpdate).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ slBrokerBusinessDay: expect.any(String) }) }),
+    );
+    expect(mockClosePosition).not.toHaveBeenCalled();
+    expect(mockNotifySlack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: expect.stringContaining("要確認"),
+        color: "warning",
+      }),
+    );
+  });
+
   it("数量不一致のポジションにはSlack warningを送信する", async () => {
     const position = makePosition({ quantity: 100 });
     setupForPhase3([position]);
