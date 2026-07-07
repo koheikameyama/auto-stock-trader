@@ -52,6 +52,15 @@ vi.mock("../../lib/slack", () => ({
   notifySlack: vi.fn().mockResolvedValue(undefined),
 }));
 
+// 大引け後の受付停止窓の判定を制御可能にする（既定=場中扱いで即時SL発注）
+vi.mock("../../lib/market-date", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/market-date")>();
+  return {
+    ...actual,
+    isPostCloseOrderBlackout: vi.fn().mockReturnValue(false),
+  };
+});
+
 import { handleBrokerFill } from "../broker-fill-handler";
 import { prisma } from "../../lib/prisma";
 import { getOrderDetail } from "../broker-orders";
@@ -59,6 +68,7 @@ import { submitBrokerSL } from "../broker-sl-manager";
 import { fillOrder } from "../order-executor";
 import { openPosition, closePosition } from "../position-manager";
 import { notifyOrderFilled } from "../../lib/slack";
+import { isPostCloseOrderBlackout } from "../../lib/market-date";
 import type { ExecutionEvent } from "../broker-event-stream";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -69,6 +79,7 @@ const mockFillOrder = vi.mocked(fillOrder);
 const mockOpenPosition = vi.mocked(openPosition);
 const mockClosePosition = vi.mocked(closePosition);
 const mockNotifyOrderFilled = vi.mocked(notifyOrderFilled);
+const mockIsBlackout = vi.mocked(isPostCloseOrderBlackout);
 
 // ========================================
 // テストデータ
@@ -120,6 +131,8 @@ function makeOrderDetail(overrides?: Record<string, unknown>) {
 describe("handleBrokerFill", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // 既定は「場中扱い」= 即時SL発注。受付停止窓のテストで個別に true へ上書きする。
+    mockIsBlackout.mockReturnValue(false);
   });
 
   it("DBに該当注文がない場合は何もしない", async () => {
@@ -227,6 +240,22 @@ describe("handleBrokerFill", () => {
           strategy: "breakout",
         }),
       );
+    });
+
+    it("大引け後の受付停止窓では即時SL発注をスキップする（ensure-broker-sl に委譲）", async () => {
+      mockIsBlackout.mockReturnValue(true);
+      mockPrisma.tradingOrder.findFirst.mockResolvedValue(
+        makeOrder() as never,
+      );
+      mockGetOrderDetail.mockResolvedValue(makeOrderDetail() as never);
+      mockPrisma.tradingPosition.findFirst.mockResolvedValue(null);
+
+      await handleBrokerFill(makeEvent());
+
+      // ポジションのオープン自体は行う（stopLossPrice が DB に残り ensure-broker-sl が拾う）
+      expect(mockOpenPosition).toHaveBeenCalled();
+      // 受付停止窓では即時SL発注はしない
+      expect(mockSubmitBrokerSL).not.toHaveBeenCalled();
     });
 
     it("同一銘柄のopenポジションがある場合はキャンセルする", async () => {

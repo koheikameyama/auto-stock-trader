@@ -20,6 +20,7 @@ import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import holiday_jp from "@holiday-jp/holiday_jp";
 import { TIMEZONE } from "./constants";
+import { BROKER_ORDER_BLACKOUT } from "./constants/broker";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -176,6 +177,23 @@ export function isMarketOpen(): boolean {
 
   const t = now.hour() * 60 + now.minute();
   return (t >= 9 * 60 && t < 11 * 60 + 30) || (t >= 12 * 60 + 30 && t < 15 * 60 + 30);
+}
+
+/**
+ * 現在が立花の「大引け後〜翌日注文受付開始前」の注文受付停止窓（15:30〜17:00 JST）かどうか。
+ *
+ * この窓では新規注文（逆指値SL含む）が sOrderResultCode=11102「只今の時間帯は受付できません」で
+ * 拒否される。引け成行約定(15:30)直後の即時SL発注は必ずここに入るため、呼び出し側はこの窓では
+ * 即時発注をスキップし ensure-broker-sl(17:00〜) に委譲する。場中のリカバリ約定検知時は false を
+ * 返すので従来通り即時発注される（保護の穴を作らない）。
+ */
+export function isPostCloseOrderBlackout(now: Date = new Date()): boolean {
+  const t = dayjs(now).tz(JST);
+  const minutes = t.hour() * 60 + t.minute();
+  return (
+    minutes >= BROKER_ORDER_BLACKOUT.START_MINUTE_JST &&
+    minutes < BROKER_ORDER_BLACKOUT.END_MINUTE_JST
+  );
 }
 
 /**

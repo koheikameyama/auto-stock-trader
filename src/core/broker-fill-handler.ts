@@ -15,6 +15,7 @@ import { openPosition, closePosition, getPositionPnl, extractRegimeInfoFromSnaps
 import { submitBrokerSL } from "./broker-sl-manager";
 import { validateStopLoss } from "./risk-manager";
 import { notifyOrderFilled, notifySlack } from "../lib/slack";
+import { isPostCloseOrderBlackout } from "../lib/market-date";
 import type { ExecutionEvent } from "./broker-event-stream";
 
 // ========================================
@@ -325,14 +326,24 @@ async function handleBuyFill(
     },
   });
 
-  // SL 逆指値注文をブローカーに発注（エラーはbroker-sl-manager内で処理）
-  await submitBrokerSL({
-    positionId: position.id,
-    ticker: order.stock.tickerCode,
-    quantity: order.quantity,
-    stopTriggerPrice: stopLossPrice,
-    strategy: order.strategy,
-  });
+  // SL 逆指値注文をブローカーに発注（エラーはbroker-sl-manager内で処理）。
+  // ただし引け成行約定は必ず15:30（大引け）で、その直後は立花の受付停止窓（15:30〜17:00）に入り
+  // 逆指値が毎回 11102「只今の時間帯は受付できません」で拒否される。この窓では即時発注をスキップし、
+  // ensure-broker-sl（17:00〜/翌朝）に委譲する。大引け後〜翌寄付まで市場は閉じているため保護に穴は
+  // 生じない。場中のリカバリ約定検知時（blackout外）は従来通り即時発注する。
+  if (isPostCloseOrderBlackout()) {
+    console.log(
+      `[broker-fill] ${order.stock.tickerCode}: 大引け後の受付停止窓のため即時SL発注をスキップ → ensure-broker-sl に委譲 (SL ¥${stopLossPrice.toLocaleString()})`,
+    );
+  } else {
+    await submitBrokerSL({
+      positionId: position.id,
+      ticker: order.stock.tickerCode,
+      quantity: order.quantity,
+      stopTriggerPrice: stopLossPrice,
+      strategy: order.strategy,
+    });
+  }
 
   // Slack 通知
   const triggerSnapshot = (order.entrySnapshot as Record<string, unknown>)?.trigger as Record<string, unknown> | undefined;
