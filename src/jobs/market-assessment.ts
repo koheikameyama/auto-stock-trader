@@ -6,7 +6,7 @@
  */
 
 import { prisma } from "../lib/prisma";
-import { getTodayForDB } from "../lib/market-date";
+import { getTodayForDB, getPreviousTradingDay } from "../lib/market-date";
 import { MARKET_INDEX, MARKET_REGIME, MARKET_BREADTH } from "../lib/constants";
 import { getCMEStatus } from "../lib/market-hours";
 import { fetchMarketData } from "../core/market-data";
@@ -94,24 +94,38 @@ export async function main(): Promise<MarketAssessmentContext> {
   // stale な前日比でキルスイッチ/CME乖離が誤作動する（2026-06-30 実例）。
   // breadth と同じく DB(StockDailyBar) を権威ソースとして上書きし、鮮度を揃える。
   if (nikkeiDbChange) {
-    const liveChange = marketData.nikkei.changePercent;
-    const dbChange = nikkeiDbChange.changePercent;
     const asOf = nikkeiDbChange.asOfDate.toISOString().slice(0, 10);
-    const drift = Math.abs(liveChange - dbChange);
-    if (drift > MARKET_INDEX.NIKKEI_STALE_TOLERANCE_PCT) {
-      const msg = `日経 live ${liveChange.toFixed(2)}% と DB ${dbChange.toFixed(2)}% (asOf ${asOf}) が ${drift.toFixed(2)}pp 乖離。live が stale の疑い → DB値を採用`;
+    // DB 自体の鮮度チェック: DB を権威ソースにできるのは「DB が前営業日の確定足を
+    // 持っている」前提。EODバックフィルが失敗して DB が古いままだと、stale な DB 値を
+    // silent に採用してしまう（liveが正しくてもDBで上書きして誤発火し得る）。
+    // asOf が想定される前営業日より古ければ DB採用を見送り、live のまま続行する。
+    const expected = getPreviousTradingDay(getTodayForDB()).toISOString().slice(0, 10);
+    if (asOf < expected) {
+      const msg = `日経DBが古い: asOf ${asOf} < 想定前営業日 ${expected}（EODバックフィル未反映の疑い）。DB値の採用を見送り、yfinanceライブ値のまま続行`;
       console.warn(`[1.5/2] [stale-guard] ${msg}`);
       await notifyRiskAlert({
-        type: "日経データstale検知",
-        message: `${msg}\n（market-assessment の日経前日比を DB 権威値で補正しました）`,
-      }).catch((e) => console.warn("stale通知に失敗:", e));
+        type: "日経DB鮮度不足",
+        message: `${msg}\n（DBが前営業日の確定足を持っていないため、権威ソースとして使えません。EODバックフィルの成否を確認してください）`,
+      }).catch((e) => console.warn("DB鮮度通知に失敗:", e));
     } else {
-      console.log(`[1.5/2] 日経DB前日比 ${dbChange.toFixed(2)}% (asOf ${asOf}) — live と整合`);
+      const liveChange = marketData.nikkei.changePercent;
+      const dbChange = nikkeiDbChange.changePercent;
+      const drift = Math.abs(liveChange - dbChange);
+      if (drift > MARKET_INDEX.NIKKEI_STALE_TOLERANCE_PCT) {
+        const msg = `日経 live ${liveChange.toFixed(2)}% と DB ${dbChange.toFixed(2)}% (asOf ${asOf}) が ${drift.toFixed(2)}pp 乖離。live が stale の疑い → DB値を採用`;
+        console.warn(`[1.5/2] [stale-guard] ${msg}`);
+        await notifyRiskAlert({
+          type: "日経データstale検知",
+          message: `${msg}\n（market-assessment の日経前日比を DB 権威値で補正しました）`,
+        }).catch((e) => console.warn("stale通知に失敗:", e));
+      } else {
+        console.log(`[1.5/2] 日経DB前日比 ${dbChange.toFixed(2)}% (asOf ${asOf}) — live と整合`);
+      }
+      // DB を真実源として上書き（kill switch / CME乖離 / 表示の鮮度を一貫させる）
+      marketData.nikkei.price = nikkeiDbChange.close;
+      marketData.nikkei.previousClose = nikkeiDbChange.previousClose;
+      marketData.nikkei.changePercent = dbChange;
     }
-    // DB を真実源として上書き（kill switch / CME乖離 / 表示の鮮度を一貫させる）
-    marketData.nikkei.price = nikkeiDbChange.close;
-    marketData.nikkei.previousClose = nikkeiDbChange.previousClose;
-    marketData.nikkei.changePercent = dbChange;
   } else {
     console.warn("[1.5/2] [stale-guard] 日経DB前日比が取得不可。yfinance ライブ値のまま続行（stale の可能性に注意）");
   }

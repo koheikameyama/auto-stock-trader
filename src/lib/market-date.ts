@@ -211,6 +211,20 @@ export function getNextTradingDay(from?: Date): Date {
 }
 
 /**
+ * 前の営業日の日付を返す（getNextTradingDay の逆）
+ *
+ * @param from 起点日（デフォルト: 現在のJST日付）
+ * @returns JST日付をUTC 00:00のDateとして返す（getTodayForDBと同じ形式）
+ */
+export function getPreviousTradingDay(from?: Date): Date {
+  let d = dayjs(from).tz(JST).subtract(1, "day");
+  while (!isMarketDay(d.toDate())) {
+    d = d.subtract(1, "day");
+  }
+  return new Date(Date.UTC(d.year(), d.month(), d.date()));
+}
+
+/**
  * 指定日からN営業日後の日付を返す
  *
  * @param from 起点日
