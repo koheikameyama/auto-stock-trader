@@ -183,41 +183,122 @@ export function renderDailyPost(input: DailyPostInput): string {
   return assemble("none");
 }
 
-export async function buildDailySocialText(): Promise<string> {
+/** X 投稿用の短縮免責（Bluesky の DISCLAIMER より短く、Xの上限に収めやすくする） */
+export const X_DISCLAIMER = "※投資助言ではありません";
+
+export interface XPostInput {
+  dayLabel: string;
+  /** コンパクトな相場行。例: `🟢 強気3/5 ／ breadth 55% ／ VIX 18.5` */
+  regimeCompact: string;
+  perf: PerformanceSnapshot;
+}
+
+/**
+ * X 投稿用のコンパクト本文（純関数・テスト対象）。
+ * Bluesky（明細つき・最大300grapheme）と違い、X は無料枠の上限（280 weighted、
+ * CJKは1文字=2）が厳しいので、per-trade明細を持たず1行ずつに凝縮する:
+ *   1行目 見出し / 2行目 相場 / 3行目 本日+今月 / 4行目 URL / 5行目 短縮免責
+ * URL（公開ページ誘導）と免責は集客・非助言スタンス上どちらも残す。
+ */
+export function renderXPost(input: XPostInput): string {
+  const { dayLabel, regimeCompact, perf } = input;
+  const { newEntries, closed, weightedReturnPct } = perf.today;
+
+  const todayLine =
+    closed.length === 0
+      ? newEntries === 0
+        ? "本日 エントリーなし（休む局面）"
+        : `本日 新規${newEntries}件・決済なし`
+      : `本日 決済${closed.length}件 損益${fmtPct(weightedReturnPct)}`;
+
+  const summaryParts: string[] = [];
+  if (perf.month) {
+    const pf = perf.month.pf;
+    const pfStr = pf == null ? "—" : pf === Infinity ? "∞" : pf.toFixed(2);
+    summaryParts.push(`今月${perf.month.wins}勝${perf.month.losses}敗 PF${pfStr}`);
+  }
+  if (perf.cumulativeReturnPct != null) {
+    summaryParts.push(`累計${fmtPct(perf.cumulativeReturnPct)}`);
+  }
+  const perfLine = summaryParts.length
+    ? `${todayLine} ／ ${summaryParts.join(" ")}`
+    : todayLine;
+
+  return [
+    `📊 自動売買ログ ${dayLabel}`,
+    regimeCompact,
+    perfLine,
+    PUBLIC_SITE_URL,
+    X_DISCLAIMER,
+  ].join("\n");
+}
+
+export interface DailySocialTexts {
+  /** Bluesky 用（per-trade明細あり・KOH-525 の「仕込み局面」ナラティブを維持） */
+  blueskyText: string;
+  /** X 用（per-trade明細を落とした簡潔版） */
+  xText: string;
+}
+
+export async function buildDailySocialText(): Promise<DailySocialTexts> {
   const now = new Date();
   const dayLabel = `${dayjs(now).tz(TIMEZONE).format("M/D")}(${WEEKDAY_JA[dayjs(now).tz(TIMEZONE).day()]})`;
 
   // --- 相場環境（regime detector が breadth / vix / 段階を一括で返す） ---
+  // Bluesky は従来の相場行、X は上限が厳しいので breadth を整数丸めしたコンパクト行を使う
   let regimeLine = "相場: データ取得中";
+  let regimeCompact = "相場データ取得中";
   try {
     const regime = await detectRegimeShift({ asOfDate: now });
-    const breadthPct = (regime.current.breadth * 100).toFixed(1);
+    const breadthFrac = regime.current.breadth;
+    const breadthPct = (breadthFrac * 100).toFixed(1);
+    const breadthPctInt = Math.round(breadthFrac * 100);
     const vix = regime.current.vix;
     const vixStr = Number.isFinite(vix) ? vix.toFixed(1) : "N/A";
-    regimeLine = `相場: breadth ${breadthPct}% ／ VIX ${vixStr} ／ ${getLevelEmoji(regime.level)} 強気${regime.signalCount}/5`;
+    const emoji = getLevelEmoji(regime.level);
+    regimeLine = `相場: breadth ${breadthPct}% ／ VIX ${vixStr} ／ ${emoji} 強気${regime.signalCount}/5`;
+    regimeCompact = `${emoji} 強気${regime.signalCount}/5 ／ breadth ${breadthPctInt}% ／ VIX ${vixStr}`;
   } catch (e) {
     console.warn("regime 取得失敗、相場行はフォールバック:", e);
   }
 
   const perf = await buildPerformanceSnapshot();
 
-  return renderDailyPost({ dayLabel, regimeLine, perf });
+  return {
+    blueskyText: renderDailyPost({ dayLabel, regimeLine, perf }),
+    xText: renderXPost({ dayLabel, regimeCompact, perf }),
+  };
 }
 
 export async function main() {
-  const text = await buildDailySocialText();
-  console.log("--- 投稿内容 ---\n" + text + "\n----------------");
-  await postToBluesky(text);
+  const { blueskyText, xText } = await buildDailySocialText();
+  console.log("--- Bluesky 投稿内容 ---\n" + blueskyText + "\n----------------");
+  console.log("--- X 投稿内容 ---\n" + xText + "\n----------------");
 
-  // 成功時は投稿内容をそのまま Slack にも流す（投稿できたか目視確認するため）。
-  // あわせて X の Web Intent リンクを添える → スマホ Slack でタップすれば
-  // X が本文入りの下書きで開き、コピペせず手動投稿できる。
+  // Bluesky は自動投稿。Slack には成否だけを通知する（本文は載せない）。
+  let blueskyOk = false;
+  try {
+    await postToBluesky(blueskyText);
+    blueskyOk = true;
+  } catch (e) {
+    console.error("Bluesky 投稿失敗:", e);
+  }
+
+  // X は手動投稿。per-trade明細を落とした簡潔版（xText）を Slack にそのまま載せ、
+  // コピー or Web Intent リンクのタップで投稿できるようにする。
   // Slack 送信の失敗は投稿処理を巻き込まない（notifySlack は内部で握りつぶす）。
-  const xIntentUrl = buildXIntentUrl(text);
+  const xIntentUrl = buildXIntentUrl(xText);
   await notifySlack({
-    title: "🦋 Bluesky 日次投稿",
-    message: `${text}\n\n<${xIntentUrl}|📱 タップして X に投稿（下書きが開きます）>`,
-    color: "good",
+    title: blueskyOk ? "🦋 Bluesky投稿OK ／ 📱 X下書き" : "⚠️ Bluesky投稿失敗 ／ 📱 X下書き",
+    message: [
+      blueskyOk ? "Bluesky: 投稿しました ✅" : "Bluesky: 投稿に失敗しました ❌",
+      "",
+      "📱 X投稿文（コピー、または下記リンクをタップ）:",
+      xText,
+      "",
+      `<${xIntentUrl}|タップして X に投稿（下書きが開きます）>`,
+    ].join("\n"),
+    color: blueskyOk ? "good" : "danger",
     webhookUrl: SNS_POST_SLACK_WEBHOOK_URL,
   });
 }

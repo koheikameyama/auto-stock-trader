@@ -6,7 +6,8 @@ vi.mock("../../lib/prisma", () => ({ prisma: {} }));
 vi.mock("../../lib/bluesky", () => ({ postToBluesky: vi.fn() }));
 vi.mock("../../lib/slack", () => ({ notifySlack: vi.fn() }));
 
-import { renderDailyPost, DISCLAIMER } from "../daily-social-post";
+import { renderDailyPost, renderXPost, DISCLAIMER, X_DISCLAIMER } from "../daily-social-post";
+import { PUBLIC_SITE_URL } from "../../lib/constants";
 import type {
   PerformanceSnapshot,
   ClosedTradePerf,
@@ -141,5 +142,72 @@ describe("renderDailyPost", () => {
     expect(long).not.toContain("で仕込み");
     expect(long).not.toContain("仕込み:");
     expect(long).toContain("[+4.2% / -0.8% / +1.1%]");
+  });
+});
+
+/** X(twitter-text) の重み付け文字数。URLは23固定、CJK/かな/全角は2、他は1 */
+function xWeighted(text: string): number {
+  const t = text.replace(/https?:\/\/\S+/g, "x".repeat(23));
+  let w = 0;
+  for (const ch of t) {
+    const c = ch.codePointAt(0)!;
+    const cjk =
+      (c >= 0x1100 && c <= 0x115f) ||
+      (c >= 0x2e80 && c <= 0x303e) ||
+      (c >= 0x3041 && c <= 0x33ff) ||
+      (c >= 0x3400 && c <= 0x4dbf) ||
+      (c >= 0x4e00 && c <= 0x9fff) ||
+      (c >= 0xff00 && c <= 0xff60) ||
+      (c >= 0xffe0 && c <= 0xffe6);
+    w += cjk ? 2 : 1;
+  }
+  return w;
+}
+
+const REGIME_COMPACT = "🟢 強気3/5 ／ breadth 55% ／ VIX 18.5";
+
+describe("renderXPost", () => {
+  it("決済ありの日を1行ずつのコンパクト本文にまとめ、X上限(280)に収める", () => {
+    const x = renderXPost({
+      dayLabel: DAY_LABEL,
+      regimeCompact: REGIME_COMPACT,
+      perf: mkPerf([
+        trade(4.2, "2026-06-30", ctx("2026-06-30", 62)),
+        trade(-0.8, "2026-07-02", ctx("2026-07-02", 55)),
+      ]),
+    });
+
+    expect(x).toContain("📊 自動売買ログ 7/6(月)");
+    expect(x).toContain(REGIME_COMPACT);
+    expect(x).toContain("本日 決済2件 損益+2.0%");
+    expect(x).toContain("今月4勝2敗 PF2.10");
+    expect(x).toContain("累計+12.3%");
+    expect(x).toContain(X_DISCLAIMER);
+    expect(x).toContain(PUBLIC_SITE_URL);
+    // per-trade明細・空行は持たない（コンパクト）
+    expect(x).not.toContain("└");
+    expect(x).not.toContain("\n\n");
+    // X無料枠の上限に収まる
+    expect(xWeighted(x)).toBeLessThanOrEqual(280);
+  });
+
+  it("決済なし・エントリーなしの日は「休む局面」を1行で表す", () => {
+    const x = renderXPost({
+      dayLabel: DAY_LABEL,
+      regimeCompact: REGIME_COMPACT,
+      perf: mkPerf([]),
+    });
+    expect(x).toContain("本日 エントリーなし（休む局面）");
+    expect(xWeighted(x)).toBeLessThanOrEqual(280);
+  });
+
+  it("月次サマリーが無くても本日行だけで成立する", () => {
+    const perf = mkPerf([trade(1.0, "2026-07-06", null)]);
+    perf.month = null;
+    perf.cumulativeReturnPct = null;
+    const x = renderXPost({ dayLabel: DAY_LABEL, regimeCompact: REGIME_COMPACT, perf });
+    expect(x).toContain("本日 決済1件 損益+2.0%");
+    expect(x).not.toContain("今月");
+    expect(x).not.toContain("／ 今月");
   });
 });

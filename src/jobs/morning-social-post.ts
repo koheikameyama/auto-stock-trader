@@ -60,15 +60,30 @@ export async function buildMorningSocialText(): Promise<string> {
 export async function main() {
   const text = await buildMorningSocialText();
   console.log("--- 投稿内容 ---\n" + text + "\n----------------");
-  await postToBluesky(text);
 
-  // 夜投稿と同じく、投稿内容を Slack にも流して目視確認できるようにし、
-  // X の Web Intent リンクを添えて手動投稿を1タップにする。
+  // 夜投稿と同じく、Bluesky は自動投稿して成否だけを Slack に通知する（本文は載せない）。
+  let blueskyOk = false;
+  try {
+    await postToBluesky(text);
+    blueskyOk = true;
+  } catch (e) {
+    console.error("Bluesky 投稿失敗:", e);
+  }
+
+  // X は手動投稿。投稿文をそのまま Slack に載せ、コピー or Web Intent リンクのタップで
+  // 投稿できるようにする（朝投稿は Bluesky/X で本文が同一）。
   const xIntentUrl = buildXIntentUrl(text);
   await notifySlack({
-    title: "🌅 朝の局面投稿",
-    message: `${text}\n\n<${xIntentUrl}|📱 タップして X に投稿（下書きが開きます）>`,
-    color: "good",
+    title: blueskyOk ? "🌅 Bluesky投稿OK ／ 📱 X下書き" : "⚠️ Bluesky投稿失敗 ／ 📱 X下書き",
+    message: [
+      blueskyOk ? "Bluesky: 投稿しました ✅" : "Bluesky: 投稿に失敗しました ❌",
+      "",
+      "📱 X投稿文（コピー、または下記リンクをタップ）:",
+      text,
+      "",
+      `<${xIntentUrl}|タップして X に投稿（下書きが開きます）>`,
+    ].join("\n"),
+    color: blueskyOk ? "good" : "danger",
     webhookUrl: SNS_POST_SLACK_WEBHOOK_URL,
   });
 }
