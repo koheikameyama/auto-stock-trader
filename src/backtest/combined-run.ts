@@ -3269,6 +3269,7 @@ async function main() {
       quantity: t.quantity,
       exitReason: t.exitReason,
       pnl: t.pnl == null ? null : Math.round(t.pnl),
+      netPnl: t.netPnl == null ? null : Math.round(t.netPnl),
       pnlPct: t.pnlPct,
       holdingDays: t.holdingDays,
     });
