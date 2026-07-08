@@ -1,0 +1,47 @@
+name: BE Frequency Instrument
+
+# BE(建値)発動の頻度ギャップ計装（KOH方針C: event-driven trailing を作る前の観察）
+# 決済済みトレードの真の日中高値(yfinance 5分足)を取得し、「BE発動価格まで到達したのに
+# 5回/日ポールで取り逃してSL負けした（=continuous/event-drivenなら建値で救えた）」損失を記録する。
+# TradingPosition.exitSnapshot(jsonb) に beFreqInstrument キーを追記（スキーマ変更なし・非破壊）。
+# 5分足は yfinance で直近~60日しか取れないため、決済を取り逃さないよう毎営業日実行。
+# 次のD期(高ボラ)で would-be-saved 件数/損失が有意に増えたら event-driven trailing を検討する。
+# 低頻度・時間非依存のため GitHub Actions cron（数十分のズレ許容）で運用。
+
+on:
+  schedule:
+    - cron: "0 9 * * 1-5" # 18:00 JST（引け後・5分足確定後）平日
+  workflow_dispatch: {}
+
+jobs:
+  instrument:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install yfinance psycopg2-binary requests
+
+      - name: Run BE frequency instrumentation
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: python scripts/instrument_be_frequency.py
+
+      - name: Notify Slack on failure
+        if: failure()
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "❌ BE頻度ギャップ計装に失敗しました"
+          SLACK_MESSAGE: |
+            BE頻度ギャップ計装のワークフローがエラーで終了しました
+            詳細はGitHub Actionsログを確認してください
+          SLACK_COLOR: danger
+          SLACK_FOOTER: "Auto Stock Trader"
