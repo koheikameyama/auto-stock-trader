@@ -12,6 +12,7 @@
  */
 
 import { calculateTrailingStop } from "./trailing-stop";
+import type { BreakEvenFloorMode } from "./trailing-stop";
 import { TIME_STOP } from "../lib/constants";
 import type { TradingStrategy } from "./market-regime";
 
@@ -37,6 +38,8 @@ export interface PositionForExit {
    * 執行判定（TPはhigh・SL breachはlow）は本物の約定イベントなので常に不変。
    */
   activationDetectionSource?: "high" | "openclose" | "close";
+  /** トレーリング発動後のストップ下限モード（既定 "entry" = 建値フロア） */
+  breakEvenFloor?: BreakEvenFloorMode;
 }
 
 export interface BarForExit {
@@ -94,6 +97,7 @@ export function checkPositionExit(
     strategy: position.strategy,
     beActivationMultiplierOverride: position.beActivationMultiplierOverride,
     trailMultiplierOverride: position.trailMultiplierOverride,
+    breakEvenFloor: position.breakEvenFloor,
   });
 
   const effectiveTP = trailingResult.effectiveTakeProfit;

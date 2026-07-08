@@ -19,6 +19,7 @@ import { MOMENTUM_RISK_PER_TRADE_PCT } from "./momentum-config";
 import type { PrecomputedUSEtfSignals } from "./us-etf-simulation";
 import type { USEtfBacktestConfig } from "./us-etf-config";
 import { checkPositionExit } from "../core/exit-checker";
+import type { BreakEvenFloorMode } from "../core/trailing-stop";
 import { calculateCommission, calculateTax, calculateMarginInterest, applySlippage } from "../core/trading-costs";
 import type { SlippageProfile } from "../core/trading-costs";
 import { getLimitDownPrice } from "../lib/constants/price-limits";
@@ -83,6 +84,11 @@ export interface SimContext {
    * 未指定時は "high" = baseline 完全不変。
    */
   beTrailDetectionSource?: "high" | "openclose" | "close";
+  /**
+   * トレーリング発動後のストップ下限モード（GU/PSC に適用）。
+   * 未指定時は "entry" = 建値フロア（baseline 完全不変）。--compare-be 検証用。
+   */
+  breakEvenFloor?: BreakEvenFloorMode;
   /** VIXレジーム別戦略フィルター: このレベル以上でBreakoutエントリーを停止（undefined = crisisのみ停止） */
   boVixSkipLevel?: RegimeLevel;
   /** VIXレジーム別戦略フィルター: このレベル以上でGapUpエントリーを停止（undefined = crisisのみ停止） */
@@ -357,7 +363,7 @@ function closePosition(
 // ──────────────────────────────────────────
 function processExits(
   positions: SimulatedPosition[],
-  config: { beActivationMultiplier: number; trailMultiplier: number; maxExtendedHoldingDays: number; maxHoldingDays: number; priceLimitEnabled: boolean; costModelEnabled: boolean },
+  config: { beActivationMultiplier: number; trailMultiplier: number; maxExtendedHoldingDays: number; maxHoldingDays: number; priceLimitEnabled: boolean; costModelEnabled: boolean; breakEvenFloor?: BreakEvenFloorMode },
   strategy: "breakout" | "gapup" | "weekly-break" | "post-surge-consolidation" | "momentum",
   dayIdx: number,
   today: string,
@@ -415,6 +421,7 @@ function processExits(
         maxHoldingDaysOverride: config.maxExtendedHoldingDays,
         baseLimitHoldingDaysOverride: config.maxHoldingDays,
         activationDetectionSource: detectionSource,
+        breakEvenFloor: config.breakEvenFloor,
       },
       { open: todayBar.open, high: todayBar.high, low: todayBar.low, close: todayBar.close },
     );
@@ -707,16 +714,17 @@ export function runCombinedSimulation(
     typeof maxPositions === "number"
       ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, etfMax: maxPositions, buybackMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, etfCrisisBypass, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none", beTrailDetectionSource = "high" } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, etfCrisisBypass, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none", beTrailDetectionSource = "high", breakEvenFloor } = ctx;
   const guBreadthMode = breadthModeGu ?? breadthMode;
   const pscBreadthMode = breadthModePsc ?? breadthMode;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
   const settlementDays = settlementDaysOpt ?? 2;
 
   const boConfigLocal = { ...boConfig };
-  const guConfigLocal = { ...guConfig };
+  // breakEvenFloor は GU/PSC のみに適用（未指定=entry で baseline 不変）
+  const guConfigLocal = { ...guConfig, breakEvenFloor };
   const wbConfigLocal = wbConfig ? { ...wbConfig } : null;
-  const pscConfigLocal = pscConfig ? { ...pscConfig } : null;
+  const pscConfigLocal = pscConfig ? { ...pscConfig, breakEvenFloor } : null;
   const momConfigLocal = momConfig ? { ...momConfig } : null;
   const etfConfigLocal = etfConfig ? { ...etfConfig } : null;
   const buybackConfigLocal = buybackConfig ? { ...buybackConfig } : null;
