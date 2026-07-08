@@ -218,6 +218,55 @@ describe("broker-reconciliation: Phase 3 保有照合", () => {
     );
   });
 
+  it("ブローカー保有なし + SL注文が発注待ち（トリガー未発火）→ 保有継続とみなしクローズも要確認警告もしない（反映ラグ誤警報抑制）", async () => {
+    const position = makePosition({
+      slBrokerOrderId: "SL-002",
+      slBrokerBusinessDay: "20260707",
+    });
+    setupForPhase3([position]);
+    mockGetHoldings.mockResolvedValue([]); // 朝の反映ラグでブローカー保有一覧が空
+
+    // SL逆指値は発注待ち(13)＝板に生存＝株は保有継続。
+    // トリガー/数量はDBと一致させ Phase 1.5 の乖離キャンセルを素通りさせる。
+    mockGetOrderDetail.mockResolvedValue({
+      sOrderStatusCode: "13", // WAITING_REVERSE（発注待ち）
+      sGyakusasiZyouken: "900", // DB stopLossPrice と一致
+      sOrderSuryou: "100", // DB quantity と一致
+    });
+
+    await main();
+
+    expect(mockClosePosition).not.toHaveBeenCalled();
+    expect(mockNotifySlack).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: expect.stringContaining("要確認") }),
+    );
+  });
+
+  it("ブローカー保有なし + SL注文が想定外ステータス（約定でも発注待ちでもない）→ 従来通り要確認警告を出す（fail-safe）", async () => {
+    const position = makePosition({
+      slBrokerOrderId: "SL-003",
+      slBrokerBusinessDay: "20260707",
+    });
+    setupForPhase3([position]);
+    mockGetHoldings.mockResolvedValue([]);
+
+    mockGetOrderDetail.mockResolvedValue({
+      sOrderStatusCode: "99", // 想定外ステータス（有効SLとも約定とも判定できない）
+      sGyakusasiZyouken: "900",
+      sOrderSuryou: "100",
+    });
+
+    await main();
+
+    expect(mockClosePosition).not.toHaveBeenCalled();
+    expect(mockNotifySlack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: expect.stringContaining("要確認"),
+        color: "warning",
+      }),
+    );
+  });
+
   it("当日開設ポジションはブローカー保有なしでもスキップする（引け後の保有反映ラグによる誤警報防止）", async () => {
     const todayPosition = makePosition({
       slBrokerOrderId: null,

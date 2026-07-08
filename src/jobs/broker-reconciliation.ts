@@ -41,6 +41,18 @@ dayjs.extend(timezone);
 // 約定直後はブローカーの保有反映が遅れるためスキップする猶予期間
 const HOLDINGS_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5分
 
+// SL注文が「まだ約定しておらず板に生きている」ステータス群。
+// 現物の売り逆指値は保有株がないと板に残れないため、これらのステータス＝保有継続の証拠。
+// このとき保有一覧（CLMGenbutuKabuList）が空なのは反映ラグであり実際の欠落ではない。
+// FULLY_FILLED(10)/PARTIAL_FILLED(9) は株が売れているので含めない（約定＝別処理・警告対象）。
+const SL_RESTING_STATUSES: readonly string[] = [
+  TACHIBANA_ORDER_STATUS.WAITING_REVERSE, // 13 発注待ち（逆指値トリガー未発火）
+  TACHIBANA_ORDER_STATUS.UNFILLED, // 1  未約定
+  TACHIBANA_ORDER_STATUS.SWITCHING, // 15 切替注文中
+  TACHIBANA_ORDER_STATUS.SWITCHED_UNFILLED, // 16 切替完了（未約定）
+  TACHIBANA_ORDER_STATUS.SUBMITTING, // 50 発注中
+];
+
 export async function main(): Promise<void> {
   console.log("=== Broker Reconciliation 開始 ===");
 
@@ -453,6 +465,17 @@ async function handleMissingHolding(position: {
           }).catch(() => {});
           return;
         }
+      }
+
+      // SL注文がまだ有効（発注待ち/未約定/切替中/発注中）→ 現物売り逆指値が板に生きている
+      // ＝株はまだ保有されている。保有一覧が空なのは CLMGenbutuKabuList の反映ラグであり
+      // 実際の欠落ではない。真の約定は EVENT I/F と次サイクルの Phase 2/3 が処理するため、
+      // ここでは誤警報を出さず log のみに留める（KOH: reconciliation resting-SL 誤警報抑制）。
+      if (SL_RESTING_STATUSES.includes(brokerStatus)) {
+        console.log(
+          `[broker-reconciliation] ${ticker}: SL注文 ${position.slBrokerOrderId} が有効（status=${brokerStatus}）→ 保有継続とみなし警告抑制（保有一覧の反映ラグ）`,
+        );
+        return;
       }
     }
   }
