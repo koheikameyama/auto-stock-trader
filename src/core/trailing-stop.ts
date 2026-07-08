@@ -11,6 +11,20 @@
 import { TRAILING_STOP, BREAK_EVEN_STOP } from "../lib/constants";
 import type { TradingStrategy } from "./market-regime";
 
+/**
+ * breakEvenFloor="entry_plus_cost" 時に建値へ上乗せするコスト分（往復コミッション+税の概算）。
+ * 「建値決済でネット負けにしない」ためのバッファ。
+ */
+const BREAK_EVEN_COST_BUFFER = 0.005;
+
+/**
+ * トレーリング発動後のストップ下限（フロア）モード。
+ * - "entry"（既定）: 建値フロア。発動後は建値以上でロック（現行挙動）
+ * - "entry_plus_cost": 建値+コスト分でロック
+ * - "none": 建値フロアなし。maxHigh-トレール幅がそのまま（下限は originalSL のみ）
+ */
+export type BreakEvenFloorMode = "entry" | "entry_plus_cost" | "none";
+
 export interface TrailingStopInput {
   entryPrice: number;
   maxHighDuringHold: number;
@@ -21,6 +35,7 @@ export interface TrailingStopInput {
   strategy: TradingStrategy;
   beActivationMultiplierOverride?: number;
   trailMultiplierOverride?: number;
+  breakEvenFloor?: BreakEvenFloorMode;
 }
 
 export interface TrailingStopResult {
@@ -54,6 +69,7 @@ export function calculateTrailingStop(
     strategy,
     beActivationMultiplierOverride,
     trailMultiplierOverride,
+    breakEvenFloor = "entry",
   } = input;
 
   // 1. BE発動価格を算出（トレーリング開始のゲート）
@@ -83,14 +99,20 @@ export function calculateTrailingStop(
 
   const rawTrailingStop = maxHighDuringHold - trailWidth;
 
-  // 4. ラチェット（上方向のみ移動）+ ブレークイーブン保証
+  // 4. ラチェット（上方向のみ移動）+ ブレークイーブンフロア
   //    発動条件（activation）< トレール幅（trail）の場合、
-  //    発動直後のストップがエントリー以下になる構造的問題を防止
+  //    発動直後のストップがエントリー以下になる構造的問題を防止（breakEvenFloor で制御）
   let newTrailingStop = Math.round(rawTrailingStop);
   if (currentTrailingStop !== null) {
     newTrailingStop = Math.max(newTrailingStop, currentTrailingStop);
   }
-  newTrailingStop = Math.max(newTrailingStop, originalStopLoss, entryPrice);
+  const beFloor =
+    breakEvenFloor === "none"
+      ? originalStopLoss
+      : breakEvenFloor === "entry_plus_cost"
+        ? Math.max(originalStopLoss, entryPrice * (1 + BREAK_EVEN_COST_BUFFER))
+        : Math.max(originalStopLoss, entryPrice);
+  newTrailingStop = Math.max(newTrailingStop, beFloor);
 
   // 5. 発動後: 固定TPを無効化し上値を追う
   return {
