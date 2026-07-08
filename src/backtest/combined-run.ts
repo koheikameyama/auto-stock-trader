@@ -415,9 +415,10 @@ async function main() {
   const compareSlippage = args.includes("--compare-slippage");
   const compareStrategyMix = args.includes("--compare-strategy-mix");
   const compareNikkeiDrop = args.includes("--compare-nikkei-drop");
+  const compareDetectionGranularity = args.includes("--compare-detection-granularity");
   const corrReport = args.includes("--corr-report");
 
-  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || corrReport;
+  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || compareDetectionGranularity || corrReport;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const pscConfig: PostSurgeConsolidationBacktestConfig = {
@@ -2201,6 +2202,103 @@ async function main() {
           `  ${r.label.padEnd(24)}| ${String(sub.totalTrades).padStart(6)} | ${sub.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expStr.padStart(7)} | ${netPnlStr.padStart(12)}`,
         );
       }
+    }
+
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // --compare-detection-granularity: BE/トレール発動の「検知粒度」を上限(日中高値=無限頻度)と
+  // 下限(終値のみ=1回/日)で挟み、position-monitor の頻度アップで得られる価値の最大幅を測る。
+  // high と close の Calmar 差が「頻度をいくら上げても超えられない価値の天井」。
+  // 差が小さければ頻度アップは無意味、大きければ現状5回/日が取りこぼしている。
+  if (compareDetectionGranularity) {
+    const grid: { label: string; source: "high" | "openclose" | "close" }[] = [
+      { label: "high 検知 (日中高値=無限頻度・上限=現BT)", source: "high" },
+      { label: "openclose 検知 (始値+終値=2回/日相当・中間)", source: "openclose" },
+      { label: "close 検知 (終値のみ=1回/日・下限)", source: "close" },
+    ];
+
+    console.log("\n=== BE/トレール検知粒度 比較（頻度の価値幅ブラケット） ===");
+    console.log(`期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}`);
+    console.log(
+      "上限=high(完璧検知) と 下限=close(1回/日) の差が、position-monitor 頻度アップで得られる価値の最大幅",
+    );
+    console.log(
+      `${"設定".padEnd(40)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"Expect".padStart(7)} | ${"MaxDD".padStart(6)} | ${"NetRet".padStart(7)} | ${"Calmar".padStart(6)}`,
+    );
+    console.log("-".repeat(110));
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    const rows: {
+      label: string;
+      trades: SimulatedPosition[];
+      calmar: number;
+      maxDD: number;
+      netRet: number;
+    }[] = [];
+
+    for (const row of grid) {
+      const result = runCombinedSimulation(
+        { ...ctx, beTrailDetectionSource: row.source },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
+      const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      console.log(
+        `${row.label.padEnd(40)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(7)} | ${m.maxDrawdown.toFixed(1).padStart(5)}% | ${m.netReturnPct.toFixed(1).padStart(6)}% | ${calmar.toFixed(2).padStart(6)}`,
+      );
+      rows.push({ label: row.label, trades: result.allTrades, calmar, maxDD: m.maxDrawdown, netRet: m.netReturnPct });
+    }
+
+    // 出口理由の内訳（あなたの仮説の核心: high検知だと負け(stop_loss)が建値/トレール撤退に置き換わるはず）
+    console.log("\n=== 出口理由の内訳（件数 / 平均pnl% / 合計netPnl） ===");
+    const REASONS: SimulatedPosition["exitReason"][] = [
+      "stop_loss",
+      "trailing_profit",
+      "take_profit",
+      "time_stop",
+    ];
+    for (const r of rows) {
+      console.log(`\n[${r.label}]`);
+      const losers = r.trades.filter((t) => (t.netPnl ?? 0) < 0);
+      const totalLoss = losers.reduce((s, t) => s + (t.netPnl ?? 0), 0);
+      console.log(
+        `  負けトレード: ${losers.length}件 / 合計 ¥${totalLoss.toLocaleString()}`,
+      );
+      for (const reason of REASONS) {
+        const sub = r.trades.filter((t) => t.exitReason === reason);
+        if (sub.length === 0) continue;
+        const avgPct =
+          sub.reduce((s, t) => s + (t.pnlPct ?? 0), 0) / sub.length;
+        const sumPnl = sub.reduce((s, t) => s + (t.netPnl ?? 0), 0);
+        console.log(
+          `  ${String(reason).padEnd(16)}: ${String(sub.length).padStart(4)}件 | 平均 ${(avgPct >= 0 ? "+" : "") + avgPct.toFixed(2)}% | 合計 ¥${sumPnl.toLocaleString()}`,
+        );
+      }
+    }
+
+    // 差分サマリー（頻度の価値幅）
+    if (rows.length >= 2) {
+      const hi = rows[0];
+      const lo = rows[rows.length - 1];
+      console.log("\n=== 頻度の価値幅（上限high − 下限close） ===");
+      console.log(
+        `  Calmar: ${lo.calmar.toFixed(2)} → ${hi.calmar.toFixed(2)}  (幅 ${(hi.calmar - lo.calmar >= 0 ? "+" : "") + (hi.calmar - lo.calmar).toFixed(2)})`,
+      );
+      console.log(
+        `  MaxDD : ${lo.maxDD.toFixed(1)}% → ${hi.maxDD.toFixed(1)}%  (幅 ${(hi.maxDD - lo.maxDD >= 0 ? "+" : "") + (hi.maxDD - lo.maxDD).toFixed(1)}pp)`,
+      );
+      console.log(
+        `  NetRet: ${lo.netRet.toFixed(1)}% → ${hi.netRet.toFixed(1)}%  (幅 ${(hi.netRet - lo.netRet >= 0 ? "+" : "") + (hi.netRet - lo.netRet).toFixed(1)}pp)`,
+      );
+      console.log(
+        "  → この幅が『頻度をいくら上げても超えられない価値の天井』。実際の5回/日はこの間のどこか。",
+      );
     }
 
     console.log("");
