@@ -1,0 +1,49 @@
+name: "[Scheduled] Threads Token Refresh"
+
+on:
+  schedule:
+    # 毎週日曜 04:00 JST = 土曜 19:00 UTC。Threads 長期トークン（約60日）を週次で
+    # リフレッシュして THREADS_USER_TOKEN シークレットを更新する。週次なら失効まで
+    # 十分な再試行余地があり、数分〜数十分のズレは問題ないため GitHub Actions cron を使用。
+    - cron: "0 19 * * 6"
+  workflow_dispatch:
+
+concurrency:
+  group: threads-token-refresh
+  cancel-in-progress: false
+
+env:
+  THREADS_USER_TOKEN: ${{ secrets.THREADS_USER_TOKEN }}
+  GH_PAT: ${{ secrets.GH_PAT }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  SNS_POST_SLACK_WEBHOOK_URL: ${{ secrets.SNS_POST_SLACK_WEBHOOK_URL }}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - name: Refresh Threads long-lived token
+        run: npm run threads:refresh-token
+
+  notify-failure:
+    needs: refresh
+    if: always() && contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on failure
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "❌ threads-token-refresh 失敗"
+          SLACK_MESSAGE: |
+            Threads トークンの自動リフレッシュが失敗しました。
+            失効前に手動でトークンを再発行し、GitHub シークレット THREADS_USER_TOKEN を更新してください。
+          SLACK_COLOR: danger
+          SLACK_FOOTER: "Auto Stock Trader"

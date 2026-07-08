@@ -23,6 +23,7 @@ env:
   SNS_POST_SLACK_WEBHOOK_URL: ${{ secrets.SNS_POST_SLACK_WEBHOOK_URL }}
   BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
   BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
+  THREADS_USER_TOKEN: ${{ secrets.THREADS_USER_TOKEN }}
 
 jobs:
   check-market-day:

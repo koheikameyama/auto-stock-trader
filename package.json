@@ -19,6 +19,7 @@
     "regime-shift-notify": "tsx src/jobs/regime-shift-notify.ts",
     "social:post": "tsx src/jobs/daily-social-post.ts",
     "social:post-morning": "tsx src/jobs/morning-social-post.ts",
+    "threads:refresh-token": "tsx src/jobs/threads-token-refresh.ts",
     "us-etf-health": "tsx src/jobs/us-etf-health-check.ts",
     "defensive-followup": "tsx src/jobs/defensive-exit-followup.ts",
     "unfilled-followup": "tsx src/jobs/unfilled-order-followup.ts",

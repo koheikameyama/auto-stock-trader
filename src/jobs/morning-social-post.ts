@@ -18,6 +18,7 @@ import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import { prisma } from "../lib/prisma";
 import { postToBluesky } from "../lib/bluesky";
+import { postToThreads } from "../lib/threads";
 import { notifySlack, SNS_POST_SLACK_WEBHOOK_URL } from "../lib/slack";
 import { TIMEZONE, PUBLIC_SITE_URL } from "../lib/constants";
 import {
@@ -61,29 +62,43 @@ export async function main() {
   const text = await buildMorningSocialText();
   console.log("--- 投稿内容 ---\n" + text + "\n----------------");
 
-  // 夜投稿と同じく、Bluesky は自動投稿して成否だけを Slack に通知する（本文は載せない）。
-  let blueskyOk = false;
-  try {
-    await postToBluesky(text);
-    blueskyOk = true;
-  } catch (e) {
-    console.error("Bluesky 投稿失敗:", e);
-  }
+  // 夜投稿と同じく、Bluesky / Threads は自動投稿して成否だけを Slack に通知する（本文は載せない）。
+  // 朝投稿は Bluesky/Threads/X で本文が同一。
+  const [blueskyOk, threadsOk] = await Promise.all([
+    postToBluesky(text).then(
+      () => true,
+      (e) => {
+        console.error("Bluesky 投稿失敗:", e);
+        return false;
+      },
+    ),
+    postToThreads(text).then(
+      () => true,
+      (e) => {
+        console.error("Threads 投稿失敗:", e);
+        return false;
+      },
+    ),
+  ]);
 
   // X は手動投稿。投稿文をそのまま Slack に載せ、コピー or Web Intent リンクのタップで
-  // 投稿できるようにする（朝投稿は Bluesky/X で本文が同一）。
+  // 投稿できるようにする。
   const xIntentUrl = buildXIntentUrl(text);
+  const autoOk = blueskyOk && threadsOk;
   await notifySlack({
-    title: blueskyOk ? "🌅 Bluesky投稿OK ／ 📱 X下書き" : "⚠️ Bluesky投稿失敗 ／ 📱 X下書き",
+    title: autoOk
+      ? "🌅 Bluesky ／ 🧵 Threads 投稿OK ／ 📱 X下書き"
+      : "⚠️ 自動投稿に失敗あり ／ 📱 X下書き",
     message: [
       blueskyOk ? "Bluesky: 投稿しました ✅" : "Bluesky: 投稿に失敗しました ❌",
+      threadsOk ? "Threads: 投稿しました ✅" : "Threads: 投稿に失敗しました ❌",
       "",
       "📱 X投稿文（コピー、または下記リンクをタップ）:",
       text,
       "",
       `<${xIntentUrl}|タップして X に投稿（下書きが開きます）>`,
     ].join("\n"),
-    color: blueskyOk ? "good" : "danger",
+    color: autoOk ? "good" : "danger",
     webhookUrl: SNS_POST_SLACK_WEBHOOK_URL,
   });
 }

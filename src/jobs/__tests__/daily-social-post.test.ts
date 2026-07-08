@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from "vitest";
 // 走るため軽量モックで遮断する
 vi.mock("../../lib/prisma", () => ({ prisma: {} }));
 vi.mock("../../lib/bluesky", () => ({ postToBluesky: vi.fn() }));
+vi.mock("../../lib/threads", () => ({ postToThreads: vi.fn() }));
 vi.mock("../../lib/slack", () => ({ notifySlack: vi.fn() }));
 
 import { renderDailyPost, renderXPost, DISCLAIMER, X_DISCLAIMER } from "../daily-social-post";
