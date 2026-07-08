@@ -14,9 +14,6 @@ on:
         description: "初期資金"
         required: false
         default: "500000"
-  push:
-    branches:
-      - claude/win-rate-profit-strategy-6omnqm
 
 jobs:
   analyze:
