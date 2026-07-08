@@ -1,0 +1,49 @@
+name: "[Manual] Trade Concentration Analysis"
+
+# combined BT のトレード明細から「少数の大勝ちトレードへの利益集中度」を測定する診断ワークフロー。
+# 却下リスト #21（D期一発依存）のトレードレベル版エビデンス取得用。手動実行のみ。
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "BT開始日 (YYYY-MM-DD)"
+        required: false
+        default: "2024-03-01"
+      budget:
+        description: "初期資金"
+        required: false
+        default: "500000"
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - name: Run combined baseline BT with trade dump
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          npm run backtest:combined -- \
+            --start "${{ inputs.start }}" \
+            --budget "${{ inputs.budget }}" \
+            --dump-trades trades-baseline.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Analyze trade concentration
+        run: python scripts/_analyze-trade-concentration.py trades-baseline.json | tee concentration-report.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trade-concentration
+          path: |
+            trades-baseline.json
+            concentration-report.txt
+          retention-days: 7
