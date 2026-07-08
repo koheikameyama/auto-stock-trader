@@ -2223,13 +2223,14 @@ async function main() {
 
     type BeFloor = "entry" | "entry_plus_cost" | "none";
     const grid: { label: string; be: number | null; floor: BeFloor | undefined }[] = [
-      { label: "baseline (be既定/floor=entry)", be: null, floor: undefined },
+      { label: "be=0.1 / floor=entry", be: 0.1, floor: "entry" },
+      { label: "be=0.2 / floor=entry", be: 0.2, floor: "entry" },
+      { label: "baseline (be=0.3/floor=entry)", be: null, floor: undefined },
       { label: "be=0.5 / floor=entry", be: 0.5, floor: "entry" },
       { label: "be=0.8 / floor=entry", be: 0.8, floor: "entry" },
       { label: "be=1.2 / floor=entry", be: 1.2, floor: "entry" },
       { label: "be既定 / floor=none", be: null, floor: "none" },
       { label: "be既定 / floor=+cost", be: null, floor: "entry_plus_cost" },
-      { label: "be=0.8 / floor=none", be: 0.8, floor: "none" },
     ];
 
     console.log("\n=== BE発動倍率 × 建値フロア 比較 (GU + PSC 共通) ===");
