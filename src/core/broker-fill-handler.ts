@@ -595,6 +595,11 @@ export async function handleBrokerSLFill(
 function extractAtrFromSnapshot(snapshot: unknown): number | null {
   if (!snapshot || typeof snapshot !== "object") return null;
   const s = snapshot as Record<string, unknown>;
+  // ATR は GU/PSC/WB の entrySnapshot では trigger.atr14 に格納される
+  // （entry-executor が snapshot.trigger.atr14 に書き込む）。
+  // 旧構造の technicals.atr14 もフォールバックで参照する。
+  const trigger = s.trigger as Record<string, unknown> | undefined;
+  if (trigger?.atr14 != null) return Number(trigger.atr14);
   const technicals = s.technicals as Record<string, unknown> | undefined;
   return technicals?.atr14 != null ? Number(technicals.atr14) : null;
 }
