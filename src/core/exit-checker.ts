@@ -29,6 +29,14 @@ export interface PositionForExit {
   trailMultiplierOverride?: number;
   maxHoldingDaysOverride?: number;
   baseLimitHoldingDaysOverride?: number; // 含み損時の早期カット日数（gapup: 3日）
+  /**
+   * BE/トレール発動の「検知」に使う価格系列。
+   * "high"（既定）= その日の日中高値で検知 = 無限頻度の完璧検知（本番・BTの既存挙動）。
+   * "openclose" = 始値と終値の2点で検知 = 実質2回/日相当（曲線の形を見る中間点）。
+   * "close" = 終値のみで検知 = 実質1回/日の最悪検知（頻度の価値幅を測る下限シミュレーション専用）。
+   * 執行判定（TPはhigh・SL breachはlow）は本物の約定イベントなので常に不変。
+   */
+  activationDetectionSource?: "high" | "openclose" | "close";
 }
 
 export interface BarForExit {
@@ -64,7 +72,15 @@ export function checkPositionExit(
   bar: BarForExit,
 ): ExitCheckResult {
   // maxHigh / minLow を更新
-  const newMaxHigh = Math.max(position.maxHighDuringHold, bar.high);
+  // BE/トレール発動の検知に使う高値。既定は日中高値(完璧検知)。"close" 指定時は終値のみで
+  // 検知し、頻度低下(取りこぼし)をシミュレートする。執行(下の TP=high / SL=low)は不変。
+  const detectHigh =
+    position.activationDetectionSource === "close"
+      ? bar.close
+      : position.activationDetectionSource === "openclose"
+        ? Math.max(bar.open, bar.close)
+        : bar.high;
+  const newMaxHigh = Math.max(position.maxHighDuringHold, detectHigh);
   const newMinLow = Math.min(position.minLowDuringHold, bar.low);
 
   // 1. トレーリングストップ算出
