@@ -6,6 +6,7 @@
  */
 
 import dayjs from "dayjs";
+import { Prisma } from "@prisma/client";
 import { buildGuWatchlist, type GuWatchlistEntry } from "../core/gapup/gu-watchlist-builder";
 import { notifySlack } from "../lib/slack";
 import { prisma } from "../lib/prisma";
@@ -36,22 +37,25 @@ async function updateMa20ForWatchlist(tickerCodes: string[], today: Date): Promi
     barsByTicker.set(bar.tickerCode, closes);
   }
 
-  // MA20を計算してWatchlistEntryを更新
-  const updates: Promise<unknown>[] = [];
+  // MA20を計算し、単一の一括UPDATEで反映（銘柄ごとに個別クエリを投げると
+  // 接続プール上限(5)を超過してタイムアウトするため VALUES で一括更新する）
+  const valueRows: Prisma.Sql[] = [];
   for (const ticker of tickerCodes) {
     const closes = barsByTicker.get(ticker);
     if (!closes || closes.length < MA_PERIOD) continue;
     const recent = closes.slice(-MA_PERIOD);
     const ma20 = recent.reduce((s, v) => s + v, 0) / MA_PERIOD;
-    updates.push(
-      prisma.watchlistEntry.updateMany({
-        where: { date: today, tickerCode: ticker },
-        data: { ma20 },
-      }),
-    );
+    valueRows.push(Prisma.sql`(${ticker}, ${ma20}::double precision)`);
   }
-  await Promise.all(updates);
-  console.log(`[watchlist-builder] MA20計算完了: ${updates.length}/${tickerCodes.length}銘柄`);
+  if (valueRows.length > 0) {
+    await prisma.$executeRaw`
+      UPDATE "WatchlistEntry" AS w
+      SET "ma20" = v.ma20
+      FROM (VALUES ${Prisma.join(valueRows)}) AS v(ticker, ma20)
+      WHERE w."tickerCode" = v.ticker AND w."date" = ${today}::date
+    `;
+  }
+  console.log(`[watchlist-builder] MA20計算完了: ${valueRows.length}/${tickerCodes.length}銘柄`);
 }
 
 async function saveGuWatchlistToDB(entries: GuWatchlistEntry[]): Promise<void> {
