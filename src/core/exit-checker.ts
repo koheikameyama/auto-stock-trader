@@ -53,6 +53,7 @@ export type ExitReason =
   | "take_profit"
   | "stop_loss"
   | "trailing_profit"
+  | "trailing_stop"
   | "time_stop";
 
 export interface ExitCheckResult {
@@ -117,7 +118,14 @@ export function checkPositionExit(
   if (bar.low <= effectiveSL) {
     // ギャップダウンで SL を突き抜けた場合、寄り付き値で約定（スリッページ反映）
     exitPrice = bar.open < effectiveSL ? bar.open : effectiveSL;
-    exitReason = trailingResult.isActivated ? "trailing_profit" : "stop_loss";
+    // トレーリング発動中でも、約定が建値以下なら「利確」ではなく建値撤退として分類する。
+    // （発動閾値を舐めた直後に建値フロア割れ・ギャップダウンで建値以下約定するケース）
+    if (trailingResult.isActivated) {
+      exitReason =
+        exitPrice > position.entryPrice ? "trailing_profit" : "trailing_stop";
+    } else {
+      exitReason = "stop_loss";
+    }
   }
 
   // 4. タイムストップ

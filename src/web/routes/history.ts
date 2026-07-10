@@ -34,24 +34,36 @@ function getExitReason(snapshot: unknown): string {
   return "unknown";
 }
 
-/** exitReason を4分類にまとめる */
-function classifyExit(reason: string): "sl" | "trailing" | "time_stop" | "other" {
-  if (reason === "stop_loss") return "sl";
-  if (reason === "trailing_profit") return "trailing";
-  if (reason === "time_stop") return "time_stop";
+/**
+ * exitReason を分類にまとめる。
+ * exitSnapshot に保存されるのは日本語ラベル（position-monitor の EXIT_REASON_LABELS）
+ * およびブローカー自律執行の文言（例「SL約定（ブローカー自律執行）」）なので、
+ * 英語コードではなくラベル文字列で判定する。
+ * トレーリング建値撤退（発動後に建値以下で撤退＝利益を伸ばせていない）は
+ * 「トレーリング利確」とは別カテゴリにして trailingPct を正しく保つ。
+ */
+function classifyExit(
+  reason: string,
+): "sl" | "trailing" | "trailing_be" | "time_stop" | "other" {
+  if (reason.includes("建値撤退")) return "trailing_be";
+  if (reason.includes("トレーリング")) return "trailing";
+  if (reason.includes("損切り") || reason.includes("SL")) return "sl";
+  if (reason.includes("タイムストップ")) return "time_stop";
   return "other";
 }
 
 const EXIT_COLORS: Record<string, string> = {
   sl: "#ef4444",
   trailing: "#22c55e",
+  trailing_be: "#94a3b8",
   time_stop: "#f59e0b",
   other: "#64748b",
 };
 
 const EXIT_LABELS: Record<string, string> = {
   sl: "SL\uFF08\u640D\u5207\u308A\uFF09",
-  trailing: "\u30C8\u30EC\u30FC\u30EA\u30F3\u30B0",
+  trailing: "\u30C8\u30EC\u30FC\u30EA\u30F3\u30B0\u5229\u78BA",
+  trailing_be: "\u30C8\u30EC\u30FC\u30EA\u30F3\u30B0\u5EFA\u5024\u64A4\u9000",
   time_stop: "\u30BF\u30A4\u30E0\u30B9\u30C8\u30C3\u30D7",
   other: "\u305D\u306E\u4ED6",
 };
@@ -91,7 +103,7 @@ app.get("/", async (c) => {
   ]);
 
   // === Exit classification ===
-  const exitCounts = { sl: 0, trailing: 0, time_stop: 0, other: 0 };
+  const exitCounts = { sl: 0, trailing: 0, trailing_be: 0, time_stop: 0, other: 0 };
   for (const p of closedPositions) {
     const reason = getExitReason(p.exitSnapshot);
     exitCounts[classifyExit(reason)]++;
@@ -239,6 +251,7 @@ app.get("/", async (c) => {
               [
                 { label: EXIT_LABELS.sl, count: exitCounts.sl, color: EXIT_COLORS.sl },
                 { label: EXIT_LABELS.trailing, count: exitCounts.trailing, color: EXIT_COLORS.trailing },
+                { label: EXIT_LABELS.trailing_be, count: exitCounts.trailing_be, color: EXIT_COLORS.trailing_be },
                 { label: EXIT_LABELS.time_stop, count: exitCounts.time_stop, color: EXIT_COLORS.time_stop },
                 { label: EXIT_LABELS.other, count: exitCounts.other, color: EXIT_COLORS.other },
               ],

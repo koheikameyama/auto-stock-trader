@@ -111,12 +111,13 @@ describe("checkPositionExit", () => {
 
     it("大レンジでhighがBE閾値超え → trailing_profitになる", () => {
       // high=2210 → trailing発動 → SL=trailingStop(2210-120=2090)
-      // low=1910 <= 2090 → trailing_profit
+      // low=1910 <= 2090 → 約定=2090（建値2000超え）→ trailing_profit
       const result = checkPositionExit(
         makePosition(),
-        makeBar({ open: 2000, high: 2210, low: 1910, close: 1950 }),
+        makeBar({ open: 2100, high: 2210, low: 1910, close: 1950 }),
       );
       expect(result.exitReason).toBe("trailing_profit");
+      expect(result.exitPrice).toBe(2090); // trailing stop（建値超え）
       expect(result.isTrailingActivated).toBe(true);
     });
   });
@@ -155,6 +156,29 @@ describe("checkPositionExit", () => {
       );
       expect(result.exitReason).toBe("trailing_profit");
       expect(result.exitPrice).toBe(2060); // bar.open（スリッページ）
+    });
+
+    it("発動中でも建値以下で約定 → trailing_stop（利確ではなく建値撤退）", () => {
+      // maxHigh=2200 で発動（trailingStop=2080）。ギャップダウンで bar.low<=2080 → 決済。
+      // bar.open=1990 < 2080 なので約定=1990（建値2000以下）→ 利確ではなく trailing_stop。
+      const result = checkPositionExit(
+        makePosition({ maxHighDuringHold: 2200 }),
+        makeBar({ open: 1990, high: 1995, low: 1980, close: 1985 }),
+      );
+      expect(result.exitReason).toBe("trailing_stop");
+      expect(result.exitPrice).toBe(1990); // bar.open（建値割れギャップ）
+      expect(result.exitPrice).toBeLessThanOrEqual(2000); // <= entryPrice
+      expect(result.isTrailingActivated).toBe(true);
+    });
+
+    it("発動中に建値ちょうどで約定 → trailing_stop", () => {
+      // bar.open=2000（=entryPrice）で約定。exitPrice が建値超えでないので trailing_stop。
+      const result = checkPositionExit(
+        makePosition({ maxHighDuringHold: 2200 }),
+        makeBar({ open: 2000, high: 2005, low: 1990, close: 1995 }),
+      );
+      expect(result.exitReason).toBe("trailing_stop");
+      expect(result.exitPrice).toBe(2000); // = entryPrice
     });
   });
 

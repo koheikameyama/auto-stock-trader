@@ -19,6 +19,7 @@ export function calculateMetrics(
       t.exitReason === "take_profit" ||
       t.exitReason === "stop_loss" ||
       t.exitReason === "trailing_profit" ||
+      t.exitReason === "trailing_stop" ||
       t.exitReason === "time_stop" ||
       t.exitReason === "defensive_exit" ||
       t.exitReason === "rotation_exit",

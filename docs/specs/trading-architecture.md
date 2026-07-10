@@ -678,11 +678,14 @@ checkPositionExit(position, bar)
   │     └─ それ以外 → exitPrice = effectiveTP
   │     ※ トレーリング発動中は effectiveTP = null のためスキップ
   │
-  ├─ 4. SL判定: bar.low <= effectiveSL → stop_loss / trailing_profit
+  ├─ 4. SL判定: bar.low <= effectiveSL → stop_loss / trailing_profit / trailing_stop
   │     ├─ bar.open < effectiveSL → exitPrice = bar.open（ギャップダウンスリッページ）
   │     └─ それ以外 → exitPrice = effectiveSL
   │     ※ TPより後に判定 → SLが最終優先（TPを上書き）
-  │     ※ トレーリング発動中は exitReason = "trailing_profit"
+  │     ※ トレーリング未発動 → exitReason = "stop_loss"
+  │     ※ トレーリング発動中かつ約定 > 建値 → "trailing_profit"（利確）
+  │     ※ トレーリング発動中かつ約定 <= 建値 → "trailing_stop"（建値撤退。発動閾値を
+  │        舐めた直後の建値フロア割れ・ギャップダウン等で建値以下約定するケース）
   │
   └─ 5. タイムストップ: 以下2条件すべて満たす場合のみ判定
         ├─ exit未決定（TP/SLどちらも非該当）
@@ -711,7 +714,7 @@ checkPositionExit(position, bar)
 |---|---|
 | `src/core/exit-checker.ts` | 出口判定ロジック |
 | `src/core/trailing-stop.ts` | トレーリングストップ算出 |
-| `src/core/__tests__/exit-checker.test.ts` | 出口判定テスト（21ケース） |
+| `src/core/__tests__/exit-checker.test.ts` | 出口判定テスト（22ケース） |
 | `src/core/__tests__/trailing-stop.test.ts` | トレーリングストップテスト（18ケース） |
 
 ---
@@ -736,8 +739,11 @@ checkPositionExit(position, bar)
    - 固定TP/SLは無効化 → 上値を追い続ける
    - フロア制約: max(rawTrailingStop, originalStopLoss, entryPrice)
 
-3. 価格がトレーリングストップ以下に下落
-   → 「トレーリング利確」として決済
+3. 価格がトレーリングストップ以下に下落 → 決済
+   - 約定 > 建値 → 「トレーリング利確」(trailing_profit)
+   - 約定 <= 建値 → 「トレーリング建値撤退」(trailing_stop)
+     ※ 発動閾値を僅かに超えた直後に建値フロア割れ / ギャップダウンで建値以下約定するケース。
+       含み損拡大を防ぐ正常動作だが「利確」ではないため区別する
 ```
 
 ### パラメータ
@@ -770,6 +776,10 @@ newTrailingStop = max(
   entryPrice                         // 最低でも建値以上
 )
 ```
+
+> **注**: 建値フロアは「発動後は建値以上でロック」を意図するが、ギャップダウン寄付や発動直後の
+> 急落では約定が建値フロアを下回る（ギャップリスク）。この場合トレードは含み損で決済され、
+> exitReason は `trailing_stop`（建値撤退）として `trailing_profit`（利確）と区別される。
 
 ### TP/SLとの関係
 

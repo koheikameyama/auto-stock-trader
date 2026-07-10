@@ -598,6 +598,7 @@ export async function main() {
       take_profit: "利確",
       stop_loss: "損切り",
       trailing_profit: "トレーリング利確",
+      trailing_stop: "トレーリング建値撤退",
       time_stop: "タイムストップ",
     };
     const exitReason = exitResult.exitReason

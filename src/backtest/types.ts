@@ -118,6 +118,7 @@ export interface SimulatedPosition {
     | "take_profit"
     | "stop_loss"
     | "trailing_profit"
+    | "trailing_stop"
     | "time_stop"
     | "defensive_exit"
     | "rotation_exit"
