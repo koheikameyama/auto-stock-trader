@@ -150,6 +150,7 @@ watchlist-builderは2種類のウォッチリストを同時に構築する。
 |--------|------------|--------------|------|
 | market-assessment + watchlist-builder + morning-social-post | cronjob_morning-analysis.yml | 平日 8:00 JST | 市場評価→ウォッチリスト構築（MA20計算含む）。市場評価成功後に朝の相場局面を Bluesky に公開投稿（強気モニターのレベル + breadth/VIX + 公開ページ導線、X は Slack の Web Intent リンクから手動投稿）。当初の独立 GitHub Actions cron（7:45 JST）は初回不発のため本WFに統合（KOH-521） |
 | end-of-day → market-forecast | cronjob_end-of-day.yml | 平日 15:50 JST | 日次締め → AI市場予想（EOD完了後に実行） |
+| daily-social-post | cronjob_daily-social-post.yml | 平日 17:30 JST | 日次ログ（相場環境 + 確定トレード成績）を Bluesky / Threads に公開投稿。end-of-day（17:00 JST）でデータ確定後に実行。X は Slack の Web Intent リンクから手動投稿。決済トレードには仕込み日の局面（🟢breadth N%）を添える（KOH-525、決済3件以下は1件ずつ・4件以上は日付/breadthレンジで集約、300 grapheme 超過時は段階的に省略）。成績計算は `core/public-performance.ts` に集約し公開ページ（/live の実績セクション）と共有。旧 GitHub Actions cron（`30 8 * * 1-5`）は :30 でのドリフト・稀なスキップで当日投稿が欠損し得るため morning-social-post と同じ cron-job.org 起動へ移行 |
 
 > 米株ETF の発注/Exit は Railway Worker の node-cron (15:24) に移行（`us-etf-monitor`）。旧 cron-job.org 「ETF Entry Executor」「ETF Position Monitor」はマージ後に無効化する。
 
@@ -169,7 +170,6 @@ watchlist-builderは2種類のウォッチリストを同時に構築する。
 | run-backtest-gapup | scheduled_daily-backtest-gapup.yml | `0 8 * * 1-5` | 平日 17:00 JST | ギャップアップ戦略バックテスト（直近12ヶ月） |
 | monthly-walk-forward | scheduled_monthly-walk-forward.yml | `0 2 1-7 * 6` | 毎月第1土曜 11:00 JST | breakout+gapup WF分析（戦略エッジ監視） |
 | monthly-strategy-health | scheduled_monthly-strategy-health.yml | `0 2 1-7 * 6` | 毎月第1土曜 11:00 JST | 全戦略 WF + combined比較 + ETFヘルスチェック |
-| daily-social-post | scheduled_daily-social-post.yml | `30 8 * * 1-5` | 平日 17:30 JST | 日次ログ（相場環境 + 確定トレード成績）を Bluesky に公開投稿。end-of-day（17:00 JST）でデータ確定後に実行。X は Slack の Web Intent リンクから手動投稿。決済トレードには仕込み日の局面（🟢breadth N%）を添える（KOH-525、決済3件以下は1件ずつ・4件以上は日付/breadthレンジで集約、300 grapheme 超過時は段階的に省略）。成績計算は `core/public-performance.ts` に集約し公開ページ（/live の実績セクション）と共有 |
 
 各ワークフローには `workflow_dispatch` トリガーがあり、手動実行も可能。平日ジョブは `check-market-day` ステップで休場日・システム停止チェックを行う。
 

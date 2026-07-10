@@ -229,8 +229,8 @@ const schedules = [
   // 7:00-8:55 は前場開始前のバックアップ
   { cron: "*/5 17 * * 1-5", job: runEnsureBrokerSL, name: "ensure-broker-sl", requiresMarketDay: false },
   { cron: "*/5 7-8 * * 1-5", job: runEnsureBrokerSL, name: "ensure-broker-sl", requiresMarketDay: false },
-  // ※ daily-social-post（Bluesky日次投稿）は GitHub Actions cron に移行済み
-  //    （.github/workflows/scheduled_daily-social-post.yml、16:00 JST 平日）
+  // ※ daily-social-post（Bluesky/Threads日次投稿）は cron-job.org に移行済み
+  //    （.github/workflows/cronjob_daily-social-post.yml、平日 17:30 JST に workflow_dispatch）
 ];
 
 // cron 登録
