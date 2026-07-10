@@ -37,7 +37,7 @@ import { BUYBACK_DEFAULT_CONFIG } from "./buyback-config";
 import * as fs from "node:fs";
 import { fetchHistoricalFromDB, fetchVixFromDB, fetchIndexFromDB } from "./data-fetcher";
 import { calculateCapitalUtilization, calculateMetrics } from "./metrics";
-import { runCombinedSimulation, type PositionLimits, type BreadthMode } from "./combined-simulation";
+import { runCombinedSimulation, compute20dEntryVol, type PositionLimits, type BreadthMode, type VolConvexityConfig } from "./combined-simulation";
 import { MARKET_BREADTH, VIX_THRESHOLDS } from "../lib/constants";
 import type {
   GapUpBacktestConfig,
@@ -417,9 +417,10 @@ async function main() {
   const compareNikkeiDrop = args.includes("--compare-nikkei-drop");
   const compareDetectionGranularity = args.includes("--compare-detection-granularity");
   const compareBe = args.includes("--compare-be");
+  const compareVolConvexity = args.includes("--compare-vol-convexity");
   const corrReport = args.includes("--corr-report");
 
-  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || compareDetectionGranularity || compareBe || corrReport;
+  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || compareDetectionGranularity || compareBe || compareVolConvexity || corrReport;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const pscConfig: PostSurgeConsolidationBacktestConfig = {
@@ -2133,6 +2134,109 @@ async function main() {
     return;
   }
 
+  // ボラ凸性サイジング比較モード (GU/PSC のエントリー時20日ボラ分位でサイズ傾斜/veto)
+  // artifact 分析: band内トレードを20日ボラ4分位に分けると下位3分位が合計赤字、
+  // 利益は最上位ボラ分位に全額集中。下位分位を切ると Calmar が上がるか(デッドウェイト除去)、
+  // MaxDD が上がるか(低ボラ玉が offseason クッション=シーズン性の再発見)を判定する。
+  if (compareVolConvexity) {
+    const REGIMES: { label: string; from: string; to: string }[] = [
+      { label: "A: 平穏ボックス", from: "2024-03-01", to: "2024-07-31" },
+      { label: "B: ブラマン+余震", from: "2024-08-01", to: "2024-12-31" },
+      { label: "C: 関税ショック", from: "2025-02-01", to: "2025-04-30" },
+      { label: "D: 大強気相場", from: "2025-05-01", to: "2026-02-28" },
+      { label: "E: 直近急落", from: "2026-03-01", to: "2026-04-20" },
+    ];
+
+    // 分位境界を候補シグナル母集団(GU+PSC 全日)のエントリー時20日ボラから較正する。
+    // 実現トレードは資金依存の部分集合だが、ボラ分布はほぼ同一とみなせる。
+    const { dateIndexMap } = precomputed;
+    const vols: number[] = [];
+    for (const [date, sigs] of gapupSignals) {
+      for (const s of sigs) {
+        const v = compute20dEntryVol(allData, dateIndexMap, s.ticker, date);
+        if (v != null) vols.push(v);
+      }
+    }
+    if (pscSignals) {
+      for (const [date, sigs] of pscSignals) {
+        for (const s of sigs) {
+          const v = compute20dEntryVol(allData, dateIndexMap, s.ticker, date);
+          if (v != null) vols.push(v);
+        }
+      }
+    }
+    vols.sort((a, b) => a - b);
+    const pct = (p: number) => vols[Math.min(vols.length - 1, Math.floor(vols.length * p))] ?? 0;
+    const thresholds: [number, number, number] = [pct(0.25), pct(0.5), pct(0.75)];
+
+    console.log("\n=== ボラ凸性サイジング比較 (GU/PSC エントリー時20日ボラ分位でサイズ傾斜/veto) ===");
+    console.log(`期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}`);
+    console.log(`候補シグナル vol サンプル: ${vols.length}件`);
+    console.log(`分位境界(日次リターン標準偏差%): Q1/Q2=${thresholds[0].toFixed(2)}  Q2/Q3(中央)=${thresholds[1].toFixed(2)}  Q3/Q4=${thresholds[2].toFixed(2)}`);
+
+    type VolSpec = { label: string; cfg: VolConvexityConfig | undefined };
+    const grid: VolSpec[] = [
+      { label: "OFF (baseline)", cfg: undefined },
+      { label: "回帰(all 1.0)", cfg: { thresholds, scales: [1, 1, 1, 1] } },
+      { label: "下位Q1 veto", cfg: { thresholds, scales: [0, 1, 1, 1] } },
+      { label: "下位Q1+Q2 veto", cfg: { thresholds, scales: [0, 0, 1, 1] } },
+      { label: "傾斜(0.25/0.5/1/1)", cfg: { thresholds, scales: [0.25, 0.5, 1, 1] } },
+      { label: "最上位Q4のみ", cfg: { thresholds, scales: [0, 0, 0, 1] } },
+    ];
+
+    console.log(
+      `\n${"設定".padEnd(20)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"Expect".padStart(7)} | ${"MaxDD".padStart(6)} | ${"NetRet".padStart(7)} | ${"Calmar".padStart(6)} | ${"稼働率".padStart(6)}`,
+    );
+    console.log("-".repeat(98));
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    const overallResults: { label: string; allTrades: SimulatedPosition[]; equityCurve: DailyEquity[] }[] = [];
+
+    for (const row of grid) {
+      const result = runCombinedSimulation(
+        { ...ctx, volConvexity: row.cfg },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const util = calculateCapitalUtilization(result.equityCurve);
+      const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
+      const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      console.log(
+        `${row.label.padEnd(20)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(7)} | ${m.maxDrawdown.toFixed(1).padStart(5)}% | ${m.netReturnPct.toFixed(1).padStart(6)}% | ${calmar.toFixed(2).padStart(6)} | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
+      );
+      overallResults.push({ label: row.label, allTrades: result.allTrades, equityCurve: result.equityCurve });
+    }
+
+    // レジーム別内訳 (2024-03+ 窓を走らせた時のみ埋まる)
+    console.log("\n=== レジーム別トレード指標 ===");
+    for (const regime of REGIMES) {
+      console.log(`\n[${regime.label}] ${regime.from} 〜 ${regime.to}`);
+      console.log(
+        `  ${"設定".padEnd(20)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"Expect".padStart(7)} | ${"NetPnL".padStart(12)}`,
+      );
+      console.log("  " + "-".repeat(72));
+
+      for (const r of overallResults) {
+        const inRange = r.allTrades.filter(
+          (t) => t.entryDate >= regime.from && t.entryDate <= regime.to,
+        );
+        const sub = calculateMetrics(inRange, r.equityCurve, budget);
+        const pfStr = sub.profitFactor === Infinity ? "∞" : sub.profitFactor.toFixed(2);
+        const expStr = (sub.expectancy >= 0 ? "+" : "") + sub.expectancy.toFixed(2) + "%";
+        const netPnlStr = (sub.totalNetPnl >= 0 ? "+" : "") + `¥${sub.totalNetPnl.toLocaleString()}`;
+        console.log(
+          `  ${r.label.padEnd(20)}| ${String(sub.totalTrades).padStart(6)} | ${sub.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expStr.padStart(7)} | ${netPnlStr.padStart(12)}`,
+        );
+      }
+    }
+
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
   // cooldownDays 比較モード (GU + PSC 同値で振る)
   if (compareCooldown) {
     const REGIMES: { label: string; from: string; to: string }[] = [
@@ -2351,6 +2455,7 @@ async function main() {
     const REASONS: SimulatedPosition["exitReason"][] = [
       "stop_loss",
       "trailing_profit",
+      "trailing_stop",
       "take_profit",
       "time_stop",
     ];

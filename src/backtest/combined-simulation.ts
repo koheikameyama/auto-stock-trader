@@ -170,6 +170,24 @@ export interface SimContext {
    * 省略時は無効。indexData が無い場合も無効。
    */
   nikkeiDropVetoPct?: number;
+  /**
+   * ボラ凸性サイジング（GU/PSC のみ、--compare-vol-convexity 検証用）。
+   * エントリー時の20日実現ボラ（日次リターンの標準偏差%）で分位を判定し、
+   * quantity に scales[quartile] を掛ける（0 = veto）。
+   * thresholds は [Q1/Q2境界, Q2/Q3境界=中央値, Q3/Q4境界] の昇順3値。
+   * vol <= thresholds[0] → 分位0、... vol > thresholds[2] → 分位3。
+   * 省略時は無効（volScale=1.0）= baseline 完全不変。
+   * 全 scales を 1.0 にすれば発火しても baseline と一致する（回帰確認用）。
+   */
+  volConvexity?: VolConvexityConfig;
+}
+
+/** ボラ凸性サイジング設定（--compare-vol-convexity） */
+export interface VolConvexityConfig {
+  /** 分位境界 [Q1/Q2, Q2/Q3(中央値), Q3/Q4] の昇順3値（日次リターン標準偏差%） */
+  thresholds: [number, number, number];
+  /** 分位0..3ごとの quantity 倍率（0 = veto、≤1.0 推奨） */
+  scales: [number, number, number, number];
 }
 
 /** breadthゲーティングの方式 */
@@ -315,9 +333,12 @@ function closePosition(
 ): void {
   // スリッページ適用: exit_stop = SL/trailing 発動成行、exit_market = その他成行、take_profit は limit 扱い
   const slippageContext =
-    exitReason === "stop_loss" || exitReason === "trailing_profit" ? "exit_stop"
-    : exitReason === "take_profit" ? "limit"
-    : "exit_market";
+    exitReason === "stop_loss" ||
+    exitReason === "trailing_profit" ||
+    exitReason === "trailing_stop"
+      ? "exit_stop"
+      : exitReason === "take_profit" ? "limit"
+      : "exit_market";
   exitPrice = applySlippage(exitPrice, "sell", slippageContext, slippageProfile);
 
   const grossPnl = (exitPrice - pos.entryPrice) * pos.quantity;
@@ -706,6 +727,43 @@ export interface PositionLimits {
   maxPerSector?: number;
 }
 
+/**
+ * エントリー時の20日実現ボラ = 直近20本の日次単純リターンの標準偏差（%表記）。
+ * date は entry バー（GU/PSC の entryPrice=当日終値）。先読みなし（date の close まで）。
+ * 履歴不足（20リターン未満）や欠損時は null。
+ */
+export function compute20dEntryVol(
+  allData: Map<string, OHLCVData[]>,
+  dateIndexMap: Map<string, Map<string, number>>,
+  ticker: string,
+  date: string,
+): number | null {
+  const bars = allData.get(ticker);
+  const bIdx = dateIndexMap.get(ticker)?.get(date);
+  if (!bars || bIdx == null || bIdx < 20) return null;
+  const rets: number[] = [];
+  for (let i = bIdx - 19; i <= bIdx; i++) {
+    const prev = bars[i - 1]?.close;
+    const cur = bars[i]?.close;
+    if (prev == null || cur == null || prev <= 0) return null;
+    rets.push((cur - prev) / prev);
+  }
+  const mean = rets.reduce((s, r) => s + r, 0) / rets.length;
+  const variance = rets.reduce((s, r) => s + (r - mean) * (r - mean), 0) / rets.length;
+  return Math.sqrt(variance) * 100;
+}
+
+/** vol(%) を volConvexity 設定の分位にマップし quantity 倍率を返す（設定なし/算出不能は 1.0） */
+function getVolScale(
+  cfg: VolConvexityConfig | undefined,
+  vol: number | null,
+): number {
+  if (!cfg || vol == null) return 1.0;
+  const [t0, t1, t2] = cfg.thresholds;
+  const q = vol <= t0 ? 0 : vol <= t1 ? 1 : vol <= t2 ? 2 : 3;
+  return cfg.scales[q];
+}
+
 export function runCombinedSimulation(
   ctx: SimContext,
   maxPositions: number | PositionLimits,
@@ -714,7 +772,7 @@ export function runCombinedSimulation(
     typeof maxPositions === "number"
       ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, etfMax: maxPositions, buybackMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, etfCrisisBypass, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none", beTrailDetectionSource = "high", breakEvenFloor } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, etfCrisisBypass, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none", beTrailDetectionSource = "high", breakEvenFloor, volConvexity } = ctx;
   const guBreadthMode = breadthModeGu ?? breadthMode;
   const pscBreadthMode = breadthModePsc ?? breadthMode;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
@@ -1097,7 +1155,8 @@ export function runCombinedSimulation(
         let quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
         {
           const regimeScale = getRegimeRiskScale(todayRegime, riskScaleByRegime);
-          const combinedScale = regimeScale * streakScale;
+          const volScale = getVolScale(volConvexity, compute20dEntryVol(allData, dateIndexMap, signal.ticker, today));
+          const combinedScale = regimeScale * streakScale * volScale;
           if (combinedScale < 1.0) quantity = Math.floor((quantity * combinedScale) / UNIT_SHARES) * UNIT_SHARES;
         }
         if (quantity <= 0) continue;
@@ -1194,7 +1253,8 @@ export function runCombinedSimulation(
         let quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
         {
           const regimeScale = getRegimeRiskScale(todayRegime, riskScaleByRegime);
-          const combinedScale = regimeScale * streakScale;
+          const volScale = getVolScale(volConvexity, compute20dEntryVol(allData, dateIndexMap, signal.ticker, today));
+          const combinedScale = regimeScale * streakScale * volScale;
           if (combinedScale < 1.0) quantity = Math.floor((quantity * combinedScale) / UNIT_SHARES) * UNIT_SHARES;
         }
         if (quantity <= 0) continue;
