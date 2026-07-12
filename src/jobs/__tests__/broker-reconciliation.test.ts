@@ -268,20 +268,29 @@ describe("broker-reconciliation: Phase 3 保有照合", () => {
   });
 
   it("当日開設ポジションはブローカー保有なしでもスキップする（引け後の保有反映ラグによる誤警報防止）", async () => {
-    const todayPosition = makePosition({
-      slBrokerOrderId: null,
-      createdAt: new Date(Date.now() - 15 * 60 * 1000), // 当日・15分前（5分猶予は超過済み）
-    });
-    setupForPhase3([todayPosition]);
-    mockGetHoldings.mockResolvedValue([]); // 当日約定の保有反映ラグでブローカー保有なし
+    // 「当日開設」の判定は本番が createdAt を JST で nowJST と同日比較するため、
+    // 実時計に依存すると JST 深夜0:00〜0:15（UTC 15:00〜15:15）に走った時だけ
+    // 15分前が前日になり誤って要確認警告が出る。時刻を引け後に固定して安定化する。
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-07T06:30:00Z")); // JST 15:30 引け後
+    try {
+      const todayPosition = makePosition({
+        slBrokerOrderId: null,
+        createdAt: new Date(Date.now() - 15 * 60 * 1000), // 当日・15分前（5分猶予は超過済み）
+      });
+      setupForPhase3([todayPosition]);
+      mockGetHoldings.mockResolvedValue([]); // 当日約定の保有反映ラグでブローカー保有なし
 
-    await main();
+      await main();
 
-    // 当日開設なのでSL約定リカバリも「要確認」誤警報通知もしない
-    expect(mockClosePosition).not.toHaveBeenCalled();
-    expect(mockNotifySlack).not.toHaveBeenCalledWith(
-      expect.objectContaining({ title: expect.stringContaining("要確認") }),
-    );
+      // 当日開設なのでSL約定リカバリも「要確認」誤警報通知もしない
+      expect(mockClosePosition).not.toHaveBeenCalled();
+      expect(mockNotifySlack).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: expect.stringContaining("要確認") }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // KOH-532: 引け後発注SLの slBrokerBusinessDay 欠落（空文字）をバックフィルして約定検知
