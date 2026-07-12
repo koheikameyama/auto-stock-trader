@@ -2167,12 +2167,17 @@ async function main() {
     }
     vols.sort((a, b) => a - b);
     const pct = (p: number) => vols[Math.min(vols.length - 1, Math.floor(vols.length * p))] ?? 0;
-    const thresholds: [number, number, number] = [pct(0.25), pct(0.5), pct(0.75)];
+    // --vol-thresholds a,b,c で a-priori 固定閾値を指定可能（先読み除去のWF/頑健性検証用）。
+    // 未指定時は当該窓の候補シグナル分位から較正（先読みあり、初回探索用）。
+    const fixedArg = getArg(args, "--vol-thresholds");
+    const thresholds: [number, number, number] = fixedArg
+      ? (fixedArg.split(",").map(Number) as [number, number, number])
+      : [pct(0.25), pct(0.5), pct(0.75)];
 
     console.log("\n=== ボラ凸性サイジング比較 (GU/PSC エントリー時20日ボラ分位でサイズ傾斜/veto) ===");
     console.log(`期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}`);
     console.log(`候補シグナル vol サンプル: ${vols.length}件`);
-    console.log(`分位境界(日次リターン標準偏差%): Q1/Q2=${thresholds[0].toFixed(2)}  Q2/Q3(中央)=${thresholds[1].toFixed(2)}  Q3/Q4=${thresholds[2].toFixed(2)}`);
+    console.log(`分位境界(日次リターン標準偏差%): Q1/Q2=${thresholds[0].toFixed(2)}  Q2/Q3(中央)=${thresholds[1].toFixed(2)}  Q3/Q4=${thresholds[2].toFixed(2)}${fixedArg ? "  [固定/a-priori]" : "  [窓内較正]"}`);
 
     type VolSpec = { label: string; cfg: VolConvexityConfig | undefined };
     const grid: VolSpec[] = [
