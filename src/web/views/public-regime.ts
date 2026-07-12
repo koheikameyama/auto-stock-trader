@@ -13,8 +13,8 @@
 import { PUBLIC_SITE_URL } from "../../lib/constants/web";
 import type { SignalLevel } from "../../core/regime-shift-detector";
 
-// OGP・共有カード用のロゴ画像（絶対URL）。summary カードの正方形サムネに使う
-const OG_IMAGE_URL = `${PUBLIC_SITE_URL}icon-512.png`;
+// OGP・共有カード用のバナー画像（絶対URL, 1200×630 相当）。summary_large_image の横長カードに使う
+const OG_IMAGE_URL = `${PUBLIC_SITE_URL}og-banner.png`;
 
 export interface PublicRegimeData {
   level: SignalLevel;
@@ -79,7 +79,9 @@ function baseHead(
 <meta property="og:site_name" content="相場局面モニター">
 <meta property="og:url" content="${PUBLIC_SITE_URL}">
 <meta property="og:image" content="${OG_IMAGE_URL}">
-<meta name="twitter:card" content="summary">
+<meta name="twitter:card" content="summary_large_image">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta name="twitter:image" content="${OG_IMAGE_URL}">
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <style>${STYLES}</style>`;

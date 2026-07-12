@@ -48,6 +48,7 @@ function isPublicAllowedPath(path: string): boolean {
   return (
     path === "/" ||
     path === "/favicon.ico" ||
+    path === "/og-banner.png" ||
     path === "/live" ||
     path.startsWith("/live/") ||
     path === "/api/regime" ||
@@ -189,6 +190,15 @@ app.get("/icon-512.png", (c) => {
   c.header("Content-Type", "image/png");
   c.header("Cache-Control", "public, max-age=604800");
   return c.body(ICON_512_PNG);
+});
+
+// OGP・SNS共有カード用のバナー画像（1200×630 の横長, summary_large_image）
+const OG_BANNER_PNG = readFileSync(join(ASSETS_DIR, "og-banner.png"));
+
+app.get("/og-banner.png", (c) => {
+  c.header("Content-Type", "image/png");
+  c.header("Cache-Control", "public, max-age=604800");
+  return c.body(OG_BANNER_PNG);
 });
 
 // ルート「/」は host で出し分け: 公開ホスト → 公開ページ / admin ホスト → dashboard
