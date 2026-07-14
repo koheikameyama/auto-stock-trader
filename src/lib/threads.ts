@@ -20,6 +20,19 @@ const THREADS_API_BASE = "https://graph.threads.net/v1.0";
 /** Threads の1投稿あたり最大文字数 */
 const MAX_POST_CHARS = 500;
 
+/**
+ * publish リトライ設定。
+ * container 作成直後は Threads 側でメディア処理が完了しておらず、publish が
+ * `The requested resource does not exist` で間欠的に失敗する（Meta 公式も
+ * publish 前の待機を推奨）。待機 + 指数バックオフでリトライして吸収する。
+ */
+const PUBLISH_INITIAL_WAIT_MS = 5_000;
+const PUBLISH_MAX_ATTEMPTS = 4;
+const PUBLISH_BACKOFF_MS = 5_000;
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 interface ThreadsApiResponse {
   id?: string;
   error?: { message?: string; type?: string; code?: number };
@@ -74,10 +87,27 @@ export async function postToThreads(text: string): Promise<void> {
     text: body,
   });
 
-  // 2. publish して確定
-  await postGraph(`${THREADS_USER_ID}/threads_publish`, {
-    creation_id: container.id!,
-  });
-
-  console.log("✅ Threads に投稿しました");
+  // 2. publish して確定。container のサーバー側処理を待ってからリトライ付きで叩く。
+  await sleep(PUBLISH_INITIAL_WAIT_MS);
+  for (let attempt = 1; attempt <= PUBLISH_MAX_ATTEMPTS; attempt++) {
+    try {
+      await postGraph(`${THREADS_USER_ID}/threads_publish`, {
+        creation_id: container.id!,
+      });
+      console.log("✅ Threads に投稿しました");
+      return;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // container 未処理由来の一時エラーのみリトライ対象。恒久エラーは即時 throw。
+      const retriable = /does not exist|not ready|media|processing/i.test(msg);
+      if (!retriable || attempt === PUBLISH_MAX_ATTEMPTS) {
+        throw e;
+      }
+      const waitMs = PUBLISH_BACKOFF_MS * attempt;
+      console.warn(
+        `⚠️  Threads publish 失敗（${attempt}/${PUBLISH_MAX_ATTEMPTS}）: ${msg} — ${waitMs}ms 後にリトライ`,
+      );
+      await sleep(waitMs);
+    }
+  }
 }
