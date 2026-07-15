@@ -15,6 +15,7 @@ import {
   LOSING_STREAK,
 } from "../lib/constants";
 import { canAddToSector, canAddToMacroFactor } from "./sector-analyzer";
+import { countSameDayPendingBuys } from "./order-executor";
 import { calculateDrawdownStatus, getLosingStreak } from "./drawdown-manager";
 import { fetchStockQuotesBatch } from "./market-data";
 import { getEffectiveCapital, getPositionPnl } from "./position-manager";
@@ -84,10 +85,15 @@ export async function canOpenPosition(
     ? TRADING_DEFAULTS.MAX_POSITIONS_GU
     : TRADING_DEFAULTS.MAX_POSITIONS_PSC;
   const strategyPositions = openPositions.filter((p) => p.strategy === strategyKey);
-  if (strategyPositions.length >= maxPositions) {
+  // 発注済みで未約定の注文も枠を消費しているものとして数える。TradingPosition は約定時
+  // （15:30）にしか作られず、15:24 のエントリー窓では open が 0 のままなので、これを
+  // 足さないと枠チェックが素通りする（KOH-553）。monitor 側の slotsLeft と二重の防御。
+  const pendingBuyCount = await countSameDayPendingBuys(strategyKey);
+  const usedSlots = strategyPositions.length + pendingBuyCount;
+  if (usedSlots >= maxPositions) {
     return {
       allowed: false,
-      reason: `${strategyKey} 戦略の最大同時保有数（${maxPositions}）に達しています（現在: ${strategyPositions.length}）`,
+      reason: `${strategyKey} 戦略の最大同時保有数（${maxPositions}）に達しています（保有 ${strategyPositions.length} + 発注中 ${pendingBuyCount}）`,
       retryable: true,
     };
   }

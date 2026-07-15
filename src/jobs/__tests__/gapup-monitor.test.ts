@@ -14,6 +14,7 @@ const {
   mockDailyBarFindMany,
   mockGapUpScan,
   mockGetSameDayPendingBuyTickers,
+  mockCountSameDayPendingBuys,
 } = vi.hoisted(() => ({
   mockGetWatchlist: vi.fn(), // getGuWatchlist のモック
   mockFetchQuotes: vi.fn(),
@@ -24,6 +25,7 @@ const {
   mockDailyBarFindMany: vi.fn().mockResolvedValue([]),
   mockGapUpScan: vi.fn().mockReturnValue([]),
   mockGetSameDayPendingBuyTickers: vi.fn().mockResolvedValue(new Set()),
+  mockCountSameDayPendingBuys: vi.fn().mockResolvedValue(0),
 }));
 
 vi.mock("../../lib/prisma", () => ({
@@ -43,6 +45,7 @@ vi.mock("../../core/breakout/entry-executor", () => ({
 }));
 vi.mock("../../core/order-executor", () => ({
   getSameDayPendingBuyTickers: mockGetSameDayPendingBuyTickers,
+  countSameDayPendingBuys: mockCountSameDayPendingBuys,
 }));
 vi.mock("../../lib/slack", () => ({ notifySlack: mockNotifySlack }));
 vi.mock("../../lib/market-date", () => ({
@@ -216,6 +219,39 @@ describe("gapup-monitor main()", () => {
     expect(mockGapUpScan).toHaveBeenCalled();
     const holdingTickers = mockGapUpScan.mock.calls[0][1] as Set<string>;
     expect(holdingTickers.has("7203")).toBe(true);
+  });
+
+  // KOH-553: TradingPosition は約定時（15:30）にしか作られないため、15:24 のエントリー窓では
+  // 発注済み注文が open ポジションとして見えない。当日の pending 買い注文を枠計算に含めないと
+  // 15:24:00/20/40 のリトライ tick ごとに枠が満タンに復活し、上限を超えて発注される。
+  it("発注中（当日pending買い注文）が枠を消費する — 枠が埋まっていればエントリーしない", async () => {
+    setupDefaults();
+    mockGapUpScan.mockReturnValue([makeTrigger("7203")]);
+    // open ポジは 0 件だが、当日 GU で3件（=MAX_POSITIONS_GU）発注済み・未約定
+    mockPositionFindMany.mockResolvedValue([]);
+    mockCountSameDayPendingBuys.mockResolvedValue(3);
+    await main();
+    expect(mockExecuteEntry).not.toHaveBeenCalled();
+  });
+
+  it("発注中の分だけ空き枠が減る — 残り1枠なら1件しかエントリーしない", async () => {
+    setupDefaults();
+    mockFetchQuotes.mockResolvedValue([
+      makeQuote("7203"),
+      makeQuote("6758"),
+      makeQuote("9984"),
+    ]);
+    mockGapUpScan.mockReturnValue([
+      makeTrigger("7203"),
+      makeTrigger("6758"),
+      makeTrigger("9984"),
+    ]);
+    // open 0件 + 発注中2件 → MAX_POSITIONS_GU(3) - 2 = 残り1枠
+    mockPositionFindMany.mockResolvedValue([]);
+    mockCountSameDayPendingBuys.mockResolvedValue(2);
+    mockExecuteEntry.mockResolvedValue({ success: true });
+    await main();
+    expect(mockExecuteEntry).toHaveBeenCalledTimes(1);
   });
 
   it("エントリー例外→リトライ扱い（次回呼び出しで再実行）", async () => {

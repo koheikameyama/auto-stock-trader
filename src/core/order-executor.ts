@@ -147,6 +147,29 @@ export async function getSameDayPendingBuyTickers(): Promise<Set<string>> {
 }
 
 /**
+ * 当日の未約定（pending）買い注文数を戦略別に返す。ポジション枠の計算に必須。
+ *
+ * TradingPosition は約定時（15:30）にしか作られないため、15:24 のエントリー窓では
+ * 「自分がたった今出した注文」が open ポジションとして見えない。これを数えずに
+ * 「枠 − open数」で空き枠を出すと、リトライ tick ごとに枠が満タンに復活し、
+ * 上限を超えて発注される（KOH-553: PSC 枠2 に対し 2026-07-13/15 に3件発注）。
+ *
+ * 銘柄の重複除外は getSameDayPendingBuyTickers が担うのでここでは戦略で絞る。
+ * 約定時は claimOrderFill が status を filled にしてから openPosition するため、
+ * open ポジションとの二重カウントは発生しない。
+ */
+export async function countSameDayPendingBuys(strategy: string): Promise<number> {
+  return prisma.tradingOrder.count({
+    where: {
+      strategy,
+      side: "buy",
+      status: "pending",
+      createdAt: { gte: getStartOfDayJST() },
+    },
+  });
+}
+
+/**
  * 期限切れ注文をキャンセルする
  *
  * 注意: 立花に発注済み（brokerOrderId あり）の注文は、時間ベース単独では失効確定しない。
