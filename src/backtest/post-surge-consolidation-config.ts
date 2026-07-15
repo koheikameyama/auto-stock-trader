@@ -62,6 +62,11 @@ export const PSC_RISK_PER_TRADE_PCT = POSITION_SIZING.RISK_PER_TRADE_PCT;
 /** walk-forward パラメータグリッド（27通り、エグジット系のみ） */
 export const PSC_PARAMETER_GRID = {
   atrMultiplier: [0.8, 1.0, 1.2],
+  // 下限 0.3 は意図的（KOH-552, 2026-07-15 測定）。低い側も検証済みで OOS は単調に悪化する:
+  //   WF固定比較(atr=0.8/trail=0.3固定, 7窓 OOS集計PF): be=0.1 → 2.47 / 0.2 → 2.51 / 0.3 → 2.58
+  // combined 単発BTでは be=0.1 が Calmar 33.63（0.3 は 32.04）と勝つが WF で再現しない経路依存ノイズ。
+  // グリッドに 0.1/0.2 を入れると IS が掴んで OOS が落ちる（集計PF 2.48→2.43 / 勝率 44.9%→42.9%）
+  // ＝過学習の次元が増えるだけなので入れない。上側 0.5/0.8 は明確に悪いが探索範囲として残す。
   beActivationMultiplier: [0.3, 0.5, 0.8],
   // 0.3 は KOH-548 で追加。イントラバー先読み修正後の combined 単発BTで trail=0.3 が
   // Calmar 32.04（現行0.5 は 22.98）と最良になったため、WF で確認できるようグリッドに入れた。

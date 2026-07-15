@@ -75,6 +75,9 @@ export const GAPUP_PARAMETER_GRID = {
   /** undefined = 緩和無効 */
   gapRelaxVolThreshold: [undefined, 3.0, 4.0] as (number | undefined)[],
   atrMultiplier: [0.8, 1.0, 1.2],
+  // 下限 0.3 は意図的（KOH-552, 2026-07-15）。PSC 側で低い側 0.1/0.2 を検証したところ
+  // OOS は単調に悪化し（be=0.1 → 2.47 / 0.2 → 2.51 / 0.3 → 2.58）、グリッドに入れると IS が
+  // 掴んで OOS が落ちた。GU も be/trail 構成は同じ（共に 0.3）なので同様に入れない。
   beActivationMultiplier: [0.3, 0.5, 0.8],
   trailMultiplier: [0.3, 0.5, 0.8],
 } as const;

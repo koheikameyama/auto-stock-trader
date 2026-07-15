@@ -2337,14 +2337,19 @@ async function main() {
     ];
 
     type BeFloor = "entry" | "entry_plus_cost" | "none";
+    // 低い側 0.1/0.2 は PR #373 で追加（WFグリッドも下限0.3で低い側は未検証だった）。
+    // PSC trail が 0.3 になった今 (KOH-552)、be < trail では発動時のトレールが建値を割るため
+    // 建値フロアが再びクランプする。be を下げる検証はフロアと不可分なので floor 列も併記する。
     const grid: { label: string; be: number | null; floor: BeFloor | undefined }[] = [
-      { label: "baseline (be既定/floor=entry)", be: null, floor: undefined },
+      { label: "be=0.1 / floor=entry", be: 0.1, floor: "entry" },
+      { label: "be=0.2 / floor=entry", be: 0.2, floor: "entry" },
+      { label: "baseline (be=0.3/floor=entry)", be: null, floor: undefined },
       { label: "be=0.5 / floor=entry", be: 0.5, floor: "entry" },
       { label: "be=0.8 / floor=entry", be: 0.8, floor: "entry" },
       { label: "be=1.2 / floor=entry", be: 1.2, floor: "entry" },
       { label: "be既定 / floor=none", be: null, floor: "none" },
       { label: "be既定 / floor=+cost", be: null, floor: "entry_plus_cost" },
-      { label: "be=0.8 / floor=none", be: 0.8, floor: "none" },
+      { label: "be=0.2 / floor=none", be: 0.2, floor: "none" },
     ];
 
     console.log("\n=== BE発動倍率 × 建値フロア 比較 (GU + PSC 共通) ===");
