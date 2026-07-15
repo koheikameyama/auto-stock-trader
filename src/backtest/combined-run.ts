@@ -403,6 +403,11 @@ async function main() {
   // （-12%SL + 20営業日TS）で従来の検証結果を再現する。
   const panicTimeStopArg = getArg(args, "--panic-time-stop");
   const panicSlPctArg = getArg(args, "--panic-sl-pct");
+  // --panic-breadth-max (KOH-554): panic の config は BUYBACK_DEFAULT_CONFIG 流用なので
+  // breadthMax=0.54 が効いており、precomputeBuybackSignals が「エントリー日当日の breadth < 54%」を
+  // 追加で見てしまう (buyback-simulation.ts:57-58)。本番 15:24 に当日 breadth は存在しないので
+  // これは live 再現不能な先読み。`--entry-lag 1` のイベントで測る時は 1 を渡して無効化する。
+  const panicBreadthMaxArg = getArg(args, "--panic-breadth-max");
   const comparePanicExit = args.includes("--compare-panic-exit");
   const maxPerSectorArg = getArg(args, "--max-per-sector");
   const compareSector = args.includes("--compare-sector");
@@ -668,6 +673,7 @@ async function main() {
       unitShares: 1,
       ...(panicTimeStopArg ? { timeStopDays: Number(panicTimeStopArg) } : {}),
       ...(panicSlPctArg ? { slPct: Number(panicSlPctArg) } : {}),
+      ...(panicBreadthMaxArg ? { breadthMax: Number(panicBreadthMaxArg) } : {}),
     };
     const panicRawData = await fetchHistoricalFromDB(panicTickers, startDate, endDate);
     let totalBars = 0;
