@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { evaluateDefensiveMode } from "../position-monitor";
+import { evaluateDefensiveMode, filterDefensiveExitTargets } from "../position-monitor";
 import { determineMarketRegime } from "../../core/market-regime";
 
 describe("evaluateDefensiveMode", () => {
@@ -51,5 +51,38 @@ describe("evaluateDefensiveMode", () => {
       const liveWouldClose = evaluateDefensiveMode({ sentiment: "normal", vix }).active;
       expect(liveWouldClose, `VIX ${vix} で BT と本番が不一致`).toBe(btWouldClose);
     }
+  });
+});
+
+// KOH-554: パニック底反発は VIX>30 のその日に買う逆張り戦略なので、防御決済から除外する
+// （BT の SimContext.etfCrisisBypass の移植）。除外されるのは裁量的な成行決済だけで、
+// -12% の逆指値SLは板に生きたまま。
+describe("filterDefensiveExitTargets", () => {
+  const p = (strategy: string) => ({ strategy });
+
+  it("panic だけがバイパスされ、他戦略は決済対象に残る", () => {
+    const { targets, bypassed } = filterDefensiveExitTargets([
+      p("gapup"),
+      p("panic"),
+      p("post-surge-consolidation"),
+      p("us_etf"),
+    ]);
+    expect(bypassed).toEqual([p("panic")]);
+    expect(targets.map((t) => t.strategy)).toEqual(["gapup", "post-surge-consolidation", "us_etf"]);
+  });
+
+  it("us_etf は防御決済の対象のまま（BT も etfCrisisBypass 無しでは processDefensive を通す）", () => {
+    const { targets, bypassed } = filterDefensiveExitTargets([p("us_etf")]);
+    expect(targets).toHaveLength(1);
+    expect(bypassed).toHaveLength(0);
+  });
+
+  it("panic のみでも他戦略のみでも壊れない", () => {
+    expect(filterDefensiveExitTargets([p("panic")]).targets).toHaveLength(0);
+    expect(filterDefensiveExitTargets([p("breakout")]).bypassed).toHaveLength(0);
+  });
+
+  it("空配列", () => {
+    expect(filterDefensiveExitTargets([])).toEqual({ targets: [], bypassed: [] });
   });
 });

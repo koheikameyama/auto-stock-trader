@@ -4,6 +4,11 @@
  * JP市場のみを対象とする（StockDailyBarは US/INDEX も含むため明示フィルタ必須）。
  * asOfDate を指定するとその日のbreadthを返し、未指定なら60日以内で最も新しい JP 営業日を自動採用する。
  * 該当日にデータが無い場合は Error を throw する（silent に古いデータを返すと呼び出し側が気づけないため）。
+ *
+ * `opts.maxPrice` を渡すと母集団をその価格以下の銘柄に絞る。BT の breadth は
+ * `maxPrice<=2500` のユニバースで算出されており（`combined-run.ts` / `_gen-panic-events.ts`）、
+ * 閾値もその定義で較正されているため、BT由来の閾値を使う戦略はこれを指定する必要がある。
+ * 未指定時は JP 全銘柄（従来動作）で、GU/PSC 用の `MARKET_BREADTH.THRESHOLD` はこちらの前提。
  */
 
 import dayjs from "dayjs";
@@ -17,8 +22,12 @@ export interface BreadthResult {
   asOfDate: Date; // 計算に使った JP 営業日
 }
 
-export async function calculateMarketBreadth(asOfDate?: Date): Promise<BreadthResult> {
+export async function calculateMarketBreadth(
+  asOfDate?: Date,
+  opts?: { maxPrice?: number },
+): Promise<BreadthResult> {
   const upperBound = asOfDate ?? getTodayForDB();
+  const maxPrice = opts?.maxPrice ?? null;
   const cutoffDate = jstDateAsUTC(dayjs(upperBound).utc().subtract(60, "day"));
 
   // asOfDate 未指定時は、lookback 範囲内で最も新しい JP 営業日を採用する
@@ -69,6 +78,8 @@ export async function calculateMarketBreadth(asOfDate?: Date): Promise<BreadthRe
     FROM windowed
     WHERE date = ${targetDate}
       AND window_count >= 25
+      -- 価格フィルタは外側で掛ける。CTE 側に入れると SMA25 の窓からバーが欠落し別物になる
+      AND (${maxPrice}::numeric IS NULL OR close <= ${maxPrice}::numeric)
   `;
 
   const row = result[0];
