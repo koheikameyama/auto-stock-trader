@@ -20,6 +20,7 @@ import { main as runMonitor } from "./jobs/position-monitor";
 import { main as runGapupMonitor } from "./jobs/gapup-monitor";
 import { main as runPSCMonitor } from "./jobs/post-surge-consolidation-monitor";
 import { main as runUsEtfMonitor } from "./jobs/us-etf-monitor";
+import { main as runPanicMonitor } from "./jobs/panic-monitor";
 import { main as runBuybackMonitor } from "./jobs/buyback-monitor";
 import { main as runBrokerReconciliation } from "./jobs/broker-reconciliation";
 import { main as runSessionHealthCheck } from "./jobs/session-health-check";
@@ -146,7 +147,7 @@ async function runPositionMonitorTick() {
   await runJob("position-monitor", runMonitor, true);
 }
 
-// 15:24 エントリー監視: combined BT の資金配分順 (GapUp → PSC → US-ETF) で逐次実行する。
+// 15:24 エントリー監視: combined BT の資金配分順 (GapUp → PSC → US-ETF → panic) で逐次実行する。
 // 各 monitor は executeEntry 内で cash/openPositions を読み直すため、逐次化するだけで
 // 「GU が先に資金・枠を確保し、PSC は残りから入る」という combined BT の優先順位が再現される
 // （並列 cron だと共有資金のレースで優先順位が非決定的だった）。
@@ -157,6 +158,9 @@ async function runEntryMonitors() {
     ["gapup-monitor", runGapupMonitor],
     ["psc-monitor", runPSCMonitor],
     ["us-etf-monitor", runUsEtfMonitor],
+    // panic は最後。GU/PSC が資金・枠を確保した残りから入る = combined BT の優先順位と同じ。
+    // 発火は年2回未満（VIX>25 × breadth<40% × N225連続下落≥3日）なので通常は即 return する。
+    ["panic-monitor", runPanicMonitor],
   ];
   for (const [name, fn] of monitors) {
     try {

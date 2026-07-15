@@ -488,6 +488,40 @@ model RejectedSignal {
 /// 米株 ETF (1547, 1545) のエントリーシグナル
 /// us-etf-watchlist で検出されたシグナルを保存し、翌営業日寄付に
 /// us-etf-entry-executor が発注する
+/// パニック底反発 (KOH-531/554) のシグナル記録。
+/// 発火は年2回未満と稀なので、**不発日も残して「なぜ撃たなかったか」を後から数えられるようにする**
+/// (UsEtfSignal は価格系が必須で発注成功時しか記録できず、鮮度ガードの当否を検証できない)。
+model PanicSignal {
+  id                String    @id @default(cuid())
+  /// スキャンを実行した営業日 (= エントリー日)
+  detectedDate      DateTime  @db.Date
+  ticker            String
+  /// 条件を評価した営業日 (= detectedDate の前営業日)。live は当日breadthを取得できないため1営業日ラグがある
+  conditionDate     DateTime? @db.Date
+  /// 判定に使った ^VIX 終値 (conditionDate より前の最新バー)
+  prevVixClose      Decimal?  @db.Decimal(8, 2)
+  /// 採用値。BT と同じ maxPrice<=2500 ユニバースの breadth
+  breadth           Decimal?  @db.Decimal(5, 4)
+  /// 参考: JP全銘柄の breadth。母集団差をフォワードで実測するために残す
+  breadthAllJp      Decimal?  @db.Decimal(5, 4)
+  nikkeiDownStreak  Int?
+  /// VIX/breadth/streak の3条件が揃ったか (エピソード判定を含まない)
+  conditionsMet     Boolean   @default(false)
+  isEpisodeFirstDay Boolean   @default(false)
+  entryPrice        Decimal?  @db.Decimal(12, 2)
+  slPrice           Decimal?  @db.Decimal(12, 2)
+  executed          Boolean   @default(false)
+  executedAt        DateTime?
+  brokerOrderNumber String?
+  positionId        String?
+  skipReason        String?
+  createdAt         DateTime  @default(now())
+
+  @@unique([detectedDate, ticker])
+  @@index([detectedDate(sort: Desc)])
+  @@index([conditionsMet])
+}
+
 model UsEtfSignal {
   id                String    @id @default(cuid())
   detectedDate      DateTime  @db.Date

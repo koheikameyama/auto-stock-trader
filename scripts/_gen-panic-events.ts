@@ -38,13 +38,30 @@ import { prisma } from "../src/lib/prisma";
 import { getMaxBuyablePrice } from "../src/core/risk-manager";
 import fs from "fs";
 
+const FLAGS_WITH_VALUE = ["--entry-lag", "--breadth-universe"];
 const args = process.argv.slice(2);
-/** フラグを除いた位置引数（--entry-lag N が後ろに付いても START/END/OUT を壊さない） */
-const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && args[i - 1] === "--entry-lag"));
+/** フラグを除いた位置引数（--entry-lag N 等が後ろに付いても START/END/OUT を壊さない） */
+const positional = args.filter(
+  (a, i) => !a.startsWith("--") && !(i > 0 && FLAGS_WITH_VALUE.includes(args[i - 1])),
+);
 const entryLagIdx = args.indexOf("--entry-lag");
 const ENTRY_LAG = entryLagIdx >= 0 ? Number(args[entryLagIdx + 1]) : 0;
 if (!Number.isInteger(ENTRY_LAG) || ENTRY_LAG < 0) {
   console.error(`--entry-lag は0以上の整数を指定してください (got: ${args[entryLagIdx + 1]})`);
+  process.exit(1);
+}
+
+/**
+ * breadth の母集団の決め方 (KOH-554):
+ *   ever  … 期間中どこかで <=maxPrice を付けた銘柄（BT の既定。全期間を見るので未来情報込み）
+ *   daily … その日の終値が <=maxPrice の銘柄（**live で再現できる唯一の定義**）
+ * 本番 (`src/core/panic/market-state.ts`) は daily しか実装できないので、両者でイベント集合が
+ * 一致することを確認してから live 実装を信用する。
+ */
+const universeIdx = args.indexOf("--breadth-universe");
+const BREADTH_UNIVERSE = universeIdx >= 0 ? args[universeIdx + 1] : "ever";
+if (!["ever", "daily"].includes(BREADTH_UNIVERSE)) {
+  console.error(`--breadth-universe は ever|daily (got: ${BREADTH_UNIVERSE})`);
   process.exit(1);
 }
 
@@ -87,6 +104,8 @@ async function main() {
     for (const [, d] of tickerCloses) {
       const idx = d.di.get(day);
       if (idx == null || idx < SMA_LEN - 1) continue;
+      // daily: その日の終値が maxPrice 以下の銘柄だけを母集団にする（live が再現できる唯一の定義）
+      if (BREADTH_UNIVERSE === "daily" && !(d.closes[idx] <= maxPrice && d.closes[idx] > 0)) continue;
       let sum = 0;
       for (let j = idx - SMA_LEN + 1; j <= idx; j++) sum += d.closes[j];
       total++;

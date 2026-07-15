@@ -54,6 +54,7 @@ import { cancelOrder, fetchFilledPrice, submitOrder } from "../core/broker-order
 import type { BrokerOrderResult } from "../core/broker-orders";
 import { cancelBrokerSL, updateBrokerSL } from "../core/broker-sl-manager";
 import { TACHIBANA_ORDER_STATUS, isTachibanaProduction } from "../lib/constants/broker";
+import { PANIC } from "../lib/constants/panic";
 import type { ExitSnapshot } from "../types/snapshots";
 import type { TradingStrategy } from "../core/market-regime";
 import dayjs from "dayjs";
@@ -102,6 +103,36 @@ export function evaluateDefensiveMode(
 
   return { active: false, trigger: null };
 }
+
+/**
+ * 防御決済（crisis / VIX>30）の対象ポジションを選ぶ。
+ *
+ * panic（パニック底反発）は**定義上その VIX>30 の日に買う逆張り戦略**なので、防御決済で
+ * 底を掴んだ直後に強制売却されると戦略が成立しない。BT 側は `SimContext.etfCrisisBypass`
+ * （combined-simulation.ts:911, 1347）で選択制にしてあり、本番へその移植にあたる（KOH-551 の依存 → KOH-554）。
+ *
+ * ⚠️ **除外されるのは「裁量的な成行の防御決済」だけ**。-12% の逆指値SLは板に生きたままで、
+ *    submitBrokerSL / ensure-broker-sl が発注済み。下方向の保護は一切外れない。
+ *    （BT でもパニックレッグは SL到達ゼロ・全決済タイムストップだった）
+ *
+ * `getOpenPositions()` 自体は触らない。cash/エクスポージャ/集中度など約10箇所から呼ばれており、
+ * そこで panic を落とすとポジション枠や資金計算が静かに狂う。バイパスは「この判断の性質」で
+ * あって「ポジション集合の性質」ではない。
+ */
+export function filterDefensiveExitTargets<T extends { strategy: string }>(
+  positions: T[],
+): { targets: T[]; bypassed: T[] } {
+  const targets: T[] = [];
+  const bypassed: T[] = [];
+  for (const p of positions) {
+    if (DEFENSIVE_BYPASS_STRATEGIES.has(p.strategy)) bypassed.push(p);
+    else targets.push(p);
+  }
+  return { targets, bypassed };
+}
+
+/** 防御決済（crisis / VIX>30）を免除する戦略。将来追加する時はここに1行足す */
+const DEFENSIVE_BYPASS_STRATEGIES = new Set<string>([PANIC.STRATEGY]);
 
 /**
  * ポジション決済の共通実行: SL逆指値取消 → 成行売り → **売り注文が成功した場合のみ** close + 約定通知。
@@ -520,12 +551,14 @@ export async function main() {
       return;
     }
 
-    // us_etf は固定-2%SL（約定後に broker-fill-handler が売り逆指値を別建て）+
-    // 5日タイムストップ（専用 us-etf-monitor が 15:24 に引け成行売り）で排他管理する。
+    // us_etf(-2%SL/5日) と panic(-12%SL/20営業日) は固定SL + 専用モニターの引け成行売りで
+    // 排他管理する（約定後に broker-fill-handler が売り逆指値を別建て）。
     // 汎用ループのトレーリング/タイムストップを適用すると SL が動き broker SL も
-    // 書き換わって ETF の BT 設計（トレーリングなし・固定SL）と乖離するためスキップ。
+    // 書き換わって BT 設計（トレーリングなし・固定SL）と乖離するためスキップ。
+    // panic は特に、辛抱型ドリフトにトレールを当てると死ぬ（却下リスト: buyback に
+    // タイトATRトレールを当てて勝率56%→21%・PF 0.79 に崩壊）。
     // 配当落ちSL調整は上の applyCorporateEventAdjustments で別途適用済み。
-    if (position.strategy === "us_etf") {
+    if (position.strategy === "us_etf" || position.strategy === PANIC.STRATEGY) {
       continue;
     }
 
@@ -905,9 +938,9 @@ export async function main() {
   // VIX>30 は breadth 崩壊と同時に起きるため GU/PSC はそもそもエントリーしておらず噛む相手が居ない
   // （却下リスト #25 の日経キルスイッチと同じ構造）。
   //
-  // ⚠️ KOH-531 のパニック底反発を本番化する際は要注意: この防御決済は「底で強制売却」して
-  //    逆張り戦略を殺す。BT側は etfCrisisBypass で選択制にしてあるので、本番化時に同じ
-  //    バイパスを移植すること。
+  // ⚠️ panic（パニック底反発）はこの防御決済から除外している（filterDefensiveExitTargets）。
+  //    定義上その日に買う逆張り戦略なので、ここで決済すると「底で強制売却」になる。
+  //    BT側 etfCrisisBypass の移植（KOH-554）。逆指値SLは板に生きているので保護は残る。
   console.log("[2.5/3] ディフェンシブモード判定...");
   // 当日の評価のみを使う。findFirst(orderBy desc) だと market-assessment が失敗した日に
   // 前日の値で誤発火する（却下リスト #25 で実際に踏んだ stale 誤発火）。当日分が無い場合は
@@ -925,7 +958,15 @@ export async function main() {
     console.log(`  → ディフェンシブモード発動: ${trigger}`);
 
     // TP/SLで決済済みを除外した残存ポジションを取得
-    const remainingPositions = await getOpenPositions();
+    const { targets: remainingPositions, bypassed } = filterDefensiveExitTargets(
+      await getOpenPositions(),
+    );
+    if (bypassed.length > 0) {
+      // 年1-2回の事象なので黙って握らずログに残す
+      console.log(
+        `  → 🛡️ ${bypassed.length}件は防御決済をバイパス（逆張り戦略。逆指値SLは有効）: ${bypassed.map((p) => p.stock.tickerCode).join(", ")}`,
+      );
+    }
     let defensiveCloseCount = 0;
 
     for (const position of remainingPositions) {
