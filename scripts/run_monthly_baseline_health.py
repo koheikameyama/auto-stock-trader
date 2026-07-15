@@ -39,20 +39,28 @@ CAPTAIN_PROMPT_PATH = os.path.join(
     os.path.dirname(__file__), "..", "prompts", "monthly-strategy-captain.txt"
 )
 
-# 本番運用規模。閾値の較正元 (2026-04-22 baseline Calmar=9.37, MaxDD=10.0%) も ¥500K
+# 本番運用規模。閾値の較正元 (2026-07-15 baseline Calmar=32.8, MaxDD=11.4%) も ¥500K
 BUDGET = 500_000
 
 # ローリング窓の長さ (月)
 WINDOW_MONTHS = 24
 
 # baseline絶対値劣化検知の閾値
-# 根拠: 2026-04-22検証時 baseline Calmar=9.37, MaxDD=10.0% (¥500K, 24ヶ月)
+#
+# KOH-548 で再較正 (2026-07-15)。exit-checker の既定が end-of-bar (イントラバー先読みで
+# トレール決済を「その日の始値」に潰していた) から stop-at-open に変わり、baseline の
+# 絶対値が動いたため。同一窓 (24ヶ月ローリング, ¥500K) の実測:
+#   旧 end-of-bar   : Calmar  8.77 / MaxDD 10.7%  ← 旧較正元 (Calmar 9.37 / MaxDD 10.0%) と整合
+#   新 stop-at-open : Calmar 32.8  / MaxDD 11.4%
+# MaxDD はほぼ動かないが Calmar は 3.5倍にずれるため、閾値の「意図」(較正元に対する比率) を
+# 保ったまま新 baseline へスケールし直す。据え置くと Calmar danger が永久に鳴らなくなる。
+#
 # Calmar warning は offseason で構造的に割れるため info (FYI) 扱い (KOH-516)
 # danger は本番運用見直しを検討すべき水準
-BASELINE_CALMAR_INFO = 7.0      # FYI: offseason 中は想定内
-BASELINE_CALMAR_DANGER = 5.0    # 較正時から -47%
-BASELINE_MAXDD_WARNING = 13.0   # 通常 ~10% から +30% (DDはレジーム問わず意味を持つ)
-BASELINE_MAXDD_DANGER = 18.0    # 通常 ~10% から +80%
+BASELINE_CALMAR_INFO = 24.0     # FYI: 較正元の約75% (旧 7.0/9.37)。offseason 中は想定内
+BASELINE_CALMAR_DANGER = 17.0   # 較正元から約-47% (旧 5.0/9.37)
+BASELINE_MAXDD_WARNING = 15.0   # 通常 ~11.4% から +30% (DDはレジーム問わず意味を持つ)
+BASELINE_MAXDD_DANGER = 20.0    # 通常 ~11.4% から +80%
 
 
 def rolling_window_start(today: date, months: int = WINDOW_MONTHS) -> str:

@@ -419,6 +419,9 @@ async function main() {
   const compareDetectionGranularity = args.includes("--compare-detection-granularity");
   const compareBe = args.includes("--compare-be");
   const compareIntraBar = args.includes("--compare-intrabar");
+  // 他の比較モードを旧エンジン（先読みあり）で回して結論の変化を見るための退避口。
+  // 未指定なら exit-checker の既定（stop-at-open）。
+  const intraBarModelArg = getArg(args, "--intrabar-model") as IntraBarStopModel | undefined;
   const compareVolConvexity = args.includes("--compare-vol-convexity");
   const corrReport = args.includes("--corr-report");
 
@@ -690,6 +693,7 @@ async function main() {
   }
 
   const ctx = {
+    intraBarStopModel: intraBarModelArg,
     guConfig,
     pscConfig,
     pscSignals,
