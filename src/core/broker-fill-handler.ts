@@ -9,8 +9,8 @@
 
 import { prisma } from "../lib/prisma";
 import { TACHIBANA_ORDER_STATUS, BROKER_RECONCILIATION } from "../lib/constants/broker";
-import { getOrderDetail } from "./broker-orders";
-import { fillOrder } from "./order-executor";
+import { getOrderDetail, extractFilledPrice } from "./broker-orders";
+import { claimOrderFill } from "./order-executor";
 import { openPosition, closePosition, getPositionPnl, extractRegimeInfoFromSnapshot } from "./position-manager";
 import { submitBrokerSL } from "./broker-sl-manager";
 import { validateStopLoss } from "./risk-manager";
@@ -184,44 +184,31 @@ export async function handleBrokerFill(
       return;
     }
 
-    // 3. 約定価格を取得
-    const execList =
-      (detail.aYakuzyouSikkouList as Record<string, unknown>[]) ?? [];
-    if (execList.length === 0) {
+    // 3. 約定価格を取得（数量加重平均・円未満を保持）
+    const filledPrice = extractFilledPrice(detail);
+    if (filledPrice == null) {
       console.warn(
-        `[broker-fill] No execution records for ${orderNumber}`,
-      );
-      return;
-    }
-
-    // 加重平均約定価格を計算（複数回に分けて約定した場合）
-    let totalAmount = 0;
-    let totalQuantity = 0;
-    for (const exec of execList) {
-      const price = Number(exec.sYakuzyouPrice ?? exec.sExecPrice ?? 0);
-      const qty = Number(
-        exec.sYakuzyouSuryou ?? exec.sExecQuantity ?? 0,
-      );
-      totalAmount += price * qty;
-      totalQuantity += qty;
-    }
-
-    const filledPrice =
-      totalQuantity > 0 ? Math.round(totalAmount / totalQuantity) : 0;
-
-    if (filledPrice <= 0) {
-      console.warn(
-        `[broker-fill] Invalid filled price for ${orderNumber}`,
+        `[broker-fill] No valid execution records for ${orderNumber}`,
       );
       return;
     }
 
     console.log(
-      `[broker-fill] Order ${orderNumber} filled: ${order.stock.tickerCode} ${order.side} @ ¥${filledPrice.toLocaleString()} x ${totalQuantity}`,
+      `[broker-fill] Order ${orderNumber} filled: ${order.stock.tickerCode} ${order.side} @ ¥${filledPrice.toLocaleString()}`,
     );
 
-    // 4. 注文を約定済みに更新
-    await fillOrder(order.id, filledPrice);
+    // 4. 注文を約定済みとして atomic に claim する。
+    //    立花の EVENT I/F は同一約定を複数回配信するため、上の「既に処理済みならスキップ」
+    //    (read-then-act) だけでは重複イベントが競合する。実際 2026-07-14 の 3276.T/8008.T は
+    //    2つのイベントが同時に status='pending' を読んで両方素通りし、先行側が建てた
+    //    ポジションを後続側が「二重建て」と誤認して正常約定を cancelled に上書きした (KOH-549)。
+    //    条件付き更新の勝者だけが後処理に進む。
+    if (!(await claimOrderFill(order.id, filledPrice))) {
+      console.log(
+        `[broker-fill] Order ${orderNumber} は別イベントが処理済み、スキップ（重複配信）`,
+      );
+      return;
+    }
 
     // 5. 買い/売りに応じた後処理
     if (order.side === "buy") {
@@ -503,18 +490,9 @@ export async function handleBrokerSLFill(
   // まだ全部約定でない（トリガー前 / 一部約定）→ 何もしない。reconciliation が後続で拾う。
   if (brokerStatus !== TACHIBANA_ORDER_STATUS.FULLY_FILLED) return;
 
-  // 加重平均約定価格を計算（複数回約定に対応）
-  const execList = (detail.aYakuzyouSikkouList as Record<string, unknown>[]) ?? [];
-  let totalAmount = 0;
-  let totalQuantity = 0;
-  for (const exec of execList) {
-    const price = Number(exec.sYakuzyouPrice ?? exec.sExecPrice ?? 0);
-    const qty = Number(exec.sYakuzyouSuryou ?? exec.sExecQuantity ?? 0);
-    totalAmount += price * qty;
-    totalQuantity += qty;
-  }
-  const filledPrice = totalQuantity > 0 ? Math.round(totalAmount / totalQuantity) : 0;
-  if (filledPrice <= 0) {
+  // 約定価格を取得（数量加重平均・円未満を保持）
+  const filledPrice = extractFilledPrice(detail);
+  if (filledPrice == null) {
     console.warn(
       `[broker-fill] SL ${position.slBrokerOrderId} (${ticker}): 約定価格を取得できず、reconciliation に委譲`,
     );

@@ -261,6 +261,10 @@ export async function getOrderDetail(
  *
  * 立花は分割約定を aYakuzyouSikkouList に列挙するため、単純平均ではなく数量加重で平均する。
  * 約定リストが空/不正な場合は null。
+ *
+ * 円未満は丸めない。TOPIX100 構成銘柄は呼値が0.5円のため約定単価が小数になりうる
+ * (KOH-549: 9009.T の実約定 ¥1,238.5 が ¥1,239 として記録されていた)。分割約定の
+ * 加重平均でも小数は出る。DB の numeric(10,2) に合わせ小数第2位までに丸める。
  */
 export function extractFilledPrice(
   detail: Record<string, unknown>,
@@ -279,7 +283,7 @@ export function extractFilledPrice(
   }
   if (totalQuantity <= 0) return null;
 
-  const avg = Math.round(totalAmount / totalQuantity);
+  const avg = Math.round((totalAmount / totalQuantity) * 100) / 100;
   return avg > 0 ? avg : null;
 }
 
