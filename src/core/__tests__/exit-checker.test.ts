@@ -109,16 +109,27 @@ describe("checkPositionExit", () => {
       expect(result.exitPrice).toBe(1920);
     });
 
-    it("大レンジでhighがBE閾値超え → trailing_profitになる", () => {
-      // high=2210 → trailing発動 → SL=trailingStop(2210-120=2090)
-      // low=1910 <= 2090 → 約定=2090（建値2000超え）→ trailing_profit
+    it("大レンジでhighがBE閾値超え → 元SLを割っているので stop_loss（トレール利確にしない）", () => {
+      // high=2210 でトレール発動しストップは2090まで切り上がるが、安値1910 は
+      // 寄り前から実在する元SL 1920 を割っている。
+      // 日足では「2210まで上げてから2090で利確 → その後1910まで下落」と
+      // 「寄ってすぐ1910まで下げSL約定 → その後2210まで上昇」を区別できない。
+      // 損切りされていた可能性を潰せない以上、トレール利確(+4.5%)を計上してはいけない。
       const result = checkPositionExit(
         makePosition(),
         makeBar({ open: 2100, high: 2210, low: 1910, close: 1950 }),
       );
+      expect(result.exitReason).toBe("stop_loss");
+      expect(result.exitPrice).toBe(1920); // 元SL
+    });
+
+    it("旧 end-of-bar モデルは同じ日をトレール利確として計上してしまう（差分を固定）", () => {
+      const result = checkPositionExit(
+        makePosition({ intraBarStopModel: "end-of-bar" }),
+        makeBar({ open: 2100, high: 2210, low: 1910, close: 1950 }),
+      );
       expect(result.exitReason).toBe("trailing_profit");
-      expect(result.exitPrice).toBe(2090); // trailing stop（建値超え）
-      expect(result.isTrailingActivated).toBe(true);
+      expect(result.exitPrice).toBe(2090);
     });
   });
 
@@ -317,11 +328,12 @@ describe("checkPositionExit", () => {
 
       // bar.low (2132) <= trailingStop (2187) → trailing_profit
       expect(result.exitReason).toBe("trailing_profit");
-      // bar.open (2153) < trailingStop (2187) → open で約定
-      expect(result.exitPrice).toBe(2153);
+      // 元SL 2084 は無傷（安値2132 > 2084）＝寄りのギャップ突破ではない。
+      // 終値2155 < トレール2187 なので高値2232の後にトレールを割ったことが確定する。
+      // 始値2153 で約定させる理由はなく、トレール2187 で約定する。
+      expect(result.exitPrice).toBe(2187);
 
-      // 利益: (2153 - 2148) * 100 = ¥500
-      // ※実際のバグではbar全体を見ず3秒で決済されてしまった
+      // 利益: (2187 - 2148) * 100 = ¥3,900
     });
   });
 });
@@ -351,19 +363,20 @@ describe("checkPositionExit: intraBarStopModel", () => {
   });
   const koh547Bar: BarForExit = { open: 1656, high: 1827, low: 1656, close: 1771 };
 
-  it("既定（end-of-bar）は現行挙動のまま: 高値由来のトレールと始値を比べて始値で約定する", () => {
-    const result = checkPositionExit(koh547Position(), koh547Bar);
+  it("旧 end-of-bar: 高値由来のトレールと始値を比べて始値で約定＝+9.2%の利確を建値撤退(±0)にしてしまう", () => {
+    const result = checkPositionExit(
+      koh547Position({ intraBarStopModel: "end-of-bar" }),
+      koh547Bar,
+    );
 
-    // 始値1656 < effectiveSL 1808 なので「ギャップ突破」と誤判定し始値で約定＝建値撤退(±0)
+    // 始値1656 < effectiveSL 1808 なので「ギャップ突破」と誤判定
     expect(result.exitPrice).toBe(1656);
     expect(result.exitReason).toBe("trailing_stop");
   });
 
-  it("stop-at-open: 始値時点のストップ(1627)は無傷なので、切り上がったトレール1808で約定する", () => {
-    const result = checkPositionExit(
-      koh547Position({ intraBarStopModel: "stop-at-open" }),
-      koh547Bar,
-    );
+  it("既定（stop-at-open）: 始値時点のストップ(1627)は無傷なので、切り上がったトレール1808で約定する", () => {
+    // 実約定は ¥1,793（立花）。旧モデルの ¥1,656 より圧倒的に近い
+    const result = checkPositionExit(koh547Position(), koh547Bar);
 
     expect(result.exitPrice).toBe(1808);
     expect(result.exitReason).toBe("trailing_profit");
