@@ -399,6 +399,11 @@ async function main() {
   const enablePanic = args.includes("--enable-panic");
   const panicJsonPath = getArg(args, "--panic-json");
   const panicMaxArg = getArg(args, "--panic-max");
+  // 出口の磨き上げ検証用（KOH-531 の残作業）。未指定なら BUYBACK_DEFAULT_CONFIG のまま
+  // （-12%SL + 20営業日TS）で従来の検証結果を再現する。
+  const panicTimeStopArg = getArg(args, "--panic-time-stop");
+  const panicSlPctArg = getArg(args, "--panic-sl-pct");
+  const comparePanicExit = args.includes("--compare-panic-exit");
   const maxPerSectorArg = getArg(args, "--max-per-sector");
   const compareSector = args.includes("--compare-sector");
   const compareSectorRotation = args.includes("--compare-sector-rotation");
@@ -425,7 +430,7 @@ async function main() {
   const compareVolConvexity = args.includes("--compare-vol-convexity");
   const corrReport = args.includes("--corr-report");
 
-  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || compareDetectionGranularity || compareBe || compareIntraBar || compareVolConvexity || corrReport;
+  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || compareDetectionGranularity || compareBe || compareIntraBar || comparePanicExit || compareVolConvexity || corrReport;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const pscConfig: PostSurgeConsolidationBacktestConfig = {
@@ -657,7 +662,13 @@ async function main() {
     if (!panicJsonPath) throw new Error("--enable-panic には --panic-json <path> が必須です");
     const raw = JSON.parse(fs.readFileSync(panicJsonPath, "utf-8")) as { events: { ticker: string; date: string }[] };
     const panicTickers = [...new Set((raw.events ?? []).map((e) => e.ticker))];
-    etfConfig = { ...BUYBACK_DEFAULT_CONFIG, tickers: panicTickers, unitShares: 1 };
+    etfConfig = {
+      ...BUYBACK_DEFAULT_CONFIG,
+      tickers: panicTickers,
+      unitShares: 1,
+      ...(panicTimeStopArg ? { timeStopDays: Number(panicTimeStopArg) } : {}),
+      ...(panicSlPctArg ? { slPct: Number(panicSlPctArg) } : {}),
+    };
     const panicRawData = await fetchHistoricalFromDB(panicTickers, startDate, endDate);
     let totalBars = 0;
     for (const ticker of panicTickers) {
@@ -2415,6 +2426,52 @@ async function main() {
       }
     }
 
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // --compare-panic-exit: パニック底反発 (KOH-531) の出口スイープ。却下リストの残作業
+  //   「出口の磨き上げ (タイム5-7日 vs 20日、単独BTでは7日が期待値最良)」を combined 共有プールで測る。
+  //   現行は buyback 型 (-12%SL + 20日TS) を丸ごと流用しており、パニック逆張り固有の最適化が未実施。
+  //   panic はシグナルが外部JSON注入なので precompute は1回で使い回せる（1プロセスでスイープ）。
+  if (comparePanicExit) {
+    if (!enablePanic) throw new Error("--compare-panic-exit には --enable-panic --panic-json <path> が必須です");
+    const grid: { label: string; ts: number; sl: number }[] = [
+      { label: "TS20 / SL-12% (現状=buyback流用)", ts: 20, sl: 0.12 },
+      { label: "TS10 / SL-12%", ts: 10, sl: 0.12 },
+      { label: "TS7  / SL-12% (単独BT最良)", ts: 7, sl: 0.12 },
+      { label: "TS5  / SL-12%", ts: 5, sl: 0.12 },
+      { label: "TS7  / SL-8%", ts: 7, sl: 0.08 },
+      { label: "TS7  / SL-20%", ts: 7, sl: 0.20 },
+    ];
+
+    console.log("\n=== パニック底反発 出口スイープ (KOH-531) ===");
+    console.log(`期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}, panic枠: ${Number(panicMaxArg ?? 1)}`);
+    console.log(
+      `${"出口".padEnd(34)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"MaxDD".padStart(6)} | ${"NetRet".padStart(8)} | ${"Calmar".padStart(6)} | ${"panic件".padStart(7)} | ${"panicPF".padStart(7)}`,
+    );
+    console.log("-".repeat(112));
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    for (const row of grid) {
+      const result = runCombinedSimulation(
+        { ...ctx, etfConfig: { ...etfConfig!, timeStopDays: row.ts, slPct: row.sl } },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      const pf = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
+      // panic レッグ単独。SimulatedPosition に strategy フィールドは無いので自前フィルタは不可。
+      // シミュレーション側が etfMetrics/etfTrades をレッグ別に返しているのでそれを使う。
+      const lm = result.etfMetrics;
+      const legs = result.etfTrades;
+      const lpf = lm.profitFactor === Infinity ? "∞" : lm.profitFactor.toFixed(2);
+      console.log(
+        `${row.label.padEnd(34)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(4)}% | ${pf.padStart(5)} | ${m.maxDrawdown.toFixed(1).padStart(5)}% | ${m.netReturnPct.toFixed(1).padStart(7)}% | ${calmar.toFixed(2).padStart(6)} | ${String(legs.length).padStart(7)} | ${lpf.padStart(7)}`,
+      );
+    }
     console.log("");
     await prisma.$disconnect();
     return;
