@@ -373,8 +373,19 @@ export const MARKET_REGIME = {
 // ========================================
 
 export const STRATEGY_SWITCHING = {
-  // VIXがこの値以上 → 既存breakout/gapupポジションも強制決済（危機水準）
+  // VIXがこの値以上 → 既存ポジションを強制決済（危機水準）
   // ギャップダウンでSLが機能しないリスクを回避
+  //
+  // ⚠️ 現在どこからも参照されていない（KOH-550）。
+  // 唯一の参照元だった end-of-day の強制決済は、売り注文を出さず DB だけ閉じる
+  // 「幻の決済」だったため撤去した（17:00 JST は受付時間外で当日決済が物理的に不可能）。
+  // BT は processDefensive で「regime=crisis（VIX>30）→ 当日終値で全決済」をモデル化しているが、
+  // 本番の防御決済は position-monitor の sentiment==="crisis"（日経-3%/CME-3%キルスイッチ）
+  // のみで VIX では発火しない = BT のこの防御は本番に存在しない。
+  // BT と一致させるなら position-monitor の防御決済を
+  //   sentiment === "crisis" || vix > VIX_THRESHOLDS.HIGH
+  // にすればよい（15:20 tick なので BT の「当日終値で決済」と整合し実売りになる）。
+  // 実トレードの挙動変更になるため未実施。定数は判断が付くまで残置。
   VIX_FORCE_CLOSE_THRESHOLD: VIX_THRESHOLDS.HIGH,
 } as const;
 
