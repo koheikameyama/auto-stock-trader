@@ -25,9 +25,22 @@ export const POST_SURGE_CONSOLIDATION = {
   BREAK_EVEN: {
     ACTIVATION_ATR_MULTIPLIER: 0.3,
   },
-  /** トレーリングストップ（WF最適値） */
+  /** トレーリングストップ（WF最適値）
+   *
+   * 2026-07-15 (KOH-552) に 0.5 → 0.3。KOH-548 で exit-checker のイントラバー先読みを
+   * 直した（トレール決済を「その日の始値」で約定させていた）結果、順位が入れ替わった。
+   * 先読みはタイトなトレールほど不利に働くため、旧エンジンは 0.3 を不当に低く評価していた。
+   *   WF固定比較(7窓 OOS集計PF): 0.5 → 2.26 / 0.3 → 2.58 (+14%)、勝率 39.4% → 44.2%
+   *   WF窓別: 0.3 が 5/7 窓で IS最適、判定 堅牢✓ (IS/OOS 1.23)
+   *   combined 単発BT(2024-03〜, ¥500K): Calmar 22.98 → 32.04
+   *
+   * 副次: trail == BE.ACTIVATION_ATR_MULTIPLIER (0.3) になったため、建値フロアが
+   * 数学的に無意味になった（発動時点のトレール = maxHigh - 0.3ATR = 建値ちょうどで、
+   * 以降は建値より上を走るためクランプが一度も効かない）。この2値を別々に動かす際は
+   * フロアの意味が復活する点に注意。
+   */
   TRAILING: {
-    TRAIL_ATR_MULTIPLIER: 0.5,
+    TRAIL_ATR_MULTIPLIER: 0.3,
   },
   TIME_STOP: {
     MAX_HOLDING_DAYS: 5,

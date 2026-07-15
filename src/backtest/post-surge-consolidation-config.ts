@@ -63,7 +63,15 @@ export const PSC_RISK_PER_TRADE_PCT = POSITION_SIZING.RISK_PER_TRADE_PCT;
 export const PSC_PARAMETER_GRID = {
   atrMultiplier: [0.8, 1.0, 1.2],
   beActivationMultiplier: [0.3, 0.5, 0.8],
-  trailMultiplier: [0.5, 0.8, 1.0],
+  // 0.3 は KOH-548 で追加。イントラバー先読み修正後の combined 単発BTで trail=0.3 が
+  // Calmar 32.04（現行0.5 は 22.98）と最良になったため、WF で確認できるようグリッドに入れた。
+  // GU 側は元々 0.3 を含んでおり、PSC だけ下限が 0.5 で欠けていた。
+  trailMultiplier: [0.3, 0.5, 0.8, 1.0],
+  // breakEvenFloor はグリッドに入れない（KOH-552）。
+  // WF固定比較で OOS に効かないと確認済み: trail=0.5 で entry 2.26 / none 2.23（悪化）、
+  // trail=0.3 では 2.58 / 2.58 と完全同値（trail==BE発動 0.3 でフロアが数学的に無意味）。
+  // にもかかわらず none は 7/7 窓で IS最適に選ばれる = OOSに効かない純粋な過学習の次元。
+  // グリッドに残すと毎回 none が選ばれるだけなので外す。config の配線は --compare-be 用に残置。
 } as const;
 
 /** パラメータグリッドの全組み合わせを生成 */

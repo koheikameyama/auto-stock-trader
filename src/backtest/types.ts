@@ -6,6 +6,8 @@
 // ブレイクアウトバックテスト設定
 // ──────────────────────────────────────────
 
+import type { BreakEvenFloorMode } from "../core/trailing-stop";
+
 export interface BreakoutBacktestConfig {
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
@@ -608,6 +610,8 @@ export interface PostSurgeConsolidationBacktestConfig {
 
   beActivationMultiplier: number;
   trailMultiplier: number;
+  /** トレーリング発動後のストップ下限モード（未指定 = "entry" = 建値フロア）。KOH-548 */
+  breakEvenFloor?: BreakEvenFloorMode;
 
   maxHoldingDays: number;
   maxExtendedHoldingDays: number;
