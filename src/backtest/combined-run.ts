@@ -2428,6 +2428,7 @@ async function main() {
     const grid: { label: string; model: IntraBarStopModel }[] = [
       { label: "end-of-bar (現行・先読みあり)", model: "end-of-bar" },
       { label: "stop-at-open (始値時点ストップ)", model: "stop-at-open" },
+      { label: "close-confirmed (終値で裏取り)", model: "close-confirmed" },
     ];
 
     console.log("\n=== SL約定価格のイントラバー・モデル比較 (KOH-547) ===");

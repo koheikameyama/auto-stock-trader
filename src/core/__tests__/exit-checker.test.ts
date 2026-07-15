@@ -408,3 +408,91 @@ describe("checkPositionExit: intraBarStopModel", () => {
     expect(stopAtOpen.exitReason).toBe(endOfBar.exitReason);
   });
 });
+
+describe("checkPositionExit: intraBarStopModel = close-confirmed", () => {
+  // KOH-547 の 3276.T 実データ（PSC: be=0.3 / trail=0.5 / ATR=37.82）
+  const position = (overrides: Partial<PositionForExit> = {}): PositionForExit => ({
+    entryPrice: 1656,
+    takeProfitPrice: 1846,
+    stopLossPrice: 1627,
+    entryAtr: 37.82,
+    maxHighDuringHold: 1656,
+    minLowDuringHold: 1656,
+    currentTrailingStop: null,
+    strategy: "post-surge-consolidation",
+    holdingBusinessDays: 1,
+    beActivationMultiplierOverride: 0.3,
+    trailMultiplierOverride: 0.5,
+    intraBarStopModel: "close-confirmed",
+    ...overrides,
+  });
+
+  it("終値 < トレール → 高値の後に下抜けた証拠あり → トレール1808で約定（3276.T 実データ）", () => {
+    // 終値1771 < トレール1808 なので、高値1827の後に1808を割ったことが確定する
+    const result = checkPositionExit(position(), {
+      open: 1656,
+      high: 1827,
+      low: 1656,
+      close: 1771,
+    });
+
+    expect(result.exitPrice).toBe(1808);
+    expect(result.exitReason).toBe("trailing_profit");
+  });
+
+  it("終値 >= トレール → 安値が高値より前だった可能性を潰せない → 保有継続", () => {
+    // 安値1656はトレール1808を下回るが、終値1820 >= 1808。
+    // 「寄って安値をつけた後に1827まで上げ、トレール無傷のまま強く引けた」日と区別できない。
+    // ここで決済すると未発生のトレール利確(+9.2%)を計上してしまう。
+    const result = checkPositionExit(position(), {
+      open: 1656,
+      high: 1827,
+      low: 1656,
+      close: 1820,
+    });
+
+    expect(result.exitPrice).toBeNull();
+    expect(result.exitReason).toBeNull();
+    // 切り上がったトレールは翌日の始値時点ストップとして機能する
+    expect(result.trailingStopPrice).toBe(1808);
+    expect(result.isTrailingActivated).toBe(true);
+  });
+
+  it("stop-at-open は同じ日を決済してしまう（close-confirmed との差分を固定）", () => {
+    const bar = { open: 1656, high: 1827, low: 1656, close: 1820 };
+
+    const stopAtOpen = checkPositionExit(
+      position({ intraBarStopModel: "stop-at-open" }),
+      bar,
+    );
+
+    expect(stopAtOpen.exitPrice).toBe(1808); // close-confirmed は null
+  });
+
+  it("安値が始値時点ストップを割った日は終値の裏取りなしで約定する（寄り前から実在するストップのため）", () => {
+    // 安値1600が元SL1627を割る。終値1820 >= トレール1808 でも、
+    // 元SLは寄り前から板に実在するので約定は確定。
+    const result = checkPositionExit(position(), {
+      open: 1656,
+      high: 1827,
+      low: 1600,
+      close: 1820,
+    });
+
+    expect(result.exitPrice).toBe(1627);
+    expect(result.exitReason).toBe("stop_loss");
+  });
+
+  it("本物のギャップダウンは終値によらず始値で約定する", () => {
+    const result = checkPositionExit(
+      makePosition({
+        maxHighDuringHold: 2200,
+        intraBarStopModel: "close-confirmed",
+      }),
+      makeBar({ open: 2060, high: 2300, low: 2050, close: 2290 }),
+    );
+
+    expect(result.exitPrice).toBe(2060);
+    expect(result.exitReason).toBe("trailing_profit");
+  });
+});

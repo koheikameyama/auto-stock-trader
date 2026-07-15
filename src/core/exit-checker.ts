@@ -54,13 +54,19 @@ export interface PositionForExit {
    *   ギャップ突破を判定する。バー内は 3 段階で評価する:
    *     1. 始値 <= 始値時点ストップ → 寄りでギャップ突破 → 始値で約定
    *     2. 安値 <= 始値時点ストップ → バー内でその水準に触れた → そのストップで約定
-   *        （安値と高値の前後関係は日足では不明なため、安値が先に来た前提の保守側を採る）
+   *        （始値時点のストップは寄り前から実在するので、安値と高値の前後関係によらず約定する）
    *     3. 安値 <= effectiveSL → 高値で切り上がったトレールに触れた → effectiveSL で約定
+   *
+   * "close-confirmed": "stop-at-open" の 3 のみ終値で裏を取る。3 は「安値が高値より前に来て
+   *   トレールは無傷のまま強く引けた」日と日足では区別できず、決済させると未発生のトレール
+   *   利確を計上しうる。終値 < effectiveSL なら高値の後に下抜けたことが確定するのでその時だけ
+   *   約定させ、終値 >= effectiveSL なら保有を継続する（1・2 は始値時点のストップが寄り前から
+   *   実在するため曖昧さがなく裏取り不要）。
    */
   intraBarStopModel?: IntraBarStopModel;
 }
 
-export type IntraBarStopModel = "end-of-bar" | "stop-at-open";
+export type IntraBarStopModel = "end-of-bar" | "stop-at-open" | "close-confirmed";
 
 export interface BarForExit {
   open: number;
@@ -151,7 +157,8 @@ export function checkPositionExit(
 
   // 3. 損切り / トレーリングストップチェック（利確より優先）
   if (bar.low <= effectiveSL) {
-    if (position.intraBarStopModel === "stop-at-open") {
+    const model = position.intraBarStopModel ?? "end-of-bar";
+    if (model !== "end-of-bar") {
       // 始値時点で実在したストップ = 前日までの最高値から作られた水準。
       // effectiveSL は当日高値で切り上がった後の水準なので、寄りのギャップ突破判定には使えない。
       const openTrailing = calculateTrailingStop({
@@ -185,8 +192,15 @@ export function checkPositionExit(
           exitPrice,
           position.entryPrice,
         );
+      } else if (model === "close-confirmed" && bar.close >= effectiveSL) {
+        // 3-a. 始値時点のストップは無傷。安値は切り上がったトレールを下回るが、
+        //      終値がトレール以上 = 高値の後に下抜けた証拠がない。
+        //      「安値が高値より前に来て、その後トレール未達のまま強く引けた」日と区別できないため
+        //      保有を継続する（決済させると未発生のトレール利確を計上してしまう）。
+        //      切り上がったトレールは翌日の始値時点ストップとして機能する。
       } else {
-        // 3. 始値時点のストップは無傷 → 高値で切り上がったトレールに触れて約定
+        // 3-b. 高値で切り上がったトレールを下抜けて約定。
+        //      close-confirmed では終値 < トレール = 高値の後に下抜けたことが確定している。
         exitPrice = effectiveSL;
         exitReason = classifyStopExit(
           trailingResult.isActivated,
