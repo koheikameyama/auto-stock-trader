@@ -14,7 +14,7 @@ import { getTodayForDB } from "../lib/market-date";
 import { tachibanaFetchQuotesBatch } from "../lib/tachibana-price-client";
 import { getAllWatchlist } from "./watchlist-builder";
 import { executeEntry } from "../core/breakout/entry-executor";
-import { getSameDayPendingBuyTickers } from "../core/order-executor";
+import { getSameDayPendingBuyTickers, countSameDayPendingBuys } from "../core/order-executor";
 import { notifySlack } from "../lib/slack";
 import { TIMEZONE } from "../lib/constants";
 import { TRADING_DEFAULTS } from "../lib/constants/trading";
@@ -158,12 +158,19 @@ export async function main(): Promise<void> {
       return;
     }
 
-    // 当日の空きPSC枠を算出（既存の open/ordered な PSC ポジション分を差し引く）。
+    // 当日の空きPSC枠を算出。保有中の PSC ポジションに加えて「当日発注済みで未約定の PSC 買い注文」も
+    // 枠を消費しているものとして数える。TradingPosition は約定時（15:30）にしか作られないため、
+    // 発注中の注文を数えないと 15:24:00/20/40 のリトライ tick ごとに slotsLeft が満タンに復活し、
+    // 上限を超えて発注される（KOH-553: 2026-07-13/15 に枠2に対し3件発注）。
     // 同一ループ内の枠超過は slotsLeft の自前カウントで防ぎ、二重建ては holdingTickers 除外で別途担保。
     const pscOpenCount = openPositions.filter((p) => p.strategy === "post-surge-consolidation").length;
-    let slotsLeft = TRADING_DEFAULTS.MAX_POSITIONS_PSC - pscOpenCount;
+    const pscPendingCount = await countSameDayPendingBuys("post-surge-consolidation");
+    const pscUsedSlots = pscOpenCount + pscPendingCount;
+    let slotsLeft = TRADING_DEFAULTS.MAX_POSITIONS_PSC - pscUsedSlots;
     if (slotsLeft <= 0) {
-      console.log(`${tag} PSC枠が既に埋まっています（${pscOpenCount}/${TRADING_DEFAULTS.MAX_POSITIONS_PSC}）`);
+      console.log(
+        `${tag} PSC枠が既に埋まっています（保有 ${pscOpenCount} + 発注中 ${pscPendingCount} / ${TRADING_DEFAULTS.MAX_POSITIONS_PSC}）`,
+      );
       lastScanDate = today;
       return;
     }

@@ -14,7 +14,7 @@ import { getTodayForDB } from "../lib/market-date";
 import { tachibanaFetchQuotesBatch } from "../lib/tachibana-price-client";
 import { getGuWatchlist } from "./watchlist-builder";
 import { executeEntry } from "../core/breakout/entry-executor";
-import { getSameDayPendingBuyTickers } from "../core/order-executor";
+import { getSameDayPendingBuyTickers, countSameDayPendingBuys } from "../core/order-executor";
 import { notifySlack } from "../lib/slack";
 import { TIMEZONE } from "../lib/constants";
 import { TRADING_DEFAULTS } from "../lib/constants/trading";
@@ -158,12 +158,19 @@ export async function main(): Promise<void> {
       return;
     }
 
-    // 当日の空きGU枠を算出（既存の open/ordered な GU ポジション分を差し引く）。
+    // 当日の空きGU枠を算出。保有中の GU ポジションに加えて「当日発注済みで未約定の GU 買い注文」も
+    // 枠を消費しているものとして数える。TradingPosition は約定時（15:30）にしか作られないため、
+    // 発注中の注文を数えないと 15:24:00/20/40 のリトライ tick ごとに slotsLeft が満タンに復活し、
+    // 上限を超えて発注される（KOH-553）。
     // 同一ループ内の枠超過は slotsLeft の自前カウントで防ぎ、二重建ては holdingTickers 除外で別途担保。
     const guOpenCount = openPositions.filter((p) => p.strategy === "gapup").length;
-    let slotsLeft = TRADING_DEFAULTS.MAX_POSITIONS_GU - guOpenCount;
+    const guPendingCount = await countSameDayPendingBuys("gapup");
+    const guUsedSlots = guOpenCount + guPendingCount;
+    let slotsLeft = TRADING_DEFAULTS.MAX_POSITIONS_GU - guUsedSlots;
     if (slotsLeft <= 0) {
-      console.log(`${tag} GU枠が既に埋まっています（${guOpenCount}/${TRADING_DEFAULTS.MAX_POSITIONS_GU}）`);
+      console.log(
+        `${tag} GU枠が既に埋まっています（保有 ${guOpenCount} + 発注中 ${guPendingCount} / ${TRADING_DEFAULTS.MAX_POSITIONS_GU}）`,
+      );
       lastScanDate = today;
       return;
     }
