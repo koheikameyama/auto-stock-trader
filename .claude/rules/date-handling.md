@@ -54,6 +54,21 @@ seven_days_ago = get_days_ago_for_db(7)
 JST 2/19 → new Date("2026-02-19T00:00:00Z") → PostgreSQL date型: 2026-02-19
 ```
 
+## ⚠️ 前提: DBセッションのタイムゾーンは UTC
+
+上記の設計は **DBセッションの TimeZone が UTC であること**に依存している。`@db.Date` を JS の Date（UTC 0時）と**等値比較**するクエリ（`calculateMarketBreadth(asOfDate)` / `MarketAssessment.findUnique({ date })` 等）は、セッションが `Asia/Tokyo` だと `date` が `2026-02-19 00:00+09` = `2026-02-18T15:00Z` に変換されて**一致せず 0件を返す**。
+
+- **本番 (Railway)**: `Etc/UTC`（postgresql.conf）→ 正常
+- **ローカル (Homebrew の既定)**: `Asia/Tokyo` → 壊れる。**2026-07-15 (KOH-554) に `auto_stock_trader` だけ UTC へ揃え済み**
+
+新しい環境をセットアップする時は以下を実行する（サーバ全体ではなくDB個別に設定し、他プロジェクトのDBに影響させない）:
+
+```sql
+ALTER DATABASE auto_stock_trader SET timezone = 'Etc/UTC';  -- 新規接続から有効
+```
+
+**「DBにデータがあるのに 0件が返る」時はまず `SHOW timezone;` を疑うこと。** 壊れるのは等値比較だけで、範囲比較（`gte`/`lte`）は9時間ずれても境界日以外は当たるため、BT のように範囲取得しかしないコードは無事に見えてしまい原因が分かりにくい。
+
 ## ✅ 良い例
 
 ```typescript
