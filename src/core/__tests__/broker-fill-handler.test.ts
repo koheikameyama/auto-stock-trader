@@ -65,6 +65,7 @@ vi.mock("../../lib/market-date", async (importOriginal) => {
 });
 
 import { handleBrokerFill } from "../broker-fill-handler";
+import { validateStopLoss } from "../risk-manager";
 import { prisma } from "../../lib/prisma";
 import { getOrderDetail } from "../broker-orders";
 import { submitBrokerSL } from "../broker-sl-manager";
@@ -83,6 +84,7 @@ const mockOpenPosition = vi.mocked(openPosition);
 const mockClosePosition = vi.mocked(closePosition);
 const mockNotifyOrderFilled = vi.mocked(notifyOrderFilled);
 const mockIsBlackout = vi.mocked(isPostCloseOrderBlackout);
+const mockValidateStopLoss = vi.mocked(validateStopLoss);
 
 // ========================================
 // テストデータ
@@ -224,6 +226,57 @@ describe("handleBrokerFill", () => {
           data: expect.objectContaining({ positionId: "pos-123" }),
         }),
       );
+    });
+
+    // KOH-555: 固定SL戦略(-12%)が約定時に -3% へ潰される回帰。
+    // クランプ幅そのものは risk-manager.test.ts の責務なので、ここでは
+    // 「validateStopLoss を通すか否か」= バイパスの有無を検証する。
+    describe("固定SL戦略のSL", () => {
+      /** openPosition の第6引数 = stopLossPrice */
+      const slOf = () => mockOpenPosition.mock.calls[0][5];
+
+      async function fillWith(order: Record<string, unknown>) {
+        mockPrisma.tradingOrder.findFirst.mockResolvedValue(makeOrder(order) as never);
+        mockGetOrderDetail.mockResolvedValue(makeOrderDetail() as never);
+        mockPrisma.tradingPosition.findFirst.mockResolvedValue(null);
+        await handleBrokerFill(makeEvent());
+      }
+
+      it("panic は validateStopLoss を通さず -12% SL がそのまま採用される", async () => {
+        // 約定 1000 に対し -12% = 880。ATR は entrySnapshot に入れない（us_etf/panic と同じ）
+        await fillWith({ strategy: "panic", stopLossPrice: 880, takeProfitPrice: null, entrySnapshot: {} });
+
+        expect(mockValidateStopLoss).not.toHaveBeenCalled();
+        expect(slOf()).toBe(880);
+      });
+
+      it("buyback も validateStopLoss を通さない", async () => {
+        await fillWith({ strategy: "buyback", stopLossPrice: 880, takeProfitPrice: null, entrySnapshot: {} });
+
+        expect(mockValidateStopLoss).not.toHaveBeenCalled();
+        expect(slOf()).toBe(880);
+      });
+
+      it("breakout は従来どおり validateStopLoss を通し、クランプ結果を採用する", async () => {
+        // 実物の risk-manager は 3%超を entryPrice*0.97 に潰す（ルール1）。その挙動を模す
+        mockValidateStopLoss.mockReturnValueOnce({
+          originalPrice: 880,
+          validatedPrice: 970,
+          wasOverridden: true,
+          reason: "最大損失率(3%)を超過。強制設定",
+        });
+
+        await fillWith({ strategy: "breakout", stopLossPrice: 880, entrySnapshot: {} });
+
+        expect(mockValidateStopLoss).toHaveBeenCalledWith(1000, 880, null, []);
+        expect(slOf()).toBe(970);
+      });
+
+      it("固定SL戦略でも SL 未指定なら既定(-3%)にフォールバックする（SL無しで建てない）", async () => {
+        await fillWith({ strategy: "panic", stopLossPrice: null, takeProfitPrice: null, entrySnapshot: {} });
+
+        expect(slOf()).toBe(970); // 1000 * 0.97
+      });
     });
 
     it("SL注文をブローカーに発注する", async () => {

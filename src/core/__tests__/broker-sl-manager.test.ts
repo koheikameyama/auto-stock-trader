@@ -27,7 +27,10 @@ vi.mock("../../lib/slack", () => ({
 }));
 
 
-import { submitBrokerSL, cancelBrokerSL, updateBrokerSL } from "../broker-sl-manager";
+import dayjs from "dayjs";
+import { submitBrokerSL, cancelBrokerSL, updateBrokerSL, computeSLExpireDay } from "../broker-sl-manager";
+import { TACHIBANA_ORDER } from "../../lib/constants/broker";
+import { addTradingDays } from "../../lib/market-date";
 import { prisma } from "../../lib/prisma";
 import { submitOrder, cancelOrder } from "../broker-orders";
 
@@ -35,6 +38,39 @@ import { submitOrder, cancelOrder } from "../broker-orders";
 const mockPrisma = prisma as any;
 const mockSubmitOrder = vi.mocked(submitOrder);
 const mockCancelOrder = vi.mocked(cancelOrder);
+
+// ========================================
+// computeSLExpireDay (KOH-555)
+// ========================================
+
+describe("computeSLExpireDay", () => {
+  // 2026-07-15 は水曜。以降 16(木) 17(金) 20(月/海の日=休場) 21(火) ... と続く
+  const wed = new Date("2026-07-15T06:00:00Z");
+
+  it("通常戦略は従来どおり暦日 +11 日（非営業日なら直後の営業日）", () => {
+    // 7/15 + 11暦日 = 7/26(日) → 直後の営業日 7/27(月)
+    expect(computeSLExpireDay("breakout", wed)).toBe("20260727");
+    expect(computeSLExpireDay("gapup", wed)).toBe("20260727");
+    // us_etf は保有5営業日で従来の期限に収まるため、あえて固定SL扱いにしていない
+    expect(computeSLExpireDay("us_etf", wed)).toBe("20260727");
+  });
+
+  it("固定SL戦略は立花の上限(10営業日)まで期限を取る", () => {
+    // タイムストップ20営業日 > 上限10営業日 なので 10営業日先で頭打ち。
+    // 20営業日を1本の逆指値では張れないので、期限内に ensure-broker-sl の更新が入る前提。
+    const panic = computeSLExpireDay("panic", wed);
+    const breakout = computeSLExpireDay("breakout", wed);
+    expect(Number(panic)).toBeGreaterThan(Number(breakout));
+    expect(computeSLExpireDay("buyback", wed)).toBe(panic);
+  });
+
+  it("固定SL戦略の期限は立花の上限(10営業日)を超えない", () => {
+    // 祝日を跨ぐので暦日では16日先まで伸びるが、営業日では必ず10日以内
+    const expire = computeSLExpireDay("panic", wed);
+    const limit = dayjs(addTradingDays(wed, TACHIBANA_ORDER.EXPIRE.MAX_BUSINESS_DAYS)).format("YYYYMMDD");
+    expect(Number(expire)).toBeLessThanOrEqual(Number(limit));
+  });
+});
 
 // ========================================
 // submitBrokerSL

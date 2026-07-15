@@ -11,8 +11,9 @@
 import dayjs from "dayjs";
 import { prisma } from "../lib/prisma";
 import { TIME_STOP } from "../lib/constants";
-import { TACHIBANA_ORDER_RESULT } from "../lib/constants/broker";
-import { adjustToTradingDay } from "../lib/market-date";
+import { TACHIBANA_ORDER, TACHIBANA_ORDER_RESULT } from "../lib/constants/broker";
+import { getFixedSlTimeStopDays } from "../lib/constants/fixed-sl";
+import { addTradingDays, adjustToTradingDay } from "../lib/market-date";
 import {
   submitOrder,
   cancelOrder,
@@ -37,7 +38,37 @@ function shouldNotifySLError(key: string): boolean {
 // ========================================
 
 /**
+ * SL逆指値注文の有効期限(YYYYMMDD)を戦略別に決める。
+ *
+ * 従来は全戦略一律で「暦日 +11日」だった。GU/PSC(保有1-2日)/us_etf(5営業日)は収まるが、
+ * 固定SL戦略(buyback/panic)は **20営業日 ≒ 28暦日** 保有するため保有途中で失効する (KOH-555)。
+ *
+ * ⚠️ 立花の `sOrderExpireDay` は **最大10営業日**(`.claude/rules/tachibana-api.md`)なので、
+ *    20営業日を1本の逆指値で張ることは原理的に不可能で、期限内の更新は必ず入る
+ *    (失効 → broker-reconciliation が検知して slBrokerOrderId をクリア → ensure-broker-sl が再発注)。
+ *    ここで上限まで延ばす狙いは更新を無くすことではなく、**更新回数を減らして
+ *    「失効〜再発注の無保護窓」と ensure-broker-sl のリトライ消費を減らす**こと。
+ *    20営業日保有なら 従来(≒7-8営業日)で2回 → 10営業日で1回に減る。
+ */
+export function computeSLExpireDay(strategy: string, now: Date = new Date()): string {
+  const timeStopDays = getFixedSlTimeStopDays(strategy);
+  if (timeStopDays == null) {
+    // 従来動作: 暦日 +（タイムストップ上限+1）。非営業日なら直後の営業日へ
+    const rawExpire = dayjs(now)
+      .add(TIME_STOP.MAX_EXTENDED_HOLDING_DAYS + 1, "day")
+      .toDate();
+    return dayjs(adjustToTradingDay(rawExpire)).format("YYYYMMDD");
+  }
+  // 固定SL戦略: 立花の上限(10営業日)まで目一杯取る。タイムストップより短ければ更新で繋ぐ
+  const days = Math.min(timeStopDays + 1, TACHIBANA_ORDER.EXPIRE.MAX_BUSINESS_DAYS);
+  return dayjs(addTradingDays(now, days)).format("YYYYMMDD");
+}
+
+/**
  * SL逆指値注文を新規発注し、ポジションに紐付ける
+ *
+ * @returns 発注に成功して slBrokerOrderId を紐付けられたか。呼び出し元が
+ *   「失敗が続いている」のか「正常に発注できた」のかを区別できるようにする (KOH-555)。
  */
 export async function submitBrokerSL(params: {
   positionId: string;
@@ -45,13 +76,9 @@ export async function submitBrokerSL(params: {
   quantity: number;
   stopTriggerPrice: number;
   strategy: string;
-}): Promise<void> {
+}): Promise<boolean> {
   try {
-    // SL注文の期限: タイムストップ上限+1日（非営業日なら直後の営業日に調整）
-    const rawExpire = dayjs()
-      .add(TIME_STOP.MAX_EXTENDED_HOLDING_DAYS + 1, "day")
-      .toDate();
-    const expireDay = dayjs(adjustToTradingDay(rawExpire)).format("YYYYMMDD");
+    const expireDay = computeSLExpireDay(params.strategy);
 
     const result = await submitOrder({
       ticker: params.ticker,
@@ -111,6 +138,8 @@ export async function submitBrokerSL(params: {
         color: "good",
         fields,
       }).catch(() => {});
+
+      return true;
     } else if (!result.success) {
       // 11102（受付時間外）は引け後の即時SL発注で必ず出る良性エラー。ensure-broker-sl が
       // 後で発注するため danger 通知は出さず警告ログに留める（引け成行約定ごとの誤警報防止）。
@@ -134,6 +163,7 @@ export async function submitBrokerSL(params: {
         }
       }
     }
+    return false;
   } catch (err) {
     console.error(
       `[broker-sl] Error submitting SL for ${params.ticker}:`,
@@ -147,6 +177,7 @@ export async function submitBrokerSL(params: {
         color: "danger",
       }).catch(() => {});
     }
+    return false;
   }
 }
 
