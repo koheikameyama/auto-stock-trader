@@ -20,10 +20,11 @@ import {
   SCORING,
   TIMEZONE,
   EXIT_GRACE_PERIOD_MS,
+  VIX_THRESHOLDS,
 } from "../lib/constants";
 import { validateStopLoss } from "../core/risk-manager";
 import { fetchStockQuote } from "../core/market-data";
-import { countNonTradingDaysAhead, countTradingDaysBetween } from "../lib/market-date";
+import { countNonTradingDaysAhead, countTradingDaysBetween, getTodayForDB } from "../lib/market-date";
 import {
   checkOrderFill,
   fillOrder,
@@ -70,6 +71,37 @@ async function isSystemActive(): Promise<boolean> {
 }
 
 type ExitablePosition = Awaited<ReturnType<typeof getOpenPositions>>[number];
+
+/**
+ * ディフェンシブモード（全ポジション即時決済）の発火判定。
+ *
+ * BT の processDefensive は `todayRegime === "crisis"`（= `determineMarketRegime` の
+ * `vix > VIX_THRESHOLDS.HIGH`）で当日終値決済する。本番と条件を揃えるための純粋関数。
+ *
+ * @param assessment 当日の market-assessment（当日分が無ければ null）。
+ *   stale な前日値を渡してはいけない（却下リスト #25 の stale 誤発火）。
+ */
+export function evaluateDefensiveMode(
+  assessment: { sentiment: string | null; vix: unknown } | null,
+): { active: boolean; trigger: string | null } {
+  if (!assessment) return { active: false, trigger: null };
+
+  // (a) 日経キルスイッチ(≤-3%) / CME乖離(≤-3%)
+  if (assessment.sentiment === "crisis") {
+    return { active: true, trigger: "crisis（日経/CMEキルスイッチ）" };
+  }
+
+  // (b) VIX > 30 — BT の processDefensive と同一条件
+  const vix = assessment.vix != null ? Number(assessment.vix) : null;
+  if (vix != null && Number.isFinite(vix) && vix > VIX_THRESHOLDS.HIGH) {
+    return {
+      active: true,
+      trigger: `VIX ${vix.toFixed(1)} > ${VIX_THRESHOLDS.HIGH}`,
+    };
+  }
+
+  return { active: false, trigger: null };
+}
 
 /**
  * ポジション決済の共通実行: SL逆指値取消 → 成行売り → **売り注文が成功した場合のみ** close + 約定通知。
@@ -859,18 +891,38 @@ export async function main() {
     return;
   }
 
-  // 3.5. ディフェンシブモード（crisis時の全ポジション即時決済）
+  // 3.5. ディフェンシブモード（全ポジション即時決済）
+  //
+  // 発火条件は2系統:
+  //   (a) sentiment==="crisis" — 日経キルスイッチ(≤-3%) / CME乖離(≤-3%)
+  //   (b) VIX > 30 — BT の processDefensive が `todayRegime==="crisis"` としてモデル化している条件。
+  //       翌朝のギャップダウンが逆指値SLを突き抜けるテールを避ける。
+  //
+  // (b) は従来 end-of-day にしか無く、しかも売り注文を出さない「幻の決済」だったため
+  // 実質存在しなかった（KOH-550 で撤去）。BT は VIX>30 で当日終値決済を前提に成績を出しており、
+  // 本番と乖離していたのでここで揃える（15:20 tick が BT の「当日終値」に相当）。
+  // フルサイクル7.3年(2020コロナ VIX82 含む)で発火は3件/1,356トレード = 実質フリーの保険。
+  // VIX>30 は breadth 崩壊と同時に起きるため GU/PSC はそもそもエントリーしておらず噛む相手が居ない
+  // （却下リスト #25 の日経キルスイッチと同じ構造）。
+  //
+  // ⚠️ KOH-531 のパニック底反発を本番化する際は要注意: この防御決済は「底で強制売却」して
+  //    逆張り戦略を殺す。BT側は etfCrisisBypass で選択制にしてあるので、本番化時に同じ
+  //    バイパスを移植すること。
   console.log("[2.5/3] ディフェンシブモード判定...");
-  const latestAssessmentForDefense = await prisma.marketAssessment.findFirst({
-    orderBy: { date: "desc" },
-    select: { sentiment: true, reasoning: true },
+  // 当日の評価のみを使う。findFirst(orderBy desc) だと market-assessment が失敗した日に
+  // 前日の値で誤発火する（却下リスト #25 で実際に踏んだ stale 誤発火）。当日分が無い場合は
+  // 発火させない（SLは板に生きているので保護は残る。stale値で全決済する方が有害）。
+  const latestAssessmentForDefense = await prisma.marketAssessment.findUnique({
+    where: { date: getTodayForDB() },
+    select: { sentiment: true, reasoning: true, vix: true },
   });
 
-  const currentSentiment = latestAssessmentForDefense?.sentiment;
-  const isDefensiveMode = currentSentiment === "crisis";
+  const { active: isDefensiveMode, trigger } = evaluateDefensiveMode(
+    latestAssessmentForDefense,
+  );
 
   if (isDefensiveMode) {
-    console.log(`  → ディフェンシブモード発動: crisis`);
+    console.log(`  → ディフェンシブモード発動: ${trigger}`);
 
     // TP/SLで決済済みを除外した残存ポジションを取得
     const remainingPositions = await getOpenPositions();
@@ -884,8 +936,8 @@ export async function main() {
       const currentProfitPct =
         ((quote.price - entryPriceNum) / entryPriceNum) * 100;
 
-      // crisis: 全ポジション即時決済（資本防衛）
-      const defensiveReason = `crisis全ポジション即時決済（含み損益: ${currentProfitPct >= 0 ? "+" : ""}${currentProfitPct.toFixed(2)}%）`;
+      // crisis / VIX>30: 全ポジション即時決済（資本防衛）
+      const defensiveReason = `${trigger} 全ポジション即時決済（含み損益: ${currentProfitPct >= 0 ? "+" : ""}${currentProfitPct.toFixed(2)}%）`;
 
       {
         // エントリー当日は当日高値を使わない（エントリー前の値動きを含むため）
@@ -930,13 +982,13 @@ export async function main() {
 
     if (defensiveCloseCount > 0) {
       await notifyRiskAlert({
-        type: `ディフェンシブモード（${currentSentiment}）`,
+        type: `ディフェンシブモード（${trigger}）`,
         message: `${defensiveCloseCount}件のポジションを防衛決済しました`,
       });
     }
   } else {
     console.log(
-      `  → ディフェンシブモード: OFF（sentiment: ${currentSentiment ?? "不明"}）`,
+      `  → ディフェンシブモード: OFF（sentiment: ${latestAssessmentForDefense?.sentiment ?? "不明"} / VIX: ${latestAssessmentForDefense?.vix ?? "不明"}）`,
     );
   }
 
