@@ -51,13 +51,18 @@ vi.mock("../../lib/prisma", () => ({
   },
 }));
 
-vi.mock("../../core/broker-orders", () => ({
-  syncBrokerOrderStatuses: mockSyncBrokerOrderStatuses,
-  getHoldings: mockGetHoldings,
-  getOrderDetail: mockGetOrderDetail,
-  getOrders: mockGetOrders,
-  cancelOrder: mockCancelOrder,
-}));
+// API 呼び出し系のみモックし、extractFilledPrice のような純粋関数は実装をそのまま使う
+vi.mock("../../core/broker-orders", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../core/broker-orders")>();
+  return {
+    ...actual,
+    syncBrokerOrderStatuses: mockSyncBrokerOrderStatuses,
+    getHoldings: mockGetHoldings,
+    getOrderDetail: mockGetOrderDetail,
+    getOrders: mockGetOrders,
+    cancelOrder: mockCancelOrder,
+  };
+});
 
 vi.mock("../../lib/constants/broker", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/constants/broker")>();

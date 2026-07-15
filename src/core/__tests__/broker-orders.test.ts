@@ -33,6 +33,11 @@ vi.mock("../../lib/slack", () => ({
   notifySlack: mockNotifySlack,
 }));
 
+// リトライ待機を潰してテストを即時化する（待機時間そのものは検証対象ではない）
+vi.mock("../../lib/retry-utils", () => ({
+  sleep: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("../../lib/constants/broker", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/constants/broker")>();
   return { ...actual, isTachibanaProduction: true };
@@ -40,6 +45,8 @@ vi.mock("../../lib/constants/broker", async (importOriginal) => {
 
 import {
   cancelOrder,
+  extractFilledPrice,
+  fetchFilledPrice,
   getHoldings,
   getOrders,
   syncBrokerOrderStatuses,
@@ -407,5 +414,120 @@ describe("syncBrokerOrderStatuses", () => {
     await syncBrokerOrderStatuses();
 
     expect(mockOrderUpdate).not.toHaveBeenCalled();
+  });
+});
+
+// ========================================
+// extractFilledPrice
+// ========================================
+
+describe("extractFilledPrice", () => {
+  it("単一約定 → その約定単価を返す（KOH-547 の 3276.T 実データ）", () => {
+    const price = extractFilledPrice({
+      aYakuzyouSikkouList: [
+        { sYakuzyouPrice: "1793.0000", sYakuzyouSuryou: "100", sYakuzyouDay: "20260715093506" },
+      ],
+    });
+
+    expect(price).toBe(1793);
+  });
+
+  it("分割約定 → 数量加重平均を返す（単純平均ではない）", () => {
+    // 単純平均なら 1050 だが、加重平均は (1000*300 + 1100*100) / 400 = 1025
+    const price = extractFilledPrice({
+      aYakuzyouSikkouList: [
+        { sYakuzyouPrice: "1000", sYakuzyouSuryou: "300" },
+        { sYakuzyouPrice: "1100", sYakuzyouSuryou: "100" },
+      ],
+    });
+
+    expect(price).toBe(1025);
+  });
+
+  it("約定リストが空 → null（0円で記録させない）", () => {
+    expect(extractFilledPrice({ aYakuzyouSikkouList: [] })).toBeNull();
+    expect(extractFilledPrice({})).toBeNull();
+  });
+
+  it("数量が全て0 → null（ゼロ除算しない）", () => {
+    const price = extractFilledPrice({
+      aYakuzyouSikkouList: [{ sYakuzyouPrice: "1000", sYakuzyouSuryou: "0" }],
+    });
+
+    expect(price).toBeNull();
+  });
+});
+
+// ========================================
+// fetchFilledPrice
+// ========================================
+
+describe("fetchFilledPrice", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("全部約定 → 実約定価格を返す", async () => {
+    mockRequest.mockResolvedValue({
+      sResultCode: "0",
+      sOrderStatusCode: "10", // 全部約定
+      aYakuzyouSikkouList: [{ sYakuzyouPrice: "2183.0000", sYakuzyouSuryou: "100" }],
+    });
+
+    const price = await fetchFilledPrice("15008985", "20260715");
+
+    expect(price).toBe(2183);
+  });
+
+  it("未約定のまま → 有界リトライ後に null（無限ポーリングしない）", async () => {
+    mockRequest.mockResolvedValue({
+      sResultCode: "0",
+      sOrderStatusCode: "1", // 未約定
+    });
+
+    const price = await fetchFilledPrice("15008985", "20260715");
+
+    expect(price).toBeNull();
+    expect(mockRequest).toHaveBeenCalledTimes(3); // BROKER_FILL_LOOKUP.MAX_ATTEMPTS
+  });
+
+  it("営業日が空 → 注文一覧の sOrderSikkouDay で解決してから約定価格を取得する", async () => {
+    mockRequest
+      .mockResolvedValueOnce({
+        // 1回目: 注文一覧（営業日の解決）
+        sResultCode: "0",
+        aOrderList: [
+          { sOrderOrderNumber: "15008982", sOrderSikkouDay: "20260715" },
+        ],
+      })
+      .mockResolvedValueOnce({
+        // 2回目: 注文詳細
+        sResultCode: "0",
+        sOrderStatusCode: "10",
+        aYakuzyouSikkouList: [{ sYakuzyouPrice: "1793", sYakuzyouSuryou: "100" }],
+      });
+
+    const price = await fetchFilledPrice("15008982", undefined);
+
+    expect(price).toBe(1793);
+    expect(mockRequest).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ sOrderNumber: "15008982", sEigyouDay: "20260715" }),
+    );
+  });
+
+  it("営業日を解決できない → null（誤った営業日で照会しない）", async () => {
+    mockRequest.mockResolvedValue({ sResultCode: "0", aOrderList: [] });
+
+    const price = await fetchFilledPrice("15008982", undefined);
+
+    expect(price).toBeNull();
+  });
+
+  it("注文番号が空 → 照会せず null", async () => {
+    const price = await fetchFilledPrice("", "20260715");
+
+    expect(price).toBeNull();
+    expect(mockRequest).not.toHaveBeenCalled();
   });
 });

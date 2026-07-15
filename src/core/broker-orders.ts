@@ -16,9 +16,11 @@ import {
   TACHIBANA_ORDER_STATUS,
   TACHIBANA_ORDER_QUERY,
   TACHIBANA_ORDER_RESULT,
+  BROKER_FILL_LOOKUP,
   isTachibanaProduction,
 } from "../lib/constants/broker";
 import { TIMEZONE } from "../lib/constants";
+import { sleep } from "../lib/retry-utils";
 import { notifySlack } from "../lib/slack";
 
 dayjs.extend(utc);
@@ -252,6 +254,96 @@ export async function getOrderDetail(
     sOrderNumber: orderId,
     sEigyouDay: businessDay,
   });
+}
+
+/**
+ * 注文詳細の約定リストから約定単価を数量加重平均で算出する。
+ *
+ * 立花は分割約定を aYakuzyouSikkouList に列挙するため、単純平均ではなく数量加重で平均する。
+ * 約定リストが空/不正な場合は null。
+ */
+export function extractFilledPrice(
+  detail: Record<string, unknown>,
+): number | null {
+  const execList = (detail.aYakuzyouSikkouList as Record<string, unknown>[]) ?? [];
+  if (!Array.isArray(execList) || execList.length === 0) return null;
+
+  let totalAmount = 0;
+  let totalQuantity = 0;
+  for (const exec of execList) {
+    const price = Number(exec.sYakuzyouPrice ?? exec.sExecPrice ?? 0);
+    const qty = Number(exec.sYakuzyouSuryou ?? exec.sExecQuantity ?? 0);
+    if (!Number.isFinite(price) || !Number.isFinite(qty) || qty <= 0) continue;
+    totalAmount += price * qty;
+    totalQuantity += qty;
+  }
+  if (totalQuantity <= 0) return null;
+
+  const avg = Math.round(totalAmount / totalQuantity);
+  return avg > 0 ? avg : null;
+}
+
+/**
+ * 注文番号から営業日を解決する（発注応答に sEigyouDay が無かった場合の救済）。
+ *
+ * 引け後発注などで応答の営業日が空になることがあり、そのままでは注文詳細を引けない
+ * （KOH-532 と同根）。注文一覧の sOrderSikkouDay から引き直す。
+ */
+async function resolveBusinessDay(orderNumber: string): Promise<string | null> {
+  const res = await getOrders({ statusFilter: "" }).catch(() => null);
+  if (!res || res.sResultCode !== "0") return null;
+
+  const brokerOrders = (res.aOrderList as Record<string, unknown>[]) ?? [];
+  if (!Array.isArray(brokerOrders)) return null;
+
+  for (const bo of brokerOrders) {
+    const num = String(bo.sOrderOrderNumber ?? bo.sOrderNumber ?? "");
+    if (num !== orderNumber) continue;
+    const day = String(bo.sOrderSikkouDay ?? bo.sEigyouDay ?? "");
+    return day || null;
+  }
+  return null;
+}
+
+/**
+ * 発注済み注文の実約定価格を取得する。全部約定していなければ null を返す。
+ *
+ * 成行注文を出した直後の呼び出しを想定し、約定反映のラグを有界リトライで吸収する
+ * （試行回数は BROKER_FILL_LOOKUP で上限を固定。立花の負荷ガイドラインに従い場中の
+ * 無制限ポーリングはしない）。デモ環境は売り注文自体が未発注のため常に null。
+ */
+export async function fetchFilledPrice(
+  orderNumber: string,
+  businessDay?: string,
+): Promise<number | null> {
+  if (!isTachibanaProduction || !orderNumber) return null;
+
+  const day = businessDay || (await resolveBusinessDay(orderNumber));
+  if (!day) {
+    console.warn(
+      `[broker-orders] 注文 ${orderNumber}: 営業日を解決できず約定価格を取得できません`,
+    );
+    return null;
+  }
+
+  for (let attempt = 1; attempt <= BROKER_FILL_LOOKUP.MAX_ATTEMPTS; attempt++) {
+    const detail = await getOrderDetail(orderNumber, day).catch(() => null);
+    if (detail && detail.sResultCode === "0") {
+      const status = String(detail.sOrderStatusCode ?? detail.sOrderStatus ?? "");
+      if (status === TACHIBANA_ORDER_STATUS.FULLY_FILLED) {
+        const price = extractFilledPrice(detail);
+        if (price) return price;
+      }
+    }
+    if (attempt < BROKER_FILL_LOOKUP.MAX_ATTEMPTS) {
+      await sleep(BROKER_FILL_LOOKUP.RETRY_DELAY_MS);
+    }
+  }
+
+  console.warn(
+    `[broker-orders] 注文 ${orderNumber} (${day}): ${BROKER_FILL_LOOKUP.MAX_ATTEMPTS}回試行しても全部約定を確認できず`,
+  );
+  return null;
 }
 
 /**

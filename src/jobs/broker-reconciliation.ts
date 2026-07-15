@@ -28,7 +28,7 @@ import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import { prisma } from "../lib/prisma";
 import { notifySlack } from "../lib/slack";
-import { syncBrokerOrderStatuses, getHoldings, getOrderDetail, getOrders } from "../core/broker-orders";
+import { syncBrokerOrderStatuses, getHoldings, getOrderDetail, getOrders, extractFilledPrice } from "../core/broker-orders";
 import { recoverMissedFills } from "../core/broker-fill-handler";
 import { TACHIBANA_ORDER, TACHIBANA_ORDER_STATUS, BROKER_RECONCILIATION, isTachibanaProduction } from "../lib/constants/broker";
 import { TIMEZONE } from "../lib/constants";
@@ -416,24 +416,10 @@ async function handleMissingHolding(position: {
 
       if (brokerStatus === TACHIBANA_ORDER_STATUS.FULLY_FILLED) {
         // SL約定 → 約定価格を計算してポジションクローズ
-        const execList =
-          (detail.aYakuzyouSikkouList as Record<string, unknown>[]) ?? [];
-        let filledPrice = 0;
-
-        if (execList.length > 0) {
-          let totalAmount = 0;
-          let totalQuantity = 0;
-          for (const exec of execList) {
-            const price = Number(exec.sYakuzyouPrice ?? exec.sExecPrice ?? 0);
-            const qty = Number(exec.sYakuzyouSuryou ?? exec.sExecQuantity ?? 0);
-            console.log(
-              `[broker-reconciliation] ${ticker}: raw exec data: price=${price}, qty=${qty}, raw=${JSON.stringify(exec)}`,
-            );
-            totalAmount += price * qty;
-            totalQuantity += qty;
-          }
-          filledPrice = totalQuantity > 0 ? Math.round(totalAmount / totalQuantity) : 0;
-        }
+        console.log(
+          `[broker-reconciliation] ${ticker}: raw exec data: ${JSON.stringify(detail.aYakuzyouSikkouList)}`,
+        );
+        const filledPrice = extractFilledPrice(detail) ?? 0;
 
         if (filledPrice > 0) {
           // 約定価格の異常値チェック

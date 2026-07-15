@@ -49,7 +49,7 @@ import {
 } from "../core/corporate-event-handler";
 import { fetchCorporateEvents } from "../core/market-data";
 import { notifyOrderFilled, notifyRiskAlert, notifySlack } from "../lib/slack";
-import { cancelOrder, submitOrder } from "../core/broker-orders";
+import { cancelOrder, fetchFilledPrice, submitOrder } from "../core/broker-orders";
 import type { BrokerOrderResult } from "../core/broker-orders";
 import { cancelBrokerSL, updateBrokerSL } from "../core/broker-sl-manager";
 import { TACHIBANA_ORDER_STATUS, isTachibanaProduction } from "../lib/constants/broker";
@@ -146,14 +146,48 @@ async function executeExitSell(params: {
     return null;
   }
 
-  // 5. 売り注文成功時のみ close + 約定通知。約定価格の確定は reconciliation がバックフィルする。
-  const closed = await closePosition(position.id, exitPrice, exitSnapshot as object);
+  // 5. 実約定価格をブローカーから取得する。
+  //    exitPrice は「決済すべきか」を判定するための日足モデル上の想定価格であって、
+  //    実際にいくらで売れたかではない。両者は日中に大きく乖離しうる（KOH-547: 建値1656 →
+  //    日中1827まで急騰 → トレール割れを検知して成行売り、実約定1793 だったが、モデル値
+  //    1656 をそのまま記録して +8.3% の利益を ¥0 と記録した）。損益・実現損益・DD判定の
+  //    土台になる値なので、記録には必ずブローカーの約定価格を使う。
+  const filledPrice = await fetchFilledPrice(
+    sellResult.orderNumber ?? "",
+    sellResult.businessDay,
+  ).catch((err): number | null => {
+    console.error(`[position-monitor] ${ticker}: 約定価格取得エラー: ${err}`);
+    return null;
+  });
+
+  // 取得できない場合はモデル値で記録するが、黙って壊れた値を残さないよう警告する。
+  // デモ環境は売り注文自体がスキップされるため対象外。
+  if (filledPrice == null && isTachibanaProduction) {
+    await notifySlack({
+      title: "⚠️ 決済の約定価格を取得できず",
+      message:
+        `${ticker} ${exitReason}\n` +
+        `成行売りは成功しましたが実約定価格を取得できませんでした。\n` +
+        `モデル上の想定価格 ¥${exitPrice.toLocaleString()} で記録します（実損益とズレる可能性あり）。\n` +
+        `注文番号: ${sellResult.orderNumber ?? "不明"} / positionId: ${position.id}`,
+      color: "warning",
+    }).catch(() => {});
+  }
+
+  const recordedPrice = filledPrice ?? exitPrice;
+
+  // 6. close + 約定通知
+  const closed = await closePosition(
+    position.id,
+    recordedPrice,
+    { ...exitSnapshot, exitPrice: recordedPrice, modelExitPrice: exitPrice } as object,
+  );
   await notifyOrderFilled({
     tickerCode: ticker,
     name: position.stock.name,
     side: "sell",
     strategy: position.strategy,
-    filledPrice: exitPrice,
+    filledPrice: recordedPrice,
     quantity: position.quantity,
     entryPrice: Number(position.entryPrice),
     pnl: getPositionPnl(closed),

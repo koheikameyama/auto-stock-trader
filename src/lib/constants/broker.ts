@@ -190,6 +190,15 @@ export const TACHIBANA_ORDER_QUERY = {
 // ブローカー照合（reconciliation）
 // ========================================
 
+export const BROKER_FILL_LOOKUP = {
+  /** 成行注文を出してから約定確定を読むまでの試行回数。
+   * 立会中の成行は即約定するため通常1回で取れる。立花の負荷ガイドライン
+   * （8:00-15:30 はポーリング回避）に従い、決済1件あたりの上限をここで縛る。 */
+  MAX_ATTEMPTS: 3,
+  /** 試行間隔（ms）。約定反映の僅かなラグを吸収する分だけ待つ */
+  RETRY_DELAY_MS: 700,
+} as const;
+
 export const BROKER_RECONCILIATION = {
   /** SL約定価格の正常範囲下限（エントリー価格に対する比率）
    * SL最大損失3%なので、-10%超の乖離はデータ異常と判定する */
