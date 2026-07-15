@@ -11,64 +11,52 @@
 
 import { prisma } from "../lib/prisma";
 import { getTodayForDB, getStartOfDayJST, getEndOfDayJST, addTradingDays, toJSTDateForDB } from "../lib/market-date";
-import { STRATEGY_SWITCHING } from "../lib/constants";
 import { fetchStockQuote } from "../core/market-data";
-import { closePosition, getCashBalance, getTotalPortfolioValue, getPositionPnl, getPendingBuyAmount } from "../core/position-manager";
-import type { ExitSnapshot } from "../types/snapshots";
+import { getCashBalance, getTotalPortfolioValue, getPositionPnl, getPendingBuyAmount } from "../core/position-manager";
 import { expireOrders } from "../core/order-executor";
 import { syncBrokerOrderStatuses } from "../core/broker-orders";
 import { recoverMissedFills } from "../core/broker-fill-handler";
 import { TACHIBANA_ORDER_STATUS } from "../lib/constants/broker";
 import { getDailyPnl } from "../core/risk-manager";
 import { updatePeakEquity } from "../core/drawdown-manager";
-import { notifyDailyReport, notifyOrderFilled, notifySlack } from "../lib/slack";
+import { notifyDailyReport, notifySlack } from "../lib/slack";
 import { chatCompletion } from "../lib/openai";
 import dayjs from "dayjs";
 
-async function forceClosePositions(
-  positions: Awaited<ReturnType<typeof prisma.tradingPosition.findMany>>,
-  exitReason: string,
-) {
-  for (const position of positions) {
-    const stock = (position as typeof position & { stock: { tickerCode: string; name: string } }).stock;
-    const quote = await fetchStockQuote(stock.tickerCode, { yfinanceFallback: true });
-    const exitPrice = (quote?.price && quote.price > 0) ? quote.price : Number(position.entryPrice);
+/**
+ * crisis なのに未決済ポジションが残っていないかを検知して警告する。
+ *
+ * かつてここには forceClosePositions があり、時価を取って closePosition を呼ぶだけで
+ * ブローカーへの売り注文を一切出していなかった（DB は closed・立花には現物が残る「幻の決済」。
+ * commit 5756d817 が position-monitor 側の同じ問題を潰した際にこの経路が漏れていた）。
+ *
+ * そもそも end-of-day は 17:00 JST（大引け15:30後・立花の受付停止窓15:30-17:00の明け）に走るため、
+ * この時刻に当日中の売却は物理的に不可能。「オーバーナイトリスク回避」を謳いながら、既に
+ * オーバーナイトに入った後に DB だけ閉じており、リスクを1ミリも減らさず状態を壊すだけだった。
+ *
+ * crisis の決済は position-monitor の防御決済（15:20 tick まで・executeExitSell 経由で実売り）が
+ * 担当する。ここは取りこぼしの検知のみ行う（KOH-550）。
+ */
+async function warnIfPositionsRemainInCrisis(reason: string): Promise<void> {
+  const remaining = await prisma.tradingPosition.findMany({
+    where: { status: "open" },
+    include: { stock: { select: { tickerCode: true } } },
+  });
+  if (remaining.length === 0) return;
 
-    console.log(
-      `  → ${stock.tickerCode}: ${exitReason} @ ¥${exitPrice.toLocaleString()}`,
-    );
-
-    const maxHigh = position.maxHighDuringHold
-      ? Math.max(Number(position.maxHighDuringHold), quote?.high ?? exitPrice)
-      : exitPrice;
-
-    const exitSnapshot: ExitSnapshot = {
-      exitReason,
-      exitPrice,
-      priceJourney: {
-        maxHigh,
-      },
-      marketContext: null,
-    };
-
-    const closed = await closePosition(
-      position.id,
-      exitPrice,
-      exitSnapshot as object,
-    );
-
-    await notifyOrderFilled({
-      tickerCode: stock.tickerCode,
-      name: stock.name,
-      side: "sell",
-      strategy: position.strategy,
-      filledPrice: exitPrice,
-      quantity: position.quantity,
-      entryPrice: Number(position.entryPrice),
-      pnl: getPositionPnl(closed),
-      exitReason,
-    });
-  }
+  const tickers = remaining
+    .map((p) => (p as typeof p & { stock: { tickerCode: string } }).stock.tickerCode)
+    .join(", ");
+  console.warn(`  ⚠️ ${reason}: ${remaining.length}件が未決済のまま残存 (${tickers})`);
+  await notifySlack({
+    title: "🚨 crisis なのに未決済ポジションが残存",
+    message:
+      `${reason}\n` +
+      `${remaining.length}件が open のままです: ${tickers}\n` +
+      `position-monitor の防御決済が取りこぼした可能性があります。\n` +
+      `end-of-day(17:00 JST)は受付時間外のため当日決済はできません。手動確認を推奨。`,
+    color: "danger",
+  }).catch(() => {});
 }
 
 /** exitSnapshot から exitReason を安全に取り出す */
@@ -223,42 +211,20 @@ export async function main() {
     where: { date: getTodayForDB() },
   });
 
-  // 1a. VIX高騰時のポジション強制決済（オーバーナイトリスク回避）
-  // VIX ≥ 30: 全ポジション強制決済（ギャップダウンでSLが機能しないリスク）
+  // 1a/1b. crisis の取りこぼし検知（強制決済は position-monitor の防御決済が担当）
+  //   従来はここで VIX≥30 / sentiment=crisis のポジションを強制決済していたが、実際には
+  //   売り注文を出さず DB だけ閉じる「幻の決済」だった（KOH-550）。17:00 JST は受付時間外で
+  //   当日決済は不可能なため、検知のみに変更した。
+  const todaySentiment = todayAssessmentForStrategy?.sentiment as string | null;
   const todayVix = todayAssessmentForStrategy?.vix != null
     ? Number(todayAssessmentForStrategy.vix)
     : null;
 
-  if (todayVix != null && todayVix >= STRATEGY_SWITCHING.VIX_FORCE_CLOSE_THRESHOLD) {
-    console.log(`[1a/5] VIX ${todayVix.toFixed(1)} ≥ ${STRATEGY_SWITCHING.VIX_FORCE_CLOSE_THRESHOLD}: 全ポジション強制決済...`);
-    const overnightPositions = await prisma.tradingPosition.findMany({
-      where: { status: "open", strategy: { in: ["breakout", "gapup"] } },
-      include: { stock: true },
-    });
-    if (overnightPositions.length > 0) {
-      console.log(`  ${overnightPositions.length}件のポジションを決済`);
-      await forceClosePositions(overnightPositions, "VIX高騰オーバーナイトリスク回避");
-    } else {
-      console.log("  対象なし");
-    }
-  } else {
-    console.log(`[1a/5] VIX ${todayVix?.toFixed(1) ?? "N/A"}: ポジション保持`);
-  }
-
-  // 1b. crisis時のポジション強制決済
-  const todaySentiment = todayAssessmentForStrategy?.sentiment as string | null;
   if (todaySentiment === "crisis") {
-    console.log(`[1b/5] センチメント「${todaySentiment}」: 全ポジション強制決済...`);
-    const crisisPositions = await prisma.tradingPosition.findMany({
-      where: { status: "open", strategy: { in: ["breakout", "gapup"] } },
-      include: { stock: true },
-    });
-    if (crisisPositions.length > 0) {
-      console.log(`  ${crisisPositions.length}件のポジションを決済`);
-      await forceClosePositions(crisisPositions, `${todaySentiment}環境オーバーナイトリスク回避`);
-    } else {
-      console.log("  対象なし");
-    }
+    console.log(`[1/5] センチメント「crisis」: 未決済ポジションの取りこぼし検知...`);
+    await warnIfPositionsRemainInCrisis("crisis 環境（日経/CMEキルスイッチ）");
+  } else {
+    console.log(`[1/5] センチメント「${todaySentiment ?? "N/A"}」/ VIX ${todayVix?.toFixed(1) ?? "N/A"}: 取りこぼし検知スキップ`);
   }
 
   // 2. 期限切れ注文のキャンセル
