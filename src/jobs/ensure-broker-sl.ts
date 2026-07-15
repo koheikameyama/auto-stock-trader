@@ -10,15 +10,25 @@
  *
  * リトライ上限（MAX_SL_RETRIES）を設け、超過時は自動再発注を停止し通知のみにする。
  * これにより、ブローカー側で繰り返しSLが取消される場合の無限ループを防止する。
+ *
+ * ⚠️ カウントするのは **連続失敗数** であって、そのポジションで再発注した通算回数ではない
+ * （KOH-555）。立花の `sOrderExpireDay` は最大10営業日なので、20営業日保有する固定SL戦略
+ * （buyback/panic）の逆指値は**正常系でも期限が来て再発注される**。通算で数えると、
+ * 正常な期限更新を数回こなしただけで上限に達し、以後そのポジションが恒久的に SL 無しになる。
  */
 
 import { prisma } from "../lib/prisma";
 import { submitBrokerSL } from "../core/broker-sl-manager";
 import { notifySlack } from "../lib/slack";
 
-/** 同一ポジションのSL再発注上限（プロセスライフタイム内） */
+/** 同一ポジションのSL再発注の**連続失敗**上限（プロセスライフタイム内。成功でリセット） */
 const MAX_SL_RETRIES = 3;
-const retryCount = new Map<string, number>();
+const consecutiveFailures = new Map<string, number>();
+
+/** 連続失敗カウンタをリセットする（テスト用） */
+export function resetSLFailureCounts(): void {
+  consecutiveFailures.clear();
+}
 
 /** DB一時障害向けの簡易リトライ（接続不可・タイムアウトのみ対象） */
 async function withDbRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
@@ -71,35 +81,39 @@ export async function main(): Promise<void> {
       continue;
     }
 
-    const count = retryCount.get(pos.id) ?? 0;
-    if (count >= MAX_SL_RETRIES) {
+    const failures = consecutiveFailures.get(pos.id) ?? 0;
+    if (failures >= MAX_SL_RETRIES) {
       console.warn(
-        `${tag} ${pos.stock.tickerCode} (${pos.id}): リトライ上限(${MAX_SL_RETRIES})到達 → 通知のみ`,
+        `${tag} ${pos.stock.tickerCode} (${pos.id}): 連続失敗上限(${MAX_SL_RETRIES})到達 → 通知のみ`,
       );
       await notifySlack({
         title: `🚨 SL再発注リトライ上限: ${pos.stock.tickerCode}`,
-        message: `SL注文の自動再発注が${MAX_SL_RETRIES}回失敗しました\npositionId: ${pos.id}\nSLトリガー: ¥${Number(pos.stopLossPrice).toLocaleString()}\n手動でSL注文を確認・再発注してください`,
+        message: `SL注文の自動再発注が${MAX_SL_RETRIES}回連続で失敗しました\npositionId: ${pos.id}\nSLトリガー: ¥${Number(pos.stopLossPrice).toLocaleString()}\n手動でSL注文を確認・再発注してください`,
         color: "danger",
       }).catch(() => {});
       continue;
     }
 
-    retryCount.set(pos.id, count + 1);
-
-    if (count > 0) {
+    if (failures > 0) {
       await notifySlack({
-        title: `⚠️ SL自動再発注 (${count + 1}/${MAX_SL_RETRIES}): ${pos.stock.tickerCode}`,
+        title: `⚠️ SL自動再発注 (${failures + 1}/${MAX_SL_RETRIES}): ${pos.stock.tickerCode}`,
         message: `SL注文を自動再発注します\npositionId: ${pos.id}\nSLトリガー: ¥${Number(pos.stopLossPrice).toLocaleString()}`,
         color: "warning",
       }).catch(() => {});
     }
 
-    await submitBrokerSL({
+    const ok = await submitBrokerSL({
       positionId: pos.id,
       ticker: pos.stock.tickerCode,
       quantity: pos.quantity,
       stopTriggerPrice: Number(pos.stopLossPrice),
       strategy: pos.strategy,
     });
+
+    // 成功したらカウンタを捨てる。固定SL戦略(20営業日)は立花の期限上限(10営業日)を超えるため
+    // 正常系でも期限更新の再発注が入る。通算で数えると数回の正常更新で上限に達し、以後
+    // そのポジションが恒久的に SL 無しになる (KOH-555)。
+    if (ok) consecutiveFailures.delete(pos.id);
+    else consecutiveFailures.set(pos.id, failures + 1);
   }
 }
