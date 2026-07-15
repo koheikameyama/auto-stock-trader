@@ -146,6 +146,12 @@ export const TACHIBANA_ORDER = {
   /** 注文期日 */
   EXPIRE: {
     TODAY: "0",
+    /**
+     * `sOrderExpireDay` に指定できる最大営業日数（立花の仕様上限）。
+     * これを超える期日は指定できないため、20営業日保有する固定SL戦略の逆指値は
+     * 期限内に必ず更新が入る（`.claude/rules/tachibana-api.md` / KOH-555）。
+     */
+    MAX_BUSINESS_DAYS: 10,
   },
   /** 譲渡益課税区分 */
   TAX_TYPE: {
