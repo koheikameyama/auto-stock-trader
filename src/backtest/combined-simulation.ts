@@ -19,6 +19,7 @@ import { MOMENTUM_RISK_PER_TRADE_PCT } from "./momentum-config";
 import type { PrecomputedUSEtfSignals } from "./us-etf-simulation";
 import type { USEtfBacktestConfig } from "./us-etf-config";
 import { checkPositionExit } from "../core/exit-checker";
+import type { IntraBarStopModel } from "../core/exit-checker";
 import type { BreakEvenFloorMode } from "../core/trailing-stop";
 import { calculateCommission, calculateTax, calculateMarginInterest, applySlippage } from "../core/trading-costs";
 import type { SlippageProfile } from "../core/trading-costs";
@@ -89,6 +90,11 @@ export interface SimContext {
    * 未指定時は "entry" = 建値フロア（baseline 完全不変）。--compare-be 検証用。
    */
   breakEvenFloor?: BreakEvenFloorMode;
+  /**
+   * SL約定価格のイントラバー・モデル（全戦略に適用）。
+   * 未指定時は "end-of-bar" = 現行挙動（baseline 完全不変）。--compare-intrabar 検証用。
+   */
+  intraBarStopModel?: IntraBarStopModel;
   /** VIXレジーム別戦略フィルター: このレベル以上でBreakoutエントリーを停止（undefined = crisisのみ停止） */
   boVixSkipLevel?: RegimeLevel;
   /** VIXレジーム別戦略フィルター: このレベル以上でGapUpエントリーを停止（undefined = crisisのみ停止） */
@@ -400,6 +406,7 @@ function processExits(
   marginInterestRate = 0,
   slippageProfile: SlippageProfile = "none",
   detectionSource: "high" | "openclose" | "close" = "high",
+  intraBarStopModel: IntraBarStopModel = "end-of-bar",
 ): void {
   const toClose: number[] = [];
   for (let i = 0; i < positions.length; i++) {
@@ -443,6 +450,7 @@ function processExits(
         baseLimitHoldingDaysOverride: config.maxHoldingDays,
         activationDetectionSource: detectionSource,
         breakEvenFloor: config.breakEvenFloor,
+        intraBarStopModel,
       },
       { open: todayBar.open, high: todayBar.high, low: todayBar.low, close: todayBar.close },
     );
@@ -772,7 +780,7 @@ export function runCombinedSimulation(
     typeof maxPositions === "number"
       ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, etfMax: maxPositions, buybackMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, etfCrisisBypass, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none", beTrailDetectionSource = "high", breakEvenFloor, volConvexity } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, etfCrisisBypass, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none", beTrailDetectionSource = "high", breakEvenFloor, intraBarStopModel = "end-of-bar", volConvexity } = ctx;
   const guBreadthMode = breadthModeGu ?? breadthMode;
   const pscBreadthMode = breadthModePsc ?? breadthMode;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
@@ -845,16 +853,16 @@ export function runCombinedSimulation(
       todayVix != null ? determineMarketRegime(todayVix).level : "normal";
 
     // ── 1. 出口判定 ──
-    processExits(boPositions, boConfigLocal, "breakout", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, boClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource);
-    processExits(guPositions, guConfigLocal, "gapup", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, guClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource);
+    processExits(boPositions, boConfigLocal, "breakout", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, boClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
+    processExits(guPositions, guConfigLocal, "gapup", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, guClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
     if (wbConfigLocal) {
-      processExits(wbPositions, wbConfigLocal, "weekly-break", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, wbClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource);
+      processExits(wbPositions, wbConfigLocal, "weekly-break", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, wbClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
     }
     if (pscConfigLocal) {
-      processExits(pscPositions, pscConfigLocal, "post-surge-consolidation", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, pscClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource);
+      processExits(pscPositions, pscConfigLocal, "post-surge-consolidation", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, pscClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
     }
     if (momConfigLocal) {
-      processExits(momPositions, momConfigLocal, "momentum", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, momClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource);
+      processExits(momPositions, momConfigLocal, "momentum", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, momClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
     }
     if (etfConfigLocal) {
       processEtfExits(etfPositions, etfConfigLocal, dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, etfClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile);

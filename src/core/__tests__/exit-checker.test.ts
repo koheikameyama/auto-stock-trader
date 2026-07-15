@@ -325,3 +325,86 @@ describe("checkPositionExit", () => {
     });
   });
 });
+
+// ============================================================
+// intraBarStopModel（SL約定価格のイントラバー・モデル）
+// ============================================================
+
+describe("checkPositionExit: intraBarStopModel", () => {
+  // KOH-547 の 3276.T 実データ（PSCパラメータ: be=0.3 / trail=0.5 / ATR=37.82）。
+  // 建値1656、始値1656（前日終値と同値）、日中1827(+10.3%)まで急騰後に反落し終値1771。
+  // 高値1827から作られたトレールは 1827 - 0.5*37.82 = 1808。
+  // 始値時点で実在したストップは元SLの1627（maxHigh=1656 < BE発動1667.35 で未発動）。
+  const koh547Position = (overrides: Partial<PositionForExit> = {}): PositionForExit => ({
+    entryPrice: 1656,
+    takeProfitPrice: 1846,
+    stopLossPrice: 1627,
+    entryAtr: 37.82,
+    maxHighDuringHold: 1656,
+    minLowDuringHold: 1656,
+    currentTrailingStop: null,
+    strategy: "post-surge-consolidation",
+    holdingBusinessDays: 1,
+    beActivationMultiplierOverride: 0.3,
+    trailMultiplierOverride: 0.5,
+    ...overrides,
+  });
+  const koh547Bar: BarForExit = { open: 1656, high: 1827, low: 1656, close: 1771 };
+
+  it("既定（end-of-bar）は現行挙動のまま: 高値由来のトレールと始値を比べて始値で約定する", () => {
+    const result = checkPositionExit(koh547Position(), koh547Bar);
+
+    // 始値1656 < effectiveSL 1808 なので「ギャップ突破」と誤判定し始値で約定＝建値撤退(±0)
+    expect(result.exitPrice).toBe(1656);
+    expect(result.exitReason).toBe("trailing_stop");
+  });
+
+  it("stop-at-open: 始値時点のストップ(1627)は無傷なので、切り上がったトレール1808で約定する", () => {
+    const result = checkPositionExit(
+      koh547Position({ intraBarStopModel: "stop-at-open" }),
+      koh547Bar,
+    );
+
+    expect(result.exitPrice).toBe(1808);
+    expect(result.exitReason).toBe("trailing_profit");
+  });
+
+  it("stop-at-open: 安値が始値時点のストップを割った日は、切り上がったトレールではなくそのストップで約定する（楽観化させない）", () => {
+    // 始値1656で寄ったあと1600まで急落（元SL1627を割る）、その後1827まで戻して1820引け。
+    // 安値と高値の前後関係は日足では不明なため、SLに触れた保守側を採らなければ
+    // 「実際は損切りされていた日」をトレール利確として記録してしまう。
+    const result = checkPositionExit(
+      koh547Position({ intraBarStopModel: "stop-at-open" }),
+      { open: 1656, high: 1827, low: 1600, close: 1820 },
+    );
+
+    expect(result.exitPrice).toBe(1627); // 元SL。1808 でも 1600 でもない
+    expect(result.exitReason).toBe("stop_loss");
+  });
+
+  it("stop-at-open: 本物のギャップダウン（始値が始値時点のストップ以下）は従来通り始値で約定する", () => {
+    // 前日までに高値2200まで伸びてトレール2080が実在する状態で、2060にギャップダウン。
+    const result = checkPositionExit(
+      makePosition({ maxHighDuringHold: 2200, intraBarStopModel: "stop-at-open" }),
+      makeBar({ open: 2060, high: 2070, low: 2050, close: 2055 }),
+    );
+
+    expect(result.exitPrice).toBe(2060); // 始値（スリッページ反映）
+    expect(result.exitReason).toBe("trailing_profit");
+  });
+
+  it("stop-at-open: 当日高値でトレールが切り上がらない日は既定と同じ約定価格になる", () => {
+    // 当日高値2070 < 前日までの最高値2200 なので effectiveSL は切り上がらない（2080のまま）
+    const position = { maxHighDuringHold: 2200 };
+    const bar = makeBar({ open: 2100, high: 2070, low: 2075, close: 2078 });
+
+    const endOfBar = checkPositionExit(makePosition(position), bar);
+    const stopAtOpen = checkPositionExit(
+      makePosition({ ...position, intraBarStopModel: "stop-at-open" }),
+      bar,
+    );
+
+    expect(stopAtOpen.exitPrice).toBe(endOfBar.exitPrice);
+    expect(stopAtOpen.exitReason).toBe(endOfBar.exitReason);
+  });
+});

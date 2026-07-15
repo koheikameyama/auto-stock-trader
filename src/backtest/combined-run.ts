@@ -38,6 +38,7 @@ import * as fs from "node:fs";
 import { fetchHistoricalFromDB, fetchVixFromDB, fetchIndexFromDB } from "./data-fetcher";
 import { calculateCapitalUtilization, calculateMetrics } from "./metrics";
 import { runCombinedSimulation, compute20dEntryVol, type PositionLimits, type BreadthMode, type VolConvexityConfig } from "./combined-simulation";
+import type { IntraBarStopModel } from "../core/exit-checker";
 import { MARKET_BREADTH, VIX_THRESHOLDS } from "../lib/constants";
 import type {
   GapUpBacktestConfig,
@@ -417,10 +418,11 @@ async function main() {
   const compareNikkeiDrop = args.includes("--compare-nikkei-drop");
   const compareDetectionGranularity = args.includes("--compare-detection-granularity");
   const compareBe = args.includes("--compare-be");
+  const compareIntraBar = args.includes("--compare-intrabar");
   const compareVolConvexity = args.includes("--compare-vol-convexity");
   const corrReport = args.includes("--corr-report");
 
-  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || compareDetectionGranularity || compareBe || compareVolConvexity || corrReport;
+  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || compareDetectionGranularity || compareBe || compareIntraBar || compareVolConvexity || corrReport;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const pscConfig: PostSurgeConsolidationBacktestConfig = {
@@ -2400,6 +2402,98 @@ async function main() {
         const netPnlStr = (sub.totalNetPnl >= 0 ? "+" : "") + `¥${sub.totalNetPnl.toLocaleString()}`;
         console.log(
           `  ${r.label.padEnd(28)}| ${String(sub.totalTrades).padStart(6)} | ${sub.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expStr.padStart(7)} | ${netPnlStr.padStart(12)}`,
+        );
+      }
+    }
+
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // --compare-intrabar: SL約定価格のイントラバー・モデル比較（KOH-547）。
+  // 現行 end-of-bar は「当日高値で切り上げた後のトレール」と始値を比較してギャップ突破を
+  // 判定するイントラバー先読みを含む（始値時点に実在しないストップと比べている）。
+  // stop-at-open は始値時点で実在したストップで突破を判定する。
+  // シグナルは不変（exit のみに影響）なので precompute は1回で使い回す。
+  if (compareIntraBar) {
+    const REGIMES: { label: string; from: string; to: string }[] = [
+      { label: "A: 平穏ボックス", from: "2024-03-01", to: "2024-07-31" },
+      { label: "B: ブラマン+余震", from: "2024-08-01", to: "2024-12-31" },
+      { label: "C: 関税ショック", from: "2025-02-01", to: "2025-04-30" },
+      { label: "D: 大強気相場", from: "2025-05-01", to: "2026-02-28" },
+      { label: "E: 直近急落", from: "2026-03-01", to: "2026-04-20" },
+    ];
+
+    const grid: { label: string; model: IntraBarStopModel }[] = [
+      { label: "end-of-bar (現行・先読みあり)", model: "end-of-bar" },
+      { label: "stop-at-open (始値時点ストップ)", model: "stop-at-open" },
+    ];
+
+    console.log("\n=== SL約定価格のイントラバー・モデル比較 (KOH-547) ===");
+    console.log(`期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}`);
+    console.log(
+      `${"モデル".padEnd(32)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"Expect".padStart(7)} | ${"MaxDD".padStart(6)} | ${"NetRet".padStart(7)} | ${"Calmar".padStart(6)} | ${"稼働率".padStart(6)}`,
+    );
+    console.log("-".repeat(110));
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    const guSig = precomputeGapUpDailySignals(guConfig, allData, precomputed);
+    const pSig = precomputePSCDailySignals(pscConfig, allData, precomputed);
+    const overallResults: { label: string; allTrades: SimulatedPosition[]; equityCurve: DailyEquity[] }[] = [];
+
+    for (const row of grid) {
+      const result = runCombinedSimulation(
+        { ...ctx, gapupSignals: guSig, pscSignals: pSig, intraBarStopModel: row.model },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const util = calculateCapitalUtilization(result.equityCurve);
+      const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
+      const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      console.log(
+        `${row.label.padEnd(32)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(7)} | ${m.maxDrawdown.toFixed(1).padStart(5)}% | ${m.netReturnPct.toFixed(1).padStart(6)}% | ${calmar.toFixed(2).padStart(6)} | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
+      );
+      overallResults.push({ label: row.label, allTrades: result.allTrades, equityCurve: result.equityCurve });
+    }
+
+    // 出口理由別の内訳: 先読み修正がどの決済分類を動かしたかを見る
+    console.log("\n=== 出口理由別トレード数・純損益 ===");
+    const reasons = ["take_profit", "stop_loss", "trailing_profit", "trailing_stop", "time_stop"];
+    console.log(
+      `  ${"モデル".padEnd(32)}| ${reasons.map((r) => r.padStart(15)).join(" | ")}`,
+    );
+    console.log("  " + "-".repeat(114));
+    for (const r of overallResults) {
+      const cells = reasons.map((reason) => {
+        const ts = r.allTrades.filter((t) => t.exitReason === reason);
+        const pnl = ts.reduce((s, t) => s + (t.netPnl ?? 0), 0);
+        return `${ts.length}件 ${(pnl >= 0 ? "+" : "") + Math.round(pnl / 1000)}K`.padStart(15);
+      });
+      console.log(`  ${r.label.padEnd(32)}| ${cells.join(" | ")}`);
+    }
+
+    // レジーム別内訳
+    console.log("\n=== レジーム別トレード指標 ===");
+    for (const regime of REGIMES) {
+      console.log(`\n[${regime.label}] ${regime.from} 〜 ${regime.to}`);
+      console.log(
+        `  ${"モデル".padEnd(32)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"Expect".padStart(7)} | ${"NetPnL".padStart(12)}`,
+      );
+      console.log("  " + "-".repeat(84));
+
+      for (const r of overallResults) {
+        const inRange = r.allTrades.filter(
+          (t) => t.entryDate >= regime.from && t.entryDate <= regime.to,
+        );
+        const sub = calculateMetrics(inRange, r.equityCurve, budget);
+        const pfStr = sub.profitFactor === Infinity ? "∞" : sub.profitFactor.toFixed(2);
+        const expStr = (sub.expectancy >= 0 ? "+" : "") + sub.expectancy.toFixed(2) + "%";
+        const netPnlStr = (sub.totalNetPnl >= 0 ? "+" : "") + `¥${sub.totalNetPnl.toLocaleString()}`;
+        console.log(
+          `  ${r.label.padEnd(32)}| ${String(sub.totalTrades).padStart(6)} | ${sub.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expStr.padStart(7)} | ${netPnlStr.padStart(12)}`,
         );
       }
     }
