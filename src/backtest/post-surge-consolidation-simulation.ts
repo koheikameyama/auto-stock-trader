@@ -254,6 +254,7 @@ export function runPSCBacktest(
           trailMultiplierOverride: config.trailMultiplier,
           maxHoldingDaysOverride: config.maxExtendedHoldingDays,
           baseLimitHoldingDaysOverride: config.maxHoldingDays,
+          breakEvenFloor: config.breakEvenFloor,
         },
         { open: todayBar.open, high: todayBar.high, low: todayBar.low, close: todayBar.close },
       );
