@@ -87,7 +87,11 @@ export interface EntrySnapshot {
 
 export interface ExitSnapshot {
   exitReason: string;
+  /** 記録価格。ブローカーの実約定価格が取れた場合はその値 */
   exitPrice: number;
+  /** 日足モデル上の想定決済価格。実約定価格との比較（ライブ↔BT乖離）用に残す。
+   * exitPrice と一致する場合は約定価格が取得できずモデル値で記録したことを意味する */
+  modelExitPrice?: number;
   priceJourney: {
     maxHigh: number;
     minLow?: number;
