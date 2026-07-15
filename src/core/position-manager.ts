@@ -178,13 +178,16 @@ export async function closePosition(
     });
 
     // 売り注文を約定済みで作成（決済記録）
+    // 決済は全経路が成行。position-monitor の executeExitSell は limitPrice=null の成行売りを出し、
+    // ブローカーSLも逆指値・成行執行（broker-sl-manager: stopOrderPrice=undefined）。
+    // 指値として記録すると取引履歴が実態と食い違う（KOH-549）。成行なので limitPrice は持たない。
     await tx.tradingOrder.create({
       data: {
         stockId: position.stockId,
         side: "sell",
-        orderType: "limit",
+        orderType: "market",
         strategy: position.strategy,
-        limitPrice: exitPrice,
+        limitPrice: null,
         quantity: position.quantity,
         status: "filled",
         filledPrice: exitPrice,

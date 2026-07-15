@@ -100,6 +100,32 @@ export async function fillOrder(
 }
 
 /**
+ * 注文を「約定済み」として atomic に claim する。勝者だけ true を返す。
+ *
+ * 立花の EVENT I/F は同一約定を複数回配信するため、「status を読む → 未処理なら約定処理」
+ * という read-then-act では重複イベントが競合する。実際 2026-07-14 の 3276.T / 8008.T は
+ * 2つのイベントが同時に status='pending' を読んで両方素通りし、先行側が建てたポジションを
+ * 後続側が「二重建て」と誤認して正常約定を cancelled に上書きした (KOH-549)。
+ *
+ * 条件付き更新 (status が未確定のときだけ filled にする) を1クエリで撃ち、更新できた側だけが
+ * 後処理に進むことで、DB 側で排他する。
+ */
+export async function claimOrderFill(
+  orderId: string,
+  filledPrice: number,
+): Promise<boolean> {
+  const res = await prisma.tradingOrder.updateMany({
+    where: { id: orderId, status: { notIn: ["filled", "cancelled"] } },
+    data: {
+      status: "filled",
+      filledPrice,
+      filledAt: new Date(),
+    },
+  });
+  return res.count === 1;
+}
+
+/**
  * 当日の未約定（pending）買い注文が存在するティッカー集合を返す（全戦略横断）。
  *
  * GU/PSC/ETF は発注時に TradingPosition ではなく TradingOrder(pending) を作り、

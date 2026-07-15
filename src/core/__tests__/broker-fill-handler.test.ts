@@ -18,16 +18,19 @@ vi.mock("../../lib/prisma", () => ({
   },
 }));
 
-vi.mock("../broker-orders", () => ({
-  getOrderDetail: vi.fn(),
-}));
+// API 呼び出し系のみモックし、extractFilledPrice のような純粋関数は実装をそのまま使う
+vi.mock("../broker-orders", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../broker-orders")>();
+  return { ...actual, getOrderDetail: vi.fn() };
+});
 
 vi.mock("../broker-sl-manager", () => ({
   submitBrokerSL: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../order-executor", () => ({
-  fillOrder: vi.fn(),
+  // 既定は claim 成功（=このイベントが勝者）。重複配信の敗者ケースは個別に false を返させる
+  claimOrderFill: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("../position-manager", async (importOriginal) => {
@@ -65,7 +68,7 @@ import { handleBrokerFill } from "../broker-fill-handler";
 import { prisma } from "../../lib/prisma";
 import { getOrderDetail } from "../broker-orders";
 import { submitBrokerSL } from "../broker-sl-manager";
-import { fillOrder } from "../order-executor";
+import { claimOrderFill } from "../order-executor";
 import { openPosition, closePosition } from "../position-manager";
 import { notifyOrderFilled } from "../../lib/slack";
 import { isPostCloseOrderBlackout } from "../../lib/market-date";
@@ -75,7 +78,7 @@ import type { ExecutionEvent } from "../broker-event-stream";
 const mockPrisma = prisma as any;
 const mockGetOrderDetail = vi.mocked(getOrderDetail);
 const mockSubmitBrokerSL = vi.mocked(submitBrokerSL);
-const mockFillOrder = vi.mocked(fillOrder);
+const mockClaimOrderFill = vi.mocked(claimOrderFill);
 const mockOpenPosition = vi.mocked(openPosition);
 const mockClosePosition = vi.mocked(closePosition);
 const mockNotifyOrderFilled = vi.mocked(notifyOrderFilled);
@@ -140,7 +143,7 @@ describe("handleBrokerFill", () => {
 
     await handleBrokerFill(makeEvent());
 
-    expect(mockFillOrder).not.toHaveBeenCalled();
+    expect(mockClaimOrderFill).not.toHaveBeenCalled();
     expect(mockOpenPosition).not.toHaveBeenCalled();
   });
 
@@ -151,7 +154,7 @@ describe("handleBrokerFill", () => {
 
     await handleBrokerFill(makeEvent());
 
-    expect(mockFillOrder).not.toHaveBeenCalled();
+    expect(mockClaimOrderFill).not.toHaveBeenCalled();
   });
 
   it("既にcancelled状態の注文はスキップする", async () => {
@@ -161,7 +164,7 @@ describe("handleBrokerFill", () => {
 
     await handleBrokerFill(makeEvent());
 
-    expect(mockFillOrder).not.toHaveBeenCalled();
+    expect(mockClaimOrderFill).not.toHaveBeenCalled();
   });
 
   it("注文詳細が取得できない場合は何もしない", async () => {
@@ -172,7 +175,7 @@ describe("handleBrokerFill", () => {
 
     await handleBrokerFill(makeEvent());
 
-    expect(mockFillOrder).not.toHaveBeenCalled();
+    expect(mockClaimOrderFill).not.toHaveBeenCalled();
   });
 
   it("全部約定でない場合はbrokerStatusのみ更新する", async () => {
@@ -189,7 +192,7 @@ describe("handleBrokerFill", () => {
       where: { id: "order-1" },
       data: { brokerStatus: "1" },
     });
-    expect(mockFillOrder).not.toHaveBeenCalled();
+    expect(mockClaimOrderFill).not.toHaveBeenCalled();
   });
 
   describe("買い約定", () => {
@@ -202,7 +205,7 @@ describe("handleBrokerFill", () => {
 
       await handleBrokerFill(makeEvent());
 
-      expect(mockFillOrder).toHaveBeenCalledWith("order-1", 1000);
+      expect(mockClaimOrderFill).toHaveBeenCalledWith("order-1", 1000);
       expect(mockOpenPosition).toHaveBeenCalledWith(
         "stock-1",
         "breakout",
@@ -269,7 +272,7 @@ describe("handleBrokerFill", () => {
 
       await handleBrokerFill(makeEvent());
 
-      expect(mockFillOrder).toHaveBeenCalled();
+      expect(mockClaimOrderFill).toHaveBeenCalled();
       expect(mockOpenPosition).not.toHaveBeenCalled();
       expect(mockPrisma.tradingOrder.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -310,7 +313,7 @@ describe("handleBrokerFill", () => {
 
       await handleBrokerFill(makeEvent());
 
-      expect(mockFillOrder).toHaveBeenCalledWith("order-1", 1000);
+      expect(mockClaimOrderFill).toHaveBeenCalledWith("order-1", 1000);
       expect(mockClosePosition).toHaveBeenCalledWith(
         "pos-456",
         1000,
@@ -382,7 +385,7 @@ describe("handleBrokerFill", () => {
 
       await handleBrokerFill(makeEvent());
 
-      expect(mockFillOrder).toHaveBeenCalled();
+      expect(mockClaimOrderFill).toHaveBeenCalled();
       expect(mockClosePosition).not.toHaveBeenCalled();
       expect(mockNotifyOrderFilled).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -541,7 +544,7 @@ describe("handleBrokerFill", () => {
       await handleBrokerFill(makeEvent());
 
       // 加重平均: (1000*60 + 1010*40) / 100 = 100400 / 100 = 1004
-      expect(mockFillOrder).toHaveBeenCalledWith("order-1", 1004);
+      expect(mockClaimOrderFill).toHaveBeenCalledWith("order-1", 1004);
     });
 
     it("約定価格が0の場合は処理しない", async () => {
@@ -558,7 +561,84 @@ describe("handleBrokerFill", () => {
 
       await handleBrokerFill(makeEvent());
 
-      expect(mockFillOrder).not.toHaveBeenCalled();
+      expect(mockClaimOrderFill).not.toHaveBeenCalled();
     });
+  });
+});
+
+// ============================================================
+// KOH-549: 重複WSイベントの競合 / 約定単価の丸め
+// ============================================================
+
+describe("handleBrokerFill: 重複WSイベント（KOH-549）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsBlackout.mockReturnValue(false);
+    mockClaimOrderFill.mockResolvedValue(true);
+  });
+
+  it("claim に負けた重複イベントは後処理に進まない（正常約定を cancelled に上書きしない）", async () => {
+    // 立花の EVENT I/F は同一約定を複数回配信する。2026-07-14 の 3276.T/8008.T では
+    // 2イベントが同時に status='pending' を読んで両方素通りし、先行側が建てたポジションを
+    // 後続側が「二重建て」と誤認して cancelled に上書きした。
+    // claim に負けた側は即 return し、openPosition も status 上書きもしてはいけない。
+    mockClaimOrderFill.mockResolvedValue(false);
+    mockPrisma.tradingOrder.findFirst.mockResolvedValue(makeOrder() as never);
+    mockGetOrderDetail.mockResolvedValue(makeOrderDetail() as never);
+    // 先行イベントが既にポジションを建てている状態
+    mockPrisma.tradingPosition.findFirst.mockResolvedValue({ id: "pos-123" } as never);
+
+    await handleBrokerFill(makeEvent());
+
+    expect(mockClaimOrderFill).toHaveBeenCalledOnce();
+    expect(mockOpenPosition).not.toHaveBeenCalled();
+    expect(mockPrisma.tradingOrder.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: "cancelled" } }),
+    );
+  });
+
+  it("claim に勝ったイベントだけが後処理に進む", async () => {
+    mockClaimOrderFill.mockResolvedValue(true);
+    mockPrisma.tradingOrder.findFirst.mockResolvedValue(makeOrder() as never);
+    mockGetOrderDetail.mockResolvedValue(makeOrderDetail() as never);
+    mockPrisma.tradingPosition.findFirst.mockResolvedValue(null);
+
+    await handleBrokerFill(makeEvent());
+
+    expect(mockOpenPosition).toHaveBeenCalled();
+  });
+
+  it("約定単価の円未満を丸めない（9009.T の実約定 ¥1,238.5）", async () => {
+    // TOPIX100 構成銘柄は呼値が0.5円。Math.round していると ¥1,239 になり ¥50 の誤差が出る
+    mockPrisma.tradingOrder.findFirst.mockResolvedValue(
+      makeOrder({ side: "sell", positionId: null, stock: { tickerCode: "9009.T", name: "京成電鉄" } }) as never,
+    );
+    mockGetOrderDetail.mockResolvedValue(
+      makeOrderDetail({
+        aYakuzyouSikkouList: [{ sYakuzyouPrice: "1238.5000", sYakuzyouSuryou: "100" }],
+      }) as never,
+    );
+
+    await handleBrokerFill(makeEvent());
+
+    expect(mockClaimOrderFill).toHaveBeenCalledWith("order-1", 1238.5);
+  });
+
+  it("分割約定は数量加重平均し、小数第2位まで保持する", async () => {
+    mockPrisma.tradingOrder.findFirst.mockResolvedValue(makeOrder() as never);
+    mockGetOrderDetail.mockResolvedValue(
+      makeOrderDetail({
+        // (1238.5*100 + 1239*300) / 400 = 1238.875 → 1238.88
+        aYakuzyouSikkouList: [
+          { sYakuzyouPrice: "1238.5", sYakuzyouSuryou: "100" },
+          { sYakuzyouPrice: "1239", sYakuzyouSuryou: "300" },
+        ],
+      }) as never,
+    );
+    mockPrisma.tradingPosition.findFirst.mockResolvedValue(null);
+
+    await handleBrokerFill(makeEvent());
+
+    expect(mockClaimOrderFill).toHaveBeenCalledWith("order-1", 1238.88);
   });
 });
