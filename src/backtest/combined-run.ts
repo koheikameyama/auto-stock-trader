@@ -440,6 +440,12 @@ async function main() {
   const compareCooldown = args.includes("--compare-cooldown");
   const compareDailyEntries = args.includes("--compare-daily-entries");
   const comparePscTrail = args.includes("--compare-psc-trail");
+  // --compare-gu-trail (KOH-563): GU trailMultiplier を現エンジンで測り直す。
+  // KOH-552 は PSC を測り「GU も be/trail 構成が同じ (共に0.3) なので低い側は入れない」と
+  // グリッド下限にコメントしたが、**GU trail のグリッド全体を現エンジンで回した記録は無い**
+  // （PSC 検証の副産物として言及されただけ）。#39 はトレール約定を直した=trail に最も効く修正で、
+  // PSC では実際に 0.5→0.3 と値が動いたため、GU 側も明示的に確認する。
+  const compareGuTrail = args.includes("--compare-gu-trail");
   const compareGuGapvol = args.includes("--compare-gu-gapvol");
   const wfMiniGuGapvol = args.includes("--wf-mini-gu-gapvol");
   const wfMiniSectorRotation = args.includes("--wf-mini-sector-rotation");
@@ -458,7 +464,7 @@ async function main() {
   const compareVolConvexity = args.includes("--compare-vol-convexity");
   const corrReport = args.includes("--corr-report");
 
-  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || compareDetectionGranularity || compareBe || compareIntraBar || comparePanicExit || compareVolConvexity || corrReport;
+  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || compareDetectionGranularity || compareBe || compareIntraBar || comparePanicExit || compareVolConvexity || corrReport;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const pscConfig: PostSurgeConsolidationBacktestConfig = {
@@ -1436,6 +1442,68 @@ async function main() {
       if (r === cur) continue;
       const d = cur.calmar > 0 ? ((r.calmar - cur.calmar) / cur.calmar) * 100 : 0;
       console.log(`  ${r.label.padEnd(12)}| Calmar ${r.calmar.toFixed(2).padStart(6)} | ${(d >= 0 ? "+" : "") + d.toFixed(1)}%${d > 5 ? " ← 現状超え" : ""}`);
+    }
+    console.log("\n※ 単発窓の順位は経路依存ノイズ。判定は 16窓リセット + 対応のある検定で行うこと (KOH-558 却下#42 参照)");
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // --compare-gu-trail (KOH-563): GU trailMultiplier を現エンジンで測り直す。
+  // trailMultiplier は出口専用（processExits に guConfigLocal 経由で渡る）でシグナル発火に
+  // 影響しないため、signals の再 precompute は不要（--compare-psc-trail と同じ理由）。
+  if (compareGuTrail) {
+    const CUR = guConfig.trailMultiplier;
+    const grid = [0.3, 0.5, 0.8, 1.0, 1.5]
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .sort((a, b) => a - b);
+
+    console.log("\n=== GU trailMultiplier の再測定 (KOH-563) ===");
+    console.log(`期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}, エンジン: ${intraBarModelArg ?? "stop-at-open(既定)"}`);
+    console.log(`本番の現行値: trail=${CUR} (他は現状固定: atr=${guConfig.atrMultiplier}, be=${guConfig.beActivationMultiplier})`);
+    console.log(
+      `${"設定".padEnd(20)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"Expect".padStart(7)} | ${"MaxDD".padStart(6)} | ${"NetRet".padStart(8)} | ${"Calmar".padStart(6)} | ${"稼働率".padStart(6)}`,
+    );
+    console.log("-".repeat(100));
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    const rows: { label: string; calmar: number; guTrades: SimulatedPosition[] }[] = [];
+
+    for (const t of grid) {
+      const gc: GapUpBacktestConfig = { ...guConfig, trailMultiplier: t };
+      const result = runCombinedSimulation({ ...ctx, guConfig: gc }, defaultLimits);
+      const m = result.totalMetrics;
+      const util = calculateCapitalUtilization(result.equityCurve);
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
+      const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
+      const label = `${t === CUR ? "★" : " "}trail=${t}${t === CUR ? " (現状)" : ""}`;
+      console.log(
+        `${label.padEnd(20)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(7)} | ${m.maxDrawdown.toFixed(1).padStart(5)}% | ${m.netReturnPct.toFixed(1).padStart(7)}% | ${calmar.toFixed(2).padStart(6)} | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
+      );
+      rows.push({ label: label.trim(), calmar, guTrades: result.guTrades });
+    }
+
+    // GU 単独寄与（trail は GU の出口なので、全体より GU レッグの方が効果が直接見える）
+    console.log("\n=== GU単独寄与 (in combined) ===");
+    console.log(`${"設定".padEnd(20)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"NetPnL".padStart(12)} | ${"AvgHold".padStart(7)}`);
+    console.log("-".repeat(70));
+    for (const r of rows) {
+      const sub = calculateMetrics(r.guTrades, [], budget);
+      const pfStr = sub.profitFactor === Infinity ? "∞" : sub.profitFactor.toFixed(2);
+      const netPnlStr = (sub.totalNetPnl >= 0 ? "+" : "") + `¥${sub.totalNetPnl.toLocaleString()}`;
+      console.log(
+        `${r.label.padEnd(20)}| ${String(sub.totalTrades).padStart(6)} | ${sub.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${netPnlStr.padStart(12)} | ${sub.avgHoldingDays.toFixed(1).padStart(6)}d`,
+      );
+    }
+
+    const cur = rows.find((r) => r.label.startsWith("★"))!;
+    console.log(`\n=== 現状 trail=${CUR} (Calmar ${cur.calmar.toFixed(2)}) との差分 ===`);
+    for (const r of rows) {
+      if (r === cur) continue;
+      const d = cur.calmar > 0 ? ((r.calmar - cur.calmar) / cur.calmar) * 100 : 0;
+      console.log(`  ${r.label.padEnd(14)}| Calmar ${r.calmar.toFixed(2).padStart(6)} | ${(d >= 0 ? "+" : "") + d.toFixed(1)}%${d > 5 ? " ← 現状超え" : ""}`);
     }
     console.log("\n※ 単発窓の順位は経路依存ノイズ。判定は 16窓リセット + 対応のある検定で行うこと (KOH-558 却下#42 参照)");
     console.log("");
