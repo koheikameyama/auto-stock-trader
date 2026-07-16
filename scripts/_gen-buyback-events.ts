@@ -46,7 +46,41 @@ import { MARKET_BREADTH } from "../src/lib/constants";
 import { prisma } from "../src/lib/prisma";
 import type { OHLCVData } from "../src/core/technical-analysis";
 
-const FLAGS_WITH_VALUE = ["--start", "--end", "--breadth-lag", "--breadth-universe", "--max-price", "--budget"];
+/**
+ * 株式分割 (KOH-506 の分類を移植)。「株式分割」を含み、会社分割/吸収分割/新設分割 (=M&A・組織再編)
+ * と 併合/訂正/経過 を除外する。
+ * ⚠️ やのしんで「分割」を含む開示の大半は会社分割 (M&A) で、真の株式分割は月10件程度しかない。
+ */
+function classifySplitTitle(title: string): boolean {
+  const t = title ?? "";
+  if (/訂正|経過/.test(t)) return false;
+  if (/会社分割|吸収分割|新設分割|併合/.test(t)) return false;
+  return t.includes("株式分割");
+}
+
+/**
+ * 株主優待の新設/拡充 (KOH-510 の分類を移植)。「株主優待」を含み (新設|拡充|導入|開始) のいずれかを
+ * 含み、(廃止|縮小|改悪|訂正|終了) を除外する。「株主優待制度の変更(拡充)」は "拡充" で拾える。
+ */
+function classifyYutaiTitle(title: string): boolean {
+  const t = title ?? "";
+  if (/廃止|縮小|改悪|訂正|終了/.test(t)) return false;
+  if (!t.includes("株主優待")) return false;
+  return /新設|拡充|導入|開始/.test(t);
+}
+
+/**
+ * カタリスト種別 (KOH-557)。優待/分割は本番実装が無い (検証のみ) ため、本番の分類ロジックを
+ * import できる buyback と違い、ここに分類器を持つ。SQL の LIKE は候補を粗く絞るだけで、
+ * 最終判定は fn が行う。
+ */
+const CLASSIFIERS: Record<string, { like: string; fn: (t: string) => boolean; label: string }> = {
+  buyback: { like: "%自己株式取得%", fn: (t) => classifyBuybackTitle(t) === "buyback_decision", label: "自己株式取得に係る事項の決定" },
+  split: { like: "%株式分割%", fn: classifySplitTitle, label: "株式分割 (会社分割・併合を除外)" },
+  yutai: { like: "%株主優待%", fn: classifyYutaiTitle, label: "株主優待 新設/拡充" },
+};
+
+const FLAGS_WITH_VALUE = ["--start", "--end", "--breadth-lag", "--breadth-universe", "--max-price", "--budget", "--classifier"];
 const args = process.argv.slice(2);
 /** フラグを除いた位置引数（--breadth-lag N 等が後ろに付いても OUT を壊さない） */
 const positional = args.filter(
@@ -59,6 +93,12 @@ const getArg = (name: string): string | undefined => {
 
 const OUT = positional[0] ?? "/tmp/buyback_events.json";
 const TDNET_DB = process.env.TDNET_ARCHIVE_URL ?? "postgresql://kouheikameyama@localhost:5432/tdnet_archive";
+
+const CLASSIFIER = getArg("--classifier") ?? "buyback";
+if (!CLASSIFIERS[CLASSIFIER]) {
+  console.error(`--classifier は ${Object.keys(CLASSIFIERS).join("|")} (got: ${CLASSIFIER})`);
+  process.exit(1);
+}
 
 const START = getArg("--start") ?? "2019-01-01";
 const END = getArg("--end") ?? "2026-04-30";
@@ -153,12 +193,13 @@ async function loadUniverse(maxPrice: number): Promise<Map<string, OHLCVData[]>>
 }
 
 async function main() {
+  const cls = CLASSIFIERS[CLASSIFIER];
   // `pg` は依存に無い（本番は Prisma）ので psql の TSV 出力を読む
   const tsv = execFileSync(
     "psql",
     [
       TDNET_DB, "-At", "-F", "\t", "-c",
-      "SELECT code, to_char(pubdate,'YYYY-MM-DD HH24:MI:SS'), title FROM disclosure WHERE title LIKE '%自己株式取得%' ORDER BY pubdate",
+      `SELECT code, to_char(pubdate,'YYYY-MM-DD HH24:MI:SS'), title FROM disclosure WHERE title LIKE '${cls.like}' ORDER BY pubdate`,
     ],
     { encoding: "utf-8", maxBuffer: 256 * 1024 * 1024 },
   );
@@ -168,8 +209,9 @@ async function main() {
   const seen = new Set<string>();
   let classified = 0;
 
+  console.log(`カタリスト: ${CLASSIFIER} (${cls.label})`);
   for (const [code, pubdate, title] of rows) {
-    if (classifyBuybackTitle(title) !== "buyback_decision") continue;
+    if (!cls.fn(title)) continue;
     classified++;
     // BT の allData は通常銘柄を `.T` 付きで持つ（指数ETFのみ `.T` 無し。_gen-panic-events.ts:10 参照）
     const ticker = `${normalizeBuybackCode(code)}.T`;
@@ -180,8 +222,8 @@ async function main() {
     candidates.push({ ticker, date });
   }
 
-  console.log(`生開示("自己株式取得" を含む): ${rows.length}`);
-  console.log(`classifyBuybackTitle 通過(訂正/処分/消却/進捗報告を除外): ${classified}`);
+  console.log(`生開示(LIKE '${cls.like}'): ${rows.length}`);
+  console.log(`分類器 通過: ${classified}`);
   console.log(`dedup後イベント: ${candidates.length}`);
 
   let events = candidates;
