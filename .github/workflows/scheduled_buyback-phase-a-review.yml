@@ -1,13 +1,20 @@
 name: Buyback Phase A Review
 
 # 自社株買い Phase A（KOH-504 観察モード）の観察レビュー
-# 毎週金曜 09:00 JST（= 00:00 UTC）に production BuybackSignal を SELECT し Slack 通知。
-# 2026-07-31 以降は「本レビュー（Phase B 可否）」セクションが自動付加される。
-# 週次・低頻度のため GitHub Actions cron（数十分のズレ許容）で運用。
+# production BuybackSignal を SELECT し Slack 通知する。
+#
+# ⚠️ 2026-07-15 (KOH-556) に **週次スケジュールを停止**した。
+# このレビューは「Phase B に進んでよいか」を判断するためのものだったが、Phase B 自体が却下された
+# ため定期実行の意味が無くなった。却下理由: 却下 #39 でイントラバー先読みを直した現エンジンでは
+# buyback が fullcycle Calmar を 73.2 → 59.7 (-18%) と悪化させ、live 再現定義でも 66.8 (-9%)。
+# baseline を超える構成が1つも無い。`.claude/rules/backtest.md` 却下リスト #41 参照。
+#
+# 本番の buyback-monitor（毎営業日20:00 の観察ジョブ）も同時に停止済み（src/worker.ts）。
+# 手動実行（workflow_dispatch）は過去の観察データを見るために残す。
 
 on:
-  schedule:
-    - cron: "0 0 * * 5"
+  # schedule:
+  #   - cron: "0 0 * * 5"
   workflow_dispatch: {}
 
 jobs:

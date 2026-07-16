@@ -393,6 +393,11 @@ async function main() {
   const buybackMaxArg = getArg(args, "--buyback-max");
   const buybackJsonPath = getArg(args, "--buyback-json");
   const buybackRiskArg = getArg(args, "--buyback-risk");
+  // --buyback-breadth-max (KOH-556): precomputeBuybackSignals は「エントリー日当日の breadth < 54%」を
+  // 見る (buyback-simulation.ts:57-58) が、本番 15:24 に当日 breadth は存在しないため live 再現不能な
+  // 先読み（panic の --panic-breadth-max と同じ問題）。`_gen-buyback-events.ts --breadth-lag 1` で
+  // 生成側が「前営業日 breadth」で絞ったイベントを渡す時は、ここに 1 を渡して二重フィルタを止める。
+  const buybackBreadthMaxArg = getArg(args, "--buyback-breadth-max");
   // --buyback-regime-exit: breadth が band(≥54%)に戻ったら買いを全決済（GU/PSCと食い合わせない）
   const buybackRegimeExit = args.includes("--buyback-regime-exit");
   // --enable-panic: パニック底反発 (KOH-531) — 指数ETFイベント(外部JSON)をETFレッグに注入して検証
@@ -700,7 +705,11 @@ async function main() {
   let buybackSignals: PrecomputedUSEtfSignals | undefined;
   if (enableBuyback) {
     if (!buybackJsonPath) throw new Error("--enable-buyback には --buyback-json <path> が必須です");
-    buybackConfig = { ...BUYBACK_DEFAULT_CONFIG, ...(buybackRiskArg ? { riskPct: Number(buybackRiskArg) } : {}) };
+    buybackConfig = {
+      ...BUYBACK_DEFAULT_CONFIG,
+      ...(buybackRiskArg ? { riskPct: Number(buybackRiskArg) } : {}),
+      ...(buybackBreadthMaxArg ? { breadthMax: Number(buybackBreadthMaxArg) } : {}),
+    };
     const raw = JSON.parse(fs.readFileSync(buybackJsonPath, "utf-8")) as { events: { ticker: string; date: string }[] };
     const eventMap = buildBuybackEventMap(raw.events ?? []);
     buybackSignals = precomputeBuybackSignals(eventMap, allData, precomputed.dateIndexMap, precomputed.dailyBreadth, buybackConfig);

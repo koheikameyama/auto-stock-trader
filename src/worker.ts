@@ -21,7 +21,8 @@ import { main as runGapupMonitor } from "./jobs/gapup-monitor";
 import { main as runPSCMonitor } from "./jobs/post-surge-consolidation-monitor";
 import { main as runUsEtfMonitor } from "./jobs/us-etf-monitor";
 import { main as runPanicMonitor } from "./jobs/panic-monitor";
-import { main as runBuybackMonitor } from "./jobs/buyback-monitor";
+// buyback-monitor は KOH-556 で cron 停止（下の schedules 参照）。ジョブ本体は残置。
+// import { main as runBuybackMonitor } from "./jobs/buyback-monitor";
 import { main as runBrokerReconciliation } from "./jobs/broker-reconciliation";
 import { main as runSessionHealthCheck } from "./jobs/session-health-check";
 import { main as runEnsureBrokerSL } from "./jobs/ensure-broker-sl";
@@ -219,10 +220,18 @@ const schedules = [
   { cron: "0 24 15 * * 1-5", job: runEntryMonitors, name: "entry-monitors", requiresMarketDay: true },
   { cron: "20 24 15 * * 1-5", job: runEntryMonitors, name: "entry-monitors", requiresMarketDay: true },
   { cron: "40 24 15 * * 1-5", job: runEntryMonitors, name: "entry-monitors", requiresMarketDay: true },
-  // 自社株買いカタリスト観察（KOH-504 Phase A）: 20:00 JST。引け後に出揃う「自己株式取得に係る
-  // 事項の決定」を当日+前日分取得し idle帯判定して BuybackSignal に記録+Slack（発注なし）。
-  // 遅い開示は2日窓+tdnetId べき等 upsert で翌日実行時に回収。
-  { cron: "0 20 * * 1-5", job: runBuybackMonitor,    name: "buyback-monitor", requiresMarketDay: true },
+  // 自社株買いカタリスト観察（KOH-504 Phase A）は **2026-07-15 に停止**（KOH-556）。
+  //
+  // Phase A の目的は「実弾の前に live パイプラインを検証する」ことだったが、その先の Phase B が
+  // 却下されたため観察を続ける意味が無くなった。却下理由: 却下 #39 でイントラバー先読みを直した
+  // 現エンジンで測り直すと、buyback は fullcycle Calmar を **73.2 → 59.7 (-18%)** と悪化させる。
+  // live 再現可能な定義（breadth を前営業日終値で判定 = `--breadth-lag 1`）でも 66.8 (-9%) で、
+  // baseline を超える構成が1つも無い。`.claude/rules/backtest.md` 却下リスト #41 参照。
+  //
+  // ⚠️ 再開する前に必ず #41 を読むこと。採用根拠だった「fullcycle +157%」は**旧エンジンの
+  //    先読みが作った数字**で、現エンジンでは符号ごと反転する。
+  // ジョブ本体 (`jobs/buyback-monitor.ts`) と BT (`--enable-buyback`) は再現用に残置。
+  // { cron: "0 20 * * 1-5", job: runBuybackMonitor,    name: "buyback-monitor", requiresMarketDay: true },
   // 8:50 プレマーケット セッション確認（電話番号認証の早期検出）
   { cron: "50 8 * * 1-5", job: runSessionHealthCheck, name: "session-health-check", requiresMarketDay: true },
   // 15:15 プレクローズ セッション確認（15:24のエントリー発注前に最終確認。9分の再ログイン・電話認証対応余裕）
