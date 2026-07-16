@@ -31,6 +31,13 @@ breadth band 54-80% (#42) / cooldownDays 3 (#43) / 1日エントリー数=枠ま
 VIX regime scale (#46) / risk 2% (#46) / GU gap3%×vol1.5x (#46) / **GU trail 0.3 (#47)** / ポジション枠 GU3+PSC2 (#40) /
 BE 0.3・建値フロア entry (#37) は**すべて維持**。PSC trail (KOH-552) だけ **0.5→0.3 に変更**、buyback (#41) と優待/分割 (#45) は**戦略ごと却下**。
 
+**★本番パラメータを変更したら、月次ヘルスチェックの較正元も measure し直すこと (KOH-564)。**
+`scripts/run_monthly_baseline_health.py` の閾値は **baseline に対する相対値**として設計されている
+(INFO=較正元の約73% / DANGER=約-48%)。baseline を動かす変更 (出口パラメータ・エントリー条件・枠 等) を
+入れると意図した比率が崩れる。**実例: KOH-552 (PSC trail 0.5→0.3) で baseline が同一窓 36.22→25.18 と
+-30% 下がったが較正元が据え置かれ、INFO までの余裕が 15% しか無い状態が1日放置された** (実害は出る前に
+KOH-564 で検出・修正)。
+
 **★「維持」には2種類ある。混同しないこと:**
 
 | 種類 | 設定 | 意味 |
@@ -227,7 +234,7 @@ GitHub Actions の `scheduled_monthly-strategy-health.yml` が毎月第1土曜 1
 | 対象 | チェック内容 | 通知トリガー |
 |---|---|---|
 | **現役** gapup, psc | 月次WF、構造的劣化検知 | 直近3窓のOOS PF が全て<1.0 → ⚠️ ENTRY_ENABLED=false 提案。**季節性ガード: トレード数<5 の窓 (offseasonの発火薄) は評価対象外** |
-| **baseline (GU3+PSC2)** | combined BT (直近24ヶ月ローリング, ¥500K) の絶対値監視 | Calmar < 17.0 (danger) / MaxDD > 15% (warning) / > 20% (danger)。**Calmar < 24.0 は FYI (info) 格下げ = offseason 想定内の圧縮として参考表示のみ**。**2026-07-15 (KOH-548) に再較正** — 較正元が Calmar 9.37 / MaxDD 10.0% (旧エンジン) から **Calmar 32.8 / MaxDD 11.4%** (新エンジン, 同一24ヶ月窓・¥500K 実測) に移ったため。MaxDD はほぼ不変だが Calmar が 3.5倍にずれるので、較正元に対する比率を保ってスケールした (据え置くと Calmar danger が永久に鳴らない) |
+| **baseline (GU3+PSC2)** | combined BT (直近24ヶ月ローリング, ¥500K) の絶対値監視 | **Calmar < 14.6 (danger) / MaxDD > 14% (warning) / > 20% (danger)。Calmar < 20.6 は FYI (info) 格下げ = offseason 想定内の圧縮として参考表示のみ**。**⚠️ 閾値は「baseline に対する相対値」(INFO=較正元の約73% / DANGER=約-48% / MaxDD=+30%,+80%) として設計されている。本番パラメータを変えたら較正元も measure し直すこと (KOH-564)** — 較正の履歴: **2026-07-15 (KOH-548)** 却下 #39 のエンジン修正で Calmar 9.37→32.8 にずれて再較正 (MaxDD はほぼ不変だが Calmar が 3.5倍動くため。据え置くと danger が永久に鳴らない) → **2026-07-16 (KOH-564)** その 32.8 が **PSC trail=0.5 時代の値**だったと判明し再々較正。同日の KOH-552 (trail 0.5→0.3) で baseline が下がっており、同一窓 (2024-06-01 起点) の実測は **trail=0.5: Calmar 36.22 / trail=0.3: 25.18 (-30%)**。実害は出ていなかった (実窓 2024-07-01 起点の実測 28.1 は全閾値の正常圏内) が、**INFO までの余裕が 15% しか無く offseason で鳴きかねない状態**だった → 較正元を 28.1 / MaxDD 11.0% に置き直し余裕 27% に回復 |
 | **米株ETF** | `us-etf-health` (実トレード集計) | 変更なし |
 | **構造的却下** breakout, nr7, gapdown-reversal, ma-pullback, ddr, evs, ogf, earnings-gap, stop-high, squeeze-breakout | 対象外 (年1回手動見直し) | - |
 | **大型株 (WB/MOM largecap)** | **月次監視撤去 (KOH-516)** | ¥10M+ 運用移行時に手動再評価 (下記「復活判定の論理」) |

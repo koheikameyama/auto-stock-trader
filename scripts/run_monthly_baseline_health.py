@@ -14,8 +14,11 @@ KOH-516 で撤去 (2026-07-05)。理由:
 季節性対応 (KOH-516):
 - BT窓を「2024-03-01 固定開始 (毎月伸びる)」→「直近24ヶ月ローリング」に変更。
   固定開始だと offseason 長期化で Calmar が機械的に希釈され、閾値と比較不能になる
-- Calmar warning (<7.0) は offseason では構造的に割れるため FYI (info) に格下げ。
-  警告として扱うのは danger (Calmar<5.0 / MaxDD>18%) と MaxDD warning (>13%) のみ
+- Calmar info は offseason では構造的に割れるため FYI 扱い (警告にしない)。
+  警告として扱うのは Calmar danger と MaxDD warning/danger のみ
+
+閾値の実値は下の BASELINE_* 定数を参照 (エンジン修正や本番パラメータ変更のたびに
+較正し直すため、docstring には数値を書かない)。
 
 Usage:
   python scripts/run_monthly_baseline_health.py
@@ -39,7 +42,7 @@ CAPTAIN_PROMPT_PATH = os.path.join(
     os.path.dirname(__file__), "..", "prompts", "monthly-strategy-captain.txt"
 )
 
-# 本番運用規模。閾値の較正元 (2026-07-15 baseline Calmar=32.8, MaxDD=11.4%) も ¥500K
+# 本番運用規模。閾値の較正元 (2026-07-16 baseline Calmar=28.1, MaxDD=11.0%) も ¥500K
 BUDGET = 500_000
 
 # ローリング窓の長さ (月)
@@ -47,20 +50,33 @@ WINDOW_MONTHS = 24
 
 # baseline絶対値劣化検知の閾値
 #
-# KOH-548 で再較正 (2026-07-15)。exit-checker の既定が end-of-bar (イントラバー先読みで
-# トレール決済を「その日の始値」に潰していた) から stop-at-open に変わり、baseline の
-# 絶対値が動いたため。同一窓 (24ヶ月ローリング, ¥500K) の実測:
-#   旧 end-of-bar   : Calmar  8.77 / MaxDD 10.7%  ← 旧較正元 (Calmar 9.37 / MaxDD 10.0%) と整合
-#   新 stop-at-open : Calmar 32.8  / MaxDD 11.4%
-# MaxDD はほぼ動かないが Calmar は 3.5倍にずれるため、閾値の「意図」(較正元に対する比率) を
-# 保ったまま新 baseline へスケールし直す。据え置くと Calmar danger が永久に鳴らなくなる。
+# ⚠️ 本番パラメータを変えたら、この較正元も measure し直すこと (KOH-564)。
+#    閾値は「baseline に対する相対値」として設計されているので、baseline を動かす変更
+#    (出口パラメータ・エントリー条件・枠 等) を入れると意図した比率が崩れる。
+#
+# 較正の履歴:
+#   2026-07-15 KOH-548: 却下 #39 (exit-checker のイントラバー先読み修正) で baseline の
+#     絶対値が動いたため再較正。同一窓 (24ヶ月ローリング, ¥500K) の実測:
+#       旧 end-of-bar   : Calmar  8.77 / MaxDD 10.7%  ← 旧較正元 (9.37 / 10.0%) と整合
+#       新 stop-at-open : Calmar 32.8  / MaxDD 11.4%
+#   2026-07-16 KOH-564: 上の 32.8 は **PSC trail=0.5 時代の baseline** だった。同日の
+#     KOH-552 で trail 0.5→0.3 に変えた結果 baseline が下がり、較正元とずれていた。
+#     同一窓 (2024-06-01 起点, ¥500K) での実測が原因を示す:
+#       PSC trail=0.5 (較正時): Calmar 36.22 / MaxDD  8.8%
+#       PSC trail=0.3 (現行)  : Calmar 25.18 / MaxDD 10.0%   ← -30%
+#     ヘルスチェックの実窓 (2024-07-01 起点) では Calmar 28.1 / MaxDD 11.0%。
+#     実害は出ていなかった (28.1 は全閾値の正常圏内) が、INFO までの余裕が 15% しか
+#     残っておらず、offseason で baseline が少し下がるだけで FYI が鳴く状態だった。
+#
+# 閾値の「意図」(較正元に対する比率) は KOH-548 から不変。較正元だけ現行 baseline に
+# 置き直す。据え置くと INFO が実質「baseline の 85%」= ノイズ源になる。
 #
 # Calmar warning は offseason で構造的に割れるため info (FYI) 扱い (KOH-516)
 # danger は本番運用見直しを検討すべき水準
-BASELINE_CALMAR_INFO = 24.0     # FYI: 較正元の約75% (旧 7.0/9.37)。offseason 中は想定内
-BASELINE_CALMAR_DANGER = 17.0   # 較正元から約-47% (旧 5.0/9.37)
-BASELINE_MAXDD_WARNING = 15.0   # 通常 ~11.4% から +30% (DDはレジーム問わず意味を持つ)
-BASELINE_MAXDD_DANGER = 20.0    # 通常 ~11.4% から +80%
+BASELINE_CALMAR_INFO = 20.6     # FYI: 較正元 28.1 の約73%。offseason 中は想定内
+BASELINE_CALMAR_DANGER = 14.6   # 較正元から約-48%
+BASELINE_MAXDD_WARNING = 14.0   # 通常 ~11.0% から +30% (DDはレジーム問わず意味を持つ)
+BASELINE_MAXDD_DANGER = 20.0    # 通常 ~11.0% から +80%
 
 
 def rolling_window_start(today: date, months: int = WINDOW_MONTHS) -> str:
