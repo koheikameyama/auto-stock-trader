@@ -420,18 +420,22 @@ function processExits(
     const entryDayIdx = tradingDayIndex.get(pos.entryDate) ?? -1;
     const holdingDays = entryDayIdx >= 0 ? dayIdx - entryDayIdx : 0;
 
-    if (holdingDays === 0) {
-      // 検知ソースに合わせて maxHigh のseedも切替（close=終値, openclose=max(始,終), high=日中高値）
-      const seedHigh =
-        detectionSource === "close"
-          ? todayBar.close
-          : detectionSource === "openclose"
-            ? Math.max(todayBar.open, todayBar.close)
-            : todayBar.high;
-      pos.maxHighDuringHold = Math.max(pos.maxHighDuringHold, seedHigh);
-        pos.minLowDuringHold = Math.min(pos.minLowDuringHold, todayBar.low);
-      continue;
-    }
+    // エントリー当日は出口を評価しない。
+    //
+    // 現在この分岐には到達しない（KOH-559 で実測: 3ヶ月BTで発火0回）。日次ループが
+    // processExits → entries の順で、entryDate=today のポジションが processExits に
+    // 初めて現れるのは翌営業日 = holdingDays >= 1 になるため。ガードだけ残してある。
+    //
+    // ★エントリー当日の日足で maxHigh/minLow をシードしてはいけない（KOH-559 で削除した）。
+    //   GU/PSC/ETF/panic は当日の「引け」でエントリーするので、その日の高値は**買う前**に
+    //   付けた高値である。トレールは保有中の高値からしかラチェットできない（買う前の高値には
+    //   守るべきポジションが存在しない）。シードすると BT だけがトレールを買う前の高値から
+    //   組み、本番が再現できない決済価格を計上する。
+    //   本番 position-monitor はこれを明示的に避けている:
+    //     - isEntryDay は current price のみ使用（position-monitor.ts「当日OHLCはエントリー前の値動きを含むため」）
+    //     - Open直後は猶予期間でスキップ（同上「日足OHLCに買い前の高値/安値が含まれるため」）
+    //   将来ループ順を entries → exits に変えてこの分岐が生きても、シードは復活させないこと。
+    if (holdingDays === 0) continue;
 
     const exitResult = checkPositionExit(
       {
@@ -535,11 +539,11 @@ function processEtfExits(
     const entryDayIdx = tradingDayIndex.get(pos.entryDate) ?? -1;
     const holdingDays = entryDayIdx >= 0 ? dayIdx - entryDayIdx : 0;
 
-    if (holdingDays === 0) {
-      pos.maxHighDuringHold = Math.max(pos.maxHighDuringHold, todayBar.high);
-      pos.minLowDuringHold = Math.min(pos.minLowDuringHold, todayBar.low);
-      continue;
-    }
+    // エントリー当日は出口を評価しない。到達しない理由と、エントリー当日の日足で
+    // maxHigh/minLow をシードしてはいけない理由は processExits 側のコメントを参照（KOH-559）。
+    // ETF/panic は固定SLでトレールを使わないが、将来トレールを足した時に同じ罠を踏まないよう
+    // シードは削除してある。
+    if (holdingDays === 0) continue;
 
     let exitPrice: number | null = null;
     let exitReason: SimulatedPosition["exitReason"] = null;
