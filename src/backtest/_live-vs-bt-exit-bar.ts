@@ -37,7 +37,7 @@ import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import { prisma } from "../lib/prisma";
 import { checkPositionExit } from "../core/exit-checker";
-import { TRAILING_STOP, BREAK_EVEN_STOP } from "../lib/constants";
+import { TRAILING_STOP } from "../lib/constants";
 import type { TradingStrategy } from "../core/market-regime";
 
 dayjs.extend(utc);
@@ -69,9 +69,6 @@ interface Row {
   qty: number;
 }
 
-function pct(a: number, b: number): number {
-  return ((a - b) / b) * 100;
-}
 
 async function main() {
   const positions = await prisma.tradingPosition.findMany({
