@@ -39,7 +39,7 @@ import { fetchHistoricalFromDB, fetchVixFromDB, fetchIndexFromDB } from "./data-
 import { calculateCapitalUtilization, calculateMetrics } from "./metrics";
 import { runCombinedSimulation, compute20dEntryVol, type PositionLimits, type BreadthMode, type VolConvexityConfig } from "./combined-simulation";
 import type { IntraBarStopModel } from "../core/exit-checker";
-import { MARKET_BREADTH, VIX_THRESHOLDS, STRATEGY_UNIVERSE_MAX_PRICE } from "../lib/constants";
+import { MARKET_BREADTH, VIX_THRESHOLDS, STRATEGY_UNIVERSE_MAX_PRICE, POSITION_SIZING } from "../lib/constants";
 import type {
   GapUpBacktestConfig,
   PostSurgeConsolidationBacktestConfig,
@@ -384,6 +384,12 @@ async function main() {
   // 本モードは値ごとにユニバースを組み直し precomputeSimData も張り直すので、各行が
   // 「その maxPrice で運用した場合の本番BT」と一致する。
   const compareUniverseMaxPrice = args.includes("--compare-universe-max-price");
+  // --compare-risk-pct (KOH-561): 1トレードあたりリスク% を現エンジンで測り直す。
+  // 既存の `--compare-efficiency` は使えない — グリッドが「現物T+2,2%」の次から全て T+0(信用)で、
+  // **本番(現物T+2)で risk% を振る行が存在しない**（CLAUDE.md の記録にある T+2,3%/T+2,4% は
+  // 2026-04-22 の金利対応でグリッドを書き換えた際に消えている）。あちらは 2026-04-22 の
+  // 「信用取引の金利コスト込み検証」の記録なので触らず、本番条件に絞った別モードを用意する。
+  const compareRiskPct = args.includes("--compare-risk-pct");
   // --compare-breadth-split: 分割点 T の全体最適 sweep。
   // T ごとに GU/PSC の band lower・ETF breadthMax・buyback breadthMax を同時に T へ動かし、
   // portfolio 全体の Calmar が最大になる「active⇔idle帯」の境界を探す (KOH-514)。
@@ -1379,6 +1385,57 @@ async function main() {
       if (r === cur) continue;
       const d = cur.calmar > 0 ? ((r.calmar - cur.calmar) / cur.calmar) * 100 : 0;
       console.log(`  ${r.label.padEnd(20)}| Calmar ${r.calmar.toFixed(2).padStart(6)} | ${(d >= 0 ? "+" : "") + d.toFixed(1)}%${d > 5 ? " ← 現状超え" : ""}`);
+    }
+    console.log("\n※ 単発窓の順位は経路依存ノイズ。判定は 16窓リセット + 対応のある検定で行うこと (KOH-558 却下#42 参照)");
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // --compare-risk-pct (KOH-561): 1トレードあたりリスク% を現エンジンで測り直す。
+  // 本番と同じ現物 T+2・金利0 に固定し、riskPct だけを振る（riskPctOverride は GU/PSC 両方に効く）。
+  if (compareRiskPct) {
+    const CUR = POSITION_SIZING.RISK_PER_TRADE_PCT;
+    const grid = [1.0, 1.5, CUR, 2.5, 3.0, 4.0]
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .sort((a, b) => a - b);
+
+    console.log("\n=== 1トレードあたりリスク% の再測定 (KOH-561) ===");
+    console.log(`期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}, エンジン: ${intraBarModelArg ?? "stop-at-open(既定)"}`);
+    console.log(`本番の現行値: ${CUR}% (POSITION_SIZING.RISK_PER_TRADE_PCT)。受渡は本番と同じ現物T+2・金利0で固定`);
+    console.log(
+      `${"risk%".padEnd(16)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"Expect".padStart(7)} | ${"MaxDD".padStart(6)} | ${"NetRet".padStart(8)} | ${"Calmar".padStart(6)} | ${"稼働率".padStart(6)}`,
+    );
+    console.log("-".repeat(96));
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    const rows: { label: string; calmar: number }[] = [];
+
+    for (const r of grid) {
+      const result = runCombinedSimulation(
+        // settlementDays は本番(現物T+2)。riskPctOverride は % 単位で渡す (combined-simulation:1165/1263)
+        { ...ctx, settlementDays: 2, marginInterestRate: 0, riskPctOverride: r },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const util = calculateCapitalUtilization(result.equityCurve);
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
+      const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
+      const label = `${r === CUR ? "★" : " "}${r}%${r === CUR ? " (現状)" : ""}`;
+      console.log(
+        `${label.padEnd(16)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(7)} | ${m.maxDrawdown.toFixed(1).padStart(5)}% | ${m.netReturnPct.toFixed(1).padStart(7)}% | ${calmar.toFixed(2).padStart(6)} | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
+      );
+      rows.push({ label: label.trim(), calmar });
+    }
+
+    const cur = rows.find((r) => r.label.startsWith("★"))!;
+    console.log(`\n=== 現状 ${CUR}% (Calmar ${cur.calmar.toFixed(2)}) との差分 ===`);
+    for (const r of rows) {
+      if (r === cur) continue;
+      const d = cur.calmar > 0 ? ((r.calmar - cur.calmar) / cur.calmar) * 100 : 0;
+      console.log(`  ${r.label.padEnd(12)}| Calmar ${r.calmar.toFixed(2).padStart(6)} | ${(d >= 0 ? "+" : "") + d.toFixed(1)}%${d > 5 ? " ← 現状超え" : ""}`);
     }
     console.log("\n※ 単発窓の順位は経路依存ノイズ。判定は 16窓リセット + 対応のある検定で行うこと (KOH-558 却下#42 参照)");
     console.log("");
