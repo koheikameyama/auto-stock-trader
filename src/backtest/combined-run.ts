@@ -39,7 +39,7 @@ import { fetchHistoricalFromDB, fetchVixFromDB, fetchIndexFromDB } from "./data-
 import { calculateCapitalUtilization, calculateMetrics } from "./metrics";
 import { runCombinedSimulation, compute20dEntryVol, type PositionLimits, type BreadthMode, type VolConvexityConfig } from "./combined-simulation";
 import type { IntraBarStopModel } from "../core/exit-checker";
-import { MARKET_BREADTH, VIX_THRESHOLDS } from "../lib/constants";
+import { MARKET_BREADTH, VIX_THRESHOLDS, STRATEGY_UNIVERSE_MAX_PRICE } from "../lib/constants";
 import type {
   GapUpBacktestConfig,
   PostSurgeConsolidationBacktestConfig,
@@ -372,6 +372,18 @@ async function main() {
   const compareBreadth = args.includes("--compare-breadth");
   const compareBreadthModes = args.includes("--compare-breadth-modes");
   const compareBreadthZoom = args.includes("--compare-breadth-zoom");
+  // --compare-breadth-band (KOH-558): 本番の band 上下限 (MARKET_BREADTH.THRESHOLD/UPPER_CAP) を
+  // 現エンジンで測り直す。--compare-breadth-modes は 2026-04-21 の記録でグリッドが古い（現行の
+  // band 54-80% が入っていない）ため別モードにしてある。
+  const compareBreadthBand = args.includes("--compare-breadth-band");
+  // --compare-universe-max-price (KOH-558): ユニバース上限 (STRATEGY_UNIVERSE_MAX_PRICE=¥2,500) を
+  // 現エンジンで測り直す。既存の `--compare-max-price` は2つの理由で本問に使えない:
+  //   (1) グリッドが 2500→50000 の**上方向のみ**で、KOH-503 が見た下方向 (¥1,800/2,000) が無い
+  //   (2) ユニバースを ¥50,000 まで広げて全行で共有するため、**breadth の母集団が本番と変わる**
+  //       (本番BTは allData 自体を maxPrice で絞り、その母集団で breadth を計算する)
+  // 本モードは値ごとにユニバースを組み直し precomputeSimData も張り直すので、各行が
+  // 「その maxPrice で運用した場合の本番BT」と一致する。
+  const compareUniverseMaxPrice = args.includes("--compare-universe-max-price");
   // --compare-breadth-split: 分割点 T の全体最適 sweep。
   // T ごとに GU/PSC の band lower・ETF breadthMax・buyback breadthMax を同時に T へ動かし、
   // portfolio 全体の Calmar が最大になる「active⇔idle帯」の境界を探す (KOH-514)。
@@ -500,6 +512,8 @@ async function main() {
     ? getMaxBuyablePrice(20_000_000)
     : compareMaxPrice
     ? 50_000
+    : compareUniverseMaxPrice
+    ? 5_000 // グリッド最大。各行でここから subset してユニバースを組み直す
     : (enableMomentum || enableWbLargecap || compareStrategyMix)
     ? 100_000
     : guConfig.maxPrice;
@@ -1197,6 +1211,176 @@ async function main() {
       }
     }
 
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // --compare-breadth-band (KOH-558): 本番の band 上下限を現エンジンで測り直す。
+  //
+  // なぜ別モードか: `--compare-breadth-modes` は 2026-04-21 の探索記録（hard/velocity/zscore/split の
+  // 広い探索）で、グリッドが「現状 hard 55%」と**当時のまま**。本番はその後 band 54-80% に変わって
+  // いる（2026-04-21 に band 化、2026-05-19 に下限 55→54%）ので、あのグリッドには**現行の本番設定が
+  // 入っていない**。当時の記録を壊さないよう触らず、本番設定を軸にしたスイープを別に用意する。
+  //
+  // 契機: 却下 #39 でイントラバー先読みを直したが、band 54-80% は**旧エンジンで最適化された値**
+  // （band化 2026-04-21 / 下限 2026-05-19 / KOH-514 の再確認 2026-07-04 もすべて旧エンジン）。
+  // KOH-556 で buyback が現エンジンで符号ごと反転した（+157% → -18%）ため、同じ棚卸しを
+  // 「収益の本体（GU/PSC）を毎日ゲートしている」band に対して行う。
+  if (compareBreadthBand) {
+    const L = MARKET_BREADTH.THRESHOLD;
+    const U = MARKET_BREADTH.UPPER_CAP;
+    const pct = (v: number) => `${(v * 100).toFixed(0)}%`;
+    type BandSpec = { label: string; lower: number; upper: number };
+    const grid: BandSpec[] = [
+      // 現状（本番の定数をそのまま読むので、定数が動いてもこの行は常に「今の本番」を指す）
+      { label: `★現状 band ${pct(L)}-${pct(U)}`, lower: L, upper: U },
+      // 下限スイープ（上限は本番値で固定）
+      ...[0.46, 0.5, 0.52, 0.53, 0.55, 0.56, 0.58, 0.6]
+        .filter((l) => l !== L)
+        .map((l) => ({ label: `band ${pct(l)}-${pct(U)}`, lower: l, upper: U })),
+      // 上限スイープ（下限は本番値で固定）。upper=1.0 は「上限なし」= hard L% と同義
+      ...[0.7, 0.75, 0.85, 0.9]
+        .filter((u) => u !== U)
+        .map((u) => ({ label: `band ${pct(L)}-${pct(u)}`, lower: L, upper: u })),
+      { label: `hard ${pct(L)}% (上限なし)`, lower: L, upper: 1.0 },
+      // 参考: フィルターを全部外す（breadth filter が本質的に機能しているかの下限確認）
+      { label: "OFF (breadth 無視)", lower: 0, upper: 1.0 },
+    ];
+
+    // 比較時は precompute 側の breadth フィルターを切り、simulation 側の breadthMode で判定する
+    // （--compare-breadth-modes:1143-1147 と同じ手順。ここを忘れると二重フィルタになる）
+    const guCfgNoFilter: GapUpBacktestConfig = { ...guConfig, marketTrendFilter: false };
+    const pscCfgNoFilter: PostSurgeConsolidationBacktestConfig = { ...pscConfig, marketTrendFilter: false };
+    const guSigOpen = precomputeGapUpDailySignals(guCfgNoFilter, allData, precomputed);
+    const pSigOpen = precomputePSCDailySignals(pscCfgNoFilter, allData, precomputed);
+
+    console.log("\n=== breadth band 上下限の再測定 (KOH-558) ===");
+    console.log(`期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}, エンジン: ${intraBarModelArg ?? "stop-at-open(既定)"}`);
+    console.log(`本番の現行値: 下限 ${pct(L)} / 上限 ${pct(U)}`);
+    console.log(
+      `${"モード".padEnd(24)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"Expect".padStart(7)} | ${"MaxDD".padStart(6)} | ${"NetRet".padStart(8)} | ${"Calmar".padStart(6)} | ${"稼働率".padStart(6)}`,
+    );
+    console.log("-".repeat(104));
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    const rows: { label: string; calmar: number; metrics: PerformanceMetrics; allTrades: SimulatedPosition[]; equityCurve: DailyEquity[] }[] = [];
+
+    for (const spec of grid) {
+      const result = runCombinedSimulation(
+        {
+          ...ctx,
+          guConfig: guCfgNoFilter,
+          pscConfig: pscCfgNoFilter,
+          gapupSignals: guSigOpen,
+          pscSignals: pSigOpen,
+          breadthMode: { type: "band", lower: spec.lower, upper: spec.upper },
+        },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const util = calculateCapitalUtilization(result.equityCurve);
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
+      const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
+      console.log(
+        `${spec.label.padEnd(24)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(7)} | ${m.maxDrawdown.toFixed(1).padStart(5)}% | ${m.netReturnPct.toFixed(1).padStart(7)}% | ${calmar.toFixed(2).padStart(6)} | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
+      );
+      rows.push({ label: spec.label, calmar, metrics: m, allTrades: result.allTrades, equityCurve: result.equityCurve });
+    }
+
+    // 判定の補助: 現状を基準に Calmar 差を出す。
+    // ⚠️ 単発BTの優位は WF で確認するまでノイズ（CLAUDE.md「磨き上げ検証の必須プロトコル」）。
+    //    さらに KOH-556 で「経路依存だけで Calmar が約11%振れる」実例が出ているので、
+    //    数%の差は順位として読まないこと。
+    const cur = rows.find((r) => r.label.startsWith("★現状"))!;
+    console.log(`\n=== 現状 (Calmar ${cur.calmar.toFixed(2)}) との差分 ===`);
+    for (const r of rows) {
+      if (r === cur) continue;
+      const d = cur.calmar > 0 ? ((r.calmar - cur.calmar) / cur.calmar) * 100 : 0;
+      const mark = d > 5 ? " ← 現状超え(要WF)" : "";
+      console.log(`  ${r.label.padEnd(24)}| Calmar ${r.calmar.toFixed(2).padStart(6)} | ${(d >= 0 ? "+" : "") + d.toFixed(1)}%${mark}`);
+    }
+    console.log("\n※ 現状超えが出た場合のみ WF に進むこと（超えなければ WF 不要 = KOH-514 と同じ理屈）");
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // --compare-universe-max-price (KOH-558): ユニバース上限 ¥2,500 を現エンジンで測り直す。
+  // KOH-503 (2026-07-03) の「¥2,500 が PF・Calmar・MaxDD すべてで頂点」は旧エンジンの結論。
+  if (compareUniverseMaxPrice) {
+    const CUR = STRATEGY_UNIVERSE_MAX_PRICE;
+    const grid = [1_800, 2_000, 2_200, CUR, 2_800, 3_000, 4_000, 5_000]
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .sort((a, b) => a - b);
+
+    console.log("\n=== ユニバース上限 (maxPrice) の再測定 (KOH-558) ===");
+    console.log(`期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}, エンジン: ${intraBarModelArg ?? "stop-at-open(既定)"}`);
+    console.log(`本番の現行値: ¥${CUR.toLocaleString()} (STRATEGY_UNIVERSE_MAX_PRICE)`);
+    console.log("※ 値ごとにユニバースと breadth を張り直す = 各行が「その maxPrice で運用した本番BT」");
+    console.log(
+      `${"maxPrice".padEnd(24)}| ${"銘柄数".padStart(6)} | ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"Expect".padStart(7)} | ${"MaxDD".padStart(6)} | ${"NetRet".padStart(8)} | ${"Calmar".padStart(6)} | ${"稼働率".padStart(6)}`,
+    );
+    console.log("-".repeat(114));
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    const rows: { label: string; calmar: number }[] = [];
+
+    for (const mp of grid) {
+      // ユニバースを組み直す（combined-run:501-506 と同一手順）
+      const sub = new Map<string, import("../core/technical-analysis").OHLCVData[]>();
+      for (const [ticker, bars] of rawData) {
+        if (bars.some((b) => b.close <= mp && b.close > 0)) sub.set(ticker, bars);
+      }
+      // breadth も張り直す（ここが --compare-max-price との決定的な差）
+      const pre = precomputeSimData(
+        startDate, endDate, sub,
+        true, true,
+        guConfig.indexTrendSmaPeriod ?? 50,
+        indexData.size > 0 ? indexData : undefined,
+        false, 60,
+        guConfig.indexTrendOffBufferPct ?? 0,
+        guConfig.indexTrendOnBufferPct ?? 0,
+      );
+      const gc: GapUpBacktestConfig = { ...guConfig, maxPrice: mp };
+      const pc: PostSurgeConsolidationBacktestConfig = { ...pscConfig, maxPrice: mp };
+      const result = runCombinedSimulation(
+        {
+          ...ctx,
+          allData: sub,
+          precomputed: pre,
+          guConfig: gc,
+          pscConfig: pc,
+          gapupSignals: precomputeGapUpDailySignals(gc, sub, pre),
+          pscSignals: precomputePSCDailySignals(pc, sub, pre),
+        },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const util = calculateCapitalUtilization(result.equityCurve);
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
+      const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
+      const label = `${mp === CUR ? "★" : " "}≤¥${mp.toLocaleString()}${mp === CUR ? " (現状)" : ""}`;
+      console.log(
+        `${label.padEnd(24)}| ${String(sub.size).padStart(6)} | ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(7)} | ${m.maxDrawdown.toFixed(1).padStart(5)}% | ${m.netReturnPct.toFixed(1).padStart(7)}% | ${calmar.toFixed(2).padStart(6)} | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
+      );
+      rows.push({ label: label.trim(), calmar });
+    }
+
+    // ⚠️ 単発BTの優位は WF で確認するまでノイズ。さらに KOH-558 の band 検証では
+    //    「単発 → 合計 → 窓別 → 検定」と段階を上げるたびに結論が変わった。数%の差は読まないこと。
+    const cur = rows.find((r) => r.label.startsWith("★"))!;
+    console.log(`\n=== 現状 ¥${CUR.toLocaleString()} (Calmar ${cur.calmar.toFixed(2)}) との差分 ===`);
+    for (const r of rows) {
+      if (r === cur) continue;
+      const d = cur.calmar > 0 ? ((r.calmar - cur.calmar) / cur.calmar) * 100 : 0;
+      console.log(`  ${r.label.padEnd(20)}| Calmar ${r.calmar.toFixed(2).padStart(6)} | ${(d >= 0 ? "+" : "") + d.toFixed(1)}%${d > 5 ? " ← 現状超え" : ""}`);
+    }
+    console.log("\n※ 単発窓の順位は経路依存ノイズ。判定は 16窓リセット + 対応のある検定で行うこと (KOH-558 却下#42 参照)");
     console.log("");
     await prisma.$disconnect();
     return;
