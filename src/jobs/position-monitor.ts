@@ -53,7 +53,12 @@ import { notifyOrderFilled, notifyRiskAlert, notifySlack } from "../lib/slack";
 import { cancelOrder, fetchFilledPrice, submitOrder } from "../core/broker-orders";
 import type { BrokerOrderResult } from "../core/broker-orders";
 import { cancelBrokerSL, updateBrokerSL } from "../core/broker-sl-manager";
-import { TACHIBANA_ORDER_STATUS, isTachibanaProduction } from "../lib/constants/broker";
+import { handleBrokerSLFill } from "../core/broker-fill-handler";
+import {
+  TACHIBANA_ORDER_RESULT,
+  TACHIBANA_ORDER_STATUS,
+  isTachibanaProduction,
+} from "../lib/constants/broker";
 import { PANIC } from "../lib/constants/panic";
 import type { ExitSnapshot } from "../types/snapshots";
 import type { TradingStrategy } from "../core/market-regime";
@@ -135,6 +140,60 @@ export function filterDefensiveExitTargets<T extends { strategy: string }>(
 const DEFENSIVE_BYPASS_STRATEGIES = new Set<string>([PANIC.STRATEGY]);
 
 /**
+ * 逆指値SLが既に約定していれば、その実約定価格でポジションをクローズして自己修復する。
+ *
+ * 防御成行売りが 11482（売付可能不足）で弾かれた／SL取消に失敗した時に呼ぶ。原因はほぼ常に
+ * 「同じ価格で逆指値SLが先に約定して株を持って行った」ことなので、EVENT I/F と同じリカバリ処理
+ * （handleBrokerSLFill）を同期的に走らせ、幻のオープン（DB=open・ブローカー=フラット）を残さない。
+ * SLがまだ板に生きている（未約定）なら handleBrokerSLFill は何もせず false を返す。
+ *
+ * @returns このポジションを実際にクローズできたか
+ */
+async function tryRecoverFilledSL(position: ExitablePosition): Promise<boolean> {
+  // position は毎分ループ先頭の getOpenPositions スナップショットなので、cancelBrokerSL が
+  // DB の slBrokerOrderId を null 化した後でも、ここには取消前の元IDが残っている。
+  if (!position.slBrokerOrderId) return false;
+  await handleBrokerSLFill(position).catch((err) => {
+    console.error(
+      `[position-monitor] ${position.stock.tickerCode}: SL約定リカバリ中エラー: ${err}`,
+    );
+  });
+  const fresh = await prisma.tradingPosition.findUnique({
+    where: { id: position.id },
+    select: { status: true },
+  });
+  return fresh?.status === "closed";
+}
+
+/**
+ * cancelBrokerSL が「取消成功」と誤判定して外した slBrokerOrderId を復元する。
+ *
+ * 成行売りが 11482 で弾かれ、かつ SL がまだ約定していない（＝板に生きて株を押さえている）時に呼ぶ。
+ * このとき立花側には SL 注文が残っているのに DB は追跡を失っており、放置すると ensure-broker-sl が
+ * 二重に SL を発注しうる。元の注文番号を書き戻し、reconciliation Phase 1.5 と EVENT I/F が同じ SL を
+ * 正しく追跡・約定検知できるようにする。
+ */
+async function restoreSLTracking(position: ExitablePosition): Promise<void> {
+  if (!position.slBrokerOrderId) return;
+  const fresh = await prisma.tradingPosition.findUnique({
+    where: { id: position.id },
+    select: { status: true, slBrokerOrderId: true },
+  });
+  // 既にクローズ済み or 追跡が生きているなら触らない
+  if (!fresh || fresh.status !== "open" || fresh.slBrokerOrderId) return;
+  await prisma.tradingPosition.update({
+    where: { id: position.id },
+    data: {
+      slBrokerOrderId: position.slBrokerOrderId,
+      slBrokerBusinessDay: position.slBrokerBusinessDay,
+    },
+  });
+  console.warn(
+    `[position-monitor] ${position.stock.tickerCode}: SL追跡を復元（${position.slBrokerOrderId}）— 立花側にSL注文が残存`,
+  );
+}
+
+/**
  * ポジション決済の共通実行: SL逆指値取消 → 成行売り → **売り注文が成功した場合のみ** close + 約定通知。
  *
  * 旧実装は submitOrder の結果を無視し、close/notifyOrderFilled を無条件に実行していた。
@@ -143,8 +202,13 @@ const DEFENSIVE_BYPASS_STRATEGIES = new Set<string>([PANIC.STRATEGY]);
  *
  * 本ヘルパーは (1) SL取消の成否を確認（残存なら決済見送り）、(2) 成行売りの success を確認し、
  * 失敗時は close/通知せず 🚨 を上げて null を返すことで幻の決済を防ぐ。
+ *
+ * さらに 11482（売付可能不足）＝「逆指値SLが同じ価格で先に約定して株を持って行った」ケースでは、
+ * その約定を検知してポジションをクローズし自己修復する（tryRecoverFilledSL）。これがないと DB=open・
+ * ブローカー=フラットの "幻のオープン" が残り、毎分 11482 の 🚨 を出し続けて手動対応が必要になる。
  */
-async function executeExitSell(params: {
+// export はテスト用（自己修復ルーティングの検証）。本番の呼び出しは同ファイル内のみ。
+export async function executeExitSell(params: {
   position: ExitablePosition;
   exitPrice: number;
   exitSnapshot: ExitSnapshot;
@@ -164,15 +228,24 @@ async function executeExitSell(params: {
       select: { slBrokerOrderId: true },
     });
     if (fresh?.slBrokerOrderId) {
+      // 取消できなかった理由が「SLが既に約定済み」なら、その実約定価格でクローズして自己修復する
+      // （成行売りは 11482 で弾かれ、放置すると幻のオープンが残るため）。
+      if (await tryRecoverFilledSL(position)) {
+        console.log(
+          `[position-monitor] ${ticker}: SL約定を検知しクローズ（取消失敗経路の自己修復）`,
+        );
+        return null;
+      }
+      // まだ板に生きている（発注待ち/未約定）= SL が保護継続中 → 成行売りは見送る。
       console.warn(
-        `[position-monitor] ${ticker}: SL取消失敗（${fresh.slBrokerOrderId}残存）→ 決済見送り（幻の決済防止）`,
+        `[position-monitor] ${ticker}: SL取消失敗（${fresh.slBrokerOrderId}残存・未約定）→ 決済見送り（幻の決済防止）`,
       );
       await notifySlack({
         title: "🚨 決済スキップ: SL取消失敗",
         message:
           `${ticker} ${exitReason}\n` +
           `逆指値SL(${fresh.slBrokerOrderId})を取消できず、成行売りは売付可能不足で弾かれます。\n` +
-          `close/通知は行いません（幻の決済防止）。次サイクルで再試行。手動確認を推奨。\n` +
+          `close/通知は行いません（幻の決済防止）。SLが板に生きているため下方向の保護は継続。次サイクルで再試行。\n` +
           `positionId: ${position.id}`,
         color: "danger",
       }).catch(() => {});
@@ -195,6 +268,22 @@ async function executeExitSell(params: {
 
   // 4. 売り注文が拒否/失敗 → close/通知せず 🚨（幻の決済を防止）
   if (!sellResult.success) {
+    // 売付可能不足(11482) = 逆指値SLが同じ価格で既に約定して株を持って行った可能性が高い。
+    // その約定を検知できればクローズして自己修復し、幻のオープンを残さない。
+    const insufficientSellable = (sellResult.error ?? "").includes(
+      `sub:${TACHIBANA_ORDER_RESULT.INSUFFICIENT_SELLABLE}`,
+    );
+    if (insufficientSellable && position.slBrokerOrderId) {
+      if (await tryRecoverFilledSL(position)) {
+        console.log(
+          `[position-monitor] ${ticker}: 成行売り不可(11482)→SL約定を検知しクローズ（自己修復）`,
+        );
+        return null; // handleBrokerSLFill が既にクローズ＋通知済み
+      }
+      // 約定していない = SLが板に生きて株を押さえている。cancelBrokerSL が誤って外した追跡を
+      // 復元し、ensure-broker-sl の二重SL発注・幻のオープンを防ぐ（Phase1.5 が次に整合を取る）。
+      await restoreSLTracking(position);
+    }
     console.warn(
       `[position-monitor] ${ticker}: 成行売り失敗（${sellResult.error}）→ 決済見送り（幻の決済防止）`,
     );

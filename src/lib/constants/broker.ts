@@ -234,6 +234,10 @@ export const TACHIBANA_ORDER_RESULT = {
   /** 只今の時間帯は受付できません（後場立会終了〜翌日注文受付開始前の受付停止窓）。
    * 引け成行約定直後の即時SL発注は必ずこの窓に入る。ensure-broker-sl が後で発注するため良性。 */
   OUTSIDE_ACCEPTANCE_HOURS: "11102",
+  /** 売付可能な株数が不足。防御成行売りがこれで弾かれる時は、逆指値SLが同じ価格で
+   * 既に約定して株を持って行った（または板に生きて株を押さえている）ことを意味する。
+   * position-monitor の executeExitSell はこれを検知してSL約定リカバリ（自己修復クローズ）を試みる。 */
+  INSUFFICIENT_SELLABLE: "11482",
 } as const;
 
 // ========================================
