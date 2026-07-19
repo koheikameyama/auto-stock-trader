@@ -20,6 +20,7 @@
 import { prisma } from "../lib/prisma";
 import { submitBrokerSL } from "../core/broker-sl-manager";
 import { notifySlack } from "../lib/slack";
+import { withDbRetry } from "../lib/retry-utils";
 
 /** 同一ポジションのSL再発注の**連続失敗**上限（プロセスライフタイム内。成功でリセット） */
 const MAX_SL_RETRIES = 3;
@@ -28,33 +29,6 @@ const consecutiveFailures = new Map<string, number>();
 /** 連続失敗カウンタをリセットする（テスト用） */
 export function resetSLFailureCounts(): void {
   consecutiveFailures.clear();
-}
-
-/** DB一時障害向けの簡易リトライ（接続不可・タイムアウトのみ対象） */
-async function withDbRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
-  const maxAttempts = 3;
-  const baseDelayMs = 1000;
-  let lastErr: unknown;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastErr = err;
-      const msg = err instanceof Error ? err.message : String(err);
-      const isConnError =
-        msg.includes("Can't reach database server") ||
-        msg.includes("ECONNREFUSED") ||
-        msg.includes("ETIMEDOUT") ||
-        msg.includes("Connection terminated");
-      if (!isConnError || attempt === maxAttempts) throw err;
-      const delay = baseDelayMs * 2 ** (attempt - 1);
-      console.warn(
-        `[ensure-broker-sl] DB接続失敗 (${label}, attempt ${attempt}/${maxAttempts}): ${msg} → ${delay}ms後に再試行`,
-      );
-      await new Promise((r) => setTimeout(r, delay));
-    }
-  }
-  throw lastErr;
 }
 
 export async function main(): Promise<void> {

@@ -10,15 +10,19 @@
 import { prisma } from "../lib/prisma";
 import { YAHOO_FINANCE } from "../lib/constants";
 import { yfFetchQuotesBatch, type YfQuoteResult } from "../lib/yfinance-client";
-import { sleep } from "../lib/retry-utils";
+import { sleep, withDbRetry } from "../lib/retry-utils";
 import { clampDecimal } from "../lib/decimal-utils";
 
 export async function main() {
   console.log("=== Backfill Fundamentals 開始 ===");
 
-  const allStocks = await prisma.stock.findMany({
-    where: { isDelisted: false, isActive: true },
-  });
+  const allStocks = await withDbRetry(
+    () =>
+      prisma.stock.findMany({
+        where: { isDelisted: false, isActive: true },
+      }),
+    "stock.findMany",
+  );
 
   if (allStocks.length === 0) {
     console.warn("  ⚠ アクティブな銘柄が0件です。先に jpx-csv-sync を実行してください。");
@@ -48,7 +52,10 @@ export async function main() {
   console.log(`  クォート取得: ${quoteMap.size}/${allStocks.length}件`);
 
   // Stock テーブルをバルク更新（ファンダのみ）
-  const updateOps = allStocks
+  // ⚠️ update の「データ記述子」を組み立てておき、実際の PrismaPromise は
+  // 各バッチ実行時（リトライ時は毎回新規）に生成する。PrismaPromise を使い回して
+  // $transaction に再投入すると再試行できないため。
+  const updates = allStocks
     .map((stock) => {
       const q = quoteMap.get(stock.tickerCode);
       if (!q) return null;
@@ -65,17 +72,24 @@ export async function main() {
       }
 
       if (Object.keys(data).length === 0) return null;
-      return prisma.stock.update({ where: { id: stock.id }, data });
+      return { id: stock.id, data };
     })
-    .filter((op): op is NonNullable<typeof op> => op != null);
+    .filter((op): op is { id: string; data: Record<string, unknown> } => op != null);
 
-  console.log(`  Stock ファンダ更新対象: ${updateOps.length}件`);
+  console.log(`  Stock ファンダ更新対象: ${updates.length}件`);
 
   const STOCK_BATCH = 50;
-  for (let i = 0; i < updateOps.length; i += STOCK_BATCH) {
-    await prisma.$transaction(updateOps.slice(i, i + STOCK_BATCH));
-    if ((i + STOCK_BATCH) % 500 === 0 || i + STOCK_BATCH >= updateOps.length) {
-      console.log(`    Stock更新: ${Math.min(i + STOCK_BATCH, updateOps.length)}/${updateOps.length}件`);
+  for (let i = 0; i < updates.length; i += STOCK_BATCH) {
+    const slice = updates.slice(i, i + STOCK_BATCH);
+    await withDbRetry(
+      () =>
+        prisma.$transaction(
+          slice.map((u) => prisma.stock.update({ where: { id: u.id }, data: u.data })),
+        ),
+      `stock.update batch ${i / STOCK_BATCH}`,
+    );
+    if ((i + STOCK_BATCH) % 500 === 0 || i + STOCK_BATCH >= updates.length) {
+      console.log(`    Stock更新: ${Math.min(i + STOCK_BATCH, updates.length)}/${updates.length}件`);
     }
   }
 
