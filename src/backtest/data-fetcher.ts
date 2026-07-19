@@ -4,6 +4,7 @@
 
 import dayjs from "dayjs";
 import { prisma } from "../lib/prisma";
+import { withDbRetry } from "../lib/retry-utils";
 import type { OHLCVData } from "../core/technical-analysis";
 
 /**
@@ -31,25 +32,29 @@ export async function fetchHistoricalFromDB(
 
   for (let i = 0; i < tickerCodes.length; i += CHUNK_SIZE) {
     const chunk = tickerCodes.slice(i, i + CHUNK_SIZE);
-    const rows = await prisma.stockDailyBar.findMany({
-      where: {
-        tickerCode: { in: chunk },
-        date: {
-          gte: new Date(`${adjustedStart}T00:00:00Z`),
-          lte: new Date(`${endDate}T00:00:00Z`),
-        },
-      },
-      orderBy: { date: "asc" },
-      select: {
-        tickerCode: true,
-        date: true,
-        open: true,
-        high: true,
-        low: true,
-        close: true,
-        volume: true,
-      },
-    });
+    const rows = await withDbRetry(
+      () =>
+        prisma.stockDailyBar.findMany({
+          where: {
+            tickerCode: { in: chunk },
+            date: {
+              gte: new Date(`${adjustedStart}T00:00:00Z`),
+              lte: new Date(`${endDate}T00:00:00Z`),
+            },
+          },
+          orderBy: { date: "asc" },
+          select: {
+            tickerCode: true,
+            date: true,
+            open: true,
+            high: true,
+            low: true,
+            close: true,
+            volume: true,
+          },
+        }),
+      `stockDailyBar.findMany chunk ${i / CHUNK_SIZE}`,
+    );
 
     for (const row of rows) {
       const ticker = row.tickerCode;
