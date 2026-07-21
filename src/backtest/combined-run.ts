@@ -39,7 +39,7 @@ import { fetchHistoricalFromDB, fetchVixFromDB, fetchIndexFromDB } from "./data-
 import { calculateCapitalUtilization, calculateMetrics } from "./metrics";
 import { runCombinedSimulation, compute20dEntryVol, type PositionLimits, type BreadthMode, type VolConvexityConfig } from "./combined-simulation";
 import type { IntraBarStopModel } from "../core/exit-checker";
-import { MARKET_BREADTH, VIX_THRESHOLDS, STRATEGY_UNIVERSE_MAX_PRICE, POSITION_SIZING } from "../lib/constants";
+import { MARKET_BREADTH, MARKET_INDEX, VIX_THRESHOLDS, STRATEGY_UNIVERSE_MAX_PRICE, POSITION_SIZING } from "../lib/constants";
 import type {
   GapUpBacktestConfig,
   PostSurgeConsolidationBacktestConfig,
@@ -455,6 +455,9 @@ async function main() {
   const compareSlippage = args.includes("--compare-slippage");
   const compareStrategyMix = args.includes("--compare-strategy-mix");
   const compareNikkeiDrop = args.includes("--compare-nikkei-drop");
+  // --compare-nikkei-killswitch (KOH-577): 日経キルスイッチの判定時制 off/same-day(BT)/lagged(本番) を
+  // 単発窓で比較し、機械可読な1行サマリを出す。16窓+検定は scripts/_koh577-killswitch-windows.py が駆動。
+  const compareNikkeiKillswitch = args.includes("--compare-nikkei-killswitch");
   const compareDetectionGranularity = args.includes("--compare-detection-granularity");
   const compareBe = args.includes("--compare-be");
   const compareIntraBar = args.includes("--compare-intrabar");
@@ -2889,6 +2892,37 @@ async function main() {
       }
     }
 
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // --compare-nikkei-killswitch (KOH-577): キルスイッチの判定時制 off / same-day(BT) / lagged(本番) を
+  // 単発窓で比較。-3% 固定。16窓+検定は Python 駆動なので機械可読な1行(WINROW)を出す。
+  if (compareNikkeiKillswitch) {
+    const TH = MARKET_INDEX.NIKKEI_CRISIS_THRESHOLD; // 本番と同じ -3
+    const configs: { label: string; veto: number | null; lagged: boolean }[] = [
+      { label: "off", veto: null, lagged: false },
+      { label: "sameday", veto: TH, lagged: false },
+      { label: "lagged", veto: TH, lagged: true },
+    ];
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    console.log(`\n=== 日経キルスイッチ 判定時制比較 (KOH-577) 閾値 ${TH}% ===`);
+    console.log(`期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}, N225 ${indexData.size}日, エンジン: ${intraBarModelArg ?? "stop-at-open(既定)"}`);
+    for (const c of configs) {
+      const result = runCombinedSimulation(
+        { ...ctx, nikkeiDropVetoPct: c.veto ?? undefined, nikkeiDropVetoLagged: c.lagged },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      // 機械可読: WINROW,<start>,<end>,<label>,<trades>,<netRet>,<maxDD>,<calmar>,<pf>
+      const pf = m.profitFactor === Infinity ? 999 : m.profitFactor;
+      console.log(
+        `WINROW,${startDate},${endDate},${c.label},${m.totalTrades},${m.netReturnPct.toFixed(4)},${m.maxDrawdown.toFixed(4)},${calmar.toFixed(4)},${pf.toFixed(4)}`,
+      );
+    }
     console.log("");
     await prisma.$disconnect();
     return;

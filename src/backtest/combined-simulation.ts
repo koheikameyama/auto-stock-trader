@@ -177,6 +177,15 @@ export interface SimContext {
    */
   nikkeiDropVetoPct?: number;
   /**
+   * 日経キルスイッチの判定時制を「本番模倣＝1セッション遅延」に切り替える（KOH-577 検証用）。
+   * false/省略（既定）: BT本来の「当日終値 vs 前日終値」= 同日判定（15:24 引け成行の直前 veto）。
+   * true: 「前営業日終値 vs 前々営業日終値」= 直近確定セッションの前日比で当日を止める。
+   *   本番は market-assessment が 08:02 pre-market に直近確定セッションを読み、15:24 monitor は
+   *   その shouldTrade を再評価しないため、実効的にこの1セッション遅延で動いている。
+   *   nikkeiDropVetoPct が設定されている時のみ効く。
+   */
+  nikkeiDropVetoLagged?: boolean;
+  /**
    * ボラ凸性サイジング（GU/PSC のみ、--compare-vol-convexity 検証用）。
    * エントリー時の20日実現ボラ（日次リターンの標準偏差%）で分位を判定し、
    * quantity に scales[quartile] を掛ける（0 = veto）。
@@ -989,10 +998,16 @@ export function runCombinedSimulation(
       (boShouldTrade || guShouldTrade || wbShouldTrade || pscShouldTrade || momShouldTrade || etfShouldTrade || buybackShouldTrade) &&
       dayIdx > 0
     ) {
-      const todayClose = ctx.indexData.get(today);
-      const prevClose = ctx.indexData.get(tradingDays[dayIdx - 1]);
-      if (todayClose != null && prevClose != null && prevClose > 0) {
-        const pctChange = ((todayClose - prevClose) / prevClose) * 100;
+      // 判定時制:
+      //  - 既定(同日, BT本来): 当日終値 vs 前日終値。15:24 引け成行の直前 veto。
+      //  - lagged(本番模倣, KOH-577): 前営業日終値 vs 前々営業日終値。直近確定セッションの前日比で当日を止める。
+      const lagged = ctx.nikkeiDropVetoLagged === true;
+      const curIdx = lagged ? dayIdx - 1 : dayIdx;
+      const baseIdx = curIdx - 1;
+      const curClose = baseIdx >= 0 ? ctx.indexData.get(tradingDays[curIdx]) : undefined;
+      const prevClose = baseIdx >= 0 ? ctx.indexData.get(tradingDays[baseIdx]) : undefined;
+      if (curClose != null && prevClose != null && prevClose > 0) {
+        const pctChange = ((curClose - prevClose) / prevClose) * 100;
         if (pctChange <= ctx.nikkeiDropVetoPct) {
           boShouldTrade = false;
           guShouldTrade = false;
