@@ -8,6 +8,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { COLORS } from "../views/styles";
 import { layout } from "../views/layout";
+import { strategyShortLabel } from "../views/strategy-labels";
 
 const app = new Hono();
 
@@ -135,7 +136,7 @@ app.get("/", async (c) => {
                     background:${strategy === s ? COLORS.accent : COLORS.card};
                     color:${strategy === s ? "#fff" : COLORS.textMuted};
                     border:1px solid ${COLORS.border}">
-            ${s === "all" ? "すべて" : s}
+            ${s === "all" ? "すべて" : strategyShortLabel(s)}
           </a>
         `)}
       </div>
@@ -202,7 +203,7 @@ app.get("/", async (c) => {
               <tr style="border-bottom:1px solid ${COLORS.border}">
                 <td style="padding:8px 12px;color:${COLORS.textMuted}">${new Date(s.rejectedAt).toLocaleDateString("ja-JP")}</td>
                 <td style="padding:8px 12px;color:${COLORS.text};font-weight:600">${s.ticker}</td>
-                <td style="padding:8px 12px;color:${COLORS.textMuted}">${s.strategy}</td>
+                <td style="padding:8px 12px;color:${COLORS.textMuted}">${strategyShortLabel(s.strategy)}</td>
                 <td style="padding:8px 12px;color:${COLORS.text}">${s.reasonLabel}</td>
                 <td style="padding:8px 12px;text-align:right;color:${COLORS.text}">¥${s.entryPrice.toLocaleString()}</td>
                 <td style="padding:8px 12px;text-align:right;color:${returnColor(s.return5dPct)}">${formatReturnPct(s.return5dPct)}</td>

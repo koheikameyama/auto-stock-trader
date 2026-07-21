@@ -11,6 +11,7 @@ import type { Stock } from "@prisma/client";
 import type { TechnicalSummary, OHLCVData } from "../../core/technical-analysis";
 import type { PatternsResponse } from "../../lib/candlestick-patterns";
 import { tt } from "./components";
+import { strategyFullLabel } from "./strategy-labels";
 
 type HtmlContent = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -100,12 +101,6 @@ function priceDisplay(q: ModalQuoteInfo): HtmlContent {
 
 /** ポジション情報バナー（モーダル上部に表示） */
 function positionBanner(pos: ModalPositionInfo): HtmlContent {
-  const strategyLabels: Record<string, string> = {
-    breakout: "ブレイクアウト",
-    gapup: "GU（ギャップアップ）",
-    "post-surge-consolidation": "PSC（高騰後押し目）",
-    us_etf: "ETF（米株連動）",
-  };
   const pnlColor = (pos.unrealizedPnl ?? 0) >= 0 ? "#22c55e" : "#ef4444";
   const pnlSign = (pos.unrealizedPnl ?? 0) >= 0 ? "+" : "";
   const fmtPrice = (v: number) => "¥" + v.toLocaleString("ja-JP");
@@ -113,7 +108,7 @@ function positionBanner(pos: ModalPositionInfo): HtmlContent {
   return html`<div style="background:${pnlColor}10;border:1px solid ${pnlColor}30;border-radius:8px;padding:10px 14px;margin:0 0 8px">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
       <div style="font-size:12px;color:#94a3b8">
-        保有中 · ${strategyLabels[pos.strategy] ?? pos.strategy} · ${pos.quantity}株 · 建値 ${fmtPrice(pos.entryPrice)}
+        保有中 · ${strategyFullLabel(pos.strategy)} · ${pos.quantity}株 · 建値 ${fmtPrice(pos.entryPrice)}
       </div>
       <div style="display:flex;align-items:baseline;gap:8px">
         ${pos.currentPrice != null

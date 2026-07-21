@@ -6,6 +6,7 @@ import { html } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { COLORS } from "./styles";
 import { CHART_PADDING, CHART_LABEL_THRESHOLD, NIKKEI_CHART_PERIODS } from "../../lib/constants";
+import { strategyShortLabel, strategyBadgeClass } from "./strategy-labels";
 
 type HtmlContent = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -69,14 +70,8 @@ export function regimeBadge(level: string): HtmlContent {
 
 /** Strategy バッジ */
 export function strategyBadge(strategy: string): HtmlContent {
-  const labels: Record<string, string> = {
-    breakout: "BO",
-    gapup: "GU",
-    "post-surge-consolidation": "PSC",
-    us_etf: "ETF",
-  };
-  return html`<span class="badge badge-${strategy}"
-    >${labels[strategy] ?? strategy}</span
+  return html`<span class="badge ${strategyBadgeClass(strategy)}"
+    >${strategyShortLabel(strategy)}</span
   >`;
 }
 
