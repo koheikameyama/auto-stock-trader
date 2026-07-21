@@ -26,18 +26,26 @@ function returnColor(val: number | null): string {
   return COLORS.text;
 }
 
-/** 決済理由の日本語ラベル */
-const EXIT_REASON_LABELS: Record<string, string> = {
-  stop_loss: "損切り",
-  trailing_stop: "BE撤退（建値売り）",
-  trailing_profit: "トレール利確",
-  take_profit: "利確",
-  time_stop: "タイムストップ",
-  crisis: "防御決済",
-};
-
-/** 損切り・BE撤退（＝守りの決済）かどうか。決済後に上がると「早く切りすぎ」の兆候になる理由 */
-const DEFENSIVE_EXIT_REASONS = new Set(["stop_loss", "trailing_stop", "crisis", "time_stop"]);
+/**
+ * 決済理由を集計バケットに正規化する。
+ *
+ * ⚠️ 本番の exitSnapshot.exitReason はコード（stop_loss 等）ではなく日本語の合成文字列で保存される
+ * （例: "SL約定（ブローカー自律執行）", "トレーリング建値撤退",
+ *  "crisis（日経/CMEキルスイッチ） 全ポジション即時決済（含み損益: -0.88%）"）。
+ * crisis 系は損益が埋め込まれ毎回ユニークになるため、部分一致でバケットに束ねる。
+ *
+ * defensive = 守りの決済（損切り・BE撤退・キルスイッチ・タイム）。決済後に上がると「早く切りすぎ」の兆候。
+ */
+function classifyExit(reason: string): { key: string; label: string; defensive: boolean } {
+  const r = reason;
+  if (/建値撤退|建値売|break.?even/i.test(r)) return { key: "be", label: "BE撤退（建値売り）", defensive: true };
+  if (/トレーリング利確|トレール利確|trailing_profit/i.test(r)) return { key: "trail_profit", label: "トレール利確", defensive: false };
+  if (/crisis|キルスイッチ|防御/i.test(r)) return { key: "crisis", label: "防御決済（キルスイッチ）", defensive: true };
+  if (/タイム|time_stop/i.test(r)) return { key: "time", label: "タイムストップ", defensive: true };
+  if (/SL|損切|stop_loss/i.test(r)) return { key: "stop_loss", label: "損切り・SL", defensive: true };
+  if (/利確|take_profit/i.test(r)) return { key: "take_profit", label: "利確", defensive: false };
+  return { key: "other", label: reason || "不明", defensive: false };
+}
 
 app.get("/", async (c) => {
   const strategy = c.req.query("strategy") ?? "all";
@@ -91,6 +99,7 @@ app.get("/", async (c) => {
   });
 
   type ExitAgg = {
+    label: string; defensive: boolean;
     count: number;
     sum5d: number; n5d: number;
     sum10d: number; n10d: number;
@@ -99,21 +108,21 @@ app.get("/", async (c) => {
   };
   const exitMap = new Map<string, ExitAgg>();
   for (const p of closedPositions) {
-    const reason = (p.exitSnapshot as { exitReason?: string } | null)?.exitReason ?? "unknown";
-    const e = exitMap.get(reason) ?? { count: 0, sum5d: 0, n5d: 0, sum10d: 0, n10d: 0, sumHigh: 0, nHigh: 0, sumLow: 0, nLow: 0 };
+    const reason = (p.exitSnapshot as { exitReason?: string } | null)?.exitReason ?? "";
+    const cls = classifyExit(reason);
+    const e = exitMap.get(cls.key) ?? { label: cls.label, defensive: cls.defensive, count: 0, sum5d: 0, n5d: 0, sum10d: 0, n10d: 0, sumHigh: 0, nHigh: 0, sumLow: 0, nLow: 0 };
     e.count++;
     if (p.postExitReturn5dPct !== null) { e.sum5d += p.postExitReturn5dPct; e.n5d++; }
     if (p.postExitReturn10dPct !== null) { e.sum10d += p.postExitReturn10dPct; e.n10d++; }
     if (p.postExitMaxHighPct !== null) { e.sumHigh += p.postExitMaxHighPct; e.nHigh++; }
     if (p.postExitMinLowPct !== null) { e.sumLow += p.postExitMinLowPct; e.nLow++; }
-    exitMap.set(reason, e);
+    exitMap.set(cls.key, e);
   }
 
-  const exitSummary = Array.from(exitMap.entries())
-    .map(([reason, v]) => ({
-      reason,
-      label: EXIT_REASON_LABELS[reason] ?? reason,
-      defensive: DEFENSIVE_EXIT_REASONS.has(reason),
+  const exitSummary = Array.from(exitMap.values())
+    .map((v) => ({
+      label: v.label,
+      defensive: v.defensive,
       count: v.count,
       avg5dPct: v.n5d > 0 ? v.sum5d / v.n5d : null,
       avg10dPct: v.n10d > 0 ? v.sum10d / v.n10d : null,
