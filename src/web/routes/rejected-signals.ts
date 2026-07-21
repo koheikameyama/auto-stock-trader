@@ -24,6 +24,19 @@ function returnColor(val: number | null): string {
   return COLORS.text;
 }
 
+/** 決済理由の日本語ラベル */
+const EXIT_REASON_LABELS: Record<string, string> = {
+  stop_loss: "損切り",
+  trailing_stop: "BE撤退（建値売り）",
+  trailing_profit: "トレール利確",
+  take_profit: "利確",
+  time_stop: "タイムストップ",
+  crisis: "防御決済",
+};
+
+/** 損切り・BE撤退（＝守りの決済）かどうか。決済後に上がると「早く切りすぎ」の兆候になる理由 */
+const DEFENSIVE_EXIT_REASONS = new Set(["stop_loss", "trailing_stop", "crisis", "time_stop"]);
+
 app.get("/", async (c) => {
   const strategy = c.req.query("strategy") ?? "all";
   const where: Prisma.RejectedSignalWhereInput = {};
@@ -51,6 +64,62 @@ app.get("/", async (c) => {
     avg5dPct: v.count5d > 0 ? v.sum5d / v.count5d : null,
     avg10dPct: v.count10d > 0 ? v.sum10d / v.count10d : null,
   }));
+
+  // === 決済後フォワード（決済理由別） ===
+  // rejected（＝入らなかった判断）とは別問い：「切った後に上がったか＝早く切りすぎか」
+  const posWhere: Prisma.TradingPositionWhereInput = {
+    status: "closed",
+    exitedAt: { not: null },
+    OR: [{ postExitReturn5dPct: { not: null } }, { postExitReturn10dPct: { not: null } }],
+  };
+  if (strategy !== "all") posWhere.strategy = strategy;
+
+  const closedPositions = await prisma.tradingPosition.findMany({
+    where: posWhere,
+    orderBy: { exitedAt: "desc" },
+    take: 500,
+    select: {
+      strategy: true,
+      exitSnapshot: true,
+      postExitReturn5dPct: true,
+      postExitReturn10dPct: true,
+      postExitMaxHighPct: true,
+      postExitMinLowPct: true,
+    },
+  });
+
+  type ExitAgg = {
+    count: number;
+    sum5d: number; n5d: number;
+    sum10d: number; n10d: number;
+    sumHigh: number; nHigh: number;
+    sumLow: number; nLow: number;
+  };
+  const exitMap = new Map<string, ExitAgg>();
+  for (const p of closedPositions) {
+    const reason = (p.exitSnapshot as { exitReason?: string } | null)?.exitReason ?? "unknown";
+    const e = exitMap.get(reason) ?? { count: 0, sum5d: 0, n5d: 0, sum10d: 0, n10d: 0, sumHigh: 0, nHigh: 0, sumLow: 0, nLow: 0 };
+    e.count++;
+    if (p.postExitReturn5dPct !== null) { e.sum5d += p.postExitReturn5dPct; e.n5d++; }
+    if (p.postExitReturn10dPct !== null) { e.sum10d += p.postExitReturn10dPct; e.n10d++; }
+    if (p.postExitMaxHighPct !== null) { e.sumHigh += p.postExitMaxHighPct; e.nHigh++; }
+    if (p.postExitMinLowPct !== null) { e.sumLow += p.postExitMinLowPct; e.nLow++; }
+    exitMap.set(reason, e);
+  }
+
+  const exitSummary = Array.from(exitMap.entries())
+    .map(([reason, v]) => ({
+      reason,
+      label: EXIT_REASON_LABELS[reason] ?? reason,
+      defensive: DEFENSIVE_EXIT_REASONS.has(reason),
+      count: v.count,
+      avg5dPct: v.n5d > 0 ? v.sum5d / v.n5d : null,
+      avg10dPct: v.n10d > 0 ? v.sum10d / v.n10d : null,
+      avgHighPct: v.nHigh > 0 ? v.sumHigh / v.nHigh : null,
+      avgLowPct: v.nLow > 0 ? v.sumLow / v.nLow : null,
+    }))
+    // 守りの決済（損切り・BE）を先頭に、あとは件数順
+    .sort((a, b) => (Number(b.defensive) - Number(a.defensive)) || (b.count - a.count));
 
   const strategyOptions = ["all", "gapup", "post-surge-consolidation"];
 
@@ -83,7 +152,36 @@ app.get("/", async (c) => {
         `)}
       </div>
 
+      <!-- 決済後フォワード（決済理由別）: 「切った後に上がったか＝早く切りすぎか」 -->
+      <div style="border-top:1px solid ${COLORS.border};margin:8px 0 20px"></div>
+      <h2 style="font-size:1.05rem;font-weight:700;margin-bottom:4px;color:${COLORS.text}">決済後フォワード（決済理由別）</h2>
+      <p style="font-size:0.75rem;color:${COLORS.textMuted};margin-bottom:14px;line-height:1.5">
+        決済価格を起点にした平均リターン。<strong>損切り・BE撤退</strong>で<strong style="color:#22c55e">プラス</strong>なら「早く切りすぎ」の兆候、<strong style="color:#ef4444">マイナス</strong>なら決済判断が正しい（続落を回避）。BT却下#38では全決済理由で決済後は続落＝現行の早期手仕舞いが正解と確定済み。
+      </p>
+      ${!exitSummary.length ? html`
+        <div style="background:${COLORS.card};border:1px solid ${COLORS.border};border-radius:8px;padding:24px;text-align:center;color:${COLORS.textMuted};margin-bottom:24px">
+          決済後フォワードのデータなし（決済から10営業日未経過 or クローズ実績なし）
+        </div>
+      ` : html`
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:24px">
+          ${exitSummary.map((s) => html`
+            <div style="background:${COLORS.card};border:1px solid ${s.defensive ? "#f59e0b55" : COLORS.border};border-radius:8px;padding:12px">
+              <div style="font-size:0.75rem;color:${COLORS.textMuted};margin-bottom:4px">
+                ${s.label}${s.defensive ? html`<span style="color:#f59e0b"> ●守り</span>` : ""}
+              </div>
+              <div style="font-size:1.1rem;font-weight:700;color:${COLORS.text};margin-bottom:6px">${s.count}件</div>
+              <div style="font-size:0.8rem;color:${returnColor(s.avg5dPct)}">決済後5日: ${formatReturnPct(s.avg5dPct)}</div>
+              <div style="font-size:0.8rem;color:${returnColor(s.avg10dPct)}">決済後10日: ${formatReturnPct(s.avg10dPct)}</div>
+              <div style="font-size:0.7rem;color:${COLORS.textMuted};margin-top:4px">
+                H(最大戻り) ${formatReturnPct(s.avgHighPct)} / L(最大続落) ${formatReturnPct(s.avgLowPct)}
+              </div>
+            </div>
+          `)}
+        </div>
+      `}
+
       <!-- 個別一覧テーブル -->
+      <h2 style="font-size:1.05rem;font-weight:700;margin-bottom:12px;color:${COLORS.text}">弾かれたシグナル一覧</h2>
       <div style="background:${COLORS.card};border:1px solid ${COLORS.border};border-radius:8px;overflow:hidden">
         <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
           <thead>
