@@ -9,6 +9,7 @@ import { prisma } from "../../lib/prisma";
 import { QUERY_LIMITS, ROUTE_LOOKBACK_DAYS, POSITION_DEFAULTS } from "../../lib/constants";
 import { calculateTrailingStop } from "../../core/trailing-stop";
 import { getPositionPnl } from "../../core/position-manager";
+import { exitReasonLabel } from "../../core/exit-reason";
 import { layout } from "../views/layout";
 import {
   formatYen,
@@ -198,7 +199,8 @@ app.get("/", async (c) => {
                       })()}</td>
                       <td style="white-space:nowrap">${(() => {
                         const snap = p.exitSnapshot as { exitReason?: string } | null;
-                        return snap?.exitReason ?? "-";
+                        // 保存はコード（新）/日本語（旧）どちらもラベルに正規化して表示
+                        return snap?.exitReason ? exitReasonLabel(snap.exitReason) : "-";
                       })()}</td>
                       <td style="white-space:nowrap">${(() => {
                         const v = p.postExitReturn5dPct;

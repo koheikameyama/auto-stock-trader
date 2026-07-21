@@ -9,6 +9,7 @@ import { html } from "hono/html";
 import dayjs from "dayjs";
 import { prisma } from "../../lib/prisma";
 import { getPositionPnl } from "../../core/position-manager";
+import { classifyExitReason } from "../../core/exit-reason";
 import { QUERY_LIMITS, ROUTE_LOOKBACK_DAYS } from "../../lib/constants";
 import { COLORS } from "../views/styles";
 import { layout } from "../views/layout";
@@ -35,21 +36,27 @@ function getExitReason(snapshot: unknown): string {
 }
 
 /**
- * exitReason を分類にまとめる。
- * exitSnapshot に保存されるのは日本語ラベル（position-monitor の EXIT_REASON_LABELS）
- * およびブローカー自律執行の文言（例「SL約定（ブローカー自律執行）」）なので、
- * 英語コードではなくラベル文字列で判定する。
+ * exitReason を history 用カテゴリにまとめる。
+ * 保存値はコード（新）／日本語ラベル（旧）が混在するため、単一ソースの
+ * {@link classifyExitReason} で正規化してから history のカテゴリに写像する。
  * トレーリング建値撤退（発動後に建値以下で撤退＝利益を伸ばせていない）は
  * 「トレーリング利確」とは別カテゴリにして trailingPct を正しく保つ。
  */
 function classifyExit(
   reason: string,
 ): "sl" | "trailing" | "trailing_be" | "time_stop" | "other" {
-  if (reason.includes("建値撤退")) return "trailing_be";
-  if (reason.includes("トレーリング")) return "trailing";
-  if (reason.includes("損切り") || reason.includes("SL")) return "sl";
-  if (reason.includes("タイムストップ")) return "time_stop";
-  return "other";
+  switch (classifyExitReason(reason).code) {
+    case "stop_loss":
+      return "sl";
+    case "trailing_profit":
+      return "trailing";
+    case "trailing_stop":
+      return "trailing_be";
+    case "time_stop":
+      return "time_stop";
+    default:
+      return "other";
+  }
 }
 
 const EXIT_COLORS: Record<string, string> = {

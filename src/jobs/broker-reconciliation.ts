@@ -33,6 +33,7 @@ import { recoverMissedFills } from "../core/broker-fill-handler";
 import { TACHIBANA_ORDER, TACHIBANA_ORDER_STATUS, BROKER_RECONCILIATION, isTachibanaProduction } from "../lib/constants/broker";
 import { TIMEZONE } from "../lib/constants";
 import { closePosition } from "../core/position-manager";
+import { EXIT_REASON } from "../core/exit-reason";
 import { cancelBrokerSL } from "../core/broker-sl-manager";
 
 dayjs.extend(utc);
@@ -437,7 +438,8 @@ async function handleMissingHolding(position: {
           }
 
           await closePosition(position.id, filledPrice, {
-            exitReason: "SL約定（ブローカー自律執行・照合リカバリ）",
+            // 保存はコード（旧: "SL約定（ブローカー自律執行・照合リカバリ）"）。Slack 文言は下の notifySlack で日本語
+            exitReason: EXIT_REASON.STOP_LOSS,
             exitPrice: filledPrice,
             marketContext: null,
           });

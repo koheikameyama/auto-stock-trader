@@ -481,7 +481,7 @@ describe("handleBrokerFill", () => {
       expect(mockClosePosition).toHaveBeenCalledWith(
         "pos-sl-1",
         1334,
-        expect.objectContaining({ exitReason: "SL約定（ブローカー自律執行）", exitPrice: 1334 }),
+        expect.objectContaining({ exitReason: "stop_loss", exitPrice: 1334 }),
         1366,
       );
       // slBrokerOrderId をクリア
@@ -559,7 +559,7 @@ describe("handleBrokerFill", () => {
       expect(mockClosePosition).toHaveBeenCalledWith(
         "pos-sl-1",
         1334,
-        expect.objectContaining({ exitReason: "SL約定（ブローカー自律執行）" }),
+        expect.objectContaining({ exitReason: "stop_loss" }),
         1366,
       );
     });
