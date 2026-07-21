@@ -14,6 +14,7 @@ import { getOrderDetail, extractFilledPrice } from "./broker-orders";
 import { claimOrderFill } from "./order-executor";
 import { openPosition, closePosition, getPositionPnl, extractRegimeInfoFromSnapshot } from "./position-manager";
 import { submitBrokerSL } from "./broker-sl-manager";
+import { EXIT_REASON } from "./exit-reason";
 import { validateStopLoss } from "./risk-manager";
 import { notifyOrderFilled, notifySlack } from "../lib/slack";
 import { isPostCloseOrderBlackout } from "../lib/market-date";
@@ -398,9 +399,9 @@ async function handleSellFill(
       ? Number(position.trailingStopPrice ?? position.stopLossPrice ?? 0) || null
       : null;
 
-    // ポジションをクローズ
+    // ポジションをクローズ（保存はコード、Slack 文言は下の notifyOrderFilled で日本語）
     const exitSnapshot = {
-      exitReason: "ブローカー約定（WebSocket）",
+      exitReason: EXIT_REASON.STOP_LOSS,
       exitPrice: filledPrice,
       marketContext: null,
     };
@@ -538,7 +539,8 @@ export async function handleBrokerSLFill(
     position.id,
     filledPrice,
     {
-      exitReason: "SL約定（ブローカー自律執行）",
+      // 保存はコード（旧: "SL約定（ブローカー自律執行）"）、Slack 文言は下の notifyOrderFilled で日本語
+      exitReason: EXIT_REASON.STOP_LOSS,
       exitPrice: filledPrice,
       marketContext: null,
     } as object,

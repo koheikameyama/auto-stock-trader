@@ -203,7 +203,7 @@ describe("broker-reconciliation: Phase 3 保有照合", () => {
     expect(mockClosePosition).toHaveBeenCalledWith(
       "pos-1",
       890,
-      expect.objectContaining({ exitReason: expect.stringContaining("SL約定") }),
+      expect.objectContaining({ exitReason: "stop_loss" }),
     );
   });
 
@@ -338,7 +338,7 @@ describe("broker-reconciliation: Phase 3 保有照合", () => {
     expect(mockClosePosition).toHaveBeenCalledWith(
       "pos-1",
       890,
-      expect.objectContaining({ exitReason: expect.stringContaining("SL約定") }),
+      expect.objectContaining({ exitReason: "stop_loss" }),
     );
   });
 

@@ -42,7 +42,7 @@ import {
   extractRegimeInfoFromSnapshot,
 } from "../core/position-manager";
 import { checkPositionExit } from "../core/exit-checker";
-import type { ExitReason } from "../core/exit-checker";
+import { exitReasonLabel, EXIT_REASON } from "../core/exit-reason";
 import {
   adjustForExDividend,
   adjustForSplit,
@@ -781,21 +781,14 @@ export async function main() {
     const newMinLow = exitResult.newMinLow;
     const exitPrice = exitResult.exitPrice;
 
-    // 出口理由の日本語変換
-    const EXIT_REASON_LABELS: Record<ExitReason, string> = {
-      take_profit: "利確",
-      stop_loss: "損切り",
-      trailing_profit: "トレーリング利確",
-      trailing_stop: "トレーリング建値撤退",
-      time_stop: "タイムストップ",
-    };
-    const exitReason = exitResult.exitReason
-      ? EXIT_REASON_LABELS[exitResult.exitReason]
-      : "";
+    // 保存はコード（exitSnapshot.exitReason）、Slack/console 表示は日本語ラベルに分離する。
+    // 日本語の合成文字列を DB に保存しないため（分類・集計はコードで行う）。
+    const exitReasonCode = exitResult.exitReason ?? "";
+    const exitReasonText = exitReasonCode ? exitReasonLabel(exitReasonCode) : "";
 
     if (exitPrice !== null) {
       console.log(
-        `  → ${position.stock.tickerCode}: ${exitReason}! ¥${exitPrice.toLocaleString()}`,
+        `  → ${position.stock.tickerCode}: ${exitReasonText}! ¥${exitPrice.toLocaleString()}`,
       );
 
       const latestAssessment = await prisma.marketAssessment.findFirst({
@@ -804,7 +797,7 @@ export async function main() {
       });
 
       const exitSnapshot: ExitSnapshot = {
-        exitReason,
+        exitReason: exitReasonCode,
         exitPrice,
         priceJourney: {
           maxHigh: newMaxHigh,
@@ -824,7 +817,8 @@ export async function main() {
       };
 
       // ブローカー連携: SL取消 → 成行売り → 売り成功時のみ close + 通知（幻の決済防止）
-      await executeExitSell({ position, exitPrice, exitSnapshot, exitReason });
+      // exitReason（Slack/通知文）は日本語ラベル、exitSnapshot.exitReason はコードで別々に渡す
+      await executeExitSell({ position, exitPrice, exitSnapshot, exitReason: exitReasonText });
     } else {
       // maxHigh/trailingStopPrice を更新
       const updateData: Record<string, number | null> = {};
@@ -921,7 +915,7 @@ export async function main() {
     const earningsReason = `決算前強制決済（決算まで${diffDays}日）`;
 
     const exitSnapshot: ExitSnapshot = {
-      exitReason: earningsReason,
+      exitReason: EXIT_REASON.EARNINGS,
       exitPrice: quote.price,
       priceJourney: {
         maxHigh,
@@ -977,7 +971,7 @@ export async function main() {
       : svDayHigh;
 
     const exitSnapshot: ExitSnapshot = {
-      exitReason: supervisionReason,
+      exitReason: EXIT_REASON.SUPERVISION,
       exitPrice: quote.price,
       priceJourney: { maxHigh },
       marketContext: null,
@@ -1081,7 +1075,7 @@ export async function main() {
           : defDayHigh;
 
         const exitSnapshot: ExitSnapshot = {
-          exitReason: defensiveReason,
+          exitReason: EXIT_REASON.CRISIS,
           exitPrice: quote.price,
           priceJourney: {
             maxHigh,
