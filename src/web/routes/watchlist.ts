@@ -16,6 +16,7 @@ import { GAPUP } from "../../lib/constants/gapup";
 import { POST_SURGE_CONSOLIDATION } from "../../lib/constants/post-surge-consolidation";
 import { layout } from "../views/layout";
 import { tickerLink, tt } from "../views/components";
+import { STRATEGY_LABELS } from "../views/strategy-labels";
 import { getAllWatchlist } from "../../jobs/watchlist-builder";
 import { getTodayForDB } from "../../lib/market-date";
 
@@ -159,6 +160,10 @@ app.get("/", async (c) => {
         });
       }
 
+      var TAB_COLORS = {
+        gu: { c: '${STRATEGY_LABELS.gapup.color}', bg: '${STRATEGY_LABELS.gapup.bg}' },
+        psc: { c: '${STRATEGY_LABELS["post-surge-consolidation"].color}', bg: '${STRATEGY_LABELS["post-surge-consolidation"].bg}' }
+      };
       function switchTab(tab) {
         currentTab = tab;
         var tabs = ['gu', 'psc'];
@@ -166,9 +171,9 @@ app.get("/", async (c) => {
           var el = document.getElementById('tab-' + t);
           if (!el) return;
           if (t === tab) {
-            el.style.background = '#334155';
-            el.style.borderColor = '#64748b';
-            el.style.color = '#f1f5f9';
+            el.style.background = TAB_COLORS[t].bg;
+            el.style.borderColor = TAB_COLORS[t].c;
+            el.style.color = TAB_COLORS[t].c;
           } else {
             el.style.background = '#1e293b';
             el.style.borderColor = '#334155';

@@ -8,7 +8,8 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { COLORS } from "../views/styles";
 import { layout } from "../views/layout";
-import { strategyShortLabel } from "../views/strategy-labels";
+import { strategyShortLabel, strategyColor } from "../views/strategy-labels";
+import { strategyBadge } from "../views/components";
 
 const app = new Hono();
 
@@ -130,15 +131,18 @@ app.get("/", async (c) => {
 
       <!-- 戦略フィルター -->
       <div style="display:flex;gap:8px;margin-bottom:20px">
-        ${strategyOptions.map((s) => html`
+        ${strategyOptions.map((s) => {
+          const activeBg = s === "all" ? COLORS.accent : strategyColor(s);
+          return html`
           <a href="/rejected-signals?strategy=${s}"
              style="padding:4px 12px;border-radius:4px;font-size:0.8rem;text-decoration:none;
-                    background:${strategy === s ? COLORS.accent : COLORS.card};
+                    background:${strategy === s ? activeBg : COLORS.card};
                     color:${strategy === s ? "#fff" : COLORS.textMuted};
                     border:1px solid ${COLORS.border}">
             ${s === "all" ? "すべて" : strategyShortLabel(s)}
           </a>
-        `)}
+        `;
+        })}
       </div>
 
       <!-- 理由別集計カード -->
@@ -203,7 +207,7 @@ app.get("/", async (c) => {
               <tr style="border-bottom:1px solid ${COLORS.border}">
                 <td style="padding:8px 12px;color:${COLORS.textMuted}">${new Date(s.rejectedAt).toLocaleDateString("ja-JP")}</td>
                 <td style="padding:8px 12px;color:${COLORS.text};font-weight:600">${s.ticker}</td>
-                <td style="padding:8px 12px;color:${COLORS.textMuted}">${strategyShortLabel(s.strategy)}</td>
+                <td style="padding:8px 12px">${strategyBadge(s.strategy)}</td>
                 <td style="padding:8px 12px;color:${COLORS.text}">${s.reasonLabel}</td>
                 <td style="padding:8px 12px;text-align:right;color:${COLORS.text}">¥${s.entryPrice.toLocaleString()}</td>
                 <td style="padding:8px 12px;text-align:right;color:${returnColor(s.return5dPct)}">${formatReturnPct(s.return5dPct)}</td>

@@ -2,6 +2,8 @@
  * ダッシュボード CSS スタイル定義（ダークテーマ）
  */
 
+import { STRATEGY_LABELS } from "./strategy-labels";
+
 export const COLORS = {
   bg: "#0f172a",
   card: "#1e293b",
@@ -108,10 +110,10 @@ export const CSS = `
   .badge-normal { background: rgba(34,197,94,0.15); color: ${COLORS.bullish}; }
   .badge-neutral { background: rgba(148,163,184,0.15); color: ${COLORS.neutral}; }
   .badge-crisis { background: rgba(220,38,38,0.15); color: ${COLORS.crisis}; }
-  .badge-breakout { background: rgba(59,130,246,0.15); color: ${COLORS.accent}; }
-  .badge-gapup { background: rgba(168,85,247,0.15); color: #a855f7; }
-  .badge-psc { background: rgba(168,85,247,0.15); color: #a855f7; }
-  .badge-us_etf { background: rgba(14,165,233,0.15); color: #0ea5e9; }
+  .badge-breakout { background: ${STRATEGY_LABELS.breakout.bg}; color: ${STRATEGY_LABELS.breakout.color}; }
+  .badge-gapup { background: ${STRATEGY_LABELS.gapup.bg}; color: ${STRATEGY_LABELS.gapup.color}; }
+  .badge-psc { background: ${STRATEGY_LABELS["post-surge-consolidation"].bg}; color: ${STRATEGY_LABELS["post-surge-consolidation"].color}; }
+  .badge-us_etf { background: ${STRATEGY_LABELS.us_etf.bg}; color: ${STRATEGY_LABELS.us_etf.color}; }
   .badge-hot { background: rgba(245,158,11,0.15); color: #f59e0b; }
   .badge-triggered { background: rgba(59,130,246,0.15); color: ${COLORS.accent}; }
   .badge-rejected { background: rgba(239,68,68,0.15); color: ${COLORS.loss}; }
