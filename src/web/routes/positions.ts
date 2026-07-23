@@ -6,7 +6,7 @@ import { Hono } from "hono";
 import { html } from "hono/html";
 import dayjs from "dayjs";
 import { prisma } from "../../lib/prisma";
-import { QUERY_LIMITS, ROUTE_LOOKBACK_DAYS, POSITION_DEFAULTS } from "../../lib/constants";
+import { QUERY_LIMITS, POSITION_DEFAULTS } from "../../lib/constants";
 import { calculateTrailingStop } from "../../core/trailing-stop";
 import { getPositionPnl } from "../../core/position-manager";
 import { exitReasonLabel } from "../../core/exit-reason";
@@ -23,21 +23,11 @@ import type { TradingStrategy } from "../../core/market-regime";
 const app = new Hono();
 
 app.get("/", async (c) => {
-  // クローズ済みの表示範囲: デフォルトは直近7日、closed=all で全期間
-  const showAllClosed = c.req.query("closed") === "all";
+  // クローズ済みは全期間をページネーションで表示
   const closedPageSize = QUERY_LIMITS.POSITIONS_CLOSED;
   const closedPage = Math.max(1, Number.parseInt(c.req.query("page") ?? "1", 10) || 1);
 
-  const closedWhere = {
-    status: "closed" as const,
-    ...(showAllClosed
-      ? {}
-      : {
-          exitedAt: {
-            gte: dayjs().subtract(ROUTE_LOOKBACK_DAYS.POSITIONS_CLOSED, "day").toDate(),
-          },
-        }),
-  };
+  const closedWhere = { status: "closed" as const };
 
   const [openPositions, closedTotal, closedPositions] = await Promise.all([
     prisma.tradingPosition.findMany({
@@ -149,20 +139,7 @@ app.get("/", async (c) => {
         `
       : html`<div class="card">${emptyState("オープンポジションなし")}</div>`}
 
-    ${(() => {
-      const linkStyle = (active: boolean) =>
-        `display:inline-block;padding:2px 10px;border-radius:6px;font-size:0.8rem;text-decoration:none;` +
-        (active ? "background:#3b82f6;color:#fff" : "background:#3b82f620;color:#3b82f6");
-      return html`
-        <p class="section-title">
-          クローズ済み (${showAllClosed ? "全期間" : "直近7日"}) ${closedTotal}件
-          <span style="margin-left:8px">
-            <a href="/positions?closed=7d" style="${linkStyle(!showAllClosed)}">直近7日</a>
-            <a href="/positions?closed=all" style="${linkStyle(showAllClosed)}">全期間</a>
-          </span>
-        </p>
-      `;
-    })()}
+    <p class="section-title">クローズ済み (全期間) ${closedTotal}件</p>
     ${closedPositions.length > 0
       ? html`
           <div class="card table-wrap">
@@ -257,7 +234,6 @@ app.get("/", async (c) => {
           </div>
           ${(() => {
             if (closedTotalPages <= 1) return "";
-            const q = showAllClosed ? "all" : "7d";
             const pageLinkStyle = (enabled: boolean) =>
               `display:inline-block;padding:4px 12px;border-radius:6px;font-size:0.85rem;text-decoration:none;` +
               (enabled
@@ -268,13 +244,13 @@ app.get("/", async (c) => {
             return html`
               <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:12px">
                 <a
-                  href="/positions?closed=${q}&page=${closedPage - 1}"
+                  href="/positions?page=${closedPage - 1}"
                   style="${pageLinkStyle(prevEnabled)}"
                   >← 前へ</a
                 >
                 <span style="font-size:0.85rem;color:#94a3b8">${closedPage} / ${closedTotalPages}</span>
                 <a
-                  href="/positions?closed=${q}&page=${closedPage + 1}"
+                  href="/positions?page=${closedPage + 1}"
                   style="${pageLinkStyle(nextEnabled)}"
                   >次へ →</a
                 >
@@ -282,11 +258,7 @@ app.get("/", async (c) => {
             `;
           })()}
         `
-      : html`<div class="card">${emptyState(
-          showAllClosed
-            ? "クローズポジションなし"
-            : "直近7日のクローズポジションなし",
-        )}</div>`}
+      : html`<div class="card">${emptyState("クローズポジションなし")}</div>`}
   `;
 
   return c.html(layout("ポジション", "/positions", content));
