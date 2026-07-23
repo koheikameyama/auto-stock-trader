@@ -292,7 +292,7 @@ export function getMacroFactor(sectorGroup: string | null): string | null {
 // ========================================
 
 export const SECTOR_RISK = {
-  MAX_SAME_SECTOR_POSITIONS: 1, // 同一セクター最大保有数
+  MAX_SAME_SECTOR_POSITIONS: 2, // 同一セクター最大保有数（KOH-583: 1→2 に緩和。現エンジン16窓で1件と有意差なし=無害な緩和、取り逃し低減目的）
   MAX_SAME_MACRO_POSITIONS: 2, // 同一マクロファクター最大保有数
   WEAK_SECTOR_THRESHOLD: -2.0, // 弱セクター判定（日経比 相対パフォーマンス%）
   NEWS_SENTIMENT_DAYS: 3, // ニュースセンチメント集約日数
