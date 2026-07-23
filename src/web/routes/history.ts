@@ -21,6 +21,7 @@ import {
   miniBarChart,
   detailRow,
   signalRow,
+  strategyBadge,
   tt,
 } from "../views/components";
 import type { SignalStatus } from "../views/components";
@@ -200,6 +201,41 @@ app.get("/", async (c) => {
     0,
   );
 
+  // === 戦略別損益の内訳 ===
+  // closedPositions を strategy でグループ化し、戦略ごとに 件数 / 損益 / 勝率 / PF を集計する。
+  const strategyStats = new Map<
+    string,
+    { count: number; pnl: number; wins: number; grossProfit: number; grossLoss: number }
+  >();
+  for (const p of closedPositions) {
+    const stat = strategyStats.get(p.strategy) ?? {
+      count: 0,
+      pnl: 0,
+      wins: 0,
+      grossProfit: 0,
+      grossLoss: 0,
+    };
+    const pnl = getPositionPnl(p);
+    stat.count++;
+    stat.pnl += pnl;
+    if (pnl > 0) {
+      stat.wins++;
+      stat.grossProfit += pnl;
+    } else {
+      stat.grossLoss += Math.abs(pnl);
+    }
+    strategyStats.set(p.strategy, stat);
+  }
+  const strategyRows = [...strategyStats.entries()]
+    .map(([strategy, s]) => ({
+      strategy,
+      count: s.count,
+      pnl: s.pnl,
+      winRate: s.count > 0 ? (s.wins / s.count) * 100 : 0,
+      pf: s.grossLoss > 0 ? s.grossProfit / s.grossLoss : s.grossProfit > 0 ? Infinity : 0,
+    }))
+    .sort((a, b) => b.pnl - a.pnl);
+
   // === Signal selection accuracy ===
   const entryPnlPcts = closedPositions
     .filter((p) => p.entryPrice && p.exitPrice && Number(p.entryPrice) > 0)
@@ -288,6 +324,39 @@ app.get("/", async (c) => {
             ${detailRow(tt("利益返還率", "MFEのうち返した割合。低いほど利益を守れている"), `${(avgGiveback * 100).toFixed(0)}%`)}
             ${detailRow("\u640D\u76CA", pnlText(totalPnl))}
             ${detailRow("\u53D6\u5F15\u6570", `${totalClosed}\u4EF6`)}
+          </div>
+        `
+      : html`<div class="card">${emptyState("\u6C7A\u6E08\u6E08\u307F\u30C8\u30EC\u30FC\u30C9\u306A\u3057")}</div>`}
+
+    <!-- Strategy Breakdown -->
+    <p class="section-title">${tt("\u6226\u7565\u5225\u640D\u76CA", "\u6226\u7565\u3054\u3068\u306E\u5B9F\u73FE\u640D\u76CA\u30FB\u4EF6\u6570\u30FB\u52DD\u7387\u30FBPF")}\uFF0890\u65E5\uFF09</p>
+    ${strategyRows.length > 0
+      ? html`
+          <div class="card table-wrap responsive-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>\u6226\u7565</th>
+                  <th>\u53D6\u5F15</th>
+                  <th>${tt("\u52DD\u7387", "\u5229\u76CA\u304C\u51FA\u305F\u30C8\u30EC\u30FC\u30C9\u306E\u5272\u5408")}</th>
+                  <th>${tt("PF", "\u30D7\u30ED\u30D5\u30A3\u30C3\u30C8\u30D5\u30A1\u30AF\u30BF\u30FC\u3002\u7DCF\u5229\u76CA\u00F7\u7DCF\u640D\u5931")}</th>
+                  <th>${tt("\u640D\u76CA", "\u6226\u7565\u3054\u3068\u306E\u5B9F\u73FE\u640D\u76CA\u5408\u8A08")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${strategyRows.map(
+                  (r) => html`
+                    <tr>
+                      <td data-label="\u6226\u7565">${strategyBadge(r.strategy)}</td>
+                      <td data-label="\u53D6\u5F15">${r.count}\u4EF6</td>
+                      <td data-label="\u52DD\u7387">${r.winRate.toFixed(0)}%</td>
+                      <td data-label="PF">${r.pf === Infinity ? "\u221E" : r.pf.toFixed(2)}</td>
+                      <td data-label="\u640D\u76CA">${pnlText(r.pnl)}</td>
+                    </tr>
+                  `,
+                )}
+              </tbody>
+            </table>
           </div>
         `
       : html`<div class="card">${emptyState("\u6C7A\u6E08\u6E08\u307F\u30C8\u30EC\u30FC\u30C9\u306A\u3057")}</div>`}
