@@ -14,7 +14,7 @@ import { getTodayForDB } from "../lib/market-date";
 import { tachibanaFetchQuotesBatch } from "../lib/tachibana-price-client";
 import { getAllWatchlist } from "./watchlist-builder";
 import { executeEntry } from "../core/breakout/entry-executor";
-import { getSameDayPendingBuyTickers, countSameDayPendingBuys } from "../core/order-executor";
+import { getSameDayPendingBuyTickers, countSameDayPendingBuys, getRecentlyExitedTickers } from "../core/order-executor";
 import { notifySlack } from "../lib/slack";
 import { TIMEZONE } from "../lib/constants";
 import { TRADING_DEFAULTS } from "../lib/constants/trading";
@@ -90,6 +90,9 @@ export async function main(): Promise<void> {
     // 約定前は TradingPosition が無いため、当日の pending 買い注文（全戦略横断）も保有扱いで除外。
     // 先行する GU/PSC が出した未約定注文を検知できず同一銘柄に二重建てする事故を防ぐ（Issue #322）。
     for (const t of await getSameDayPendingBuyTickers()) holdingTickers.add(t);
+    // 決済後3営業日の再エントリー cooldown（戦略横断・global）。BT combined-simulation の
+    // cooldownDays: 3 と整合させる（本番は従来 cooldown 0日で、朝決済→同日15:24に即再建玉していた。KOH-586）。
+    for (const t of await getRecentlyExitedTickers()) holdingTickers.add(t);
 
     // リアルタイム時価を一括取得
     const quotesRaw = await tachibanaFetchQuotesBatch(tickers);

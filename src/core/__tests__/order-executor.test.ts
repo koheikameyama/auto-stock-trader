@@ -4,10 +4,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // モック設定
 // ========================================
 
-const { mockOrderFindMany, mockOrderUpdateMany } = vi.hoisted(() => ({
-  mockOrderFindMany: vi.fn(),
-  mockOrderUpdateMany: vi.fn().mockResolvedValue({ count: 0 }),
-}));
+const { mockOrderFindMany, mockOrderUpdateMany, mockPositionFindMany, mockCountTradingDaysBetween } =
+  vi.hoisted(() => ({
+    mockOrderFindMany: vi.fn(),
+    mockOrderUpdateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    mockPositionFindMany: vi.fn(),
+    mockCountTradingDaysBetween: vi.fn(),
+  }));
 
 vi.mock("../../lib/prisma", () => ({
   prisma: {
@@ -15,15 +18,20 @@ vi.mock("../../lib/prisma", () => ({
       findMany: mockOrderFindMany,
       updateMany: mockOrderUpdateMany,
     },
+    tradingPosition: {
+      findMany: mockPositionFindMany,
+    },
   },
 }));
 
-// getStartOfDayJST は固定値で十分（クエリ条件の検証用）
+// getStartOfDayJST は固定値で十分（クエリ条件の検証用）。
+// countTradingDaysBetween はテストごとに「決済からの経過営業日数」を制御する。
 vi.mock("../../lib/market-date", () => ({
   getStartOfDayJST: () => new Date("2026-06-30T00:00:00.000Z"),
+  countTradingDaysBetween: mockCountTradingDaysBetween,
 }));
 
-import { getSameDayPendingBuyTickers, expireOrders } from "../order-executor";
+import { getSameDayPendingBuyTickers, getRecentlyExitedTickers, expireOrders } from "../order-executor";
 
 // ========================================
 // getSameDayPendingBuyTickers（Issue #322: 戦略横断の二重発注防止）
@@ -54,6 +62,59 @@ describe("getSameDayPendingBuyTickers", () => {
   it("当日の pending 買い注文が無ければ空集合", async () => {
     mockOrderFindMany.mockResolvedValue([]);
     expect(await getSameDayPendingBuyTickers()).toEqual(new Set());
+  });
+});
+
+// ========================================
+// getRecentlyExitedTickers（KOH-586: 決済後3営業日の再エントリー cooldown）
+// ========================================
+
+describe("getRecentlyExitedTickers", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("cooldown(=3営業日)未満で決済した銘柄だけを除外集合に入れる（3営業日後に解禁）", async () => {
+    const mk = (code: string, iso: string) => ({
+      exitedAt: new Date(iso),
+      stock: { tickerCode: code },
+    });
+    // 経過営業日数を exitedAt ごとに制御: 0=当日 / 2=2営業日前 / 3=3営業日前（解禁）
+    const daysByExit = new Map<string, number>([
+      ["2026-07-16T00:00:00.000Z", 0], // 当日決済 → 除外
+      ["2026-07-14T00:00:00.000Z", 2], // 2営業日前 → 除外
+      ["2026-07-11T00:00:00.000Z", 3], // 3営業日前 → 解禁（含めない）
+    ]);
+    mockPositionFindMany.mockResolvedValue([
+      mk("3276.T", "2026-07-16T00:00:00.000Z"),
+      mk("9900.T", "2026-07-14T00:00:00.000Z"),
+      mk("7203.T", "2026-07-11T00:00:00.000Z"),
+    ]);
+    mockCountTradingDaysBetween.mockImplementation(
+      (from: Date) => daysByExit.get(from.toISOString()) ?? 99,
+    );
+
+    const tickers = await getRecentlyExitedTickers();
+
+    expect(tickers).toEqual(new Set(["3276.T", "9900.T"]));
+    // status=closed / exitedAt を lookback で絞っていること
+    const where = mockPositionFindMany.mock.calls[0][0].where;
+    expect(where.status).toBe("closed");
+    expect(where.exitedAt.gte).toBeInstanceOf(Date);
+  });
+
+  it("cooldownTradingDays=0 なら DB を引かずに空集合（cooldown無効）", async () => {
+    const tickers = await getRecentlyExitedTickers(0);
+    expect(tickers).toEqual(new Set());
+    expect(mockPositionFindMany).not.toHaveBeenCalled();
+  });
+
+  it("exitedAt が null のポジションは無視する", async () => {
+    mockPositionFindMany.mockResolvedValue([
+      { exitedAt: null, stock: { tickerCode: "1234.T" } },
+    ]);
+    mockCountTradingDaysBetween.mockReturnValue(0);
+    expect(await getRecentlyExitedTickers()).toEqual(new Set());
   });
 });
 

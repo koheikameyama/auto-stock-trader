@@ -29,6 +29,11 @@ export const TRADING_DEFAULTS = {
   MAX_POSITIONS_PSC: 2,
   MAX_POSITION_PCT: 40, // 1銘柄集中リスク防止（50万円規模: 最大20万/銘柄）
   MAX_DAILY_LOSS_PCT: 3, // 日次最大損失率(%)
+  // 決済後に同一銘柄を再エントリーするまで空ける営業日数（戦略横断・global）。
+  // BT combined-simulation の各戦略 cooldownDays: 3 と対応。BTは共有 lastExitDayIdx に対し
+  // `dayIdx - lastExit < 3` で判定するため、本番は countTradingDaysBetween(決済日, 今日) < 3 で一致させる
+  // （決済当日=0で除外、3営業日後に解禁）。却下#43(KOH-558): 0日は3日に符号検定 p=0.038 で有意に劣る。
+  REENTRY_COOLDOWN_TRADING_DAYS: 3,
 } as const;
 
 

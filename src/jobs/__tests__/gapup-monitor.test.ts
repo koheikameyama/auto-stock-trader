@@ -15,6 +15,7 @@ const {
   mockGapUpScan,
   mockGetSameDayPendingBuyTickers,
   mockCountSameDayPendingBuys,
+  mockGetRecentlyExitedTickers,
 } = vi.hoisted(() => ({
   mockGetWatchlist: vi.fn(), // getGuWatchlist のモック
   mockFetchQuotes: vi.fn(),
@@ -26,6 +27,7 @@ const {
   mockGapUpScan: vi.fn().mockReturnValue([]),
   mockGetSameDayPendingBuyTickers: vi.fn().mockResolvedValue(new Set()),
   mockCountSameDayPendingBuys: vi.fn().mockResolvedValue(0),
+  mockGetRecentlyExitedTickers: vi.fn().mockResolvedValue(new Set()),
 }));
 
 vi.mock("../../lib/prisma", () => ({
@@ -46,6 +48,7 @@ vi.mock("../../core/breakout/entry-executor", () => ({
 vi.mock("../../core/order-executor", () => ({
   getSameDayPendingBuyTickers: mockGetSameDayPendingBuyTickers,
   countSameDayPendingBuys: mockCountSameDayPendingBuys,
+  getRecentlyExitedTickers: mockGetRecentlyExitedTickers,
 }));
 vi.mock("../../lib/slack", () => ({ notifySlack: mockNotifySlack }));
 vi.mock("../../lib/market-date", () => ({
