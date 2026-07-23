@@ -43,10 +43,29 @@ function getRejectedLabel(reason: string): string | null {
   if (/集中率上限|投資比率上限/.test(reason)) return "集中率上限";
   if (/最大同時保有数/.test(reason)) return "ポジション数上限";
   if (/流動性/.test(reason)) return "流動性不足";
+  if (/マクロファクター/.test(reason)) return "マクロ集中";
   if (/セクター/.test(reason)) return "セクター集中";
   if (/連敗クールダウン/.test(reason)) return "連敗クールダウン";
   return null;
 }
+
+/**
+ * Slack 通知する棄却ラベル（「取り逃し」系のうち、monitor が通知しないもの）。
+ *
+ * ルールで良いセットアップを弾いた棄却だけ通知する。資金切れ（残高不足）・連敗クールダウンは
+ * 日常的に頻発しノイズになるため除外。
+ *
+ * 「集中率上限」は非リトライ系のため monitor 側（gapup / post-surge-consolidation）が
+ * 既に `[GU/PSC] エントリー失敗` を通知しており、ここで通知すると二重になるため除外する。
+ * セクター集中 / マクロ集中 / 流動性不足 はリトライ系で monitor が console.log のみ、
+ * ポジション数上限は monitor が当日打ち止めで break（Slack 無し）だったため、ここで拾う。
+ */
+const NOTIFY_REJECT_LABELS = new Set<string>([
+  "セクター集中",
+  "マクロ集中",
+  "ポジション数上限",
+  "流動性不足",
+]);
 
 /** RejectedSignal を非同期で保存（エラーは握りつぶしてメイン処理を止めない） */
 async function saveRejectedSignal(params: {
@@ -56,7 +75,20 @@ async function saveRejectedSignal(params: {
   reasonLabel: string;
   entryPrice: number;
 }): Promise<void> {
+  let firstToday = false;
   try {
+    // 同一銘柄×同一理由が当日既に記録済みかを先に確認（Slack のスパム防止＝当日1回に集約）
+    // monitor がリトライで同じ銘柄を複数回弾いても通知は1回だけにする
+    const alreadyToday = await prisma.rejectedSignal.findFirst({
+      where: {
+        ticker: params.ticker,
+        reasonLabel: params.reasonLabel,
+        rejectedAt: { gte: getStartOfDayJST() },
+      },
+      select: { id: true },
+    });
+    firstToday = !alreadyToday;
+
     await prisma.rejectedSignal.create({
       data: {
         ticker: params.ticker,
@@ -69,6 +101,26 @@ async function saveRejectedSignal(params: {
     });
   } catch (err) {
     console.error("[entry-executor] RejectedSignal 保存失敗:", err);
+    return; // 保存失敗時は通知しない
+  }
+
+  // 当日初回かつ「取り逃し」系ラベルのみ Slack 通知（通知失敗はメイン処理を止めない）
+  if (firstToday && NOTIFY_REJECT_LABELS.has(params.reasonLabel)) {
+    await notifySlack({
+      title: `⛔ エントリー棄却: ${params.ticker} [${params.strategy}]`,
+      message: `理由: ${params.reason}`,
+      color: "warning",
+      fields: [
+        { title: "ラベル", value: params.reasonLabel, short: true },
+        {
+          title: "想定エントリー価格",
+          value: `¥${params.entryPrice.toLocaleString()}`,
+          short: true,
+        },
+      ],
+    }).catch((err) =>
+      console.error("[entry-executor] 棄却Slack通知失敗:", err),
+    );
   }
 }
 
