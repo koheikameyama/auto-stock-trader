@@ -23,24 +23,39 @@ import type { TradingStrategy } from "../../core/market-regime";
 const app = new Hono();
 
 app.get("/", async (c) => {
+  // クローズ済みの表示範囲: デフォルトは直近7日、closed=all で全期間
+  const showAllClosed = c.req.query("closed") === "all";
+  const closedPageSize = QUERY_LIMITS.POSITIONS_CLOSED;
+  const closedPage = Math.max(1, Number.parseInt(c.req.query("page") ?? "1", 10) || 1);
 
+  const closedWhere = {
+    status: "closed" as const,
+    ...(showAllClosed
+      ? {}
+      : {
+          exitedAt: {
+            gte: dayjs().subtract(ROUTE_LOOKBACK_DAYS.POSITIONS_CLOSED, "day").toDate(),
+          },
+        }),
+  };
 
-  const [openPositions, closedPositions] = await Promise.all([
+  const [openPositions, closedTotal, closedPositions] = await Promise.all([
     prisma.tradingPosition.findMany({
       where: { status: "open" },
       include: { stock: true },
       orderBy: { createdAt: "desc" },
     }),
+    prisma.tradingPosition.count({ where: closedWhere }),
     prisma.tradingPosition.findMany({
-      where: {
-        status: "closed",
-        exitedAt: { gte: dayjs().subtract(ROUTE_LOOKBACK_DAYS.POSITIONS_CLOSED, "day").toDate() },
-      },
+      where: closedWhere,
       include: { stock: true },
       orderBy: { exitedAt: "desc" },
-      take: QUERY_LIMITS.POSITIONS_CLOSED,
+      skip: (closedPage - 1) * closedPageSize,
+      take: closedPageSize,
     }),
   ]);
+
+  const closedTotalPages = Math.max(1, Math.ceil(closedTotal / closedPageSize));
 
   const content = html`
     <p class="section-title">オープンポジション (${openPositions.length})</p>
@@ -134,7 +149,20 @@ app.get("/", async (c) => {
         `
       : html`<div class="card">${emptyState("オープンポジションなし")}</div>`}
 
-    <p class="section-title">クローズ済み (直近7日)</p>
+    ${(() => {
+      const linkStyle = (active: boolean) =>
+        `display:inline-block;padding:2px 10px;border-radius:6px;font-size:0.8rem;text-decoration:none;` +
+        (active ? "background:#3b82f6;color:#fff" : "background:#3b82f620;color:#3b82f6");
+      return html`
+        <p class="section-title">
+          クローズ済み (${showAllClosed ? "全期間" : "直近7日"}) ${closedTotal}件
+          <span style="margin-left:8px">
+            <a href="/positions?closed=7d" style="${linkStyle(!showAllClosed)}">直近7日</a>
+            <a href="/positions?closed=all" style="${linkStyle(showAllClosed)}">全期間</a>
+          </span>
+        </p>
+      `;
+    })()}
     ${closedPositions.length > 0
       ? html`
           <div class="card table-wrap">
@@ -227,8 +255,38 @@ app.get("/", async (c) => {
               </tbody>
             </table>
           </div>
+          ${(() => {
+            if (closedTotalPages <= 1) return "";
+            const q = showAllClosed ? "all" : "7d";
+            const pageLinkStyle = (enabled: boolean) =>
+              `display:inline-block;padding:4px 12px;border-radius:6px;font-size:0.85rem;text-decoration:none;` +
+              (enabled
+                ? "background:#3b82f620;color:#3b82f6"
+                : "background:#1f2937;color:#4b5563;pointer-events:none");
+            const prevEnabled = closedPage > 1;
+            const nextEnabled = closedPage < closedTotalPages;
+            return html`
+              <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:12px">
+                <a
+                  href="/positions?closed=${q}&page=${closedPage - 1}"
+                  style="${pageLinkStyle(prevEnabled)}"
+                  >← 前へ</a
+                >
+                <span style="font-size:0.85rem;color:#94a3b8">${closedPage} / ${closedTotalPages}</span>
+                <a
+                  href="/positions?closed=${q}&page=${closedPage + 1}"
+                  style="${pageLinkStyle(nextEnabled)}"
+                  >次へ →</a
+                >
+              </div>
+            `;
+          })()}
         `
-      : html`<div class="card">${emptyState("直近7日のクローズポジションなし")}</div>`}
+      : html`<div class="card">${emptyState(
+          showAllClosed
+            ? "クローズポジションなし"
+            : "直近7日のクローズポジションなし",
+        )}</div>`}
   `;
 
   return c.html(layout("ポジション", "/positions", content));
