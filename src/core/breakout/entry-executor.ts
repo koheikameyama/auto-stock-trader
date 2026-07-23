@@ -77,8 +77,8 @@ async function saveRejectedSignal(params: {
 }): Promise<void> {
   let firstToday = false;
   try {
-    // 同一銘柄×同一理由が当日既に記録済みかを先に確認（Slack のスパム防止＝当日1回に集約）
-    // monitor がリトライで同じ銘柄を複数回弾いても通知は1回だけにする
+    // 同一銘柄×同一理由が当日既に記録済みかを先に確認（当日1件に集約）
+    // monitor がリトライで同じ銘柄を複数回弾いても、DB レコード・Slack 通知とも1回だけにする。
     const alreadyToday = await prisma.rejectedSignal.findFirst({
       where: {
         ticker: params.ticker,
@@ -88,6 +88,11 @@ async function saveRejectedSignal(params: {
       select: { id: true },
     });
     firstToday = !alreadyToday;
+
+    // 当日2回目以降は記録しない（一覧に同一銘柄が同日重複するのを防ぐ）
+    if (!firstToday) {
+      return;
+    }
 
     await prisma.rejectedSignal.create({
       data: {
