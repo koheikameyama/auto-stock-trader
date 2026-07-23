@@ -195,6 +195,21 @@ export interface SimContext {
    * 全 scales を 1.0 にすれば発火しても baseline と一致する（回帰確認用）。
    */
   volConvexity?: VolConvexityConfig;
+  /**
+   * 現金上限を「skip」でなく「shrink-to-fit」で扱うか（KOH-580 検証用、GU/PSC/WB/breakout のみ）。
+   * false/省略（既定）: BT本来の挙動 = risk由来の数量が現金を超えたら skip（continue）。baseline 完全一致。
+   * true: live の entry-executor と同じく maxByBalance = floor(現金 × cashBufferPct / 価格 / 単元) に
+   *   数量を切り下げて発注する。BTの skip はタイトSL（riskPerShare小）の大口を捨てるが live は縮小して
+   *   取るため、この機構差を分離するには全アームを shrink に揃える必要がある。
+   */
+  cashShrinkToFit?: boolean;
+  /**
+   * 買余力バッファ（KOH-580 検証用、cashShrinkToFit=true の時のみ効く）。
+   * 立花が日計り取引の規制対象銘柄で買付可能額に掛目を効かせて算出するため、約定代金 vs 一般買余力で
+   * 組んだ数量が発注時に [sub:11430] で弾かれる事象（2026-07-22 8708.T）への緩和策として、
+   * maxByBalance の現金を cashBufferPct 倍に絞る。既定 1.0（掛目なし＝現行 live 相当）。
+   */
+  cashBufferPct?: number;
 }
 
 /** ボラ凸性サイジング設定（--compare-vol-convexity） */
@@ -793,7 +808,7 @@ export function runCombinedSimulation(
     typeof maxPositions === "number"
       ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, etfMax: maxPositions, buybackMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, etfCrisisBypass, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none", beTrailDetectionSource = "high", breakEvenFloor, intraBarStopModel = "stop-at-open", volConvexity } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, etfCrisisBypass, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none", beTrailDetectionSource = "high", breakEvenFloor, intraBarStopModel = "stop-at-open", volConvexity, cashShrinkToFit = false, cashBufferPct = 1 } = ctx;
   const guBreadthMode = breadthModeGu ?? breadthMode;
   const pscBreadthMode = breadthModePsc ?? breadthMode;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
@@ -814,6 +829,15 @@ export function runCombinedSimulation(
   const buybackMaxPos = limits.buybackMax ?? 0;
 
   let cash = budget;
+  // KOH-580: 現金上限を shrink-to-fit で扱う（cashShrinkToFit=true の時のみ）。live の entry-executor は
+  // maxByBalance = floor(現金×buffer/価格/単元) に数量を切り下げて発注する。既定(false)は何もせず、
+  // 後段の `if (effEntry*quantity > cash) continue` = skip 挙動が残り baseline 完全一致。
+  const capByCashBuffer = (quantity: number, effEntry: number): number => {
+    if (!cashShrinkToFit) return quantity;
+    const cashCap = cash * cashBufferPct;
+    if (effEntry * quantity <= cashCap) return quantity;
+    return Math.floor(cashCap / effEntry / UNIT_SHARES) * UNIT_SHARES;
+  };
   let totalCapitalAdded = budget;
   let haltDays = 0;
   const pendingSettlement: { amount: number; availableDayIdx: number }[] = [];
@@ -1138,6 +1162,8 @@ export function runCombinedSimulation(
         }
         if (quantity <= 0) continue;
         const effEntry = applySlippage(signal.entryPrice, "buy", "entry_market", slippageProfile);
+        quantity = capByCashBuffer(quantity, effEntry);
+        if (quantity <= 0) continue;
         if (effEntry * quantity > cash) continue;
 
         const tradeValue = effEntry * quantity;
@@ -1188,6 +1214,8 @@ export function runCombinedSimulation(
         }
         if (quantity <= 0) continue;
         const effEntry = applySlippage(signal.entryPrice, "buy", "entry_market", slippageProfile);
+        quantity = capByCashBuffer(quantity, effEntry);
+        if (quantity <= 0) continue;
         if (effEntry * quantity > cash) continue;
 
         const tradeValue = effEntry * quantity;
@@ -1236,6 +1264,8 @@ export function runCombinedSimulation(
         }
         if (quantity <= 0) continue;
         const effEntry = applySlippage(signal.entryPrice, "buy", "entry_market", slippageProfile);
+        quantity = capByCashBuffer(quantity, effEntry);
+        if (quantity <= 0) continue;
         if (effEntry * quantity > cash) continue;
 
         const tradeValue = effEntry * quantity;
@@ -1286,6 +1316,8 @@ export function runCombinedSimulation(
         }
         if (quantity <= 0) continue;
         const effEntry = applySlippage(signal.entryPrice, "buy", "entry_market", slippageProfile);
+        quantity = capByCashBuffer(quantity, effEntry);
+        if (quantity <= 0) continue;
         if (effEntry * quantity > cash) continue;
 
         const tradeValue = effEntry * quantity;

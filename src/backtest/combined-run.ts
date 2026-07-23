@@ -458,6 +458,10 @@ async function main() {
   // --compare-nikkei-killswitch (KOH-577): 日経キルスイッチの判定時制 off/same-day(BT)/lagged(本番) を
   // 単発窓で比較し、機械可読な1行サマリを出す。16窓+検定は scripts/_koh577-killswitch-windows.py が駆動。
   const compareNikkeiKillswitch = args.includes("--compare-nikkei-killswitch");
+  // --compare-cash-buffer (KOH-580): 買余力バッファ（現金 × buffer に数量を切り下げ）を
+  // 現状(1.0)/0.9/0.8 で比較。8708.T の [sub:11430] 発注失敗（規制銘柄の掛目）緩和策のCalmarコスト計測。
+  // 16窓+検定は scripts/_koh580-cash-buffer-windows.py が駆動。WINROW を出す。
+  const compareCashBuffer = args.includes("--compare-cash-buffer");
   const compareDetectionGranularity = args.includes("--compare-detection-granularity");
   const compareBe = args.includes("--compare-be");
   const compareIntraBar = args.includes("--compare-intrabar");
@@ -2921,6 +2925,43 @@ async function main() {
       const pf = m.profitFactor === Infinity ? 999 : m.profitFactor;
       console.log(
         `WINROW,${startDate},${endDate},${c.label},${m.totalTrades},${m.netReturnPct.toFixed(4)},${m.maxDrawdown.toFixed(4)},${calmar.toFixed(4)},${pf.toFixed(4)}`,
+      );
+    }
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // --compare-cash-buffer (KOH-580): 買余力バッファ（現金 × buffer に数量を shrink-to-fit）を
+  // 現状(1.0)/0.9/0.8 で単発窓比較。16窓+検定は scripts/_koh580-cash-buffer-windows.py が駆動。
+  if (compareCashBuffer) {
+    // アーム:
+    //   skip  = BT本来（現金超過は発注見送り）= 記録上の baseline（16窓合計が 796.4% になるチェックサム）
+    //   1.00  = shrink-to-fit @100%（現行 live 相当。live は skip せず maxByBalance に縮小して取る）
+    //   0.90 / 0.80 = shrink-to-fit @buffer（提案する掛目バッファ）
+    // 判定は全て shrink の 1.00 / 0.90 / 0.80 の比較で行う（skip→shrink 機構差を排除し haircut だけを測る）。
+    // skip 行は BT↔live 乖離の可視化とチェックサム用。
+    const arms: { label: string; shrink: boolean; buffer: number }[] = [
+      { label: "skip", shrink: false, buffer: 1.0 },
+      { label: "1.00", shrink: true, buffer: 1.0 },
+      { label: "0.90", shrink: true, buffer: 0.9 },
+      { label: "0.80", shrink: true, buffer: 0.8 },
+    ];
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    console.log(`\n=== 買余力バッファ比較 (KOH-580) ===`);
+    console.log(`期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}, エンジン: ${intraBarModelArg ?? "stop-at-open(既定)"}`);
+    for (const arm of arms) {
+      const result = runCombinedSimulation(
+        { ...ctx, cashShrinkToFit: arm.shrink, cashBufferPct: arm.buffer },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      const pf = m.profitFactor === Infinity ? 999 : m.profitFactor;
+      // 機械可読: WINROW,<start>,<end>,<label>,<trades>,<netRet>,<maxDD>,<calmar>,<pf>
+      console.log(
+        `WINROW,${startDate},${endDate},${arm.label},${m.totalTrades},${m.netReturnPct.toFixed(4)},${m.maxDrawdown.toFixed(4)},${calmar.toFixed(4)},${pf.toFixed(4)}`,
       );
     }
     console.log("");

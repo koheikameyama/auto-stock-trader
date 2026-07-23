@@ -226,10 +226,14 @@ export async function executeEntry(
   }
 
   // 残高上限で切り下げ: 買える最大100株単位に縮小
-  const maxByBalance = Math.floor(cashBalance / currentPrice / UNIT_SHARES) * UNIT_SHARES;
+  // 買余力に BUYING_POWER_BUFFER(0.80) を掛けるのは、立花が日計り取引の規制対象銘柄で買付可能額に
+  // 掛目を効かせて算出するため（一般買余力で組んだ数量が発注時に [sub:11430] で弾かれる。KOH-580）。
+  // 掛目 1/0.80 = 1.25倍まで吸収する。16窓BTで Calmar への有意コストなしを確認済。
+  const buyingPower = cashBalance * POSITION_SIZING.BUYING_POWER_BUFFER;
+  const maxByBalance = Math.floor(buyingPower / currentPrice / UNIT_SHARES) * UNIT_SHARES;
   if (quantity > maxByBalance) {
     if (maxByBalance === 0) {
-      const reason = `残高不足（必要: ¥${(currentPrice * quantity).toLocaleString()}, 残高: ¥${cashBalance.toLocaleString()}）`;
+      const reason = `残高不足（必要: ¥${(currentPrice * quantity).toLocaleString()}, 買余力×${POSITION_SIZING.BUYING_POWER_BUFFER}: ¥${Math.floor(buyingPower).toLocaleString()}, 残高: ¥${cashBalance.toLocaleString()}）`;
       console.log(`[entry-executor] ${ticker} スキップ: ${reason}`);
       const label = getRejectedLabel(reason);
       if (label) {
@@ -237,7 +241,7 @@ export async function executeEntry(
       }
       return { success: false, reason, retryable: true };
     }
-    console.log(`[entry-executor] ${ticker} 残高上限で縮小: ${quantity}株 → ${maxByBalance}株（残高: ¥${cashBalance.toLocaleString()}）`);
+    console.log(`[entry-executor] ${ticker} 残高上限で縮小: ${quantity}株 → ${maxByBalance}株（買余力×${POSITION_SIZING.BUYING_POWER_BUFFER}: ¥${Math.floor(buyingPower).toLocaleString()}, 残高: ¥${cashBalance.toLocaleString()}）`);
     quantity = maxByBalance;
   }
 
