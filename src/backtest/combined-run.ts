@@ -406,6 +406,10 @@ async function main() {
   const etfDipMaxArg = getArg(args, "--etf-dip-max");
   // --etf-dip-idle: ETF押し目を idle帯(breadth<54%)限定で発火（GU/PSCと資金競合させない補完設計）
   const etfDipIdle = args.includes("--etf-dip-idle");
+  // --compare-separate-pool: 「資金無限（食い合いなし）」を模す。GU/PSC と dip を別々の ¥budget プールで
+  //   独立に回し、日次エクイティをブレンドして Calmar を測る。共有プール(#28 却下)との対比も出力する。
+  //   （--enable-etf-dip と併用。dip の breadthフィルタは既定 OFF=常時＝#28 で堅牢だった構造）
+  const compareSeparatePool = args.includes("--compare-separate-pool");
   // --enable-buyback: 自社株買いカタリスト (KOH-502) を第6戦略として idle帯で動かす
   const enableBuyback = args.includes("--enable-buyback");
   const buybackMaxArg = getArg(args, "--buyback-max");
@@ -471,7 +475,7 @@ async function main() {
   const compareVolConvexity = args.includes("--compare-vol-convexity");
   const corrReport = args.includes("--corr-report");
 
-  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || compareDetectionGranularity || compareBe || compareIntraBar || comparePanicExit || compareVolConvexity || corrReport;
+  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || compareDetectionGranularity || compareBe || compareIntraBar || comparePanicExit || compareVolConvexity || compareSeparatePool || corrReport;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const pscConfig: PostSurgeConsolidationBacktestConfig = {
@@ -1871,6 +1875,87 @@ async function main() {
   }
 
   // セクター分散上限比較モード
+  // 別プール（資金無限＝食い合いなし）比較モード
+  if (compareSeparatePool) {
+    if (!enableEtfDip) throw new Error("--compare-separate-pool は --enable-etf-dip と併用してください");
+    const dipMax = Number(etfDipMaxArg ?? 2);
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+
+    const seriesStats = (eq: DailyEquity[], base: number) => {
+      const final = eq[eq.length - 1]?.totalEquity ?? base;
+      const netRet = ((final - base) / base) * 100;
+      let peak = base;
+      let maxDD = 0;
+      for (const d of eq) {
+        if (d.totalEquity > peak) peak = d.totalEquity;
+        const dd = peak > 0 ? ((peak - d.totalEquity) / peak) * 100 : 0;
+        if (dd > maxDD) maxDD = dd;
+      }
+      const ann = years > 0 ? netRet / years : netRet;
+      const calmar = maxDD > 0 ? ann / maxDD : 0;
+      return { netRet, maxDD, calmar };
+    };
+
+    // ① GU/PSC のみ（dip off）  ② dip のみ（GU/PSC off）  ③ 共有プール（#28 却下の再現）
+    const aRes = runCombinedSimulation(ctx, { ...defaultLimits, etfMax: 0 });
+    const bRes = runCombinedSimulation(ctx, { ...defaultLimits, guMax: 0, pscMax: 0, etfMax: dipMax });
+    const sRes = runCombinedSimulation(ctx, { ...defaultLimits, etfMax: dipMax });
+    const A = aRes.equityCurve;
+    const B = bRes.equityCurve;
+
+    // 別プール: A(¥budget) と B(¥budget) を独立に持ち、日次で合算（総資金 2×budget）
+    const n = Math.min(A.length, B.length);
+    const blend: DailyEquity[] = [];
+    for (let i = 0; i < n; i++) {
+      blend.push({ ...A[i], totalEquity: A[i].totalEquity + B[i].totalEquity, cash: 0, positionsValue: 0, openPositionCount: 0 });
+    }
+
+    const sa = seriesStats(A, budget);
+    const sb = seriesStats(B, budget);
+    const sBlend = seriesStats(blend, budget * 2);
+    const sShared = seriesStats(sRes.equityCurve, budget);
+
+    // 日次リターンの相関（A vs B）＝ 分散効果の源泉
+    const ra: number[] = [];
+    const rb: number[] = [];
+    for (let i = 1; i < n; i++) {
+      if (A[i - 1].totalEquity > 0) ra.push((A[i].totalEquity - A[i - 1].totalEquity) / A[i - 1].totalEquity);
+      else ra.push(0);
+      if (B[i - 1].totalEquity > 0) rb.push((B[i].totalEquity - B[i - 1].totalEquity) / B[i - 1].totalEquity);
+      else rb.push(0);
+    }
+    const corr = pearsonCorrelation(ra, rb);
+
+    const mA = aRes.totalMetrics;
+    const mB = bRes.totalMetrics;
+    const mS = sRes.totalMetrics;
+    const pf = (m: PerformanceMetrics) => (m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2));
+
+    console.log("\n=== 別プール（資金無限＝食い合いなし）検証 ===");
+    console.log(`期間: ${startDate} → ${endDate}, 各プール予算: ¥${budget.toLocaleString()} (dip枠=${dipMax}, dip breadthフィルタ=${etfDipIdle ? "idle帯限定" : "OFF/常時"})`);
+    console.log(
+      `${"構成".padEnd(28)}| ${"Trades".padStart(6)} | ${"PF".padStart(5)} | ${"MaxDD".padStart(6)} | ${"NetRet".padStart(8)} | ${"Calmar".padStart(6)}`,
+    );
+    console.log("-".repeat(80));
+    const row = (label: string, tr: number, pfStr: string, s: { netRet: number; maxDD: number; calmar: number }) =>
+      console.log(
+        `${label.padEnd(28)}| ${String(tr).padStart(6)} | ${pfStr.padStart(5)} | ${s.maxDD.toFixed(1).padStart(5)}% | ${(s.netRet >= 0 ? "+" : "") + s.netRet.toFixed(1)}%`.padEnd(0) +
+          ` | ${s.calmar.toFixed(2).padStart(6)}`,
+      );
+    row("① GU/PSC のみ (¥budget)", mA.totalTrades, pf(mA), sa);
+    row("② dip のみ (¥budget)", mB.totalTrades, pf(mB), sb);
+    row("③ 共有プール #28 (¥budget)", mS.totalTrades, pf(mS), sShared);
+    row("④ ①+② 別プール (¥2×budget)", mA.totalTrades + mB.totalTrades, "-", sBlend);
+    console.log("-".repeat(80));
+    console.log(`日次リターン相関 A(GU/PSC) vs B(dip): ${corr.toFixed(3)}`);
+    console.log(
+      `\n判定の見方: ③(共有) が ① を下回る = #28 の食い合い。④(別プール) の Calmar が ① と同等以上なら「資金無限なら dip は害にならず、分散で MaxDD が下がる」＝資金無限でエッジが生き返る。`,
+    );
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
   if (compareSector) {
     const REGIMES: { label: string; from: string; to: string }[] = [
       { label: "A: 平穏ボックス", from: "2024-03-01", to: "2024-07-31" },
