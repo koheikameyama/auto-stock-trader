@@ -365,6 +365,60 @@ describe("broker-reconciliation: Phase 3 保有照合", () => {
     );
   });
 
+  // KOH-587: 複数日逆指値が発注翌営業日以降に約定 → 保存営業日が発注日のまま古い → 現在値に同期してクローズ
+  it("SL営業日が発注日のまま古い（翌営業日ロールで約定）→ Phase 1.5 が現在の営業日に同期し、Phase 3 が実約定価格でクローズ", async () => {
+    const position = makePosition({
+      slBrokerOrderId: "23000490",
+      slBrokerBusinessDay: "20260723", // 発注日（約定は翌営業日にロール、この値は古い）
+      stopLossPrice: 1089,
+    });
+    setupForPhase3([position]);
+    mockGetHoldings.mockResolvedValue([]); // 売却済み（保有なし）
+    // CLMOrderList: 注文の実効営業日は約定日 20260724 に前進、売り・全部約定
+    mockGetOrders.mockResolvedValue({
+      sResultCode: "0",
+      aOrderList: [
+        {
+          sOrderOrderNumber: "23000490",
+          sOrderSikkouDay: "20260724",
+          sOrderStatusCode: "10",
+          sBaibaiKubun: "1", // 売り → Phase 4 の孤立買い検出対象外
+        },
+      ],
+    });
+    // 発注日(20260723)=失効(14)、約定日(20260724)=全部約定@1088 を営業日引数で出し分け。
+    // 同期が効いていなければ古い営業日で失効を引き当てて警告に落ちる（＝バグ再現）ことを検証。
+    mockGetOrderDetail.mockImplementation(async (_orderNum: string, day: string) =>
+      day === "20260724"
+        ? {
+            sOrderStatusCode: "10", // FULLY_FILLED
+            sGyakusasiZyouken: "1089",
+            sOrderSuryou: "100",
+            aYakuzyouSikkouList: [{ sYakuzyouPrice: "1088", sYakuzyouSuryou: "100" }],
+          }
+        : { sOrderStatusCode: "14", aYakuzyouSikkouList: "" }, // EXPIRED（発注日の古いインスタンス）
+    );
+
+    await main();
+
+    // 営業日が現在値（約定日）に同期される
+    expect(mockPositionUpdate).toHaveBeenCalledWith({
+      where: { id: "pos-1" },
+      data: { slBrokerBusinessDay: "20260724" },
+    });
+    // 同期後の営業日で約定詳細を照会
+    expect(mockGetOrderDetail).toHaveBeenCalledWith("23000490", "20260724");
+    // 実約定価格 1088 でクローズ（古い失効ステータスで警告に落ちない）
+    expect(mockClosePosition).toHaveBeenCalledWith(
+      "pos-1",
+      1088,
+      expect.objectContaining({ exitReason: "stop_loss" }),
+    );
+    expect(mockNotifySlack).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: expect.stringContaining("要確認") }),
+    );
+  });
+
   it("数量不一致のポジションにはSlack warningを送信する", async () => {
     const position = makePosition({ quantity: 100 });
     setupForPhase3([position]);
