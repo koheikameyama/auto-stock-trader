@@ -467,6 +467,10 @@ async function main() {
   // BT の processDefensive は VIX>30 でしか発火しない = 記録済み BT 成績にこの決済は入っていない。
   // 16窓+検定は scripts/_koh589-defensive-exit-windows.py が駆動。WINROW を出す。
   const compareNikkeiDefensiveExit = args.includes("--compare-nikkei-defensive-exit");
+  // --compare-conditional-be (KOH-590): 「荒れた局面だけ BE を絞る」条件付き BE を比較。
+  // 却下 #37 は BE のグローバル変更を否定しているが、条件付き版は未測定だったため。
+  // 16窓+検定は scripts/_koh590-conditional-be-windows.py が駆動。WINROW を出す。
+  const compareConditionalBe = args.includes("--compare-conditional-be");
   // --compare-cash-buffer (KOH-580): 買余力バッファ（現金 × buffer に数量を切り下げ）を
   // 現状(1.0)/0.9/0.8 で比較。8708.T の [sub:11430] 発注失敗（規制銘柄の掛目）緩和策のCalmarコスト計測。
   // 16窓+検定は scripts/_koh580-cash-buffer-windows.py が駆動。WINROW を出す。
@@ -3061,6 +3065,43 @@ async function main() {
       // 機械可読: WINROW,<start>,<end>,<label>,<trades>,<netRet>,<maxDD>,<calmar>,<pf>,<defensiveExits>
       console.log(
         `WINROW,${startDate},${endDate},${arm.label},${m.totalTrades},${m.netReturnPct.toFixed(4)},${m.maxDrawdown.toFixed(4)},${calmar.toFixed(4)},${pf.toFixed(4)},${defExits}`,
+      );
+    }
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // --compare-conditional-be (KOH-590): レジーム条件付き BE 発動倍率の比較。
+  //
+  // 問い: 却下 #37 は「BE をグローバルに 0.3 未満へ下げると WF で単調に悪化」と結論したが、
+  //       「平時は 0.3 のまま、荒れた局面だけ絞る」条件付き版なら別の答えになるか。
+  //
+  // ★条件は日経ではなく VIX / breadth を使う。日経 ≤ -3% の日は却下 #51 で
+  //   「GU/PSC は保有ゼロ＝噛む相手がいない」と実測済みで、条件として成立しないため。
+  // ★breadth は**前営業日**の確定値で判定する（当日 breadth は本番 15:20 の
+  //   position-monitor に存在しない。却下 #41 が buyback で踏んだ先読みの罠）。
+  if (compareConditionalBe) {
+    const arms: { label: string; cond?: { mode: "vix" | "breadth"; breadthThreshold?: number; tightened: number } }[] = [
+      { label: "base-0.3" },
+      { label: "vix!=normal-0.15", cond: { mode: "vix", tightened: 0.15 } },
+      { label: "vix!=normal-0.10", cond: { mode: "vix", tightened: 0.10 } },
+      { label: "breadth<60-0.15", cond: { mode: "breadth", breadthThreshold: 0.60, tightened: 0.15 } },
+      { label: "breadth<54-0.15", cond: { mode: "breadth", breadthThreshold: 0.54, tightened: 0.15 } },
+    ];
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    console.log(`\n=== レジーム条件付き BE 比較 (KOH-590) ===`);
+    console.log(`期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}, エンジン: ${intraBarModelArg ?? "stop-at-open(既定)"}`);
+    console.log(`対象: GU/PSC の出口のみ。平時は既定の be を使い、条件成立日だけ tightened に差し替える`);
+    for (const arm of arms) {
+      const result = runCombinedSimulation({ ...ctx, conditionalBe: arm.cond }, defaultLimits);
+      const m = result.totalMetrics;
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      const pf = m.profitFactor === Infinity ? 999 : m.profitFactor;
+      // 機械可読: WINROW,<start>,<end>,<label>,<trades>,<netRet>,<maxDD>,<calmar>,<pf>
+      console.log(
+        `WINROW,${startDate},${endDate},${arm.label},${m.totalTrades},${m.netReturnPct.toFixed(4)},${m.maxDrawdown.toFixed(4)},${calmar.toFixed(4)},${pf.toFixed(4)}`,
       );
     }
     console.log("");
