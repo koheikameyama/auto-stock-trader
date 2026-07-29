@@ -8,10 +8,47 @@ describe("evaluateDefensiveMode", () => {
     expect(evaluateDefensiveMode(null)).toEqual({ active: false, trigger: null });
   });
 
-  it("sentiment=crisis（日経/CMEキルスイッチ）→ 発火", () => {
-    const r = evaluateDefensiveMode({ sentiment: "crisis", vix: 15 });
+  // KOH-591: crisis は発生源で撃つ/撃たないが分かれる。判断軸は
+  // 「守るべきギャップが起きる**前**に撃てるか」。
+  it("crisisSource=cme_divergence（寄付前に撃てる）→ 発火", () => {
+    const r = evaluateDefensiveMode({
+      sentiment: "crisis",
+      vix: 15,
+      crisisSource: "cme_divergence",
+    });
     expect(r.active).toBe(true);
-    expect(r.trigger).toContain("日経/CME");
+    expect(r.trigger).toContain("CME");
+  });
+
+  it("crisisSource=nikkei_drop（1営業日遅れ＝ギャップは前日に終了）→ 発火しない", () => {
+    // エントリー veto (shouldTrade=false) は別途効いており、逆指値SLも板に残る。
+    // 止めているのは「既存ポジションを成行で投げる」判断だけ（却下 #48/#51）。
+    const r = evaluateDefensiveMode({
+      sentiment: "crisis",
+      vix: 18.21,
+      crisisSource: "nikkei_drop",
+    });
+    expect(r).toEqual({ active: false, trigger: null });
+  });
+
+  it("nikkei_drop でも VIX>30 なら別事由で発火する（保護を落とさない）", () => {
+    const r = evaluateDefensiveMode({
+      sentiment: "crisis",
+      vix: 34,
+      crisisSource: "nikkei_drop",
+    });
+    expect(r.active).toBe(true);
+    expect(r.trigger).toContain("VIX");
+  });
+
+  it("crisisSource が null（カラム追加前の旧レコード）→ 保護側に倒して発火", () => {
+    // 発生源を判定できない場合は「保護を落とす」より「余計に売る」方が安全側。
+    const r = evaluateDefensiveMode({ sentiment: "crisis", vix: 15, crisisSource: null });
+    expect(r.active).toBe(true);
+  });
+
+  it("crisisSource 未指定（フィールド自体が無い呼び出し）でも落ちずに発火", () => {
+    expect(evaluateDefensiveMode({ sentiment: "crisis", vix: 15 }).active).toBe(true);
   });
 
   it("VIX > 30 → 発火（sentiment が normal でも）", () => {
