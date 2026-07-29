@@ -186,6 +186,25 @@ export interface SimContext {
    */
   nikkeiDropVetoLagged?: boolean;
   /**
+   * 日経発ディフェンシブ決済の閾値（%）。日経が前日比でこの値以下なら**全ポジションを当日終値で成行決済**する。
+   * 省略時は無効（＝BT本来の挙動。日経キルスイッチはエントリー veto しかしない）。
+   *
+   * ⚠️ これは **live 専用挙動の再現** であって BT 本来の仕様ではない（KOH-589）。
+   * 本番は market-assessment が日経 ≤ -3% で `sentiment="crisis"` を書き（market-assessment.ts:225）、
+   * position-monitor の `evaluateDefensiveMode` (a) がそれを拾って全ポジションを成行決済している
+   * （position-monitor.ts:95-98）。BT 側の `processDefensive` は VIX>30 でしか発火しないため、
+   * 記録されている全 BT 成績はこの決済を含んでいない。その乖離を測るためのオプション。
+   */
+  nikkeiDropDefensiveExitPct?: number;
+  /**
+   * 日経発ディフェンシブ決済の判定時制を「本番模倣＝1セッション遅延」にする。
+   * false/省略: 暴落当日Dの終値で判定し、Dの終値で決済。
+   * true: D-1（直近確定セッション）の前日比で判定し、**Dの終値で決済**。
+   *   本番は 08:02 の market-assessment が直近確定セッションを読むため、実効的にこちら。
+   *   つまり「暴落日は何もせず、その翌営業日に全部投げる」挙動になる。
+   */
+  nikkeiDropDefensiveExitLagged?: boolean;
+  /**
    * ボラ凸性サイジング（GU/PSC のみ、--compare-vol-convexity 検証用）。
    * エントリー時の20日実現ボラ（日次リターンの標準偏差%）で分位を判定し、
    * quantity に scales[quartile] を掛ける（0 = veto）。
@@ -600,6 +619,29 @@ function processEtfExits(
   }
 }
 
+/**
+ * 日経（^N225）の前日比%を返す。判定時制を lagged にすると直近確定セッション基準になる。
+ *
+ * - lagged=false: 当日 D の終値 vs D-1 の終値（BT本来。15:24 引け直前の同日判定）
+ * - lagged=true : D-1 の終値 vs D-2 の終値（本番模倣。08:02 の market-assessment が読む値）
+ *
+ * データ欠損時は null。
+ */
+function getNikkeiPctChange(
+  indexData: Map<string, number>,
+  tradingDays: string[],
+  dayIdx: number,
+  lagged: boolean,
+): number | null {
+  const curIdx = lagged ? dayIdx - 1 : dayIdx;
+  const baseIdx = curIdx - 1;
+  if (baseIdx < 0) return null;
+  const curClose = indexData.get(tradingDays[curIdx]);
+  const prevClose = indexData.get(tradingDays[baseIdx]);
+  if (curClose == null || prevClose == null || prevClose <= 0) return null;
+  return ((curClose - prevClose) / prevClose) * 100;
+}
+
 // ──────────────────────────────────────────
 // ディフェンシブモード
 // ──────────────────────────────────────────
@@ -619,8 +661,13 @@ function processDefensive(
   settlementDays: number,
   marginInterestRate = 0,
   slippageProfile: SlippageProfile = "none",
+  /**
+   * レジームに関係なく当日終値で全決済する（KOH-589 の日経発ディフェンシブ決済用）。
+   * 既定 false = 従来通り VIX レジームのみで判定するので baseline は完全不変。
+   */
+  forceClose = false,
 ): void {
-  if (todayRegime !== "crisis" && todayRegime !== "high") return;
+  if (!forceClose && todayRegime !== "crisis" && todayRegime !== "high") return;
   if (positions.length === 0) return;
 
   const defClose: number[] = [];
@@ -631,7 +678,7 @@ function processDefensive(
     const todayBar = allData.get(pos.ticker)![defBarIdx];
 
     let shouldClose = false;
-    if (todayRegime === "crisis") {
+    if (forceClose || todayRegime === "crisis") {
       shouldClose = true;
     }
 
@@ -934,22 +981,41 @@ export function runCombinedSimulation(
     }
 
     // ── 1.5 ディフェンシブモード ──
-    processDefensive(boPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, boClosedTrades, lastExitDayIdx, boConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
-    processDefensive(guPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, guClosedTrades, lastExitDayIdx, guConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
+    // 日経発の強制決済（KOH-589, live専用挙動の再現）。VIX レジーム判定とは独立に OR で発火する。
+    // 省略時は false のまま = baseline 完全不変。
+    let nikkeiForceClose = false;
+    if (ctx.nikkeiDropDefensiveExitPct != null && ctx.indexData && dayIdx > 0) {
+      const pct = getNikkeiPctChange(
+        ctx.indexData,
+        tradingDays,
+        dayIdx,
+        ctx.nikkeiDropDefensiveExitLagged === true,
+      );
+      if (pct != null && pct <= ctx.nikkeiDropDefensiveExitPct) {
+        nikkeiForceClose = true;
+        if (verbose) {
+          console.log(`  [${today}] 日経発ディフェンシブ決済: ${pct.toFixed(2)}% ≤ ${ctx.nikkeiDropDefensiveExitPct}%（全ポジション当日終値決済）`);
+        }
+      }
+    }
+    processDefensive(boPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, boClosedTrades, lastExitDayIdx, boConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile, nikkeiForceClose);
+    processDefensive(guPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, guClosedTrades, lastExitDayIdx, guConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile, nikkeiForceClose);
     if (wbConfigLocal) {
-      processDefensive(wbPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, wbClosedTrades, lastExitDayIdx, wbConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
+      processDefensive(wbPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, wbClosedTrades, lastExitDayIdx, wbConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile, nikkeiForceClose);
     }
     if (pscConfigLocal) {
-      processDefensive(pscPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, pscClosedTrades, lastExitDayIdx, pscConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
+      processDefensive(pscPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, pscClosedTrades, lastExitDayIdx, pscConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile, nikkeiForceClose);
     }
     if (momConfigLocal) {
-      processDefensive(momPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, momClosedTrades, lastExitDayIdx, momConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
+      processDefensive(momPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, momClosedTrades, lastExitDayIdx, momConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile, nikkeiForceClose);
     }
+    // etfCrisisBypass（= panic レッグ）は日経発の決済からも外す。本番も panic を
+    // DEFENSIVE_BYPASS_STRATEGIES で防御決済から除外している（position-monitor.ts:127-140）。
     if (etfConfigLocal && !etfCrisisBypass) {
-      processDefensive(etfPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, etfClosedTrades, lastExitDayIdx, etfConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
+      processDefensive(etfPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, etfClosedTrades, lastExitDayIdx, etfConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile, nikkeiForceClose);
     }
     if (buybackConfigLocal) {
-      processDefensive(buybackPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, buybackClosedTrades, lastExitDayIdx, buybackConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
+      processDefensive(buybackPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, buybackClosedTrades, lastExitDayIdx, buybackConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile, nikkeiForceClose);
     }
 
     // ── 1.55 モメンタム ローテーション決済（rebalance日にトップN外に落ちた銘柄をクローズ） ──
@@ -1025,25 +1091,23 @@ export function runCombinedSimulation(
       // 判定時制:
       //  - 既定(同日, BT本来): 当日終値 vs 前日終値。15:24 引け成行の直前 veto。
       //  - lagged(本番模倣, KOH-577): 前営業日終値 vs 前々営業日終値。直近確定セッションの前日比で当日を止める。
-      const lagged = ctx.nikkeiDropVetoLagged === true;
-      const curIdx = lagged ? dayIdx - 1 : dayIdx;
-      const baseIdx = curIdx - 1;
-      const curClose = baseIdx >= 0 ? ctx.indexData.get(tradingDays[curIdx]) : undefined;
-      const prevClose = baseIdx >= 0 ? ctx.indexData.get(tradingDays[baseIdx]) : undefined;
-      if (curClose != null && prevClose != null && prevClose > 0) {
-        const pctChange = ((curClose - prevClose) / prevClose) * 100;
-        if (pctChange <= ctx.nikkeiDropVetoPct) {
-          boShouldTrade = false;
-          guShouldTrade = false;
-          wbShouldTrade = false;
-          pscShouldTrade = false;
-          momShouldTrade = false;
-          etfShouldTrade = false;
-          buybackShouldTrade = false;
-          haltDays++;
-          if (verbose) {
-            console.log(`  [${today}] 日経キルスイッチ: ${pctChange.toFixed(2)}% ≤ ${ctx.nikkeiDropVetoPct}%（全戦略停止）`);
-          }
+      const pctChange = getNikkeiPctChange(
+        ctx.indexData,
+        tradingDays,
+        dayIdx,
+        ctx.nikkeiDropVetoLagged === true,
+      );
+      if (pctChange != null && pctChange <= ctx.nikkeiDropVetoPct) {
+        boShouldTrade = false;
+        guShouldTrade = false;
+        wbShouldTrade = false;
+        pscShouldTrade = false;
+        momShouldTrade = false;
+        etfShouldTrade = false;
+        buybackShouldTrade = false;
+        haltDays++;
+        if (verbose) {
+          console.log(`  [${today}] 日経キルスイッチ: ${pctChange.toFixed(2)}% ≤ ${ctx.nikkeiDropVetoPct}%（全戦略停止）`);
         }
       }
     }

@@ -462,6 +462,11 @@ async function main() {
   // --compare-nikkei-killswitch (KOH-577): 日経キルスイッチの判定時制 off/same-day(BT)/lagged(本番) を
   // 単発窓で比較し、機械可読な1行サマリを出す。16窓+検定は scripts/_koh577-killswitch-windows.py が駆動。
   const compareNikkeiKillswitch = args.includes("--compare-nikkei-killswitch");
+  // --compare-nikkei-defensive-exit (KOH-589): 日経キルスイッチの「決済側」を比較する。
+  // 本番は日経 ≤ -3% で sentiment=crisis を書き、position-monitor が全ポジションを成行決済するが、
+  // BT の processDefensive は VIX>30 でしか発火しない = 記録済み BT 成績にこの決済は入っていない。
+  // 16窓+検定は scripts/_koh589-defensive-exit-windows.py が駆動。WINROW を出す。
+  const compareNikkeiDefensiveExit = args.includes("--compare-nikkei-defensive-exit");
   // --compare-cash-buffer (KOH-580): 買余力バッファ（現金 × buffer に数量を切り下げ）を
   // 現状(1.0)/0.9/0.8 で比較。8708.T の [sub:11430] 発注失敗（規制銘柄の掛目）緩和策のCalmarコスト計測。
   // 16窓+検定は scripts/_koh580-cash-buffer-windows.py が駆動。WINROW を出す。
@@ -3010,6 +3015,52 @@ async function main() {
       const pf = m.profitFactor === Infinity ? 999 : m.profitFactor;
       console.log(
         `WINROW,${startDate},${endDate},${c.label},${m.totalTrades},${m.netReturnPct.toFixed(4)},${m.maxDrawdown.toFixed(4)},${calmar.toFixed(4)},${pf.toFixed(4)}`,
+      );
+    }
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // --compare-nikkei-defensive-exit (KOH-589): 日経キルスイッチの決済側を比較。
+  //
+  // エントリー側 veto は全アームで本番と同じ「lagged / -3%」に固定し、決済側だけを振る
+  // （KOH-577 の結論どおりエントリー側の時制差はほぼ無害なので、ここでは交絡させない）。
+  //   exit-off     = BT本来。日経では決済しない ＝「売らない」案。
+  //                  16窓 NetRet 合計が KOH-577 の lagged 806.65% に一致するのがチェックサム。
+  //   exit-lagged  = **現在の本番の実挙動**。D-1 の確定終値で判定し D の終値で全決済
+  //                  ＝「暴落日は食らい、翌営業日に投げる」。
+  //   exit-sameday = 暴落当日Dの終値で判定し D の終値で全決済（本番が撃てない理想形）。
+  if (compareNikkeiDefensiveExit) {
+    const TH = MARKET_INDEX.NIKKEI_CRISIS_THRESHOLD; // 本番と同じ -3
+    const arms: { label: string; exitPct: number | null; exitLagged: boolean }[] = [
+      { label: "exit-off", exitPct: null, exitLagged: false },
+      { label: "exit-lagged", exitPct: TH, exitLagged: true },
+      { label: "exit-sameday", exitPct: TH, exitLagged: false },
+    ];
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    console.log(`\n=== 日経キルスイッチ 決済側比較 (KOH-589) 閾値 ${TH}% ===`);
+    console.log(`期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}, N225 ${indexData.size}日, エンジン: ${intraBarModelArg ?? "stop-at-open(既定)"}`);
+    console.log(`エントリー側 veto は全アーム固定: lagged / ${TH}%（本番と同じ）`);
+    for (const arm of arms) {
+      const result = runCombinedSimulation(
+        {
+          ...ctx,
+          nikkeiDropVetoPct: TH,
+          nikkeiDropVetoLagged: true,
+          nikkeiDropDefensiveExitPct: arm.exitPct ?? undefined,
+          nikkeiDropDefensiveExitLagged: arm.exitLagged,
+        },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      const pf = m.profitFactor === Infinity ? 999 : m.profitFactor;
+      const defExits = result.allTrades.filter((t) => t.exitReason === "defensive_exit").length;
+      // 機械可読: WINROW,<start>,<end>,<label>,<trades>,<netRet>,<maxDD>,<calmar>,<pf>,<defensiveExits>
+      console.log(
+        `WINROW,${startDate},${endDate},${arm.label},${m.totalTrades},${m.netReturnPct.toFixed(4)},${m.maxDrawdown.toFixed(4)},${calmar.toFixed(4)},${pf.toFixed(4)},${defExits}`,
       );
     }
     console.log("");
