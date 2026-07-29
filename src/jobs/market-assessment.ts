@@ -21,6 +21,7 @@ import { calculateDrawdownStatus } from "../core/drawdown-manager";
 import type { DrawdownStatus } from "../core/drawdown-manager";
 import { calculateMarketBreadth } from "../core/market-breadth";
 import { getNikkeiLastSessionChange } from "../core/market-index";
+import { CRISIS_SOURCE } from "../core/crisis-source";
 
 /** market-assessment の結果（オーケストレーターや stock-scanner に渡す） */
 export interface MarketAssessmentContext {
@@ -176,6 +177,7 @@ export async function main(): Promise<MarketAssessmentContext> {
         const assessmentData = {
           ...buildMarketFields(marketData, { breadth: breadthValue, cmeDivergencePct }),
           sentiment: "crisis" as const,
+          crisisSource: CRISIS_SOURCE.CME_DIVERGENCE,
           shouldTrade: false,
           reasoning: `[CME先物乖離率キルスイッチ] ${preMarket.reason}`,
           selectedStocks: [],
@@ -229,6 +231,7 @@ export async function main(): Promise<MarketAssessmentContext> {
     const assessmentData = {
       ...buildMarketFields(marketData, { breadth: breadthValue, cmeDivergencePct }),
       sentiment: "crisis" as const,
+      crisisSource: CRISIS_SOURCE.NIKKEI_DROP,
       shouldTrade: false,
       reasoning: `[日経平均キルスイッチ] ${reason}`,
       selectedStocks: [],

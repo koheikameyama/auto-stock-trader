@@ -61,6 +61,7 @@ import {
 } from "../lib/constants/broker";
 import { PANIC } from "../lib/constants/panic";
 import type { ExitSnapshot } from "../types/snapshots";
+import { crisisSourceLabel, shouldTriggerDefensiveExit } from "../core/crisis-source";
 import type { TradingStrategy } from "../core/market-regime";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
@@ -88,13 +89,25 @@ type ExitablePosition = Awaited<ReturnType<typeof getOpenPositions>>[number];
  *   stale な前日値を渡してはいけない（却下リスト #25 の stale 誤発火）。
  */
 export function evaluateDefensiveMode(
-  assessment: { sentiment: string | null; vix: unknown } | null,
+  assessment: { sentiment: string | null; vix: unknown; crisisSource?: string | null } | null,
 ): { active: boolean; trigger: string | null } {
   if (!assessment) return { active: false, trigger: null };
 
-  // (a) 日経キルスイッチ(≤-3%) / CME乖離(≤-3%)
+  // (a) キルスイッチ由来の crisis。★発生源で撃つ/撃たないを分ける（KOH-591）。
+  //
+  //   cme_divergence — 寄付**前**に判定できる＝ギャップダウンが逆指値SLを飛び越えるテールを
+  //                    実際に回避できるので撃つ。
+  //   nikkei_drop    — market-assessment は 08:02 に直近確定セッションを読む（却下 #48）ため
+  //                    実効的に1営業日遅れ。暴落日Dは素通しで D+1 の朝に全決済する＝
+  //                    守るべきギャップは前日に終わっている。却下 #48 の実測では N225 暴落翌日は
+  //                    22/36 で上昇（平均 +0.61%）＝リバウンド日に投げることになるので撃たない。
+  //                    ★エントリー veto（shouldTrade=false）は発生源に関わらず従来どおり効く。
+  //                      止めているのは「既存ポジションを投げる」判断だけで、逆指値SLも板に残る。
   if (assessment.sentiment === "crisis") {
-    return { active: true, trigger: "crisis（日経/CMEキルスイッチ）" };
+    if (shouldTriggerDefensiveExit(assessment.crisisSource)) {
+      return { active: true, trigger: `crisis（${crisisSourceLabel(assessment.crisisSource)}）` };
+    }
+    // 撃たない場合も (b) VIX 判定は続行する（VIX>30 なら別事由として発火する）
   }
 
   // (b) VIX > 30 — BT の processDefensive と同一条件
@@ -1010,7 +1023,10 @@ export async function main() {
   // 3.5. ディフェンシブモード（全ポジション即時決済）
   //
   // 発火条件は2系統:
-  //   (a) sentiment==="crisis" — 日経キルスイッチ(≤-3%) / CME乖離(≤-3%)
+  //   (a) sentiment==="crisis" — キルスイッチ由来。**発生源で撃つ/撃たないが分かれる**（KOH-591）:
+  //         cme_divergence(≤-3%) → 撃つ。寄付**前**に判定できるのでギャップを実際に避けられる
+  //         nikkei_drop(≤-3%)    → 撃たない。1営業日遅れ（却下 #48）で、守るべきギャップは
+  //                                前日に終わっている。詳細は core/crisis-source.ts
   //   (b) VIX > 30 — BT の processDefensive が `todayRegime==="crisis"` としてモデル化している条件。
   //       翌朝のギャップダウンが逆指値SLを突き抜けるテールを避ける。
   //
@@ -1030,7 +1046,7 @@ export async function main() {
   // 発火させない（SLは板に生きているので保護は残る。stale値で全決済する方が有害）。
   const latestAssessmentForDefense = await prisma.marketAssessment.findUnique({
     where: { date: getTodayForDB() },
-    select: { sentiment: true, reasoning: true, vix: true },
+    select: { sentiment: true, reasoning: true, vix: true, crisisSource: true },
   });
 
   const { active: isDefensiveMode, trigger } = evaluateDefensiveMode(

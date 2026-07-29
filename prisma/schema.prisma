@@ -154,6 +154,12 @@ model MarketAssessment {
   breadth          Decimal? @db.Decimal(5, 4)
   cmeDivergencePct Decimal? @db.Decimal(8, 4)
 
+  /// sentiment="crisis" を書いた発生源のコード（CRISIS_SOURCE）。
+  /// "nikkei_drop" = 日経 ≤ -3%（1営業日遅れ判定） / "cme_divergence" = CME乖離 ≤ -3%（寄付前）
+  /// 日本語は表示時に導出する（reasoning のパースは脆いので値では持たない）。
+  /// null = crisis でない、または本カラム追加(2026-07-29)以前の古いレコード。
+  crisisSource     String?
+
   @@index([date(sort: Desc)])
 }
 
