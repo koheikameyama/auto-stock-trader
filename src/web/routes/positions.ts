@@ -18,6 +18,8 @@ import {
   tickerLink,
   emptyState,
   tt,
+  pagination,
+  parsePage,
 } from "../views/components";
 import type { TradingStrategy } from "../../core/market-regime";
 const app = new Hono();
@@ -25,7 +27,7 @@ const app = new Hono();
 app.get("/", async (c) => {
   // クローズ済みは全期間をページネーションで表示
   const closedPageSize = QUERY_LIMITS.POSITIONS_CLOSED;
-  const closedPage = Math.max(1, Number.parseInt(c.req.query("page") ?? "1", 10) || 1);
+  const closedPage = parsePage(c.req.query("page"));
 
   const closedWhere = { status: "closed" as const };
 
@@ -46,6 +48,11 @@ app.get("/", async (c) => {
   ]);
 
   const closedTotalPages = Math.max(1, Math.ceil(closedTotal / closedPageSize));
+
+  // 範囲外のページは空表示のまま戻れなくなるので最終ページへ寄せる
+  if (closedPage > closedTotalPages) {
+    return c.redirect(`/positions?page=${closedTotalPages}`);
+  }
 
   const content = html`
     <p class="section-title">オープンポジション (${openPositions.length})</p>
@@ -232,31 +239,7 @@ app.get("/", async (c) => {
               </tbody>
             </table>
           </div>
-          ${(() => {
-            if (closedTotalPages <= 1) return "";
-            const pageLinkStyle = (enabled: boolean) =>
-              `display:inline-block;padding:4px 12px;border-radius:6px;font-size:0.85rem;text-decoration:none;` +
-              (enabled
-                ? "background:#3b82f620;color:#3b82f6"
-                : "background:#1f2937;color:#4b5563;pointer-events:none");
-            const prevEnabled = closedPage > 1;
-            const nextEnabled = closedPage < closedTotalPages;
-            return html`
-              <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:12px">
-                <a
-                  href="/positions?page=${closedPage - 1}"
-                  style="${pageLinkStyle(prevEnabled)}"
-                  >← 前へ</a
-                >
-                <span style="font-size:0.85rem;color:#94a3b8">${closedPage} / ${closedTotalPages}</span>
-                <a
-                  href="/positions?page=${closedPage + 1}"
-                  style="${pageLinkStyle(nextEnabled)}"
-                  >次へ →</a
-                >
-              </div>
-            `;
-          })()}
+          ${pagination("/positions", closedPage, closedTotalPages)}
         `
       : html`<div class="card">${emptyState("クローズポジションなし")}</div>`}
   `;
