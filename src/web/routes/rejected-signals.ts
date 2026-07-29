@@ -9,8 +9,9 @@ import { prisma } from "../../lib/prisma";
 import { COLORS } from "../views/styles";
 import { layout } from "../views/layout";
 import { strategyShortLabel, strategyColor } from "../views/strategy-labels";
-import { strategyBadge } from "../views/components";
+import { strategyBadge, pagination, parsePage } from "../views/components";
 import { classifyExitReason } from "../../core/exit-reason";
+import { QUERY_LIMITS } from "../../lib/constants";
 
 const app = new Hono();
 
@@ -30,31 +31,46 @@ function returnColor(val: number | null): string {
 
 app.get("/", async (c) => {
   const strategy = c.req.query("strategy") ?? "all";
+  const page = parsePage(c.req.query("page"));
+  const pageSize = QUERY_LIMITS.REJECTED_SIGNALS;
   const where: Prisma.RejectedSignalWhereInput = {};
   if (strategy !== "all") where.strategy = strategy;
 
-  const signals = await prisma.rejectedSignal.findMany({
-    where,
-    orderBy: { rejectedAt: "desc" },
-    take: 200,
-  });
+  // 一覧はページ送りで全件辿れる。理由別集計はページではなく全件が母数
+  // （ページごとに集計が変わると傾向の指標にならないため DB 側で集計する）
+  const [total, signals, grouped] = await Promise.all([
+    prisma.rejectedSignal.count({ where }),
+    prisma.rejectedSignal.findMany({
+      where,
+      orderBy: { rejectedAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.rejectedSignal.groupBy({
+      by: ["reasonLabel"],
+      where,
+      _count: { _all: true },
+      _avg: { return5dPct: true, return10dPct: true },
+    }),
+  ]);
 
-  // 理由別集計
-  const summaryMap = new Map<string, { count: number; sum5d: number; count5d: number; sum10d: number; count10d: number }>();
-  for (const s of signals) {
-    const entry = summaryMap.get(s.reasonLabel) ?? { count: 0, sum5d: 0, count5d: 0, sum10d: 0, count10d: 0 };
-    entry.count++;
-    if (s.return5dPct !== null) { entry.sum5d += s.return5dPct; entry.count5d++; }
-    if (s.return10dPct !== null) { entry.sum10d += s.return10dPct; entry.count10d++; }
-    summaryMap.set(s.reasonLabel, entry);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  // 範囲外のページは空表示のまま戻れなくなるので最終ページへ寄せる
+  if (page > totalPages) {
+    const query = new URLSearchParams({ strategy, page: String(totalPages) });
+    return c.redirect(`/rejected-signals?${query.toString()}`);
   }
 
-  const summary = Array.from(summaryMap.entries()).map(([label, v]) => ({
-    label,
-    count: v.count,
-    avg5dPct: v.count5d > 0 ? v.sum5d / v.count5d : null,
-    avg10dPct: v.count10d > 0 ? v.sum10d / v.count10d : null,
-  }));
+  // 理由別集計（_avg は null を除外して平均するため、従来の「非nullのみ平均」と同じ）
+  const summary = grouped
+    .map((g) => ({
+      label: g.reasonLabel,
+      count: g._count._all,
+      avg5dPct: g._avg.return5dPct,
+      avg10dPct: g._avg.return10dPct,
+    }))
+    .sort((a, b) => b.count - a.count);
 
   // === 決済後フォワード（決済理由別） ===
   // rejected（＝入らなかった判断）とは別問い：「切った後に上がったか＝早く切りすぎか」
@@ -176,8 +192,8 @@ app.get("/", async (c) => {
       `}
 
       <!-- 個別一覧テーブル -->
-      <h2 style="font-size:1.05rem;font-weight:700;margin-bottom:12px;color:${COLORS.text}">弾かれたシグナル一覧</h2>
-      <div style="background:${COLORS.card};border:1px solid ${COLORS.border};border-radius:8px;overflow:hidden">
+      <h2 style="font-size:1.05rem;font-weight:700;margin-bottom:12px;color:${COLORS.text}">弾かれたシグナル一覧 ${total}件</h2>
+      <div class="table-wrap" style="background:${COLORS.card};border:1px solid ${COLORS.border};border-radius:8px">
         <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
           <thead>
             <tr style="border-bottom:1px solid ${COLORS.border};color:${COLORS.textMuted}">
@@ -207,6 +223,7 @@ app.get("/", async (c) => {
           </tbody>
         </table>
       </div>
+      ${pagination("/rejected-signals", page, totalPages, { strategy })}
     </div>
   `;
 

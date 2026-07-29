@@ -23,6 +23,8 @@ import {
   signalRow,
   strategyBadge,
   tt,
+  pagination,
+  parsePage,
 } from "../views/components";
 import type { SignalStatus } from "../views/components";
 
@@ -80,12 +82,23 @@ app.get("/", async (c) => {
   const thirtyDaysAgo = dayjs().subtract(ROUTE_LOOKBACK_DAYS.HISTORY, "day").toDate();
   const ninetyDaysAgo = dayjs().subtract(90, "day").toDate();
 
+  // 日次サマリーは期間で打ち切らず、全期間をページ送りで辿れるようにする
+  const summaryPage = parsePage(c.req.query("page"));
+  const summaryPageSize = QUERY_LIMITS.HISTORY_SUMMARIES;
+
   // Parallel data fetch
-  const [summaries, closedPositions, assessments, rejectedSignals] = await Promise.all([
+  const [summaries, summaryTotal, chartSummaries, closedPositions, assessments, rejectedSignals] =
+    await Promise.all([
+    prisma.tradingDailySummary.findMany({
+      orderBy: { date: "desc" },
+      skip: (summaryPage - 1) * summaryPageSize,
+      take: summaryPageSize,
+    }),
+    prisma.tradingDailySummary.count(),
+    // 累積損益チャートは「過去30日」固定。一覧のページ送りに引きずられないよう別取得
     prisma.tradingDailySummary.findMany({
       where: { date: { gte: thirtyDaysAgo } },
       orderBy: { date: "desc" },
-      take: QUERY_LIMITS.HISTORY_SUMMARIES,
     }),
     prisma.tradingPosition.findMany({
       where: { status: "closed", exitedAt: { gte: ninetyDaysAgo } },
@@ -268,12 +281,19 @@ app.get("/", async (c) => {
     rejByReason[key].avg5d /= rejByReason[key].count;
   }
 
+  const summaryTotalPages = Math.max(1, Math.ceil(summaryTotal / summaryPageSize));
+
+  // 範囲外のページは空表示のまま戻れなくなるので最終ページへ寄せる
+  if (summaryPage > summaryTotalPages) {
+    return c.redirect(`/history?page=${summaryTotalPages}`);
+  }
+
   // === Gate log ===
   const tradeDays = assessments.filter((a) => a.shouldTrade).length;
   const skipDays = assessments.filter((a) => !a.shouldTrade);
 
   // Cumulative PnL chart data (oldest first)
-  const chartData = [...summaries].reverse().reduce<
+  const chartData = [...chartSummaries].reverse().reduce<
     { label: string; value: number }[]
   >((acc, s) => {
     const prev = acc.length > 0 ? acc[acc.length - 1].value : 0;
@@ -332,7 +352,7 @@ app.get("/", async (c) => {
     <p class="section-title">${tt("\u6226\u7565\u5225\u640D\u76CA", "\u6226\u7565\u3054\u3068\u306E\u5B9F\u73FE\u640D\u76CA\u30FB\u4EF6\u6570\u30FB\u52DD\u7387\u30FBPF")}\uFF0890\u65E5\uFF09</p>
     ${strategyRows.length > 0
       ? html`
-          <div class="card table-wrap responsive-table">
+          <div class="card table-wrap">
             <table>
               <thead>
                 <tr>
@@ -432,10 +452,10 @@ app.get("/", async (c) => {
     </div>
 
     <!-- Daily Summary Table -->
-    <p class="section-title">\u65E5\u6B21\u30B5\u30DE\u30EA\u30FC</p>
+    <p class="section-title">\u65E5\u6B21\u30B5\u30DE\u30EA\u30FC\uFF08\u5168\u671F\u9593 ${summaryTotal}\u65E5\uFF09</p>
     ${summaries.length > 0
       ? html`
-          <div class="card table-wrap responsive-table">
+          <div class="card table-wrap">
             <table>
               <thead>
                 <tr>
@@ -482,6 +502,7 @@ app.get("/", async (c) => {
               </tbody>
             </table>
           </div>
+          ${pagination("/history", summaryPage, summaryTotalPages)}
         `
       : html`<div class="card">${emptyState("\u65E5\u6B21\u30B5\u30DE\u30EA\u30FC\u306A\u3057")}</div>`}
   `;
