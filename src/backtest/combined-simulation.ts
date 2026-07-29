@@ -205,6 +205,31 @@ export interface SimContext {
    */
   nikkeiDropDefensiveExitLagged?: boolean;
   /**
+   * レジーム条件付き BE 発動倍率（GU/PSC の出口のみ、--compare-conditional-be 検証用 / KOH-590）。
+   * 条件が真の日は beActivationMultiplier を `tightened` に差し替える（＝建値ガードを早く効かせる）。
+   * 省略時は無効 = baseline 完全不変。
+   *
+   * ⚠️ 却下 #37 で「BE をグローバルに 0.3 未満へ下げるのは WF で単調に悪化（純粋な過学習次元）」が
+   *    現エンジンで確定済み。本オプションは「平時は 0.3 のまま、荒れた局面だけ絞る」という
+   *    条件付き版が別の答えを出すかを測るためだけのもの。
+   *
+   * mode:
+   *   "vix"     — VIX レジームが normal 以外（elevated/high/crisis）の日。
+   *               engine 既存の todayRegime（vixData.get(today)）をそのまま使う。
+   *               ★VIX の時制は engine の従来慣習に合わせている（却下 #46 の VIX scale と同じ土俵で
+   *                 比較するため）。live の MarketAssessment.vix は前営業日終値なので厳密には半日ずれる。
+   *   "breadth" — **前営業日終値**の breadth が breadthThreshold 未満の日。
+   *               ★当日 breadth を使うと先読み（本番 15:20 の position-monitor に当日 breadth は無い）。
+   *                 却下 #41 が buyback で踏んだ罠なので、こちらは最初から D-1 で定義する。
+   */
+  conditionalBe?: {
+    mode: "vix" | "breadth";
+    /** mode="breadth" のときの閾値（0-1）。例: 0.54 = idle帯へ落ちた日 */
+    breadthThreshold?: number;
+    /** 条件成立日に使う beActivationMultiplier */
+    tightened: number;
+  };
+  /**
    * ボラ凸性サイジング（GU/PSC のみ、--compare-vol-convexity 検証用）。
    * エントリー時の20日実現ボラ（日次リターンの標準偏差%）で分位を判定し、
    * quantity に scales[quartile] を掛ける（0 = veto）。
@@ -855,7 +880,7 @@ export function runCombinedSimulation(
     typeof maxPositions === "number"
       ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, etfMax: maxPositions, buybackMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, etfCrisisBypass, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none", beTrailDetectionSource = "high", breakEvenFloor, intraBarStopModel = "stop-at-open", volConvexity, cashShrinkToFit = false, cashBufferPct = 1 } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, etfCrisisBypass, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none", beTrailDetectionSource = "high", breakEvenFloor, intraBarStopModel = "stop-at-open", volConvexity, cashShrinkToFit = false, cashBufferPct = 1, conditionalBe } = ctx;
   const guBreadthMode = breadthModeGu ?? breadthMode;
   const pscBreadthMode = breadthModePsc ?? breadthMode;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
@@ -937,13 +962,33 @@ export function runCombinedSimulation(
       todayVix != null ? determineMarketRegime(todayVix).level : "normal";
 
     // ── 1. 出口判定 ──
+    // レジーム条件付き BE（KOH-590）。条件成立日だけ GU/PSC の beActivationMultiplier を絞る。
+    // 未設定なら guExitConfig/pscExitConfig は元の参照そのままなので baseline 完全不変。
+    let condBeActive = false;
+    if (conditionalBe) {
+      if (conditionalBe.mode === "vix") {
+        condBeActive = todayRegime !== "normal";
+      } else if (conditionalBe.mode === "breadth" && conditionalBe.breadthThreshold != null && dayIdx > 0) {
+        // ★前営業日の確定 breadth を使う（当日 breadth は本番 15:20 の position-monitor に存在しない）
+        const prevBreadth = precomputed.dailyBreadth.get(tradingDays[dayIdx - 1]);
+        condBeActive = prevBreadth != null && prevBreadth < conditionalBe.breadthThreshold;
+      }
+    }
+    const guExitConfig = condBeActive
+      ? { ...guConfigLocal, beActivationMultiplier: conditionalBe!.tightened }
+      : guConfigLocal;
+    const pscExitConfig =
+      pscConfigLocal && condBeActive
+        ? { ...pscConfigLocal, beActivationMultiplier: conditionalBe!.tightened }
+        : pscConfigLocal;
+
     processExits(boPositions, boConfigLocal, "breakout", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, boClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
-    processExits(guPositions, guConfigLocal, "gapup", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, guClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
+    processExits(guPositions, guExitConfig, "gapup", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, guClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
     if (wbConfigLocal) {
       processExits(wbPositions, wbConfigLocal, "weekly-break", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, wbClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
     }
     if (pscConfigLocal) {
-      processExits(pscPositions, pscConfigLocal, "post-surge-consolidation", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, pscClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
+      processExits(pscPositions, pscExitConfig!, "post-surge-consolidation", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, pscClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
     }
     if (momConfigLocal) {
       processExits(momPositions, momConfigLocal, "momentum", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, momClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
