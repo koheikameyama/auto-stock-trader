@@ -167,7 +167,7 @@ export function parsePage(raw: string | undefined): number {
 }
 
 /** Signal light row (信号灯付きラベル: 値) */
-export type SignalStatus = "ok" | "warning" | "danger";
+export type SignalStatus = "ok" | "warning" | "danger" | "neutral";
 
 export function signalRow(
   label: string | HtmlContent,
@@ -175,13 +175,21 @@ export function signalRow(
   status: SignalStatus,
 ): HtmlContent {
   const emoji =
-    status === "ok" ? "\u{1F7E2}" : status === "warning" ? "\u{1F7E1}" : "\u{1F534}";
+    status === "ok"
+      ? "\u{1F7E2}"
+      : status === "warning"
+        ? "\u{1F7E1}"
+        : status === "neutral"
+          ? "⚪"
+          : "\u{1F534}";
   const color =
     status === "ok"
       ? COLORS.profit
       : status === "warning"
         ? COLORS.warning
-        : COLORS.loss;
+        : status === "neutral"
+          ? COLORS.textMuted
+          : COLORS.loss;
   return html`<div class="detail-row">
     <span class="detail-label">${label}</span>
     <span style="color:${color}">${emoji} ${valueText}</span>
