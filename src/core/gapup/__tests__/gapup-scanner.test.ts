@@ -30,7 +30,7 @@ function makeQuote(overrides?: Partial<GapUpQuoteData>): GapUpQuoteData {
 describe("GapUpScanner", () => {
   it("ギャップアップ条件を満たす銘柄でトリガーを返す", () => {
     const scanner = new GapUpScanner(makeWatchlist());
-    const triggers = scanner.scan([makeQuote()], new Set());
+    const { triggers } = scanner.scan([makeQuote()], new Set());
     expect(triggers).toHaveLength(1);
     expect(triggers[0].ticker).toBe("1234");
     expect(triggers[0].currentPrice).toBe(1025);
@@ -39,7 +39,7 @@ describe("GapUpScanner", () => {
 
   it("陰線（close < open）でトリガーしない", () => {
     const scanner = new GapUpScanner(makeWatchlist());
-    const triggers = scanner.scan(
+    const { triggers } = scanner.scan(
       [makeQuote({ price: 1010, open: 1020 })], // close < open
       new Set(),
     );
@@ -48,7 +48,7 @@ describe("GapUpScanner", () => {
 
   it("ギャップが3%未満でトリガーしない", () => {
     const scanner = new GapUpScanner(makeWatchlist());
-    const triggers = scanner.scan(
+    const { triggers } = scanner.scan(
       [makeQuote({ open: 990 })], // (990-980)/980 = 1% < 3%
       new Set(),
     );
@@ -57,17 +57,28 @@ describe("GapUpScanner", () => {
 
   it("出来高サージ不足でトリガーしない", () => {
     const scanner = new GapUpScanner(makeWatchlist());
-    const triggers = scanner.scan(
+    const { triggers } = scanner.scan(
       [makeQuote({ volume: 250_000 })], // 250000/200000 = 1.25 < 1.5
       new Set(),
     );
     expect(triggers).toHaveLength(0);
   });
 
-  it("保有中銘柄はスキップ", () => {
+  // 「シグナルは満たしたが保有中で発注しなかった」ケースは弾き分析に載せるため、
+  // triggers から外すだけでなく skipped で返す必要がある（除外判定はシグナル判定の後）
+  it("保有中銘柄はスキップし、skipped に入る", () => {
     const scanner = new GapUpScanner(makeWatchlist());
-    const triggers = scanner.scan([makeQuote()], new Set(["1234"]));
+    const { triggers, skipped } = scanner.scan([makeQuote()], new Set(["1234"]));
     expect(triggers).toHaveLength(0);
+    expect(skipped).toEqual([{ ticker: "1234", currentPrice: 1025 }]);
+  });
+
+  it("シグナル不成立の保有中銘柄は skipped に入らない", () => {
+    const scanner = new GapUpScanner(makeWatchlist());
+    // ギャップ1% < 3% → そもそもシグナル不成立
+    const { triggers, skipped } = scanner.scan([makeQuote({ open: 990 })], new Set(["1234"]));
+    expect(triggers).toHaveLength(0);
+    expect(skipped).toHaveLength(0);
   });
 
   it("volumeSurgeRatio降順でソートされる", () => {
@@ -80,7 +91,7 @@ describe("GapUpScanner", () => {
       { ticker: "2222", open: 1020, price: 1025, high: 1030, low: 1015, volume: 400_000 },
     ];
     const scanner = new GapUpScanner(watchlist);
-    const triggers = scanner.scan(quotes, new Set());
+    const { triggers } = scanner.scan(quotes, new Set());
     expect(triggers).toHaveLength(2);
     // 2222: 400000/100000=4.0, 1111: 400000/200000=2.0
     expect(triggers[0].ticker).toBe("2222");

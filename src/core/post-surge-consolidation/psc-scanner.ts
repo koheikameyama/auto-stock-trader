@@ -46,20 +46,25 @@ export class PostSurgeConsolidationScanner {
    * @param quotes 当日OHLCVデータ（立花APIから取得）
    * @param historicalMap 銘柄ごとの直近履歴データ（PSC判定用）
    * @param holdingTickers 保有中のティッカーセット（除外用）
-   * @returns PostSurgeConsolidationTrigger[]（momentumReturn × volumeSurgeRatio 降順）
+   * @returns triggers = 発注候補（momentumReturn × volumeSurgeRatio 降順）/
+   *          skipped = シグナルは満たしたが holdingTickers で除外した銘柄（弾き分析用）
+   *
+   * ⚠️ 除外判定はシグナル判定の**後**に行う（GapUpScanner と同じ理由）。
    */
   scan(
     quotes: Array<{ ticker: string; open: number; price: number; volume: number }>,
     historicalMap: Map<string, PSCHistoricalData>,
     holdingTickers: Set<string>,
-  ): PostSurgeConsolidationTrigger[] {
+  ): {
+    triggers: PostSurgeConsolidationTrigger[];
+    skipped: { ticker: string; currentPrice: number }[];
+  } {
     const triggers: PostSurgeConsolidationTrigger[] = [];
+    const skipped: { ticker: string; currentPrice: number }[] = [];
 
     for (const quote of quotes) {
       const entry = this.watchlistMap.get(quote.ticker);
       if (!entry) continue;
-
-      if (holdingTickers.has(quote.ticker)) continue;
 
       const hist = historicalMap.get(quote.ticker);
       if (!hist) continue;
@@ -78,6 +83,12 @@ export class PostSurgeConsolidationScanner {
 
       if (!isSignal) continue;
 
+      // 保有中・当日発注済み・決済後cooldown はここで除外（シグナルは満たしている）
+      if (holdingTickers.has(quote.ticker)) {
+        skipped.push({ ticker: quote.ticker, currentPrice: quote.price });
+        continue;
+      }
+
       const volumeSurgeRatio = entry.avgVolume25 > 0 ? quote.volume / entry.avgVolume25 : 0;
       const momentumReturn = hist.close20DaysAgo > 0 ? quote.price / hist.close20DaysAgo - 1 : 0;
 
@@ -95,6 +106,6 @@ export class PostSurgeConsolidationScanner {
     // 優先順位ソート: momentumReturn × volumeSurgeRatio 降順
     triggers.sort((a, b) => b.momentumReturn * b.volumeSurgeRatio - a.momentumReturn * a.volumeSurgeRatio);
 
-    return triggers;
+    return { triggers, skipped };
   }
 }

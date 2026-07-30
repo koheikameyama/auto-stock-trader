@@ -10,7 +10,7 @@
  */
 
 import { prisma } from "../lib/prisma";
-import { getTodayForDB, getStartOfDayJST, getEndOfDayJST, addTradingDays, toJSTDateForDB } from "../lib/market-date";
+import { getTodayForDB, getStartOfDayJST, getEndOfDayJST, getDaysAgoForDB, addTradingDays, toJSTDateForDB } from "../lib/market-date";
 import { fetchStockQuote } from "../core/market-data";
 import { getCashBalance, getTotalPortfolioValue, getPositionPnl, getPendingBuyAmount } from "../core/position-manager";
 import { expireOrders } from "../core/order-executor";
@@ -447,8 +447,13 @@ export async function main() {
 async function fillRejectedSignalReturns(): Promise<void> {
   const tag = "[end-of-day] RejectedSignal補完";
 
+  // 直近のみを対象にする。10営業日後の終値が付くのは約14暦日後なので 60日あれば十分で、
+  // それより古い未補完行（上場廃止・取引停止でバーが永久に来ない銘柄）を毎日1件2クエリで
+  // 再走査し続けるのを防ぐ。候補の見送り（枠上限・打ち止め）まで記録するようになり
+  // RejectedSignal の行数が増えたため、日付境界なしのフルスキャンは維持できない。
   const signals = await prisma.rejectedSignal.findMany({
     where: {
+      rejectedAt: { gte: getDaysAgoForDB(60) },
       OR: [{ close5d: null }, { close10d: null }],
     },
   });

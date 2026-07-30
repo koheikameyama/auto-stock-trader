@@ -8,6 +8,8 @@ const {
   mockGetWatchlist,
   mockFetchQuotes,
   mockExecuteEntry,
+  mockRecordSkipped,
+  mockRecordSkippedByHolding,
   mockNotifySlack,
   mockAssessmentFindUnique,
   mockPositionFindMany,
@@ -20,11 +22,13 @@ const {
   mockGetWatchlist: vi.fn(), // getGuWatchlist のモック
   mockFetchQuotes: vi.fn(),
   mockExecuteEntry: vi.fn().mockResolvedValue({ success: true }),
+  mockRecordSkipped: vi.fn().mockResolvedValue(undefined),
+  mockRecordSkippedByHolding: vi.fn().mockResolvedValue(undefined),
   mockNotifySlack: vi.fn().mockResolvedValue(undefined),
   mockAssessmentFindUnique: vi.fn(),
   mockPositionFindMany: vi.fn().mockResolvedValue([]),
   mockDailyBarFindMany: vi.fn().mockResolvedValue([]),
-  mockGapUpScan: vi.fn().mockReturnValue([]),
+  mockGapUpScan: vi.fn().mockReturnValue({ triggers: [], skipped: [] }),
   mockGetSameDayPendingBuyTickers: vi.fn().mockResolvedValue(new Set()),
   mockCountSameDayPendingBuys: vi.fn().mockResolvedValue(0),
   mockGetRecentlyExitedTickers: vi.fn().mockResolvedValue(new Set()),
@@ -44,6 +48,8 @@ vi.mock("../../lib/tachibana-price-client", () => ({
 }));
 vi.mock("../../core/breakout/entry-executor", () => ({
   executeEntry: mockExecuteEntry,
+  recordSkippedCandidates: mockRecordSkipped,
+  recordSkippedByHolding: mockRecordSkippedByHolding,
 }));
 vi.mock("../../core/order-executor", () => ({
   getSameDayPendingBuyTickers: mockGetSameDayPendingBuyTickers,
@@ -161,7 +167,7 @@ describe("gapup-monitor main()", () => {
 
   it("トリガーなし→Slack通知（0件）を送信", async () => {
     setupDefaults();
-    mockGapUpScan.mockReturnValue([]);
+    mockGapUpScan.mockReturnValue({ triggers: [], skipped: [] });
     await main();
     expect(mockNotifySlack).toHaveBeenCalledWith(
       expect.objectContaining({ title: expect.stringContaining("0件") }),
@@ -171,7 +177,7 @@ describe("gapup-monitor main()", () => {
   it("トリガー発火→executeEntryを strategy='gapup' で呼ぶ", async () => {
     setupDefaults();
     const trigger = makeTrigger("7203");
-    mockGapUpScan.mockReturnValue([trigger]);
+    mockGapUpScan.mockReturnValue({ triggers: [trigger], skipped: [] });
     mockExecuteEntry.mockResolvedValue({ success: true });
     await main();
     expect(mockExecuteEntry).toHaveBeenCalledWith(trigger, "gapup");
@@ -179,7 +185,7 @@ describe("gapup-monitor main()", () => {
 
   it("エントリー失敗（非リトライ）→Slack warning", async () => {
     setupDefaults();
-    mockGapUpScan.mockReturnValue([makeTrigger("7203")]);
+    mockGapUpScan.mockReturnValue({ triggers: [makeTrigger("7203")], skipped: [] });
     mockExecuteEntry.mockResolvedValue({ success: false, reason: "残高不足", retryable: false });
     await main();
     expect(mockNotifySlack).toHaveBeenCalledWith(
@@ -192,7 +198,7 @@ describe("gapup-monitor main()", () => {
 
   it("エントリー失敗（リトライ可能）→ Slack通知なし・次回呼び出しでリトライ", async () => {
     setupDefaults();
-    mockGapUpScan.mockReturnValue([makeTrigger("7203")]);
+    mockGapUpScan.mockReturnValue({ triggers: [makeTrigger("7203")], skipped: [] });
     mockExecuteEntry.mockResolvedValue({
       success: false,
       reason: "Tachibana API timeout",
@@ -207,7 +213,7 @@ describe("gapup-monitor main()", () => {
     // 再度呼び出すと executeEntry が再実行される（フラグ未セット）
     vi.clearAllMocks();
     setupDefaults();
-    mockGapUpScan.mockReturnValue([makeTrigger("7203")]);
+    mockGapUpScan.mockReturnValue({ triggers: [makeTrigger("7203")], skipped: [] });
     mockExecuteEntry.mockResolvedValue({ success: true });
     await main();
     expect(mockExecuteEntry).toHaveBeenCalled();
@@ -229,7 +235,7 @@ describe("gapup-monitor main()", () => {
   // 15:24:00/20/40 のリトライ tick ごとに枠が満タンに復活し、上限を超えて発注される。
   it("発注中（当日pending買い注文）が枠を消費する — 枠が埋まっていればエントリーしない", async () => {
     setupDefaults();
-    mockGapUpScan.mockReturnValue([makeTrigger("7203")]);
+    mockGapUpScan.mockReturnValue({ triggers: [makeTrigger("7203")], skipped: [] });
     // open ポジは 0 件だが、当日 GU で3件（=MAX_POSITIONS_GU）発注済み・未約定
     mockPositionFindMany.mockResolvedValue([]);
     mockCountSameDayPendingBuys.mockResolvedValue(3);
@@ -244,11 +250,11 @@ describe("gapup-monitor main()", () => {
       makeQuote("6758"),
       makeQuote("9984"),
     ]);
-    mockGapUpScan.mockReturnValue([
+    mockGapUpScan.mockReturnValue({ triggers: [
       makeTrigger("7203"),
       makeTrigger("6758"),
       makeTrigger("9984"),
-    ]);
+    ], skipped: [] });
     // open 0件 + 発注中2件 → MAX_POSITIONS_GU(3) - 2 = 残り1枠
     mockPositionFindMany.mockResolvedValue([]);
     mockCountSameDayPendingBuys.mockResolvedValue(2);
@@ -257,15 +263,77 @@ describe("gapup-monitor main()", () => {
     expect(mockExecuteEntry).toHaveBeenCalledTimes(1);
   });
 
+  // 「候補があって注文に乗らなかったら弾き分析に乗せる」: 枠都合で executeEntry を通らない候補は
+  // executeEntry 側の記録に載らないため、monitor が明示的に RejectedSignal へ回す必要がある。
+  it("シグナル成立だが保有中/cooldownで除外された候補を弾き分析に記録", async () => {
+    setupDefaults();
+    mockGetRecentlyExitedTickers.mockResolvedValue(new Set(["6758"]));
+    mockGapUpScan.mockReturnValue({
+      triggers: [],
+      skipped: [{ ticker: "6758", currentPrice: 1200 }],
+    });
+    await main();
+    expect(mockRecordSkippedByHolding).toHaveBeenCalledTimes(1);
+    const [skipped, strategy, held, pending, cooldown] = mockRecordSkippedByHolding.mock.calls[0];
+    expect(skipped).toEqual([{ ticker: "6758", currentPrice: 1200 }]);
+    expect(strategy).toBe("gapup");
+    // 除外理由をラベル分けできるよう3集合が個別に渡る
+    expect(held.has("6758")).toBe(false);
+    expect(pending.has("6758")).toBe(false);
+    expect(cooldown.has("6758")).toBe(true);
+  });
+
+  it("枠が既に埋まっている→全候補を弾き分析に記録", async () => {
+    setupDefaults();
+    mockFetchQuotes.mockResolvedValue([makeQuote("7203"), makeQuote("6758")]);
+    mockGapUpScan.mockReturnValue({ triggers: [makeTrigger("7203"), makeTrigger("6758")], skipped: [] });
+    mockPositionFindMany.mockResolvedValue([]);
+    mockCountSameDayPendingBuys.mockResolvedValue(3); // MAX_POSITIONS_GU(3) = 空き0
+    await main();
+    expect(mockExecuteEntry).not.toHaveBeenCalled();
+    expect(mockRecordSkipped).toHaveBeenCalledTimes(1);
+    const [candidates, strategy, reason] = mockRecordSkipped.mock.calls[0];
+    expect(candidates.map((c: { ticker: string }) => c.ticker)).toEqual(["7203", "6758"]);
+    expect(strategy).toBe("gapup");
+    expect(reason).toContain("枠上限");
+  });
+
+  it("枠を使い切った後の残り候補を弾き分析に記録", async () => {
+    setupDefaults();
+    mockFetchQuotes.mockResolvedValue([makeQuote("7203"), makeQuote("6758"), makeQuote("9984")]);
+    mockGapUpScan.mockReturnValue({ triggers: [makeTrigger("7203"), makeTrigger("6758"), makeTrigger("9984")], skipped: [] });
+    mockPositionFindMany.mockResolvedValue([]);
+    mockCountSameDayPendingBuys.mockResolvedValue(2); // 残り1枠
+    mockExecuteEntry.mockResolvedValue({ success: true });
+    await main();
+    expect(mockExecuteEntry).toHaveBeenCalledTimes(1);
+    const [candidates, , reason] = mockRecordSkipped.mock.calls[0];
+    expect(candidates.map((c: { ticker: string }) => c.ticker)).toEqual(["6758", "9984"]);
+    expect(reason).toContain("枠上限");
+  });
+
+  it("当日打ち止め（残高不足）→ 打ち止め以降の候補を弾き分析に記録", async () => {
+    setupDefaults();
+    mockFetchQuotes.mockResolvedValue([makeQuote("7203"), makeQuote("6758"), makeQuote("9984")]);
+    mockGapUpScan.mockReturnValue({ triggers: [makeTrigger("7203"), makeTrigger("6758"), makeTrigger("9984")], skipped: [] });
+    mockExecuteEntry.mockResolvedValue({ success: false, reason: "現金残高不足（残高:¥1,000、必要額:¥100,000）" });
+    await main();
+    // 1件目で打ち止め（executeEntry は1回だけ）、当該候補は executeEntry 側で記録済み
+    expect(mockExecuteEntry).toHaveBeenCalledTimes(1);
+    const [candidates, , reason] = mockRecordSkipped.mock.calls[0];
+    expect(candidates.map((c: { ticker: string }) => c.ticker)).toEqual(["6758", "9984"]);
+    expect(reason).toContain("現金残高不足");
+  });
+
   it("エントリー例外→リトライ扱い（次回呼び出しで再実行）", async () => {
     setupDefaults();
-    mockGapUpScan.mockReturnValue([makeTrigger("7203")]);
+    mockGapUpScan.mockReturnValue({ triggers: [makeTrigger("7203")], skipped: [] });
     mockExecuteEntry.mockRejectedValueOnce(new Error("接続エラー"));
     await main();
     // フラグ未セット → 次分で再実行される
     vi.clearAllMocks();
     setupDefaults();
-    mockGapUpScan.mockReturnValue([makeTrigger("7203")]);
+    mockGapUpScan.mockReturnValue({ triggers: [makeTrigger("7203")], skipped: [] });
     mockExecuteEntry.mockResolvedValue({ success: true });
     await main();
     expect(mockExecuteEntry).toHaveBeenCalled();

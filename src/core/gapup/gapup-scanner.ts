@@ -47,17 +47,23 @@ export class GapUpScanner {
    *
    * @param quotes 当日OHLCVデータ（立花APIから取得）
    * @param holdingTickers 保有中のティッカーセット（除外用）
-   * @returns GapUpTrigger[]（gapPct × volumeSurgeRatio 降順）
+   * @returns triggers = 発注候補（gapPct × volumeSurgeRatio 降順）/
+   *          skipped = シグナルは満たしたが holdingTickers で除外した銘柄（弾き分析用）
+   *
+   * ⚠️ 除外判定はシグナル判定の**後**に行う。順序を入れ替えると
+   * 「シグナルが満たしていたが保有中/cooldownで発注しなかった」候補を数えられなくなる
+   * （triggers の内容は順序に依存しない = 除外銘柄は必ず triggers から外れる）。
    */
-  scan(quotes: GapUpQuoteData[], holdingTickers: Set<string>): GapUpTrigger[] {
+  scan(
+    quotes: GapUpQuoteData[],
+    holdingTickers: Set<string>,
+  ): { triggers: GapUpTrigger[]; skipped: { ticker: string; currentPrice: number }[] } {
     const triggers: GapUpTrigger[] = [];
+    const skipped: { ticker: string; currentPrice: number }[] = [];
 
     for (const quote of quotes) {
       const entry = this.watchlistMap.get(quote.ticker);
       if (!entry) continue;
-
-      // 保有中銘柄はスキップ
-      if (holdingTickers.has(quote.ticker)) continue;
 
       // prevClose = ウォッチリストのlatestClose（前日終値）
       const prevClose = entry.latestClose;
@@ -76,6 +82,12 @@ export class GapUpScanner {
       });
 
       if (!isSignal) continue;
+
+      // 保有中・当日発注済み・決済後cooldown はここで除外（シグナルは満たしている）
+      if (holdingTickers.has(quote.ticker)) {
+        skipped.push({ ticker: quote.ticker, currentPrice: quote.price });
+        continue;
+      }
 
       const volumeSurgeRatio =
         entry.avgVolume25 > 0 ? quote.volume / entry.avgVolume25 : 0;
@@ -98,6 +110,6 @@ export class GapUpScanner {
       return (bGapPct * b.volumeSurgeRatio) - (aGapPct * a.volumeSurgeRatio);
     });
 
-    return triggers;
+    return { triggers, skipped };
   }
 }

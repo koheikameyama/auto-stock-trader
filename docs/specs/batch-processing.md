@@ -59,7 +59,7 @@ Railway上で常駐する node-cron ベースのジョブスケジューラ。�
 GapUp / PSC / US-ETF の発注を**並列 cron ではなく1ジョブ内で逐次実行**する（`worker.ts` の `runEntryMonitors`）。
 
 - **戦略間の優先順位 = GapUp → PSC → US-ETF**。combined BT (`combined-simulation.ts`) の日次エントリー処理順（共有 `cash` を GapUp が先に確保し PSC は残余から）を本番でも再現する。各 monitor は `executeEntry` 内で `getCashBalance` / `openPositions` を読み直すため、**逐次化するだけで BT の資金配分順が一致**する（並列だと共有資金のレースで優先順位が非決定的だった）。
-- **戦略内の優先順位**: 各 scanner が複合スコア降順でソート（GapUp: gapPct×volumeSurge / PSC: momentumReturn×volumeSurge）し、ライブは top-1 のみ発注。
+- **戦略内の優先順位**: 各 scanner が複合スコア降順でソート（GapUp: gapPct×volumeSurge / PSC: momentumReturn×volumeSurge）し、**上位から空き枠を使い切るまで発注**する（旧「1日1件」制限は KOH-505 で撤廃。首位が集中率上限等で弾かれたら次候補へフォールバック）。枠都合や打ち止めで発注に至らなかった候補は弾き分析（`RejectedSignal`）に記録する。
 - **時価キャッシュ**: `tachibana-price-client.ts` に worker プロセス内の短TTL（15秒）時価キャッシュを実装。重複銘柄（GU watchlist ⊆ PSC watchlist）の時価を1回の立花アクセスに集約し、15:24 のクロージングオークション混雑時の API 負荷を削減（成功結果のみキャッシュ、TTL はリトライ間隔20秒より短く設定して :20/:40 リトライは必ず再取得）。
 - 1戦略の失敗は try/catch で隔離し、後続戦略のエントリーを止めない。各 monitor の `lastScanDate` ガードにより成功済みの戦略は :20/:40 リトライで即スキップ。
 
@@ -465,9 +465,11 @@ weekly-review を実行。休場日チェックなし（土曜固定）。
 
 ## 弾かれたシグナル追跡（/rejected-signals）
 
-`executeEntry()` でシグナルが出たがフィルターにより発注できなかったケースを `RejectedSignal` テーブルに記録し、管理画面で確認できる。
+**候補として挙がったのに注文に乗らなかったケースは全て** `RejectedSignal` テーブルに記録し、管理画面で確認できる。
 
 ### 追跡対象のスキップ理由
+
+判定は `getRejectedLabel()`（`src/core/breakout/entry-executor.ts`）で上から順に評価する。**分類できない理由は「その他」に落ちて必ず1行残る**（従来は未知の理由を記録対象外にしていたため、下表の後半グループが丸ごと記録から落ちていた）。
 
 | ラベル | 判定キーワード |
 |---|---|
@@ -475,13 +477,34 @@ weekly-review を実行。休場日チェックなし（土曜固定）。
 | 集中率上限 | 集中率上限 / 投資比率上限 |
 | ポジション数上限 | 最大同時保有数 |
 | 流動性不足 | 流動性 |
+| マクロ集中 | マクロファクター |
 | セクター集中 | セクター |
 | 連敗クールダウン | 連敗クールダウン |
+| **保有中** | スキャナーの除外集合（1銘柄1ポジション）※ラベル明示指定 |
+| **当日発注済み** | スキャナーの除外集合（当日 pending 買い注文あり）※ラベル明示指定 |
+| **決済後cooldown** | スキャナーの除外集合（決済後3営業日の再エントリー禁止）※ラベル明示指定 |
+| **枠上限** | 枠上限 / 枠を使い切（monitor が executeEntry を呼ばずに見送った候補） |
+| **二重建て防止** | 二重建て |
+| **SLクランプ** | クランプ |
+| **SL計算不可** | SLがエントリー価格以上 |
+| **VIXレジーム** | VIXレジーム（crisis でサイズ0） |
+| **日次損失制限** | 日次損失制限 |
+| **ドローダウン停止** | ドローダウン停止 |
+| **連敗停止** | 連敗（クールダウン以外） |
+| **相場停止** | shouldTrade / MarketAssessment / 取引が無効化 / TradingConfig |
+| **銘柄マスタ欠落** | 銘柄マスタ |
+| **発注失敗** | ブローカー例外・業務リジェクト（`ExecutionResult.rejectLabel` で明示指定） |
+| **その他** | 上記いずれにも一致しない理由 |
+
+Slack 通知は従来どおり「取り逃し」系4ラベル（セクター集中 / マクロ集中 / ポジション数上限 / 流動性不足）の当日初回のみ。**枠上限などの一括記録は通知しない**（銘柄数だけ通知が増えるため）。
 
 ### データフロー
 
-1. `executeEntry()` スキップ時 → `RejectedSignal` に保存（ticker・strategy・reason・reasonLabel・entryPrice）
-2. end-of-day バッチ → `StockDailyBar` から5日・10日後の終値を補完（close5d・close10d・return5dPct・return10dPct）
+1. `executeEntry()` が失敗を返した時 → ラッパーが `RejectedSignal` に保存（ticker・strategy・reason・reasonLabel・entryPrice）。判定本体は `executeEntryInner` で、早期 return が多数あるため記録はラッパーに集約している
+2. monitor（gapup / psc）が枠上限・当日打ち止めで**評価せず見送った候補** → `recordSkippedCandidates()` で同テーブルに保存（Slack なし）
+3. スキャナーが**シグナル成立後**に保有中/当日発注済み/決済後cooldownで外した候補 → `recordSkippedByHolding()` で保存（Slack なし）。⚠️ 除外判定はシグナル判定の**後**に行う必要がある（先に除外すると「シグナルは満たしていた」ことが分からなくなる）
+4. 同一銘柄×同一ラベルは**当日1行に集約**（15:24:00/20/40 のリトライ tick で3行に膨らみ、件数と平均フォワードリターンが歪むのを防ぐ）
+5. end-of-day バッチ → `StockDailyBar` から5日・10日後の終値を補完（close5d・close10d・return5dPct・return10dPct）。補完対象は**直近60日の未補完行のみ**（バーが永久に来ない古い行の再走査を防ぐ）
 
 ### 管理画面（GET /rejected-signals）
 
