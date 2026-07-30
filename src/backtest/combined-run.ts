@@ -24,7 +24,11 @@ import {
   precomputeSimData,
 } from "./breakout-simulation";
 import { precomputeGapUpDailySignals } from "./gapup-simulation";
-import { precomputePSCDailySignals } from "./post-surge-consolidation-simulation";
+import {
+  precomputePSCDailySignals,
+  type PrecomputedPSCSignal,
+  type PrecomputedPSCSignals,
+} from "./post-surge-consolidation-simulation";
 import { precomputeMomentumSignals } from "./momentum-simulation";
 import { MOMENTUM_BACKTEST_DEFAULTS, MOMENTUM_LARGECAP_PARAMS } from "./momentum-config";
 import { precomputeWeeklyBreakSignals } from "./weekly-break-simulation";
@@ -475,6 +479,13 @@ async function main() {
   // 現状(1.0)/0.9/0.8 で比較。8708.T の [sub:11430] 発注失敗（規制銘柄の掛目）緩和策のCalmarコスト計測。
   // 16窓+検定は scripts/_koh580-cash-buffer-windows.py が駆動。WINROW を出す。
   const compareCashBuffer = args.includes("--compare-cash-buffer");
+  // --compare-psc-sort: PSC の「同日に複数シグナルが出た時どれから買うか」の順序を比較。
+  // live (psc-scanner.ts) は momentumReturn × volumeSurgeRatio 降順だが、BT の precompute は
+  // volumeSurgeRatio 降順のみ = live↔BT 乖離。GU は両者一致 (gapPct × volumeSurgeRatio) しており
+  // PSC だけ取り残されている。却下 #41 で buyback が「シグナル集合が同一のまま並び順だけで
+  // Calmar が約11%振れる」と実測されているため、まず差が有意かを測る。
+  // 16窓+検定は scripts/_psc-sort-windows.py が駆動。WINROW を出す。
+  const comparePscSort = args.includes("--compare-psc-sort");
   const compareDetectionGranularity = args.includes("--compare-detection-granularity");
   const compareBe = args.includes("--compare-be");
   const compareIntraBar = args.includes("--compare-intrabar");
@@ -484,7 +495,7 @@ async function main() {
   const compareVolConvexity = args.includes("--compare-vol-convexity");
   const corrReport = args.includes("--corr-report");
 
-  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || compareDetectionGranularity || compareBe || compareIntraBar || comparePanicExit || compareVolConvexity || compareSeparatePool || corrReport;
+  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || compareDetectionGranularity || compareBe || compareIntraBar || comparePanicExit || compareVolConvexity || compareSeparatePool || comparePscSort || corrReport;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const pscConfig: PostSurgeConsolidationBacktestConfig = {
@@ -3139,6 +3150,75 @@ async function main() {
       // 機械可読: WINROW,<start>,<end>,<label>,<trades>,<netRet>,<maxDD>,<calmar>,<pf>
       console.log(
         `WINROW,${startDate},${endDate},${arm.label},${m.totalTrades},${m.netReturnPct.toFixed(4)},${m.maxDrawdown.toFixed(4)},${calmar.toFixed(4)},${pf.toFixed(4)}`,
+      );
+    }
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  if (comparePscSort) {
+    // アーム（PSC の同日シグナルの並び順のみを変える。発火するシグナル集合は3アームで完全同一）:
+    //   vol    = volumeSurgeRatio 降順          … BT本来 = 記録上の baseline（16窓合計 796.4% のチェックサム）
+    //   momvol = momentumReturn × volumeSurgeRatio 降順 … ★live (psc-scanner.ts:95-96) と同一
+    //   mom    = momentumReturn 降順            … 参考（momvol のどちらの因子が効いているかの切り分け）
+    //
+    // trail 系と違い出口には一切触れないので precompute は不要。ソートは stable なので
+    // 同点は precompute の元順（ティッカー順）を保ち、アーム間で決定論的に比較できる。
+    const arms: {
+      label: string;
+      cmp: (a: PrecomputedPSCSignal, b: PrecomputedPSCSignal) => number;
+    }[] = [
+      { label: "vol", cmp: (a, b) => b.volumeSurgeRatio - a.volumeSurgeRatio },
+      {
+        label: "momvol",
+        cmp: (a, b) => b.momentumReturn * b.volumeSurgeRatio - a.momentumReturn * a.volumeSurgeRatio,
+      },
+      { label: "mom", cmp: (a, b) => b.momentumReturn - a.momentumReturn },
+    ];
+
+    const resort = (
+      src: PrecomputedPSCSignals,
+      cmp: (a: PrecomputedPSCSignal, b: PrecomputedPSCSignal) => number,
+    ): PrecomputedPSCSignals => {
+      const out: PrecomputedPSCSignals = new Map();
+      for (const [date, sigs] of src) out.set(date, [...sigs].sort(cmp));
+      return out;
+    };
+
+    // 並び順が結果を動かせるのは「同日に PSC 枠(2)より多くシグナルが出た日」だけなので、
+    // その日数を出しておく（差がゼロだった時に「効く余地が無かった」ことを示す証拠になる）。
+    const pscSlots = defaultLimits.pscMax ?? 0;
+    let daysWithPscSignals = 0;
+    let daysOverSlots = 0;
+    for (const sigs of pscSignals.values()) {
+      if (sigs.length === 0) continue;
+      daysWithPscSignals++;
+      if (sigs.length > pscSlots) daysOverSlots++;
+    }
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    console.log(`\n=== PSC シグナル順比較（live↔BT 乖離） ===`);
+    console.log(
+      `期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}, エンジン: ${intraBarModelArg ?? "stop-at-open(既定)"}`,
+    );
+    console.log(
+      `PSCシグナル発生日: ${daysWithPscSignals}日 / うち枠(${pscSlots})超の候補が出た日: ${daysOverSlots}日 = 並び順が効く余地のある日`,
+    );
+    for (const arm of arms) {
+      const result = runCombinedSimulation(
+        { ...ctx, pscSignals: resort(pscSignals, arm.cmp) },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      const pf = m.profitFactor === Infinity ? 999 : m.profitFactor;
+      const pscSub = calculateMetrics(result.pscTrades, result.equityCurve, budget);
+      const pscPf = pscSub.profitFactor === Infinity ? 999 : pscSub.profitFactor;
+      // 機械可読: WINROW,<start>,<end>,<label>,<trades>,<netRet>,<maxDD>,<calmar>,<pf>,<pscTrades>,<pscPf>
+      console.log(
+        `WINROW,${startDate},${endDate},${arm.label},${m.totalTrades},${m.netReturnPct.toFixed(4)},${m.maxDrawdown.toFixed(4)},${calmar.toFixed(4)},${pf.toFixed(4)},${pscSub.totalTrades},${pscPf.toFixed(4)}`,
       );
     }
     console.log("");
