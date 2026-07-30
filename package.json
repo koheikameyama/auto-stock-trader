@@ -16,6 +16,7 @@
     "reconcile": "tsx src/jobs/broker-reconciliation.ts",
     "eod": "tsx src/jobs/end-of-day.ts",
     "breadth-notify": "tsx src/jobs/breadth-notify.ts",
+    "signal-replay": "tsx src/jobs/signal-replay.ts",
     "regime-shift-notify": "tsx src/jobs/regime-shift-notify.ts",
     "social:post": "tsx src/jobs/daily-social-post.ts",
     "social:post-morning": "tsx src/jobs/morning-social-post.ts",

@@ -168,6 +168,7 @@ watchlist-builderは2種類のウォッチリストを同時に構築する。
 | data-cleanup | scheduled_data-cleanup.yml | `0 18 * * 0` | 月曜 3:00 JST | 全テーブルのリテンション期間超過データ削除 |
 | run-backtest | scheduled_daily-backtest.yml | `30 7 * * 1-5` | 平日 16:30 JST | ブレイクアウト戦略バックテスト（直近12ヶ月） |
 | run-backtest-gapup | scheduled_daily-backtest-gapup.yml | `0 8 * * 1-5` | 平日 17:00 JST | ギャップアップ戦略バックテスト（直近12ヶ月） |
+| signal-replay | scheduled_backfill-prices.yml | `0 8 * * 1-5`（`stock-data` 完了後） | 平日 17:05 JST 頃 | 取引見送り日（`shouldTrade=false`）のGU/PSCシグナルを当日終値で再現し `RejectedSignal` に「相場停止」で記録。取引日は monitor が記録済みのためスキップ |
 | monthly-walk-forward | scheduled_monthly-walk-forward.yml | `0 2 1-7 * 6` | 毎月第1土曜 11:00 JST | breakout+gapup WF分析（戦略エッジ監視） |
 | monthly-strategy-health | scheduled_monthly-strategy-health.yml | `0 2 1-7 * 6` | 毎月第1土曜 11:00 JST | 全戦略 WF + combined比較 + ETFヘルスチェック |
 
@@ -491,7 +492,7 @@ weekly-review を実行。休場日チェックなし（土曜固定）。
 | **日次損失制限** | 日次損失制限 |
 | **ドローダウン停止** | ドローダウン停止 |
 | **連敗停止** | 連敗（クールダウン以外） |
-| **相場停止** | shouldTrade / MarketAssessment / 取引が無効化 / TradingConfig |
+| **相場停止** | shouldTrade / MarketAssessment / 取引が無効化 / TradingConfig（見送り日の `signal-replay` もこのラベル） |
 | **銘柄マスタ欠落** | 銘柄マスタ |
 | **発注失敗** | ブローカー例外・業務リジェクト（`ExecutionResult.rejectLabel` で明示指定） |
 | **その他** | 上記いずれにも一致しない理由 |
@@ -503,8 +504,9 @@ Slack 通知は従来どおり「取り逃し」系4ラベル（セクター集�
 1. `executeEntry()` が失敗を返した時 → ラッパーが `RejectedSignal` に保存（ticker・strategy・reason・reasonLabel・entryPrice）。判定本体は `executeEntryInner` で、早期 return が多数あるため記録はラッパーに集約している
 2. monitor（gapup / psc）が枠上限・当日打ち止めで**評価せず見送った候補** → `recordSkippedCandidates()` で同テーブルに保存（Slack なし）
 3. スキャナーが**シグナル成立後**に保有中/当日発注済み/決済後cooldownで外した候補 → `recordSkippedByHolding()` で保存（Slack なし）。⚠️ 除外判定はシグナル判定の**後**に行う必要がある（先に除外すると「シグナルは満たしていた」ことが分からなくなる）
-4. 同一銘柄×同一ラベルは**当日1行に集約**（15:24:00/20/40 のリトライ tick で3行に膨らみ、件数と平均フォワードリターンが歪むのを防ぐ）
-5. end-of-day バッチ → `StockDailyBar` から5日・10日後の終値を補完（close5d・close10d・return5dPct・return10dPct）。補完対象は**直近60日の未補完行のみ**（バーが永久に来ない古い行の再走査を防ぐ）
+4. **取引見送り日（`shouldTrade=false`）** → monitor はスキャン自体を行わないため、`signal-replay` ジョブが引け後（`stock-data` バックフィル完了後・17:05頃）に**当日の確定終値でシグナルを再現**し「相場停止」で保存。場中の追加API取得はしない（idle 帯は期間の6割以上あり、立花の負荷ルールに反するため）。判定が終値ベースになる分 BT（終値エントリー）と定義が揃う
+5. 同一銘柄×**同一戦略**×同一ラベルは**当日1行に集約**（15:24:00/20/40 のリトライ tick で3行に膨らみ、件数と平均フォワードリターンが歪むのを防ぐ）
+6. end-of-day バッチ → `StockDailyBar` から5日・10日後の終値を補完（close5d・close10d・return5dPct・return10dPct）。補完対象は**直近60日の未補完行のみ**（バーが永久に来ない古い行の再走査を防ぐ）
 
 ### 管理画面（GET /rejected-signals）
 

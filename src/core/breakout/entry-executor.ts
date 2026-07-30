@@ -108,6 +108,7 @@ async function saveRejectedSignal(params: {
     const alreadyToday = await prisma.rejectedSignal.findFirst({
       where: {
         ticker: params.ticker,
+        strategy: params.strategy,
         reasonLabel: params.reasonLabel,
         rejectedAt: { gte: getStartOfDayJST() },
       },
