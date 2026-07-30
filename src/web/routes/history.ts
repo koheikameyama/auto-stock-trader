@@ -131,10 +131,20 @@ app.get("/", async (c) => {
   }
   const totalClosed = closedPositions.length;
   const trailingPct = totalClosed > 0 ? (exitCounts.trailing / totalClosed) * 100 : 0;
-  const trailingStatus: SignalStatus =
-    trailingPct >= 40 ? "ok" : trailingPct >= 20 ? "warning" : "danger";
-  const trailingComment =
-    trailingPct >= 40
+  // \u6C7A\u6E08\u7DCF\u6570\u304C\u5C11\u306A\u3044\u671F\u9593\u306F trailing\u6BD4\u7387\u304C\u6570\u4EF6\u306E\u30D6\u30EC\u3067\u6975\u7AEF\u306B\u632F\u308C\u3001\u5224\u5B9A\u304C\u8AA4\u8B66\u5831\u306B\u306A\u308B\u3002
+  // \u5341\u5206\u306A\u6BCD\u6570\u304C\u96C6\u307E\u308B\u307E\u3067\u306F\u4E2D\u7ACB\u8868\u793A\u306B\u3059\u308B\uFF08\u5916\u308C\u5024\u30FB\u5C11\u6570\u30B5\u30F3\u30D7\u30EB\u8AA4\u8AAD\u9632\u6B62\uFF09\u3002
+  const TRAILING_MIN_SAMPLE = 10;
+  const trailingSampleEnough = totalClosed >= TRAILING_MIN_SAMPLE;
+  const trailingStatus: SignalStatus = !trailingSampleEnough
+    ? "neutral"
+    : trailingPct >= 40
+      ? "ok"
+      : trailingPct >= 20
+        ? "warning"
+        : "danger";
+  const trailingComment = !trailingSampleEnough
+    ? `\u6C7A\u6E08${totalClosed}\u4EF6\uFF08${TRAILING_MIN_SAMPLE}\u4EF6\u4EE5\u4E0A\u3067\u5224\u5B9A\uFF09`
+    : trailingPct >= 40
       ? "\u5229\u76CA\u3092\u4F38\u3070\u305B\u3066\u3044\u308B"
       : trailingPct >= 20
         ? "\u6A19\u6E96\u7684"
@@ -323,7 +333,9 @@ app.get("/", async (c) => {
             <div style="margin-top:10px;padding-top:10px;border-top:1px solid ${COLORS.border}">
               ${signalRow(
                 "\u30C8\u30EC\u30FC\u30EA\u30F3\u30B0\u6BD4\u7387",
-                `${trailingPct.toFixed(0)}%: ${trailingComment}`,
+                trailingSampleEnough
+                  ? `${trailingPct.toFixed(0)}%: ${trailingComment}`
+                  : trailingComment,
                 trailingStatus,
               )}
             </div>
