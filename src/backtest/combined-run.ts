@@ -486,6 +486,12 @@ async function main() {
   // Calmar が約11%振れる」と実測されているため、まず差が有意かを測る。
   // 16窓+検定は scripts/_psc-sort-windows.py が駆動。WINROW を出す。
   const comparePscSort = args.includes("--compare-psc-sort");
+  // --compare-runup-veto: 「20日で上がりすぎた銘柄はエントリーしない」veto を測る。
+  // 契機= 生データで「上がりすぎた銘柄は翌"寄り"では落ちない（むしろ+0.4%）が、翌日の
+  // 寄→引が -0.3〜-1.2% と一貫マイナス、20日+50%超だと引→引もマイナスに転じる」と観測。
+  // ただし却下 #17/#20 が「既存フィルターへの上乗せは冗長」を4回確認しているため事前確率は低い。
+  // 16窓+検定は scripts/_runup-veto-windows.py が駆動。WINROW を出す。
+  const compareRunupVeto = args.includes("--compare-runup-veto");
   const compareDetectionGranularity = args.includes("--compare-detection-granularity");
   const compareBe = args.includes("--compare-be");
   const compareIntraBar = args.includes("--compare-intrabar");
@@ -495,7 +501,7 @@ async function main() {
   const compareVolConvexity = args.includes("--compare-vol-convexity");
   const corrReport = args.includes("--corr-report");
 
-  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || compareDetectionGranularity || compareBe || compareIntraBar || comparePanicExit || compareVolConvexity || compareSeparatePool || comparePscSort || corrReport;
+  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || compareDetectionGranularity || compareBe || compareIntraBar || comparePanicExit || compareVolConvexity || compareSeparatePool || comparePscSort || compareRunupVeto || corrReport;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const pscConfig: PostSurgeConsolidationBacktestConfig = {
@@ -3150,6 +3156,73 @@ async function main() {
       // 機械可読: WINROW,<start>,<end>,<label>,<trades>,<netRet>,<maxDD>,<calmar>,<pf>
       console.log(
         `WINROW,${startDate},${endDate},${arm.label},${m.totalTrades},${m.netReturnPct.toFixed(4)},${m.maxDrawdown.toFixed(4)},${calmar.toFixed(4)},${pf.toFixed(4)}`,
+      );
+    }
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  if (compareRunupVeto) {
+    // アーム: veto なし(=baseline) / 20日騰落率が閾値以上の銘柄をエントリーから外す。
+    // エントリー可否だけを変える（出口は不変）ので、precompute 済みシグナルを間引くだけでよい。
+    // ⚠️ 判定は「エントリー日の終値 / 20営業日前の終値 - 1」。すべてエントリー日までの
+    // 確定情報なので先読みではない（本番 15:24 でも DB の過去バーから同じ値を作れる）。
+    const runup20 = (ticker: string, date: string): number | null => {
+      const bars = allData.get(ticker);
+      const idx = precomputed.dateIndexMap.get(ticker)?.get(date);
+      if (!bars || idx == null || idx < 20) return null;
+      const base = bars[idx - 20]?.close;
+      const cur = bars[idx]?.close;
+      if (base == null || cur == null || base <= 0) return null;
+      return cur / base - 1;
+    };
+
+    const arms: { label: string; maxRunup: number | null }[] = [
+      { label: "veto-off(現状)", maxRunup: null },
+      { label: "veto>=100%", maxRunup: 1.0 },
+      { label: "veto>=70%", maxRunup: 0.7 },
+      { label: "veto>=50%", maxRunup: 0.5 },
+      { label: "veto>=30%", maxRunup: 0.3 },
+    ];
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    console.log(`\n=== 上がりすぎ veto（20日騰落率）比較 ===`);
+    console.log(
+      `期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}, エンジン: ${intraBarModelArg ?? "stop-at-open(既定)"}`,
+    );
+    for (const arm of arms) {
+      let guSig = gapupSignals;
+      let pSig = pscSignals;
+      let dropped = 0;
+      if (arm.maxRunup != null) {
+        const filterMap = <T extends { ticker: string }>(src: Map<string, T[]>): Map<string, T[]> => {
+          const out = new Map<string, T[]>();
+          for (const [date, sigs] of src) {
+            const kept = sigs.filter((s) => {
+              const r = runup20(s.ticker, date);
+              if (r == null) return true; // 履歴不足は従来どおり通す（veto の対象外）
+              if (r >= arm.maxRunup!) {
+                dropped++;
+                return false;
+              }
+              return true;
+            });
+            if (kept.length > 0) out.set(date, kept);
+          }
+          return out;
+        };
+        guSig = filterMap(gapupSignals);
+        pSig = filterMap(pscSignals);
+      }
+      const result = runCombinedSimulation({ ...ctx, gapupSignals: guSig, pscSignals: pSig }, defaultLimits);
+      const m = result.totalMetrics;
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      const pf = m.profitFactor === Infinity ? 999 : m.profitFactor;
+      // 機械可読: WINROW,<start>,<end>,<label>,<trades>,<netRet>,<maxDD>,<calmar>,<pf>,<droppedSignals>
+      console.log(
+        `WINROW,${startDate},${endDate},${arm.label},${m.totalTrades},${m.netReturnPct.toFixed(4)},${m.maxDrawdown.toFixed(4)},${calmar.toFixed(4)},${pf.toFixed(4)},${dropped}`,
       );
     }
     console.log("");
