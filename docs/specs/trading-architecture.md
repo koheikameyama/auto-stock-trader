@@ -218,6 +218,33 @@ interface StopLossValidation {
 | ATRベース最大損切り | 損切り幅 > ATR × 2.0           | ATR × 1.5 に引き下げ                         |
 | サポートライン考慮  | サポートラインが存在           | サポートライン - ATR × 0.3 に設定            |
 
+#### SL/TP の基準価格は「約定価格」
+
+`src/core/exit-price-calculator.ts` に集約。
+
+発注時点では約定価格が分からないため、`entry-executor` はスキャン時のライブ値を基準に
+SL/TP を計算して注文に載せる。**約定したら約定価格を基準に張り直す**
+（`recalculateExitPricesOnFill()`。約定検知の2経路 `broker-fill-handler`＝EVENT I/F 主系 /
+`position-monitor`＝ポーリング補系の両方から呼ぶ）。
+
+BT（`combined-simulation.ts`）の SL は一貫して `entryPrice - ATR × 倍率`（= 約定価格基準、
+3%上限でクランプ）であり、記録されている全成績はこの定義で出ている。張り直さないと live だけ
+定義がズレる。
+
+> 旧実装は約定後に上表の `validateStopLoss()` を通すだけだった。同関数が見るのは
+> 「ATR×0.5未満 / ATR×2.0超 / 3%超」の3点なので、GU/PSC の設計値 ATR×0.8 からのズレは
+> **0.5〜2.0 の帯に収まる限り素通し**され、SL がトリガー価格基準のまま残っていた。
+> 2026-07-31 時点の本番 GU/PSC 31玉で 実効SL幅 ÷ 設計幅 = 平均 0.959（21玉が設計より狭い）。
+> 引け成行の買いはマイナススリッページが多数派なので、構造的に「狭くなる＝ノイズで刈られやすい」
+> 側へ偏っていた。
+
+対象外の戦略:
+
+| 戦略 | 扱い |
+| --- | --- |
+| buyback / panic | -12% 固定カタストロフSL。ATR で張り直さない（`fixed-sl.ts` / KOH-555） |
+| us_etf | -2% 固定SL。ATR を使わないので `SL_ATR_MULTIPLIER` に載せない |
+
 #### 損切り強制実行
 
 `position-monitor.ts` での損切り判定はルールベースで機械的に実行する。

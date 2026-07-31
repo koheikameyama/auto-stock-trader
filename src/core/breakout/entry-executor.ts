@@ -20,13 +20,12 @@ import { getCashBalance, getEffectiveCapital } from "../position-manager";
 import { canOpenPosition, getDynamicMaxPositionPct } from "../risk-manager";
 import { submitOrder as submitBrokerOrder } from "../broker-orders";
 import { notifyOrderPlaced, notifySlack } from "../../lib/slack";
-import { STOP_LOSS, UNIT_SHARES, POSITION_SIZING, LOSING_STREAK } from "../../lib/constants";
+import { UNIT_SHARES, POSITION_SIZING, LOSING_STREAK } from "../../lib/constants";
+import { calculateAtrExitPrices, getSlAtrMultiplier } from "../exit-price-calculator";
 import { getLosingStreak } from "../drawdown-manager";
 import { checkLiquidity } from "../market-data";
 import { determineMarketRegime, getRegimeRiskScale } from "../market-regime";
 import { TIMEZONE } from "../../lib/constants/timezone";
-import { GAPUP } from "../../lib/constants/gapup";
-import { WEEKLY_BREAK } from "../../lib/constants/weekly-break";
 import { POST_SURGE_CONSOLIDATION } from "../../lib/constants/post-surge-consolidation";
 import { TACHIBANA_ORDER } from "../../lib/constants/broker";
 import { ORDER_EXPIRY } from "../../lib/constants/jobs";
@@ -324,15 +323,21 @@ async function executeEntryInner(
   }
 
   // 3. SL価格 = currentPrice - ATR × multiplier（最大3%に制限）
+  //
+  // ⚠️ ここでの基準は「スキャン時のライブ値」であって約定価格ではない。発注前なので
+  //    これは避けられないが、**約定したら約定価格を基準に張り直す必要がある**
+  //    （broker-fill-handler / position-monitor → recalculateExitPricesOnFill）。
+  //    BT の SL は一貫して約定価格基準なので、張り直さないと定義がズレる。
   const slAtrMultiplier =
-    strategy === "gapup" ? GAPUP.STOP_LOSS.ATR_MULTIPLIER
-    : strategy === "weekly-break" ? WEEKLY_BREAK.STOP_LOSS.ATR_MULTIPLIER
-    : POST_SURGE_CONSOLIDATION.STOP_LOSS.ATR_MULTIPLIER;
-  const rawStopLoss = currentPrice - atr14 * slAtrMultiplier;
-  const maxStopLoss = currentPrice * (1 - STOP_LOSS.MAX_LOSS_PCT);
-  const stopLossPrice = Math.round(Math.max(rawStopLoss, maxStopLoss));
+    getSlAtrMultiplier(strategy) ??
+    POST_SURGE_CONSOLIDATION.STOP_LOSS.ATR_MULTIPLIER;
+  const {
+    stopLossPrice,
+    takeProfitPrice,
+    rawStopLoss,
+    isClamped: isSLClamped,
+  } = calculateAtrExitPrices(currentPrice, atr14, slAtrMultiplier);
 
-  const isSLClamped = rawStopLoss < maxStopLoss;
   if (isSLClamped) {
     const reason = `SLがATRベース（¥${Math.round(rawStopLoss)}）より3%上限（¥${stopLossPrice}）でクランプされました — ノイズに狩られるリスクが高いためスキップ`;
     console.log(`[entry-executor] ${ticker} スキップ: ${reason}`);
@@ -347,9 +352,6 @@ async function executeEntryInner(
     console.log(`[entry-executor] ${ticker} スキップ: ${reason}`);
     return { success: false, reason, retryable: false };
   }
-
-  // 利確参考値: ATR × 5.0（トレーリングストップが実際の利確を担う、サイジングには使わない）
-  const takeProfitPrice = Math.round(currentPrice + atr14 * 5.0);
 
   // リスク%: フラット2%（SL/TPが共にATRベースのためRR傾斜は常に固定値になり無意味）
   // 連敗時はスケールダウンして損失を抑える

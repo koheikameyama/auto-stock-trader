@@ -492,6 +492,13 @@ async function main() {
   // ただし却下 #17/#20 が「既存フィルターへの上乗せは冗長」を4回確認しているため事前確率は低い。
   // 16窓+検定は scripts/_runup-veto-windows.py が駆動。WINROW を出す。
   const compareRunupVeto = args.includes("--compare-runup-veto");
+  // --compare-holiday: 連休前ガードを測る（live↔BT 乖離の4例目）。
+  // 本番 position-monitor.ts:640-747 は「この先3日以上連続で非営業日」のセッションで
+  // breakout/gapup のトレール ATR 倍率を ×0.7 する（WEEKEND_RISK）。**BT にこの分岐は無い**ので
+  // 記録されている全成績はこの引き締めを含んでいない。しかも live は PSC を素通ししている。
+  // 併せて「連休前は建てない」entry veto も測る（こちらは live にも無い純粋な候補）。
+  // 16窓+検定は scripts/_holiday-windows.py が駆動。WINROW を出す。
+  const compareHoliday = args.includes("--compare-holiday");
   const compareDetectionGranularity = args.includes("--compare-detection-granularity");
   const compareBe = args.includes("--compare-be");
   const compareIntraBar = args.includes("--compare-intrabar");
@@ -501,7 +508,7 @@ async function main() {
   const compareVolConvexity = args.includes("--compare-vol-convexity");
   const corrReport = args.includes("--corr-report");
 
-  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || compareDetectionGranularity || compareBe || compareIntraBar || comparePanicExit || compareVolConvexity || compareSeparatePool || comparePscSort || compareRunupVeto || corrReport;
+  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || compareDetectionGranularity || compareBe || compareIntraBar || comparePanicExit || compareVolConvexity || compareSeparatePool || comparePscSort || compareRunupVeto || compareHoliday || corrReport;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const pscConfig: PostSurgeConsolidationBacktestConfig = {
@@ -3223,6 +3230,64 @@ async function main() {
       // 機械可読: WINROW,<start>,<end>,<label>,<trades>,<netRet>,<maxDD>,<calmar>,<pf>,<droppedSignals>
       console.log(
         `WINROW,${startDate},${endDate},${arm.label},${m.totalTrades},${m.netReturnPct.toFixed(4)},${m.maxDrawdown.toFixed(4)},${calmar.toFixed(4)},${pf.toFixed(4)},${dropped}`,
+      );
+    }
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  if (compareHoliday) {
+    // アーム（GU/PSC のみに効く。出口 or エントリー可否だけを変えるので precompute は不要）:
+    //   guard-off(BT本来)    = 基準。16窓 NetRet 合計 796.4% がチェックサム（KOH-558 記録）
+    //   trail0.7-gu(★live)   = 連休前セッションだけ GU のトレール ATR 倍率 ×0.7 …本番の現状
+    //   trail0.7-both        = 同じ引き締めを PSC にも広げる（live の非対称に根拠が無いため）
+    //   trail0.5-gu          = 効果の形を見るための強い版（採用候補ではない）
+    //   entry-veto           = 連休前セッションの GU/PSC 新規エントリーを止める
+    //   veto+trail0.7-gu     = live 現状 + veto
+    //
+    // ⚠️ 却下 #47（GU trail=0.3 は p<0.05・0/16窓で他が劣る）と #52（条件付き BE は全滅）から
+    //    事前確率は低い。ただし trail0.7-gu は**本番で今も動いている未検証の値**なので測る価値がある。
+    const HOLIDAY_THRESHOLD = 3; // = WEEKEND_RISK.TRAILING_TIGHTEN_THRESHOLD（3連休以上）
+    const arms: {
+      label: string;
+      guard?: { threshold: number; trailScale?: number; trailScope?: "gu" | "both"; entryVeto?: boolean };
+    }[] = [
+      { label: "guard-off(BT本来)" },
+      { label: "trail0.7-gu(live)", guard: { threshold: HOLIDAY_THRESHOLD, trailScale: 0.7, trailScope: "gu" } },
+      { label: "trail0.7-both", guard: { threshold: HOLIDAY_THRESHOLD, trailScale: 0.7, trailScope: "both" } },
+      { label: "trail0.5-gu", guard: { threshold: HOLIDAY_THRESHOLD, trailScale: 0.5, trailScope: "gu" } },
+      { label: "entry-veto", guard: { threshold: HOLIDAY_THRESHOLD, entryVeto: true } },
+      {
+        label: "veto+trail0.7-gu",
+        guard: { threshold: HOLIDAY_THRESHOLD, trailScale: 0.7, trailScope: "gu", entryVeto: true },
+      },
+    ];
+
+    // 連休前セッションが窓内に何日あるか（差がゼロだった時に「噛む相手がいたのか」を示す証拠）
+    const td = precomputed.tradingDays;
+    let preHolidaySessions = 0;
+    for (let i = 0; i + 1 < td.length; i++) {
+      if (dayjs(td[i + 1]).diff(dayjs(td[i]), "day") - 1 >= HOLIDAY_THRESHOLD) preHolidaySessions++;
+    }
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    console.log(`\n=== 連休前ガード比較（live↔BT 乖離） ===`);
+    console.log(
+      `期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}, 営業日: ${td.length}日, ` +
+        `連休前セッション: ${preHolidaySessions}日（非営業日 ${HOLIDAY_THRESHOLD}日以上が続く前日）`,
+    );
+    for (const arm of arms) {
+      const result = runCombinedSimulation({ ...ctx, holidayGuard: arm.guard }, defaultLimits);
+      const m = result.totalMetrics;
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      const pf = m.profitFactor === Infinity ? 999 : m.profitFactor;
+      // 機械可読: WINROW,<start>,<end>,<label>,<trades>,<netRet>,<maxDD>,<calmar>,<pf>,<preHolidayDays>,<vetoDays>
+      console.log(
+        `WINROW,${startDate},${endDate},${arm.label},${m.totalTrades},${m.netReturnPct.toFixed(4)},` +
+          `${m.maxDrawdown.toFixed(4)},${calmar.toFixed(4)},${pf.toFixed(4)},` +
+          `${result.preHolidayDays},${result.holidayVetoDays}`,
       );
     }
     console.log("");

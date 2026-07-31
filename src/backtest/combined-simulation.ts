@@ -230,6 +230,32 @@ export interface SimContext {
     tightened: number;
   };
   /**
+   * 連休前ガード（GU/PSC のみ、--compare-holiday 検証用）。省略時は無効 = baseline 完全不変。
+   *
+   * ★live↔BT 乖離の再現。本番 position-monitor.ts:640-747 は「この先 N日以上連続で非営業日」の
+   *   セッションで breakout/gapup のトレール ATR 倍率を ×0.7 する（WEEKEND_RISK.TRAILING_TIGHTEN_*）。
+   *   **BT にはこの分岐が一切存在しない**ため、記録されている全 BT 成績はこの引き締めを含んでいない。
+   *   さらに live は対象が breakout/gapup だけで **PSC は素通し**（非対称の根拠は不明）。
+   *   これを測るためのオプション。
+   *
+   * ⚠️ 却下 #47 で「GU trail=0.3 は p<0.05・0/16窓で他が劣る＝積極的に最適」と確定済み。
+   *    連休前だけ 0.21 に絞るのは却下 #52（レジーム条件付き BE）と同型の「条件付きなら効くのでは」。
+   *
+   * 判定時制: tradingDays[dayIdx] と tradingDays[dayIdx+1] の暦日差 - 1 が非営業日数。
+   *   live の countNonTradingDaysAhead(D)（土日+祝日+TSE固有休場の連続数）と同義で、
+   *   すべて当日までの確定情報なので先読みではない（カレンダーは事前に既知）。
+   */
+  holidayGuard?: {
+    /** 発動する非営業日の連続日数。live の WEEKEND_RISK.*_THRESHOLD = 3（3連休以上） */
+    threshold: number;
+    /** トレール ATR 倍率に掛ける係数。live は 0.7。省略時はトレールを触らない */
+    trailScale?: number;
+    /** trailScale の適用対象。"gu" = live 現状（GUのみ）/ "both" = GU+PSC */
+    trailScope?: "gu" | "both";
+    /** true なら連休前セッションの GU/PSC 新規エントリーを禁止（live には無い挙動） */
+    entryVeto?: boolean;
+  };
+  /**
    * ボラ凸性サイジング（GU/PSC のみ、--compare-vol-convexity 検証用）。
    * エントリー時の20日実現ボラ（日次リターンの標準偏差%）で分位を判定し、
    * quantity に scales[quartile] を掛ける（0 = veto）。
@@ -358,6 +384,10 @@ export interface SimResult {
   totalCapitalAdded: number;
   /** ドローダウンハルトが発動した営業日数 */
   haltDays: number;
+  /** 連休前セッション（holidayGuard 判定が真）だった営業日数。未設定時は 0 */
+  preHolidayDays: number;
+  /** 連休前 entryVeto で GU/PSC のエントリーを止めた営業日数。未設定時は 0 */
+  holidayVetoDays: number;
 }
 
 // ──────────────────────────────────────────
@@ -880,7 +910,7 @@ export function runCombinedSimulation(
     typeof maxPositions === "number"
       ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, etfMax: maxPositions, buybackMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, etfCrisisBypass, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none", beTrailDetectionSource = "high", breakEvenFloor, intraBarStopModel = "stop-at-open", volConvexity, cashShrinkToFit = false, cashBufferPct = 1, conditionalBe } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, etfCrisisBypass, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none", beTrailDetectionSource = "high", breakEvenFloor, intraBarStopModel = "stop-at-open", volConvexity, cashShrinkToFit = false, cashBufferPct = 1, conditionalBe, holidayGuard } = ctx;
   const guBreadthMode = breadthModeGu ?? breadthMode;
   const pscBreadthMode = breadthModePsc ?? breadthMode;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
@@ -912,6 +942,8 @@ export function runCombinedSimulation(
   };
   let totalCapitalAdded = budget;
   let haltDays = 0;
+  let preHolidayDays = 0;
+  let holidayVetoDays = 0;
   const pendingSettlement: { amount: number; availableDayIdx: number }[] = [];
   const boPositions: SimulatedPosition[] = [];
   const guPositions: SimulatedPosition[] = [];
@@ -974,13 +1006,36 @@ export function runCombinedSimulation(
         condBeActive = prevBreadth != null && prevBreadth < conditionalBe.breadthThreshold;
       }
     }
-    const guExitConfig = condBeActive
+    let guExitConfig = condBeActive
       ? { ...guConfigLocal, beActivationMultiplier: conditionalBe!.tightened }
       : guConfigLocal;
-    const pscExitConfig =
+    let pscExitConfig =
       pscConfigLocal && condBeActive
         ? { ...pscConfigLocal, beActivationMultiplier: conditionalBe!.tightened }
         : pscConfigLocal;
+
+    // 連休前ガード: この先の非営業日が threshold 日以上連続するセッションか。
+    // 未設定なら常に false = baseline 完全不変。最終日は次営業日が無いので false 扱い。
+    const preHolidayToday =
+      holidayGuard != null &&
+      dayIdx + 1 < tradingDays.length &&
+      dayjs(tradingDays[dayIdx + 1]).diff(dayjs(today), "day") - 1 >= holidayGuard.threshold;
+    if (preHolidayToday) {
+      preHolidayDays++;
+      if (holidayGuard!.trailScale != null) {
+        // live (position-monitor.ts:738-747) は breakout/gapup のみ。"both" で PSC まで広げた場合と比較する。
+        guExitConfig = {
+          ...guExitConfig,
+          trailMultiplier: guExitConfig.trailMultiplier * holidayGuard!.trailScale,
+        };
+        if (holidayGuard!.trailScope === "both" && pscExitConfig) {
+          pscExitConfig = {
+            ...pscExitConfig,
+            trailMultiplier: pscExitConfig.trailMultiplier * holidayGuard!.trailScale,
+          };
+        }
+      }
+    }
 
     processExits(boPositions, boConfigLocal, "breakout", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, boClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
     processExits(guPositions, guExitConfig, "gapup", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, guClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
@@ -1154,6 +1209,18 @@ export function runCombinedSimulation(
         if (verbose) {
           console.log(`  [${today}] 日経キルスイッチ: ${pctChange.toFixed(2)}% ≤ ${ctx.nikkeiDropVetoPct}%（全戦略停止）`);
         }
+      }
+    }
+
+    // ── 1.85 連休前エントリー veto（GU/PSC のみ） ──
+    // 「連休は暦日でギャップ露出が伸びるので、その前は建てない」という案の測定用。
+    // live には存在しない挙動（live 側の連休前ガードはトレール引き締めだけ）。
+    if (holidayGuard?.entryVeto && preHolidayToday && (guShouldTrade || pscShouldTrade)) {
+      guShouldTrade = false;
+      pscShouldTrade = false;
+      holidayVetoDays++;
+      if (verbose) {
+        console.log(`  [${today}] 連休前エントリー veto（非営業日 ${holidayGuard.threshold}日以上）`);
       }
     }
 
@@ -1647,5 +1714,7 @@ export function runCombinedSimulation(
     buybackTrades: buybackAllTrades,
     totalCapitalAdded,
     haltDays,
+    preHolidayDays,
+    holidayVetoDays,
   };
 }
