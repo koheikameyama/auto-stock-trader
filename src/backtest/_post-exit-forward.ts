@@ -47,6 +47,12 @@ function getArg(args: string[], name: string): string | undefined {
 function mean(xs: number[]): number {
   return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
 }
+function median(xs: number[]): number {
+  if (!xs.length) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 === 0 ? (s[mid - 1] + s[mid]) / 2 : s[mid];
+}
 function pctPositive(xs: number[]): number {
   return xs.length ? (xs.filter((x) => x > 0).length / xs.length) * 100 : 0;
 }
@@ -288,6 +294,28 @@ async function main() {
   console.log("-".repeat(header.length));
   printRow("勝ち(pnl>0)", winners);
   printRow("負け(pnl<=0)", losers);
+
+  // 平均は1件のスパイクに引っ張られる（KOH-599 の教訓）。出口理由別に
+  // 決済後 +5d/+10d の「超過リターン」を 平均 と 中央値 と 勝敗内訳 で対比する。
+  console.log("\n[出口理由別: 平均 vs 中央値 vs 勝敗内訳（N225超過ベース）]");
+  console.log(
+    `${"理由".padEnd(18)}| ${"n".padStart(4)} |` +
+      ` ${"+5d 平均".padStart(9)} | ${"+5d 中央".padStart(9)} | ${"+5d ↑/↓".padStart(9)} |` +
+      ` ${"+10d 平均".padStart(9)} | ${"+10d 中央".padStart(9)} | ${"+10d ↑/↓".padStart(9)} |`,
+  );
+  for (const reason of REASON_ORDER) {
+    const r = byReason.get(reason);
+    if (!r || r.n === 0) continue;
+    const e5 = r.excess[5];
+    const e10 = r.excess[10];
+    const wl = (xs: number[]) => `${xs.filter((x) => x > 0).length}/${xs.filter((x) => x <= 0).length}`;
+    const f = (v: number) => (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
+    console.log(
+      `${reason.padEnd(18)}| ${String(r.n).padStart(4)} |` +
+        ` ${f(mean(e5)).padStart(9)} | ${f(median(e5)).padStart(9)} | ${wl(e5).padStart(9)} |` +
+        ` ${f(mean(e10)).padStart(9)} | ${f(median(e10)).padStart(9)} | ${wl(e10).padStart(9)} |`,
+    );
+  }
 
   console.log("\n解釈ガイド:");
   console.log("  超過平均が系統的に + かつ 超過+%>50 → トレール/タイムが早すぎる候補（利を残している）");
