@@ -9,13 +9,12 @@
 
 import { prisma } from "../lib/prisma";
 import { TACHIBANA_ORDER_STATUS, BROKER_RECONCILIATION } from "../lib/constants/broker";
-import { isFixedSlStrategy } from "../lib/constants/fixed-sl";
 import { getOrderDetail, extractFilledPrice } from "./broker-orders";
 import { claimOrderFill } from "./order-executor";
 import { openPosition, closePosition, getPositionPnl, extractRegimeInfoFromSnapshot } from "./position-manager";
 import { submitBrokerSL } from "./broker-sl-manager";
 import { EXIT_REASON } from "./exit-reason";
-import { validateStopLoss } from "./risk-manager";
+import { recalculateExitPricesOnFill } from "./exit-price-calculator";
 import { notifyOrderFilled, notifySlack } from "../lib/slack";
 import { isPostCloseOrderBlackout } from "../lib/market-date";
 import type { ExecutionEvent } from "./broker-event-stream";
@@ -274,7 +273,7 @@ async function handleBuyFill(
   const orderSL = order.stopLossPrice
     ? Number(order.stopLossPrice)
     : null;
-  const { takeProfitPrice, stopLossPrice } = recalculateExitPrices(
+  const { takeProfitPrice, stopLossPrice } = recalculateExitPricesOnFill(
     filledPrice,
     orderTP,
     orderSL,
@@ -645,61 +644,3 @@ async function notifyExecutionQualityIfAnomaly(params: {
   }).catch(() => {});
 }
 
-/**
- * 約定価格ベースで TP/SL を再検証する
- *
- * @param strategy 固定SL戦略(buyback/panic)は SL の再検証をバイパスする。
- *   `validateStopLoss` のルール1が 3%超のSLを一律 -3% にクランプするため、
- *   -12% 固定カタストロフ損切りを指定しても約定時に -3% へ潰されてしまう (KOH-555)。
- *   これらの戦略は SL幅を前提に建玉サイズを決めている(risk2%/12% ≒ cash の16.7%)ので、
- *   SL だけ縮むとリスクとサイズの整合も壊れる。
- */
-function recalculateExitPrices(
-  filledPrice: number,
-  orderTP: number | null,
-  orderSL: number | null,
-  entryAtr: number | null,
-  strategy: string,
-): { takeProfitPrice: number; stopLossPrice: number } {
-  const DEFAULT_TP_RATIO = 1.05;
-  const DEFAULT_SL_RATIO = 0.97;
-
-  let takeProfitPrice =
-    orderTP ?? Math.round(filledPrice * DEFAULT_TP_RATIO);
-  let stopLossPrice =
-    orderSL ?? Math.round(filledPrice * DEFAULT_SL_RATIO);
-
-  // 固定SL戦略: 注文で指定した SL をそのまま採用する（クランプ・ATR再計算を一切しない）。
-  // SL が未指定の場合だけは既定(-3%)にフォールバックする（SL無しでポジションを持たない）。
-  if (isFixedSlStrategy(strategy)) {
-    return { takeProfitPrice, stopLossPrice };
-  }
-
-  // SL を約定価格ベースで再検証
-  const slValidation = validateStopLoss(
-    filledPrice,
-    stopLossPrice,
-    entryAtr,
-    [],
-  );
-  if (slValidation.wasOverridden) {
-    stopLossPrice = Math.round(slValidation.validatedPrice);
-
-    // ATR ベースで TP も再計算
-    if (entryAtr) {
-      const atrBasedTP = filledPrice + entryAtr * 1.5;
-      takeProfitPrice = Math.round(
-        Math.max(takeProfitPrice, atrBasedTP),
-      );
-    }
-
-    // RR >= 1.5 を確保
-    const risk = filledPrice - stopLossPrice;
-    const reward = takeProfitPrice - filledPrice;
-    if (risk > 0 && reward / risk < 1.5) {
-      takeProfitPrice = Math.round(filledPrice + risk * 1.5);
-    }
-  }
-
-  return { takeProfitPrice, stopLossPrice };
-}

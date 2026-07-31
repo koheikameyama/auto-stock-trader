@@ -23,6 +23,7 @@ import {
   VIX_THRESHOLDS,
 } from "../lib/constants";
 import { validateStopLoss } from "../core/risk-manager";
+import { recalculateExitPricesOnFill } from "../core/exit-price-calculator";
 import { fetchStockQuote } from "../core/market-data";
 import { countNonTradingDaysAhead, countTradingDaysBetween, getTodayForDB } from "../lib/market-date";
 import {
@@ -551,12 +552,16 @@ export async function main() {
           filledOrder?.entrySnapshot,
         );
 
-        // 約定価格ベースでTP/SLを再検証（指値と約定価格の乖離を補正）
-        const { takeProfitPrice, stopLossPrice } = recalculateExitPrices(
+        // 約定価格ベースでTP/SLを張り直す（発注時の基準価格と約定価格の乖離を補正）。
+        // ★ broker-fill-handler（EVENT I/F 主系）と同じ共通ヘルパーを使うこと。
+        // 以前はこのファイルにコピーがあり、strategy を受け取っていなかったため
+        // 固定SL戦略(buyback/panic)のバイパス(KOH-555)がこの経路だけ効いていなかった。
+        const { takeProfitPrice, stopLossPrice } = recalculateExitPricesOnFill(
           filledPrice,
           filledOrder?.takeProfitPrice ? Number(filledOrder.takeProfitPrice) : null,
           filledOrder?.stopLossPrice ? Number(filledOrder.stopLossPrice) : null,
           entryAtr,
+          order.strategy,
         );
 
         // 寄付き直後の約定にはリスクフラグを付与
@@ -1333,53 +1338,6 @@ async function applyCorporateEventAdjustments(
       );
     }
   }
-}
-
-/**
- * 約定価格ベースでTP/SLを再検証する
- *
- * 注文時のTP/SLはlimitPrice基準で計算されるが、実際の約定価格（filledPrice）は
- * limitPriceと異なる場合がある。約定価格に対してSLが3%ルールを超過していないか等を
- * 再検証し、必要に応じて修正する。
- */
-function recalculateExitPrices(
-  filledPrice: number,
-  orderTP: number | null,
-  orderSL: number | null,
-  entryAtr: number | null,
-): { takeProfitPrice: number; stopLossPrice: number } {
-  // デフォルト値
-  let takeProfitPrice = orderTP ?? filledPrice * POSITION_DEFAULTS.TAKE_PROFIT_RATIO;
-  let stopLossPrice = orderSL ?? filledPrice * POSITION_DEFAULTS.STOP_LOSS_RATIO;
-
-  // SLを約定価格ベースで再検証
-  const slValidation = validateStopLoss(filledPrice, stopLossPrice, entryAtr, []);
-  if (slValidation.wasOverridden) {
-    const oldSL = stopLossPrice;
-    stopLossPrice = Math.round(slValidation.validatedPrice);
-    console.log(
-      `    → SL再検証（約定価格¥${filledPrice}）: ¥${oldSL} → ¥${stopLossPrice}（${slValidation.reason}）`,
-    );
-
-    // SLが変わった場合、TPもRR比を維持するよう再計算
-    // entryAtrがあればATR×1.5、なければ元のRR比から逆算
-    if (entryAtr) {
-      const atrBasedTP = filledPrice + entryAtr * 1.5;
-      // 元のTPとATRベースTPの大きい方を採用（利益を伸ばす方向）
-      takeProfitPrice = Math.round(Math.max(takeProfitPrice, atrBasedTP));
-    }
-    // RRチェック: 最低1.5を確保
-    const risk = filledPrice - stopLossPrice;
-    const reward = takeProfitPrice - filledPrice;
-    if (risk > 0 && reward / risk < 1.5) {
-      takeProfitPrice = Math.round(filledPrice + risk * 1.5);
-      console.log(
-        `    → TP再計算（RR≥1.5確保）: ¥${takeProfitPrice}`,
-      );
-    }
-  }
-
-  return { takeProfitPrice, stopLossPrice };
 }
 
 /**
