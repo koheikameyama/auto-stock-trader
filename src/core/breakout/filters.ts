@@ -19,6 +19,11 @@ interface GateInput {
   today: Date;
   /** 資金連動の最大株価（getMaxBuyablePrice で算出） */
   maxPrice: number;
+  /**
+   * 流動性ゲートの下限。省略時はスコアリング系の汎用値 `SCORING.GATES.MIN_AVG_VOLUME_25`。
+   * GU/PSC は BT の `passesUniverseGates` と揃えるため戦略固有値を明示的に渡す。
+   */
+  minAvgVolume25?: number;
 }
 
 /**
@@ -27,8 +32,9 @@ interface GateInput {
  */
 export function checkGates(input: GateInput): { passed: boolean; reason?: string } {
   const { latestPrice, avgVolume25, atrPct, nextEarningsDate, recentEarningsDate, exDividendDate, today, maxPrice } = input;
+  const minAvgVolume25 = input.minAvgVolume25 ?? SCORING.GATES.MIN_AVG_VOLUME_25;
 
-  if (!avgVolume25 || avgVolume25 < SCORING.GATES.MIN_AVG_VOLUME_25) {
+  if (!avgVolume25 || avgVolume25 < minAvgVolume25) {
     return { passed: false, reason: "volume" };
   }
 

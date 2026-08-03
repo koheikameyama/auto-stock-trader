@@ -25,6 +25,8 @@ import { checkGates, computeScoringIntermediates } from "../breakout/filters";
 import { getEffectiveCapital } from "../position-manager";
 import { getMaxBuyablePrice } from "../risk-manager";
 import { BREAKOUT } from "../../lib/constants/breakout";
+import { GAPUP } from "../../lib/constants/gapup";
+import { POST_SURGE_CONSOLIDATION } from "../../lib/constants/post-surge-consolidation";
 import type { WatchlistEntry } from "../breakout/types";
 
 /** GUウォッチリストエントリ（候補銘柄） */
@@ -70,15 +72,14 @@ export interface GuWatchlistBuildResult {
 }
 
 /**
- * 直近 N 日の平均出来高を計算する
- * @param data OHLCVデータ（newest-first）
- * @param days 平均を取る日数
+ * 平均出来高は `analyzeTechnicals().volumeAnalysis.avgVolume20` をそのまま使う。
+ *
+ * BT の `passesUniverseGates` / 出来高サージ判定は `summary.volumeAnalysis.avgVolume20`
+ * （フィールド名は avgVolume25 だが実体は20日平均）を参照している。本番は以前ここで
+ * 独自に真の25日平均を計算しており、①流動性ゲート ②出来高サージ倍率 の両方で BT と
+ * 別の分母を使っていた。2026-08-03 に BT 側の定義へ統一。
+ * 詳細は .claude/rules/backtest.md「事例: minAvgVolume25 の本番/BT 乖離」
  */
-function computeAvgVolume(data: { volume: number }[], days: number): number | null {
-  const slice = data.slice(0, days);
-  if (slice.length === 0) return null;
-  return slice.reduce((sum, d) => sum + d.volume, 0) / slice.length;
-}
 
 /**
  * 余力フィルター: entry-executor と同じロジックでポジションサイズを計算し、
@@ -203,8 +204,9 @@ export async function buildGuWatchlist(): Promise<GuWatchlistBuildResult> {
       // テクニカル分析（ATR・avgVolume計算に必要）
       const summary = analyzeTechnicals(historical);
 
-      // avgVolume25 は直近25日の出来高平均
-      const avgVolume25 = computeAvgVolume(historical, 25);
+      // BT (`summary.volumeAnalysis.avgVolume20`) と同一の分母を使う。
+      // フィールド名は avgVolume25 だが実体は20日平均（BT側も同じ命名のまま）。
+      const avgVolume25 = summary.volumeAnalysis.avgVolume20;
 
       // ATR%（ゲートチェック用）
       const latestPrice = stock.latestPrice != null ? Number(stock.latestPrice) : summary.currentPrice;
@@ -223,6 +225,14 @@ export async function buildGuWatchlist(): Promise<GuWatchlistBuildResult> {
         exDividendDate: stock.exDividendDate ?? null,
         today,
         maxPrice,
+        // GU/PSC は BT の passesUniverseGates と同じ戦略固有値を使う（汎用の
+        // SCORING.GATES.MIN_AVG_VOLUME_25=50,000 ではユニバースが BT より広くなる）。
+        // 本ウォッチリストは GU と PSC で共有するため、両者の緩い方を採る
+        // （現状どちらも 100,000。将来片方だけ変えても候補を過剰に削らない）。
+        minAvgVolume25: Math.min(
+          GAPUP.ENTRY.MIN_AVG_VOLUME_25,
+          POST_SURGE_CONSOLIDATION.ENTRY.MIN_AVG_VOLUME_25,
+        ),
       });
 
       if (!gate.passed) {
