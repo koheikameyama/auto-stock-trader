@@ -280,6 +280,21 @@ export interface SimContext {
    * maxByBalance の現金を cashBufferPct 倍に絞る。既定 1.0（掛目なし＝現行 live 相当）。
    */
   cashBufferPct?: number;
+  /**
+   * ポジションサイズのリスク基準を「現金」でなく「総資産」にするか（2026-08-03 検証用）。
+   *
+   * false/省略（既定）: BT本来の挙動 = `riskAmount = cash × risk%`。baseline 完全一致。
+   * true: live の entry-executor と同じ `riskAmount = effectiveCapital × risk%`
+   *   （`entry-executor.ts:395`、`getEffectiveCapital()` = 買余力 + 投資中(簿価) + 発注中）。
+   *
+   * この差は「複数ポジションを持っている時」にだけ現れ、cash基準は保有が増えるほど後続の
+   * サイズを縮める。結果として**BTは複数戦略構成に構造的なペナルティを課す**（PSC が枠を
+   * 埋めると GU のサイズが縮む）。`GU3のみ vs GU3+PSC2` の比較はこの影響を受けるため、
+   * 判定の前に本番と同じ基準へ揃えて測り直す必要がある。
+   *
+   * 未決済売却代金（pendingSettlement）は live でも買余力に入らない（決済まで）ため含めない。
+   */
+  equityBasedSizing?: boolean;
 }
 
 /** ボラ凸性サイジング設定（--compare-vol-convexity） */
@@ -910,7 +925,7 @@ export function runCombinedSimulation(
     typeof maxPositions === "number"
       ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, etfMax: maxPositions, buybackMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, etfCrisisBypass, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none", beTrailDetectionSource = "high", breakEvenFloor, intraBarStopModel = "stop-at-open", volConvexity, cashShrinkToFit = false, cashBufferPct = 1, conditionalBe, holidayGuard } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, etfCrisisBypass, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none", beTrailDetectionSource = "high", breakEvenFloor, intraBarStopModel = "stop-at-open", volConvexity, cashShrinkToFit = false, cashBufferPct = 1, equityBasedSizing = false, conditionalBe, holidayGuard } = ctx;
   const guBreadthMode = breadthModeGu ?? breadthMode;
   const pscBreadthMode = breadthModePsc ?? breadthMode;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
@@ -961,6 +976,24 @@ export function runCombinedSimulation(
   const buybackClosedTrades: SimulatedPosition[] = [];
   const lastExitDayIdx = new Map<string, number>();
   const equityCurve: DailyEquity[] = [];
+
+  /**
+   * ポジションサイズ計算のリスク基準額。
+   * 既定は現金（BT本来の挙動、baseline 完全一致）。equityBasedSizing=true で live と同じ
+   * 総資産基準（現金 + 保有ポジションの簿価）になる。live の getInvestedAmount() が
+   * entryPrice×quantity の簿価で集計しているので、時価でなく簿価で合わせる。
+   */
+  const riskBase = (): number => {
+    if (!equityBasedSizing) return cash;
+    let invested = 0;
+    for (const pos of [
+      ...boPositions, ...guPositions, ...wbPositions, ...pscPositions,
+      ...momPositions, ...etfPositions, ...buybackPositions,
+    ]) {
+      invested += pos.entryPrice * pos.quantity;
+    }
+    return cash + invested;
+  };
 
   for (let dayIdx = 0; dayIdx < tradingDays.length; dayIdx++) {
     const today = tradingDays[dayIdx];
@@ -1328,7 +1361,7 @@ export function runCombinedSimulation(
 
         const riskPerShare = signal.entryPrice - stopLossPrice;
         if (riskPerShare <= 0) continue;
-        const riskAmount = cash * ((riskPctOverride ?? RISK_PER_TRADE_PCT) / 100) * breadthMul;
+        const riskAmount = riskBase() * ((riskPctOverride ?? RISK_PER_TRADE_PCT) / 100) * breadthMul;
         const rawQuantity = Math.floor(riskAmount / riskPerShare);
         let quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
         {
@@ -1379,7 +1412,7 @@ export function runCombinedSimulation(
 
         const riskPerShare = signal.entryPrice - stopLossPrice;
         if (riskPerShare <= 0) continue;
-        const riskAmount = cash * ((riskPctOverride ?? GAPUP_RISK_PER_TRADE_PCT) / 100) * breadthMulGu;
+        const riskAmount = riskBase() * ((riskPctOverride ?? GAPUP_RISK_PER_TRADE_PCT) / 100) * breadthMulGu;
         const rawQuantity = Math.floor(riskAmount / riskPerShare);
         let quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
         {
@@ -1430,7 +1463,7 @@ export function runCombinedSimulation(
 
         const riskPerShare = signal.entryPrice - stopLossPrice;
         if (riskPerShare <= 0) continue;
-        const riskAmount = cash * ((wbRiskPctOverride ?? riskPctOverride ?? WEEKLY_BREAK_RISK_PER_TRADE_PCT) / 100) * breadthMul;
+        const riskAmount = riskBase() * ((wbRiskPctOverride ?? riskPctOverride ?? WEEKLY_BREAK_RISK_PER_TRADE_PCT) / 100) * breadthMul;
         const rawQuantity = Math.floor(riskAmount / riskPerShare);
         let quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
         {
@@ -1481,7 +1514,7 @@ export function runCombinedSimulation(
 
         const riskPerShare = signal.entryPrice - stopLossPrice;
         if (riskPerShare <= 0) continue;
-        const riskAmount = cash * ((riskPctOverride ?? PSC_RISK_PER_TRADE_PCT) / 100) * breadthMulPsc;
+        const riskAmount = riskBase() * ((riskPctOverride ?? PSC_RISK_PER_TRADE_PCT) / 100) * breadthMulPsc;
         const rawQuantity = Math.floor(riskAmount / riskPerShare);
         let quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
         {
@@ -1538,7 +1571,7 @@ export function runCombinedSimulation(
 
         const riskPerShare = signal.currentPrice - stopLossPrice;
         if (riskPerShare <= 0) continue;
-        const riskAmount = cash * ((riskPctOverride ?? MOMENTUM_RISK_PER_TRADE_PCT) / 100);
+        const riskAmount = riskBase() * ((riskPctOverride ?? MOMENTUM_RISK_PER_TRADE_PCT) / 100);
         const rawQuantity = Math.floor(riskAmount / riskPerShare);
         let quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
         {
@@ -1587,7 +1620,7 @@ export function runCombinedSimulation(
         if (riskPerShare <= 0) continue;
 
         // ETF はリスク% × cash で枠を取り、1株単位で丸める（GU/PSC の100株単位とは異なる）
-        const riskAmount = cash * (etfConfigLocal.riskPct);
+        const riskAmount = riskBase() * (etfConfigLocal.riskPct);
         const rawQuantity = Math.floor(riskAmount / riskPerShare);
         const unit = etfConfigLocal.unitShares;
         let quantity = Math.floor(rawQuantity / unit) * unit;
@@ -1637,7 +1670,7 @@ export function runCombinedSimulation(
         const riskPerShare = signal.entryPrice - stopLossPrice;
         if (riskPerShare <= 0) continue;
 
-        const riskAmount = cash * (buybackConfigLocal.riskPct);
+        const riskAmount = riskBase() * (buybackConfigLocal.riskPct);
         const rawQuantity = Math.floor(riskAmount / riskPerShare);
         const unit = buybackConfigLocal.unitShares;
         let quantity = Math.floor(rawQuantity / unit) * unit;

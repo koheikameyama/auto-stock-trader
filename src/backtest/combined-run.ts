@@ -450,6 +450,9 @@ async function main() {
   // GU/PSC 専用の 100,000 (BT既定) が適用されていない。どちらが正しいかを実測するための
   // スイープ。未指定なら baseline 完全不変。
   const compareMinAvgVolume = args.includes("--compare-min-avg-volume");
+  // ポジションサイズのリスク基準を live と同じ総資産基準にする（既定は BT本来の現金基準）。
+  // cash基準は保有が増えるほど後続サイズを縮めるため、複数戦略構成に構造的ペナルティが乗る。
+  const equityBasedSizing = args.includes("--equity-based-sizing");
   const compareDailyEntries = args.includes("--compare-daily-entries");
   const comparePscTrail = args.includes("--compare-psc-trail");
   // --compare-gu-trail (KOH-563): GU trailMultiplier を現エンジンで測り直す。
@@ -827,6 +830,7 @@ async function main() {
     equityCurveSmaPeriod: 0,
     tickerSectorMap,
     indexData: indexData.size > 0 ? indexData : undefined,
+    ...(equityBasedSizing ? { equityBasedSizing: true } : {}),
   };
 
   const defaultLimits: PositionLimits = {
