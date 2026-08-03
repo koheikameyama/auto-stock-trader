@@ -833,10 +833,13 @@ async function main() {
     ...(equityBasedSizing ? { equityBasedSizing: true } : {}),
   };
 
+  // 2026-08-03: PSC 停止に伴い pscMax を 0 に。本番 (POST_SURGE_CONSOLIDATION.ENTRY_ENABLED=false)
+  // と BT の既定を揃えないと、SMA50 で起きた「片側だけ変えた乖離」を再発させることになる。
+  // PSC を含む構成は --compare-split-positions で引き続き測れる。
   const defaultLimits: PositionLimits = {
     boMax: 0,
     guMax: 3,
-    pscMax: 2,
+    pscMax: 0,
     ...(enableMomentum ? { momMax: Number(momMaxArg ?? 2) } : {}),
     ...(enableWbLargecap ? { wbMax: Number(wbMaxArg ?? 2) } : {}),
     ...(enableEtf ? { etfMax: Number(etfMaxArg ?? 2) } : {}),

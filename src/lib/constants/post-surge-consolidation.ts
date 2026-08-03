@@ -46,5 +46,19 @@ export const POST_SURGE_CONSOLIDATION = {
     MAX_HOLDING_DAYS: 5,
     MAX_EXTENDED_HOLDING_DAYS: 7,
   },
-  ENTRY_ENABLED: true,
+  /**
+   * 新規エントリー許可。**2026-08-03 に停止**（Exit は常に動くので保有中のポジションは
+   * 通常どおり決済される）。
+   *
+   * 停止理由: PSC 単体は今も有効（fullcycle 単体BT PF 2.31 / WF OOS集計PF 2.08 堅牢✓）だが、
+   * GU と共有プールで走らせると **GU 単独構成に一貫して負ける**。GU と PSC は同じ小型株
+   * ユニバースを相関したトリガーで狩る実質 substitute で、現金と銘柄（`allOpenTickers`・
+   * 戦略横断 cooldown）を食い合うだけだった。
+   *
+   * fullcycle 2018-04〜2026-07 / ¥500K / 総資産基準サイジング:
+   *   GU3+PSC2 Calmar 26.88 → GU3のみ 34.57 (+29%)
+   * cash基準でも +30%、年代別3期でも GU 単独が一度も負けず、¥50M でも +14%。
+   * 詳細は .claude/rules/backtest.md「事例: PSC を停止し GU 単独構成へ」
+   */
+  ENTRY_ENABLED: false,
 } as const;

@@ -2,7 +2,9 @@
 
 ## エントリー戦略
 
-**gapup + PSC（高騰後押し目）の2本柱で運用中。** breakout戦略はWF検証でエッジ消失を確認しエントリー無効化（2026-04-10）。weekly-break / momentum はWFで堅牢だが combined で baseline を改善しないため停止中（資金¥10M+到達時に再評価）。
+**gapup 単独 + offseason 補完（米株ETF / パニック底反発）で運用中。** breakout戦略はWF検証でエッジ消失を確認しエントリー無効化（2026-04-10）。weekly-break / momentum はWFで堅牢だが combined で baseline を改善しないため停止中（資金¥10M+到達時に再評価）。
+
+**PSC（高騰後押し目）は 2026-08-03 に新規エントリー停止**（`POST_SURGE_CONSOLIDATION.ENTRY_ENABLED=false`、Exit は常に稼働）。PSC 単体は今も有効だが GU と共有プールで走らせると GU 単独構成に一貫して負ける（実質 substitute で現金と銘柄を食い合う）。詳細は `.claude/rules/backtest.md`「事例: PSC を停止し GU 単独構成へ」。以降の記述で PSC に触れている箇所は、停止前の構成および再開時の仕様として読むこと。
 
 スコアリング+AIレビュー方式は廃止済み。エントリー戦略にAI依存なし。市場予想（market-forecast）のみOpenAI gpt-4o-miniを使用。
 

@@ -26,6 +26,8 @@ export const TRADING_DEFAULTS = {
   // 追加の枠制限は累計20件達成を事実上不可能にしてbedding-in卒業を永久ロックしていた（1ヶ月で実トレード1件）。
   // BT 24ヶ月設計値の GU3 + PSC2 (合計5枠) に戻す。
   MAX_POSITIONS_GU: 3,
+  // PSC は 2026-08-03 に新規エントリー停止（POST_SURGE_CONSOLIDATION.ENTRY_ENABLED=false）。
+  // 本定数はエントリーゲートでしか使われないため値は据え置く（再開時にそのまま効く）。
   MAX_POSITIONS_PSC: 2,
   MAX_POSITION_PCT: 40, // 1銘柄集中リスク防止（50万円規模: 最大20万/銘柄）
   MAX_DAILY_LOSS_PCT: 3, // 日次最大損失率(%)
