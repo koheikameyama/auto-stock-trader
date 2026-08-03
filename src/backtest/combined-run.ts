@@ -1818,16 +1818,23 @@ async function main() {
   if (compareSplitPositions) {
     const grid: { label: string; limits: PositionLimits }[] = [
       { label: "GU3+PSC2（現状）",     limits: { boMax: 0, guMax: 3, pscMax: 2 } },
+      // 片側だけの構成。共有プールで一方が他方を食っていないかの切り分け用
+      { label: "GU3のみ（PSC 0）",     limits: { boMax: 0, guMax: 3, pscMax: 0 } },
+      { label: "GU5のみ（PSC 0）",     limits: { boMax: 0, guMax: 5, pscMax: 0 } },
+      { label: "PSC2のみ（GU 0）",     limits: { boMax: 0, guMax: 0, pscMax: 2 } },
+      { label: "PSC5のみ（GU 0）",     limits: { boMax: 0, guMax: 0, pscMax: 5 } },
       { label: "GU3+PSC3",            limits: { boMax: 0, guMax: 3, pscMax: 3 } },
       { label: "GU5+PSC3",            limits: { boMax: 0, guMax: 5, pscMax: 3 } },
       { label: "GU5+PSC5",            limits: { boMax: 0, guMax: 5, pscMax: 5 } },
     ];
 
+    const yearsSplit = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+
     console.log("\n=== 戦略別ポジション分離比較 ===");
     console.log(
-      `${"パターン".padEnd(24)}| ${"Trades".padStart(6)} | ${"WinRate".padStart(7)} | ${"PF".padStart(5)} | ${"Expect".padStart(8)} | ${"MaxDD".padStart(7)} | ${"NetRet".padStart(8)} | ${"稼働率".padStart(6)}`,
+      `${"パターン".padEnd(24)}| ${"Trades".padStart(6)} | ${"WinRate".padStart(7)} | ${"PF".padStart(5)} | ${"Expect".padStart(8)} | ${"MaxDD".padStart(7)} | ${"NetRet".padStart(8)} | ${"Calmar".padStart(6)} | ${"稼働率".padStart(6)}`,
     );
-    console.log("-".repeat(92));
+    console.log("-".repeat(102));
 
     for (const row of grid) {
       const result = runCombinedSimulation(ctx, row.limits);
@@ -1837,8 +1844,10 @@ async function main() {
       const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
       const gm = result.guMetrics;
       const pm = result.pscMetrics;
+      const annRet = yearsSplit > 0 ? m.netReturnPct / yearsSplit : m.netReturnPct;
+      const calmarSplit = m.maxDrawdown > 0 ? annRet / m.maxDrawdown : 0;
       console.log(
-        `${row.label.padEnd(24)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(6)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(8)} | ${m.maxDrawdown.toFixed(1).padStart(6)}% | ${m.netReturnPct.toFixed(1).padStart(7)}% | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
+        `${row.label.padEnd(24)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(6)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(8)} | ${m.maxDrawdown.toFixed(1).padStart(6)}% | ${m.netReturnPct.toFixed(1).padStart(7)}% | ${calmarSplit.toFixed(2).padStart(6)} | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
       );
       console.log(
         `${"  GU".padEnd(24)}| ${String(gm.totalTrades).padStart(6)} | ${gm.winRate.toFixed(1).padStart(6)}% | ${(gm.profitFactor === Infinity ? "∞" : gm.profitFactor.toFixed(2)).padStart(5)} | ${((gm.expectancy >= 0 ? "+" : "") + gm.expectancy.toFixed(2) + "%").padStart(8)}`,
@@ -3711,8 +3720,9 @@ async function main() {
     // 現状の PSC: atr=0.8, be=0.3, trail=0.5
     // BE発動後のトレール幅のみを変化させる
     const grid: { label: string; trail: number }[] = [
-      { label: "trail=0.3 (タイト)", trail: 0.3 },
-      { label: "trail=0.5 (現状)", trail: 0.5 },
+      // 本番値は KOH-552 (2026-07-15) に 0.5 → 0.3 へ変更済み
+      { label: "trail=0.3 (現状)", trail: 0.3 },
+      { label: "trail=0.5 (旧本番)", trail: 0.5 },
       { label: "trail=0.8 (ゆるめ)", trail: 0.8 },
       { label: "trail=1.0 (大幅ゆるめ)", trail: 1.0 },
       { label: "trail=1.5 (極ゆるめ)", trail: 1.5 },
