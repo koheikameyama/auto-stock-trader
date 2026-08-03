@@ -463,6 +463,10 @@ async function main() {
   const compareSlippage = args.includes("--compare-slippage");
   const compareStrategyMix = args.includes("--compare-strategy-mix");
   const compareNikkeiDrop = args.includes("--compare-nikkei-drop");
+  // 本番(market-assessment)は 2026-04-01 に N225 SMA50 ゲートを撤廃したが、gapup/psc の
+  // BT config は indexTrendFilter:true のまま残っている。その乖離を実測するための検証用フラグ。
+  // 未指定なら baseline 完全不変。
+  const noIndexFilter = args.includes("--no-index-filter");
   // --compare-nikkei-killswitch (KOH-577): 日経キルスイッチの判定時制 off/same-day(BT)/lagged(本番) を
   // 単発窓で比較し、機械可読な1行サマリを出す。16窓+検定は scripts/_koh577-killswitch-windows.py が駆動。
   const compareNikkeiKillswitch = args.includes("--compare-nikkei-killswitch");
@@ -518,6 +522,10 @@ async function main() {
     // WF最適パラメータ（config/production-params から参照）
     ...PSC_PRODUCTION_PARAMS,
   };
+  if (noIndexFilter) {
+    guConfig.indexTrendFilter = false;
+    pscConfig.indexTrendFilter = false;
+  }
   if (maxPriceOverride) {
     guConfig.maxPrice = Number(maxPriceOverride);
     pscConfig.maxPrice = Number(maxPriceOverride);
