@@ -459,8 +459,16 @@ market-scannerの判定は「機械的ゲート → 戦略決定 → 銘柄ス�
   ├─ [1.8.5] 日経平均キルスイッチ
   │   └─ 前日比 ≤ -3% → 取引停止（crisis）
   │
-  │   ※ N225 SMA50フィルターは廃止済み（2026-04-01）
-  │     WF検証でbreadth73%で十分と判定。SMA50は遅行指標でリバウンド初期を逃すため。
+  ├─ [1.8.6] N225 SMA50フィルター
+  │   └─ 直近確定セッション終値 < SMA50 → 取引停止（shouldTrade=false, sentiment=normal）
+  │      BT側 `precomputeSimData()` の `dailyIndexAboveSma` と同一ロジック
+  │      （`INDEX_TREND_HYSTERESIS` のバッファを共有、現状 0=バッファなし）
+  │
+  │   ※ 2026-04-01 に一度廃止したが 2026-08-03 に復活。廃止時に BT 側は
+  │     breakout-config しか false にしておらず gapup/psc は indexTrendFilter:true の
+  │     ままだったため、GU/PSC の検証済みパラメータ一式と本番の挙動が乖離していた。
+  │     combined BT 実測で ON が全窓優位（Calmar 31.4 → 10.7 等）。
+  │     詳細は .claude/rules/backtest.md「事例: N225 SMA50 フィルターの本番/BT 乖離」
   │
   └─ [1.9] ドローダウンチェック
       └─ 週次 -5% or 月次 -10% or 5連敗 → 取引停止

@@ -12,6 +12,7 @@
 import dayjs from "dayjs";
 import { prisma } from "../lib/prisma";
 import { getTodayForDB, jstDateAsUTC } from "../lib/market-date";
+import { INDEX_TREND_HYSTERESIS } from "../lib/constants";
 
 const NIKKEI_TICKER = "^N225";
 
@@ -64,4 +65,60 @@ export async function getNikkeiLastSessionChange(
     previousClose: prev.close,
     asOfDate: last.date,
   };
+}
+
+export interface IndexTrendState {
+  /** true = 日経がSMA上（エントリー許可） */
+  filterOn: boolean;
+  /** 判定に使った直近確定セッションの終値 */
+  close: number;
+  /** 同セッション時点のSMA */
+  sma: number;
+  /** 判定に使った営業日 */
+  asOfDate: Date;
+}
+
+/**
+ * 日経225の SMA トレンドフィルター状態を DB(StockDailyBar) から算出する。
+ *
+ * BT側 `precomputeSimData()` の `dailyIndexAboveSma` と同一ロジック（ヒステリシスをリプレイし
+ * 現在状態を決める）。バッファは `INDEX_TREND_HYSTERESIS` を共有するので、BT config の
+ * `indexTrendOffBufferPct` / `indexTrendOnBufferPct` と値を揃えている限り意味論が一致する。
+ *
+ * 本番は場中前(08:02 JST)に走るため、参照できるのは直近確定セッションまで。BT が当日終値で
+ * 判定するのに対し1営業日遅れる点は breadth と同じ構造的ラグ。
+ *
+ * @returns データ不足で判定不能なら null（呼び出し側はフィルター不適用として扱う）
+ */
+export async function getNikkeiTrendFilterState(
+  upperBound: Date = getTodayForDB(),
+): Promise<IndexTrendState | null> {
+  const { SMA_PERIOD, OFF_BUFFER_PCT, ON_BUFFER_PCT, WARMUP_DAYS } = INDEX_TREND_HYSTERESIS;
+
+  const barsDesc = await prisma.stockDailyBar.findMany({
+    where: { tickerCode: NIKKEI_TICKER, date: { lte: upperBound } },
+    orderBy: { date: "desc" },
+    take: SMA_PERIOD + WARMUP_DAYS,
+    select: { date: true, close: true },
+  });
+  if (barsDesc.length < SMA_PERIOD) return null;
+
+  const bars = barsDesc.reverse(); // oldest-first
+
+  let filterOn = true;
+  let sma = 0;
+  for (let i = SMA_PERIOD - 1; i < bars.length; i++) {
+    let sum = 0;
+    for (let j = i - SMA_PERIOD + 1; j <= i; j++) sum += bars[j].close;
+    sma = sum / SMA_PERIOD;
+
+    if (filterOn) {
+      if (bars[i].close < sma * (1 - OFF_BUFFER_PCT)) filterOn = false;
+    } else {
+      if (bars[i].close > sma * (1 + ON_BUFFER_PCT)) filterOn = true;
+    }
+  }
+
+  const last = bars[bars.length - 1];
+  return { filterOn, close: last.close, sma, asOfDate: last.date };
 }

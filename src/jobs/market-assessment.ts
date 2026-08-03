@@ -5,9 +5,10 @@
  * market-scanner オーケストレーターから呼ばれるほか、単独実行も可能。
  */
 
+import dayjs from "dayjs";
 import { prisma } from "../lib/prisma";
 import { getTodayForDB, getPreviousTradingDay } from "../lib/market-date";
-import { MARKET_INDEX, MARKET_REGIME, MARKET_BREADTH } from "../lib/constants";
+import { MARKET_INDEX, MARKET_REGIME, MARKET_BREADTH, INDEX_TREND_HYSTERESIS } from "../lib/constants";
 import { getCMEStatus } from "../lib/market-hours";
 import { fetchMarketData } from "../core/market-data";
 import { notifyMarketAssessment, notifyRiskAlert } from "../lib/slack";
@@ -20,7 +21,7 @@ import type { MarketRegime, Sentiment } from "../core/market-regime";
 import { calculateDrawdownStatus } from "../core/drawdown-manager";
 import type { DrawdownStatus } from "../core/drawdown-manager";
 import { calculateMarketBreadth } from "../core/market-breadth";
-import { getNikkeiLastSessionChange } from "../core/market-index";
+import { getNikkeiLastSessionChange, getNikkeiTrendFilterState } from "../core/market-index";
 import { CRISIS_SOURCE } from "../core/crisis-source";
 
 /** market-assessment の結果（オーケストレーターや stock-scanner に渡す） */
@@ -245,9 +246,55 @@ export async function main(): Promise<MarketAssessmentContext> {
     isShadowMode = true;
   }
 
-  // N225 SMA50フィルターは廃止（2026-04-01）
-  // WF検証でbreadth73%+他ゲート（VIX/CME/ドローダウン）で十分と判定。
-  // SMA50は遅行指標でリバウンド初期の機会を逃すため撤廃。
+  // 1.8.6. N225 SMA50フィルター
+  //
+  // 2026-04-01 (f1ae3904) に「breadth 73% + 他ゲートで十分」として撤廃したが、BT側は
+  // breakout-config しか false にしておらず gapup/psc は indexTrendFilter:true のまま残った。
+  // 結果、GU/PSC の検証済みパラメータ一式（breadth 54-80%、cooldown 3、GU3+PSC2 等）が
+  // 「SMA50ゲートあり」の世界で最適化されているのに、本番だけゲート無しで回っていた。
+  //
+  // 2026-08-03 に実測して復活。combined BT (¥500K) で ON/OFF を比較すると全窓で ON 優位:
+  //   2024-03〜2026-07: Calmar 31.4 → 10.7 / MaxDD 12.7% → 17.6% / NetRet +399% → +189%
+  //   2024-03〜2025-06: Calmar 60.1 →  8.1 / 2025-07〜2026-07: Calmar 6.7 → 2.8
+  // 本番の実現損益も N225 が SMA50 を割った 2026-07-17 以降の17件が -¥17,600（平均 -0.23%）、
+  // それ以前の21件が +¥38,550（平均 +0.89%）と同じ向きだった。
+  //
+  // shouldTrade を読むのは gapup-monitor / post-surge-consolidation-monitor だけなので、
+  // ここに置けば BT の「indexTrendFilter は gapup/psc config のみ」と意味論が一致する
+  // （breakout は false、ETF/buyback/panic は shouldTrade 非参照）。
+  if (!isShadowMode) {
+    console.log("[1.8.6/2] N225 SMA50チェック...");
+    const trend = await getNikkeiTrendFilterState();
+
+    if (!trend) {
+      console.log("  N225データ不足: SMA50チェックをスキップ");
+    } else if (!trend.filterOn) {
+      const reason =
+        `N225 ¥${Math.round(trend.close).toLocaleString()} < SMA${INDEX_TREND_HYSTERESIS.SMA_PERIOD} ` +
+        `¥${Math.round(trend.sma).toLocaleString()}（${dayjs(trend.asOfDate).format("YYYY-MM-DD")}時点）: ` +
+        `指数トレンド下向きでエントリー見送り`;
+      console.log(`  → ${reason}`);
+      const assessmentData = {
+        ...buildMarketFields(marketData, { breadth: breadthValue, cmeDivergencePct }),
+        sentiment: "normal" as const,
+        shouldTrade: false,
+        reasoning: `[N225 SMA50フィルター] ${reason}`,
+        selectedStocks: [],
+      };
+      await prisma.marketAssessment.upsert({
+        where: { date: getTodayForDB() },
+        update: assessmentData,
+        create: { date: getTodayForDB(), ...assessmentData },
+      });
+      finalOutcome = { shouldTrade: false, sentiment: "normal", reasoning: assessmentData.reasoning };
+      isShadowMode = true;
+    } else {
+      console.log(
+        `  → N225 ¥${Math.round(trend.close).toLocaleString()} > SMA${INDEX_TREND_HYSTERESIS.SMA_PERIOD} ` +
+        `¥${Math.round(trend.sma).toLocaleString()}: エントリー継続`,
+      );
+    }
+  }
 
   // 1.9. ドローダウンチェック
   console.log("[1.9/2] ドローダウンチェック...");
