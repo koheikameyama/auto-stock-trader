@@ -38,7 +38,7 @@ import { prisma } from "../src/lib/prisma";
 import { getMaxBuyablePrice } from "../src/core/risk-manager";
 import fs from "fs";
 
-const FLAGS_WITH_VALUE = ["--entry-lag", "--breadth-universe"];
+const FLAGS_WITH_VALUE = ["--entry-lag", "--breadth-universe", "--vix", "--breadth", "--down-days"];
 const args = process.argv.slice(2);
 /** フラグを除いた位置引数（--entry-lag N 等が後ろに付いても START/END/OUT を壊さない） */
 const positional = args.filter(
@@ -64,6 +64,24 @@ if (!["ever", "daily"].includes(BREADTH_UNIVERSE)) {
   console.error(`--breadth-universe は ever|daily (got: ${BREADTH_UNIVERSE})`);
   process.exit(1);
 }
+
+/**
+ * 発火条件のしきい値（既定 = 本番と同一。省略時は挙動不変）。
+ * 「発火が年2回未満で弾が少ない」ので、緩めてどこまで持つかを測るためのスイープ用。
+ * ⚠️ 緩めると D期の浅い押しに発火して GU と食い合う（却下#531 の2cond版が D期 -35%）。
+ *    判定は必ず年代別で、とくに D期(2024-26) の劣化幅を見ること。
+ */
+/** カンマ区切りで複数指定するとスイープになり、combo ごとに別ファイルを出力する */
+const numListArg = (name: string, def: number[]): number[] => {
+  const i = args.indexOf(name);
+  if (i < 0) return def;
+  const vs = String(args[i + 1]).split(",").map(Number);
+  if (vs.some((v) => !Number.isFinite(v))) { console.error(`${name} は数値(カンマ区切り可) (got: ${args[i + 1]})`); process.exit(1); }
+  return vs;
+};
+const VIX_GRID = numListArg("--vix", [25]); // VIX(前日終値) > この値
+const BREADTH_GRID = numListArg("--breadth", [0.4]); // breadth < この値
+const DOWN_GRID = numListArg("--down-days", [3]); // N225 連続下落日数 >= この値
 
 const START = positional[0] ?? "2018-01-01";
 const END = positional[1] ?? "2026-07-15";
@@ -135,50 +153,64 @@ async function main() {
     return ans >= 0 ? vix.get(vixDays[ans])! : null;
   };
 
-  const hits: { date: string; breadth: number; streak: number; vix: number }[] = [];
-  for (const day of tradingDays) {
-    const b = breadth.get(day);
-    const st = downStreak.get(day) ?? 0;
-    const v = prevVix(day);
-    if (b == null || v == null) continue;
-    if (b < 0.4 && st >= 3 && v > 25) hits.push({ date: day, breadth: b, streak: st, vix: v });
-  }
-
-  // エピソード初日のみ（前営業日も該当なら除外）
-  const hitSet = new Set(hits.map((h) => h.date));
   const dayIdx = new Map(tradingDays.map((d, i) => [d, i]));
-  const firsts = hits.filter((h) => {
-    const i = dayIdx.get(h.date)!;
-    return i === 0 || !hitSet.has(tradingDays[i - 1]);
-  });
+  const basePath = positional[2] ?? "/tmp/panic_events.json";
+  const isSweep = VIX_GRID.length * BREADTH_GRID.length * DOWN_GRID.length > 1;
 
-  console.log(`該当日(全): ${hits.length} / エピソード初日: ${firsts.length}`);
-  const byYear = new Map<string, number>();
-  for (const f of firsts) byYear.set(f.date.slice(0, 4), (byYear.get(f.date.slice(0, 4)) ?? 0) + 1);
-  console.log("年別:", [...byYear.entries()].sort().map(([y, n]) => `${y}:${n}`).join(" "));
+  for (const VIX_MIN of VIX_GRID) {
+    for (const BREADTH_MAX of BREADTH_GRID) {
+      for (const DOWN_DAYS of DOWN_GRID) {
+        const hits: { date: string; breadth: number; streak: number; vix: number }[] = [];
+        for (const day of tradingDays) {
+          const b = breadth.get(day);
+          const st = downStreak.get(day) ?? 0;
+          const v = prevVix(day);
+          if (b == null || v == null) continue;
+          if (b < BREADTH_MAX && st >= DOWN_DAYS && v > VIX_MIN) hits.push({ date: day, breadth: b, streak: st, vix: v });
+        }
 
-  // エントリー日 = 条件成立日の ENTRY_LAG 営業日後。エピソード初日フィルタは条件成立日ベースで
-  // 適用済みなのでここでシフトするだけでよい。末尾がデータ範囲を超えるイベントは落とす。
-  const shifted = firsts
-    .map((f) => {
-      const i = dayIdx.get(f.date)!;
-      const entryDate = tradingDays[i + ENTRY_LAG];
-      return entryDate ? { ...f, entryDate } : null;
-    })
-    .filter((f): f is NonNullable<typeof f> => f !== null);
+        // エピソード初日のみ（前営業日も該当なら除外）
+        const hitSet = new Set(hits.map((h) => h.date));
+        const firsts = hits.filter((h) => {
+          const i = dayIdx.get(h.date)!;
+          return i === 0 || !hitSet.has(tradingDays[i - 1]);
+        });
 
-  for (const f of shifted) {
-    const shift = ENTRY_LAG > 0 ? ` → entry ${f.entryDate}` : "";
-    console.log(`  ${f.date} breadth=${(f.breadth * 100).toFixed(1)}% streak=${f.streak} vixPrev=${f.vix.toFixed(1)}${shift}`);
+        console.log(`\n条件: VIX(prev)>${VIX_MIN} / breadth<${(BREADTH_MAX * 100).toFixed(0)}% / N225連続下落>=${DOWN_DAYS}日`);
+        console.log(`該当日(全): ${hits.length} / エピソード初日: ${firsts.length}`);
+        const byYear = new Map<string, number>();
+        for (const f of firsts) byYear.set(f.date.slice(0, 4), (byYear.get(f.date.slice(0, 4)) ?? 0) + 1);
+        console.log("年別:", [...byYear.entries()].sort().map(([y, n]) => `${y}:${n}`).join(" "));
+
+        // エントリー日 = 条件成立日の ENTRY_LAG 営業日後。エピソード初日フィルタは条件成立日ベースで
+        // 適用済みなのでここでシフトするだけでよい。末尾がデータ範囲を超えるイベントは落とす。
+        const shifted = firsts
+          .map((f) => {
+            const i = dayIdx.get(f.date)!;
+            const entryDate = tradingDays[i + ENTRY_LAG];
+            return entryDate ? { ...f, entryDate } : null;
+          })
+          .filter((f): f is NonNullable<typeof f> => f !== null);
+
+        if (!isSweep) {
+          for (const f of shifted) {
+            const shift = ENTRY_LAG > 0 ? ` → entry ${f.entryDate}` : "";
+            console.log(`  ${f.date} breadth=${(f.breadth * 100).toFixed(1)}% streak=${f.streak} vixPrev=${f.vix.toFixed(1)}${shift}`);
+          }
+        }
+        if (shifted.length < firsts.length) {
+          console.log(`  ⚠️ ${firsts.length - shifted.length}件はエントリー日がデータ範囲外のため除外`);
+        }
+
+        const out = { events: shifted.map((f) => ({ ticker: TICKER, date: f.entryDate })) };
+        const path = isSweep
+          ? basePath.replace(/\.json$/, "") + `_v${VIX_MIN}_b${Math.round(BREADTH_MAX * 100)}_d${DOWN_DAYS}.json`
+          : basePath;
+        fs.writeFileSync(path, JSON.stringify(out, null, 1));
+        console.log(`→ ${path} に ${out.events.length} 件出力 (entry-lag=${ENTRY_LAG})`);
+      }
+    }
   }
-  if (shifted.length < firsts.length) {
-    console.log(`  ⚠️ ${firsts.length - shifted.length}件はエントリー日がデータ範囲外のため除外`);
-  }
-
-  const out = { events: shifted.map((f) => ({ ticker: TICKER, date: f.entryDate })) };
-  const path = positional[2] ?? "/tmp/panic_events.json";
-  fs.writeFileSync(path, JSON.stringify(out, null, 1));
-  console.log(`\n→ ${path} に ${out.events.length} 件出力 (entry-lag=${ENTRY_LAG})`);
 }
 
 main().then(() => process.exit(0)).catch((e) => { console.error(e); process.exit(1); });
