@@ -1,7 +1,7 @@
 """
 Monthly Baseline Health Runner
 
-本番構成 baseline (GU3+PSC2) の combined BT を直近24ヶ月ローリング窓・現運用規模
+本番構成 baseline (GU3単独) の combined BT を直近24ヶ月ローリング窓・現運用規模
 (¥500K) で実行し、絶対値指標 (Calmar / MaxDD) の劣化を検知する。
 
 旧 run_monthly_combined_compare.py (strategy-mix 比較: baseline vs +WB/+MOM) は
@@ -42,7 +42,7 @@ CAPTAIN_PROMPT_PATH = os.path.join(
     os.path.dirname(__file__), "..", "prompts", "monthly-strategy-captain.txt"
 )
 
-# 本番運用規模。閾値の較正元 (2026-07-16 baseline Calmar=28.1, MaxDD=11.0%) も ¥500K
+# 本番運用規模。閾値の較正元 (2026-08-05 baseline Calmar=16.9, MaxDD=12.7%) も ¥500K
 BUDGET = 500_000
 
 # ローリング窓の長さ (月)
@@ -67,16 +67,34 @@ WINDOW_MONTHS = 24
 #     ヘルスチェックの実窓 (2024-07-01 起点) では Calmar 28.1 / MaxDD 11.0%。
 #     実害は出ていなかった (28.1 は全閾値の正常圏内) が、INFO までの余裕が 15% しか
 #     残っておらず、offseason で baseline が少し下がるだけで FYI が鳴く状態だった。
+#   2026-08-05 KOH-602: 2026-08-03 の PSC 停止 (defaultLimits.pscMax 2→0) と 2026-08-04 の
+#     サイジング既定変更 (cash基準→総資産基準) で baseline が二重に動いたのに較正されず、
+#     **今日の実測 Calmar 9.21 が DANGER 14.6 を割る = 走らせれば誤って danger が鳴る**
+#     状態だった (KOH-564 と同じ事故の再演)。
+#     ★重要: 下落 28.1 → 9.21 は「設定変更」だけが原因ではない。本番DBで切り分けた実測:
+#       旧構成 GU3+PSC2/cash基準・窓 2024-07-01〜2026-07-16 (前回較正時): Calmar 28.1  / MaxDD 11.0%
+#       旧構成 GU3+PSC2/cash基準・窓 2024-07-01〜2026-08-05 (今日)      : Calmar 16.56 / MaxDD 13.4%
+#       現構成 GU3単独/総資産基準・窓 2024-07-01〜2026-08-05 (今日)      : Calmar  9.98 / MaxDD 15.5%
+#       現構成 GU3単独/総資産基準・実窓 2024-08-01〜2026-08-05          : Calmar  9.21 / MaxDD 14.1%
+#     → **28.1→16.56 (-41%) は相場由来** (構成も窓の起点も同じ。増えたのは直近3週間のデータ
+#       だけ。2026-07-17 以降 N225 が SMA50 を割っている)、**16.56→9.98 (-40%) が設定変更由来**。
+#       ほぼ半々。
+#     ★したがって較正は **設定変更の分だけ** 補正する。相場由来の劣化まで均すと、
+#       検知したい当のものを較正で消してしまう (警報の握り潰し)。
+#       較正元 = 前回較正元 28.1 × 設定変更係数 (9.98/16.56 = 0.603) ≒ 16.9
+#       MaxDD 較正元 = 11.0% × (15.5/13.4 = 1.157) ≒ 12.7%
+#     この較正の下では現在値 (Calmar 9.21 / MaxDD 14.1%) は **INFO は割るが DANGER は割らない**
+#     = 「弱っているが危険水準ではない」と正しく表示される。
 #
 # 閾値の「意図」(較正元に対する比率) は KOH-548 から不変。較正元だけ現行 baseline に
 # 置き直す。据え置くと INFO が実質「baseline の 85%」= ノイズ源になる。
 #
 # Calmar warning は offseason で構造的に割れるため info (FYI) 扱い (KOH-516)
 # danger は本番運用見直しを検討すべき水準
-BASELINE_CALMAR_INFO = 20.6     # FYI: 較正元 28.1 の約73%。offseason 中は想定内
-BASELINE_CALMAR_DANGER = 14.6   # 較正元から約-48%
-BASELINE_MAXDD_WARNING = 14.0   # 通常 ~11.0% から +30% (DDはレジーム問わず意味を持つ)
-BASELINE_MAXDD_DANGER = 20.0    # 通常 ~11.0% から +80%
+BASELINE_CALMAR_INFO = 12.4     # FYI: 較正元 16.9 の約73%。offseason 中は想定内
+BASELINE_CALMAR_DANGER = 8.8    # 較正元から約-48%
+BASELINE_MAXDD_WARNING = 16.2   # 較正元 ~12.7% から +30% (DDはレジーム問わず意味を持つ)
+BASELINE_MAXDD_DANGER = 23.1    # 較正元 ~12.7% から +80%
 
 
 def rolling_window_start(today: date, months: int = WINDOW_MONTHS) -> str:
@@ -86,7 +104,7 @@ def rolling_window_start(today: date, months: int = WINDOW_MONTHS) -> str:
 
 
 def run_baseline(start: str) -> tuple[int, str]:
-    """baseline (GU3+PSC2) の combined BT を実行"""
+    """baseline (GU3単独) の combined BT を実行"""
     cmd = [
         "npm", "run", "backtest:combined", "--",
         "--start", start,
@@ -264,7 +282,7 @@ def _build_baseline_section(parsed: dict, degradation: dict | None, start: str) 
     lines: list[str] = [f"BT窓: {start} 〜 今日 (直近{WINDOW_MONTHS}ヶ月ローリング, ¥{BUDGET:,})"]
     if baseline:
         lines.append(
-            f"baseline (GU3+PSC2) 全体: Calmar {baseline.get('calmar')} / NetRet {baseline.get('net_ret')}% / "
+            f"baseline (GU3単独) 全体: Calmar {baseline.get('calmar')} / NetRet {baseline.get('net_ret')}% / "
             f"MaxDD {baseline.get('max_dd')}% / PF {baseline.get('pf')} / {baseline.get('trades')}tr"
         )
     for label, name in [("GapUp", "GapUp"), ("PostSurgeConsolidation", "PSC")]:
@@ -315,7 +333,7 @@ def generate_captain_review(
         "今月のWalk-Forward結果 (現役: gapup / psc):\n\n"
         f"{wf_section}\n\n"
         "==============================\n\n"
-        "今月の baseline (GU3+PSC2) ヘルス:\n\n"
+        "今月の baseline (GU3単独) ヘルス:\n\n"
         f"{baseline_section}"
     )
 
@@ -391,7 +409,7 @@ def notify_slack(
             fields.append({
                 "title": f"{emoji} baseline 劣化検知 ({degradation['severity']})",
                 "value": (
-                    "baseline (GU3+PSC2) の絶対値指標が警戒水準を超過しました:\n"
+                    "baseline (GU3単独) の絶対値指標が警戒水準を超過しました:\n"
                     + "\n".join(f"- {a}" for a in degradation["alerts"])
                     + (
                         "\n\n*danger水準*: 本番運用見直しを検討。原因調査 (相場レジーム変化 / 戦略劣化 / データ品質) の上、"
@@ -407,7 +425,7 @@ def notify_slack(
         baseline = rows.get("全体", {})
         if baseline:
             summary_lines = [
-                f"*baseline (GU3+PSC2)*: Calmar {baseline.get('calmar', 'N/A')} / NetRet {baseline.get('net_ret', 'N/A')}% / "
+                f"*baseline (GU3単独)*: Calmar {baseline.get('calmar', 'N/A')} / NetRet {baseline.get('net_ret', 'N/A')}% / "
                 f"MaxDD {baseline.get('max_dd', 'N/A')}% / PF {baseline.get('pf', 'N/A')} / {baseline.get('trades', 'N/A')}tr",
             ]
             for label, name in [("GapUp", "GapUp"), ("PostSurgeConsolidation", "PSC")]:
@@ -437,7 +455,7 @@ def notify_slack(
         elif not degradation:
             fields.append({
                 "title": "結論",
-                "value": "baseline (GU3+PSC2) は健全水準。変更不要。",
+                "value": "baseline (GU3単独) は健全水準。変更不要。",
                 "short": False,
             })
 
@@ -463,7 +481,7 @@ def notify_slack(
         "attachments": [{
             "fallback": "Monthly Baseline Health",
             "color": color,
-            "title": "Monthly Baseline Health (GU3+PSC2)",
+            "title": "Monthly Baseline Health (GU3単独)",
             "fields": fields,
             "footer": "Auto Stock Trader",
         }],
