@@ -283,9 +283,11 @@ export interface SimContext {
   /**
    * ポジションサイズのリスク基準を「現金」でなく「総資産」にするか（2026-08-03 検証用）。
    *
-   * false/省略（既定）: BT本来の挙動 = `riskAmount = cash × risk%`。baseline 完全一致。
-   * true: live の entry-executor と同じ `riskAmount = effectiveCapital × risk%`
+   * true/省略（**2026-08-03 以降の既定**）: live の entry-executor と同じ
+   *   `riskAmount = effectiveCapital × risk%`
    *   （`entry-executor.ts:395`、`getEffectiveCapital()` = 買余力 + 投資中(簿価) + 発注中）。
+   * false: 旧BTの挙動 = `riskAmount = cash × risk%`。2026-08-03 以前に記録された数値の再現用
+   *   （combined-run では `--cash-based-sizing`）。
    *
    * この差は「複数ポジションを持っている時」にだけ現れ、cash基準は保有が増えるほど後続の
    * サイズを縮める。結果として**BTは複数戦略構成に構造的なペナルティを課す**（PSC が枠を
@@ -925,7 +927,7 @@ export function runCombinedSimulation(
     typeof maxPositions === "number"
       ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, etfMax: maxPositions, buybackMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, etfCrisisBypass, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none", beTrailDetectionSource = "high", breakEvenFloor, intraBarStopModel = "stop-at-open", volConvexity, cashShrinkToFit = false, cashBufferPct = 1, equityBasedSizing = false, conditionalBe, holidayGuard } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, etfCrisisBypass, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none", beTrailDetectionSource = "high", breakEvenFloor, intraBarStopModel = "stop-at-open", volConvexity, cashShrinkToFit = false, cashBufferPct = 1, equityBasedSizing = true, conditionalBe, holidayGuard } = ctx;
   const guBreadthMode = breadthModeGu ?? breadthMode;
   const pscBreadthMode = breadthModePsc ?? breadthMode;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;

@@ -450,9 +450,10 @@ async function main() {
   // GU/PSC 専用の 100,000 (BT既定) が適用されていない。どちらが正しいかを実測するための
   // スイープ。未指定なら baseline 完全不変。
   const compareMinAvgVolume = args.includes("--compare-min-avg-volume");
-  // ポジションサイズのリスク基準を live と同じ総資産基準にする（既定は BT本来の現金基準）。
+  // ポジションサイズのリスク基準。2026-08-03 に既定を live と同じ総資産基準へ変更した。
   // cash基準は保有が増えるほど後続サイズを縮めるため、複数戦略構成に構造的ペナルティが乗る。
-  const equityBasedSizing = args.includes("--equity-based-sizing");
+  // --cash-based-sizing で旧挙動（2026-08-03 以前に記録された数値の再現用）に戻せる。
+  const cashBasedSizing = args.includes("--cash-based-sizing");
   const compareDailyEntries = args.includes("--compare-daily-entries");
   const comparePscTrail = args.includes("--compare-psc-trail");
   // --compare-gu-trail (KOH-563): GU trailMultiplier を現エンジンで測り直す。
@@ -830,7 +831,7 @@ async function main() {
     equityCurveSmaPeriod: 0,
     tickerSectorMap,
     indexData: indexData.size > 0 ? indexData : undefined,
-    ...(equityBasedSizing ? { equityBasedSizing: true } : {}),
+    ...(cashBasedSizing ? { equityBasedSizing: false } : {}),
   };
 
   // 2026-08-03: PSC 停止に伴い pscMax を 0 に。本番 (POST_SURGE_CONSOLIDATION.ENTRY_ENABLED=false)
@@ -1826,8 +1827,12 @@ async function main() {
     const grid: { label: string; limits: PositionLimits }[] = [
       { label: "GU3+PSC2（現状）",     limits: { boMax: 0, guMax: 3, pscMax: 2 } },
       // 片側だけの構成。共有プールで一方が他方を食っていないかの切り分け用
-      { label: "GU3のみ（PSC 0）",     limits: { boMax: 0, guMax: 3, pscMax: 0 } },
+      { label: "GU2のみ（PSC 0）",     limits: { boMax: 0, guMax: 2, pscMax: 0 } },
+      { label: "GU3のみ（PSC 0/現行）", limits: { boMax: 0, guMax: 3, pscMax: 0 } },
+      { label: "GU4のみ（PSC 0）",     limits: { boMax: 0, guMax: 4, pscMax: 0 } },
       { label: "GU5のみ（PSC 0）",     limits: { boMax: 0, guMax: 5, pscMax: 0 } },
+      { label: "GU6のみ（PSC 0）",     limits: { boMax: 0, guMax: 6, pscMax: 0 } },
+      { label: "GU8のみ（PSC 0）",     limits: { boMax: 0, guMax: 8, pscMax: 0 } },
       { label: "PSC2のみ（GU 0）",     limits: { boMax: 0, guMax: 0, pscMax: 2 } },
       { label: "PSC5のみ（GU 0）",     limits: { boMax: 0, guMax: 0, pscMax: 5 } },
       { label: "GU3+PSC3",            limits: { boMax: 0, guMax: 3, pscMax: 3 } },
