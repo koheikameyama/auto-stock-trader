@@ -439,6 +439,11 @@ async function main() {
   // 追加で見てしまう (buyback-simulation.ts:57-58)。本番 15:24 に当日 breadth は存在しないので
   // これは live 再現不能な先読み。`--entry-lag 1` のイベントで測る時は 1 を渡して無効化する。
   const panicBreadthMaxArg = getArg(args, "--panic-breadth-max");
+  // --etf-gap / --etf-vol: 米株ETF の発火条件スイープ用（既定 gap 0.5% / vol 1.5x = 本番と同一）。
+  // idle帯ゲート (breadthMax) は動かさない — 却下#17-24 で7回確認した「breadth filter は本質的に機能」
+  // を崩さないため、緩めるのは戦略自身のトリガーだけに限る。
+  const etfGapArg = getArg(args, "--etf-gap");
+  const etfVolArg = getArg(args, "--etf-vol");
   const comparePanicExit = args.includes("--compare-panic-exit");
   const maxPerSectorArg = getArg(args, "--max-per-sector");
   const compareSector = args.includes("--compare-sector");
@@ -694,7 +699,11 @@ async function main() {
   let etfConfig: USEtfBacktestConfig | undefined;
   let etfSignals: PrecomputedUSEtfSignals | undefined;
   if (enableEtf) {
-    etfConfig = { ...US_ETF_DEFAULT_CONFIG };
+    etfConfig = {
+      ...US_ETF_DEFAULT_CONFIG,
+      ...(etfGapArg ? { gapMinPct: Number(etfGapArg) } : {}),
+      ...(etfVolArg ? { volumeSurgeRatio: Number(etfVolArg) } : {}),
+    };
     const etfRawData = await fetchHistoricalFromDB(etfConfig.tickers, startDate, endDate);
     const etfDataMap = new Map<string, import("../core/technical-analysis").OHLCVData[]>();
     let totalBars = 0;
@@ -712,7 +721,7 @@ async function main() {
     const sigDays = etfSignals.size;
     let sigTotal = 0;
     for (const arr of etfSignals.values()) sigTotal += arr.length;
-    console.log(`[data] US ETF シグナル: ${sigTotal}件 / ${sigDays}日 (idle帯 breadth<${(etfConfig.breadthMax * 100).toFixed(0)}%)`);
+    console.log(`[data] US ETF シグナル: ${sigTotal}件 / ${sigDays}日 (gap>=${(etfConfig.gapMinPct * 100).toFixed(2)}% / vol>=${etfConfig.volumeSurgeRatio}x / idle帯 breadth<${(etfConfig.breadthMax * 100).toFixed(0)}%)`);
 
     // precomputed.dateIndexMap に ETF 銘柄を追加（既存ロジックでは銘柄ユニバースに含まれないため必須）
     for (const [ticker, bars] of etfDataMap) {
