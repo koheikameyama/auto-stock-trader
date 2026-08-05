@@ -1834,7 +1834,7 @@ async function main() {
   // 戦略別ポジション分離比較モード
   if (compareSplitPositions) {
     const grid: { label: string; limits: PositionLimits }[] = [
-      { label: "GU3+PSC2（現状）",     limits: { boMax: 0, guMax: 3, pscMax: 2 } },
+      { label: "GU3+PSC2（旧構成）",     limits: { boMax: 0, guMax: 3, pscMax: 2 } },
       // 片側だけの構成。共有プールで一方が他方を食っていないかの切り分け用
       { label: "GU2のみ（PSC 0）",     limits: { boMax: 0, guMax: 2, pscMax: 0 } },
       { label: "GU3のみ（PSC 0/現行）", limits: { boMax: 0, guMax: 3, pscMax: 0 } },

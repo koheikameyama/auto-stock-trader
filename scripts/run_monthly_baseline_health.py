@@ -97,6 +97,39 @@ BASELINE_MAXDD_WARNING = 16.2   # 較正元 ~12.7% から +30% (DDはレジー�
 BASELINE_MAXDD_DANGER = 23.1    # 較正元 ~12.7% から +80%
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# GU 健全性の段階表示 と PSC 復帰ゲート (KOH-603)
+#
+# 背景: 2026-08-03 に PSC を停止し GU3単独になった。KOH-601 で「PSC が条件付きで
+#   優位になる場面」を4方向から探して全滅し (却下 #59)、PSC の位置づけは
+#   **「GU が劣化したときの代替＝保険」**と確定した。保険は armed (月次 WF が停止中も
+#   psc を回している) だが、**いつ戻すのかの判定材料が無かった**。
+#
+# ★設計上の要点: PSC 復帰ゲートは「GU が劣化しているとき」にしか評価しない。
+#   KOH-516 が月次の strategy-mix 比較を撤去した理由は「offseason に baseline Calmar が
+#   下がるたび、休止中の戦略が勝ったように見えて誤った復活提案を出す」ことだった
+#   (KOH-512 で否決済みの +WB を「投入候補」と誤検知した実例がある)。
+#   「PSC が勝った」ではなく「**GU が劣化した AND PSC が勝った**」を条件にすれば
+#   同じ罠を構造的に回避できる。ゲート2 の BT も GU が健全な間は走らない。
+#
+# 段階表示は regime-shift-detector と同じ「点灯数で段階を上げる」方式 (binary 検知は
+# D期と同様に事後確定でしか当たらないため)。
+GU_HEALTH_RECENT_WINDOWS = 3    # 直近この窓数を見る
+GU_HEALTH_PF_FLOOR = 1.0        # OOS PF がこれ未満の窓を「負け窓」とみなす
+GU_HEALTH_LOSING_WINDOWS = 2    # 直近窓のうち負け窓がこの数以上で点灯
+GU_HEALTH_IS_OOS_MAX = 2.0      # CLAUDE.md 「堅牢」の上限。超えたら点灯 (過学習側)
+# 季節性ガード: トレードが薄い窓は「劣化の証拠」に数えない。
+# run_monthly_walk_forward.py の MIN_TRADES_PER_WINDOW と同値に保つこと (KOH-516)
+GU_HEALTH_MIN_TRADES = 5
+
+# PSC 復帰ゲート (CLAUDE.md「復活判定の論理」をそのまま実装)
+#   ゲート1: 単独 WF が堅牢 = 再評価のトリガー
+#   ゲート2: combined で baseline を上回る = 本番投入候補
+#   両方揃って初めて手動検討 (自動では絶対に戻さない)
+PSC_REVIVAL_OOS_PF_MIN = 1.3
+PSC_REVIVAL_IS_OOS_MAX = 2.0
+
+
 def rolling_window_start(today: date, months: int = WINDOW_MONTHS) -> str:
     """直近 `months` ヶ月ローリング窓の開始日 (月初) を YYYY-MM-DD で返す"""
     total = today.year * 12 + (today.month - 1) - months
@@ -222,6 +255,169 @@ def detect_baseline_degradation(parsed: dict) -> dict | None:
     }
 
 
+def _wf_info(wf_results: list[dict], strategy: str) -> dict | None:
+    """wf-results.json から指定戦略の info を取り出す (失敗/不在なら None)"""
+    for r in wf_results:
+        if r.get("strategy") == strategy and r.get("success"):
+            return r.get("info", {})
+    return None
+
+
+def assess_gu_health(wf_results: list[dict], baseline_calmar: float | None) -> dict:
+    """GU の健全性を段階表示する (KOH-603)。
+
+    赤信号3つの点灯数で HEALTHY / WATCH / WARNING / DEGRADED を返す。
+    判定できなかった材料は unknown に入れ、点灯とは区別する
+    (offseason は発火が薄く「評価不能」が普通に起きるため、
+     不明を劣化として数えると却下 #21 のシーズン性で毎年誤検知する)。
+    """
+    signals: list[str] = []
+    unknown: list[str] = []
+
+    info = _wf_info(wf_results, "gapup")
+    if info is None:
+        unknown.append("WF結果を取得できず (OOS PF / IS/OOS比 が評価不能)")
+    else:
+        # 赤信号1: 直近窓の OOS PF (発火薄窓は季節性ガードで除外)
+        evaluable = [
+            w for w in info.get("window_oos", [])
+            if w.get("pf") is not None and (w.get("trades") or 0) >= GU_HEALTH_MIN_TRADES
+        ]
+        recent = evaluable[-GU_HEALTH_RECENT_WINDOWS:]
+        if len(recent) < GU_HEALTH_RECENT_WINDOWS:
+            unknown.append(
+                f"評価対象窓が {len(recent)}件しかなく直近{GU_HEALTH_RECENT_WINDOWS}窓を評価不能 "
+                f"(トレード数<{GU_HEALTH_MIN_TRADES} の offseason 発火薄窓は除外)"
+            )
+        else:
+            losing = [w for w in recent if w["pf"] < GU_HEALTH_PF_FLOOR]
+            pfs = " → ".join(f"{w['pf']:.2f}" for w in recent)
+            if len(losing) >= GU_HEALTH_LOSING_WINDOWS:
+                signals.append(
+                    f"直近{GU_HEALTH_RECENT_WINDOWS}窓の OOS PF が {len(losing)}窓で "
+                    f"{GU_HEALTH_PF_FLOOR} 未満 ({pfs})"
+                )
+
+        # 赤信号2: IS/OOS 比 (過学習側の劣化)
+        try:
+            ratio = float(info.get("is_oos_ratio"))
+        except (TypeError, ValueError):
+            ratio = None
+        if ratio is None:
+            unknown.append("IS/OOS比を取得できず")
+        elif ratio > GU_HEALTH_IS_OOS_MAX:
+            signals.append(f"IS/OOS比 {ratio:.2f} > {GU_HEALTH_IS_OOS_MAX} (OOS が IS に追随できていない)")
+
+    # 赤信号3: baseline の絶対値 (較正元は KOH-602 で現構成に置き直し済み)
+    if baseline_calmar is None:
+        unknown.append("baseline Calmar を取得できず")
+    elif baseline_calmar < BASELINE_CALMAR_INFO:
+        signals.append(f"baseline Calmar {baseline_calmar} < {BASELINE_CALMAR_INFO} (INFO閾値)")
+
+    lit = len(signals)
+    level = ["HEALTHY", "WATCH", "WARNING", "DEGRADED"][min(lit, 3)]
+    emoji = {"HEALTHY": ":large_green_circle:", "WATCH": ":large_yellow_circle:",
+             "WARNING": ":large_orange_circle:", "DEGRADED": ":red_circle:"}[level]
+    return {"level": level, "emoji": emoji, "lit": lit, "signals": signals, "unknown": unknown}
+
+
+def run_split_positions(start: str) -> tuple[int, str]:
+    """PSC 復帰ゲート2 用に GU3単独 vs GU3+PSC2 を同一窓で測る。
+
+    専用フラグ (--psc-max) が無いため --compare-split-positions のグリッドを使う。
+    GU が健全な月は呼ばれないので、月次ジョブの実行コストは通常ゼロ。
+    """
+    cmd = [
+        "npm", "run", "backtest:combined", "--",
+        "--compare-split-positions",
+        "--start", start,
+        "--budget", str(BUDGET),
+    ]
+    print(f"\n{'='*60}")
+    print(f"  PSC復帰ゲート2: split-positions 実行開始 (start={start})")
+    print(f"{'='*60}\n")
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print(result.stderr, file=sys.stderr)
+    return result.returncode, result.stdout
+
+
+def parse_split_calmar(stdout: str) -> dict[str, float]:
+    """split-positions テーブルから構成別 Calmar を抜く。
+
+    行例: "GU3+PSC2（旧構成）  |  378 | 42.3% | 2.67 | +2.61% | 13.4% | 467.0% | 16.56 | 14.7%"
+    ラベルは接頭辞でマッチする (カッコ内の注記が変わっても壊れないように)。
+    """
+    out: dict[str, float] = {}
+    for key, prefix in [("gu_psc", "GU3+PSC2"), ("gu_only", "GU3のみ")]:
+        m = re.search(
+            rf"^{re.escape(prefix)}[^|]*\|(?:[^|]*\|){{6}}\s*([\d.]+)\s*\|",
+            stdout,
+            re.MULTILINE,
+        )
+        if m:
+            out[key] = float(m.group(1))
+    return out
+
+
+def evaluate_psc_revival(
+    gu_health: dict, wf_results: list[dict], start: str
+) -> dict | None:
+    """PSC 復帰ゲートを評価する (GU が WATCH 以下のときだけ)。
+
+    Returns None if ゲートを開けていない (GU が健全)。
+    """
+    if gu_health["level"] == "HEALTHY":
+        return None
+
+    result: dict = {"gate1": False, "gate2": False, "notes": []}
+
+    # ゲート1: PSC 単独 WF が堅牢か
+    info = _wf_info(wf_results, "psc")
+    if info is None:
+        result["notes"].append("ゲート1: PSC の WF 結果を取得できず (判定不能)")
+    else:
+        try:
+            oos_pf = float(info.get("oos_pf"))
+        except (TypeError, ValueError):
+            oos_pf = None
+        try:
+            ratio = float(info.get("is_oos_ratio"))
+        except (TypeError, ValueError):
+            ratio = None
+        if oos_pf is None or ratio is None:
+            result["notes"].append("ゲート1: PSC の OOS PF / IS/OOS比 を取得できず (判定不能)")
+        else:
+            result["gate1"] = oos_pf >= PSC_REVIVAL_OOS_PF_MIN and ratio <= PSC_REVIVAL_IS_OOS_MAX
+            result["notes"].append(
+                f"ゲート1 (単独WF堅牢): OOS集計PF {oos_pf:.2f} (>= {PSC_REVIVAL_OOS_PF_MIN}) / "
+                f"IS/OOS比 {ratio:.2f} (<= {PSC_REVIVAL_IS_OOS_MAX}) → {'✓' if result['gate1'] else '✗'}"
+            )
+
+    # ゲート2: combined で GU3+PSC2 が GU3単独を上回るか
+    try:
+        rc, stdout = run_split_positions(start)
+        calmars = parse_split_calmar(stdout) if rc == 0 else {}
+    except Exception as e:
+        print(f"split-positions 実行エラー: {e}", file=sys.stderr)
+        calmars = {}
+
+    if "gu_psc" in calmars and "gu_only" in calmars:
+        result["gate2"] = calmars["gu_psc"] > calmars["gu_only"]
+        result["calmars"] = calmars
+        result["notes"].append(
+            f"ゲート2 (combined改善): GU3+PSC2 {calmars['gu_psc']:.2f} vs GU3単独 "
+            f"{calmars['gu_only']:.2f} → {'✓' if result['gate2'] else '✗'}"
+        )
+    else:
+        result["notes"].append("ゲート2: split-positions の Calmar を取得できず (判定不能)")
+
+    result["recommend"] = result["gate1"] and result["gate2"]
+    return result
+
+
 def load_wf_results() -> list[dict]:
     """WF ジョブが artifact で残した wf-results.json を読み込む。
 
@@ -306,6 +502,8 @@ def generate_captain_review(
     wf_results: list[dict],
     baseline_success: bool,
     start: str,
+    gu_health: dict | None = None,
+    psc_revival: dict | None = None,
 ) -> str:
     """WF + baseline を束ねた統合 AI レビュー (艦長レイヤー) を gpt-4o-mini で生成する。
 
@@ -329,12 +527,33 @@ def generate_captain_review(
         print(f"プロンプト読み込み失敗: {e}", file=sys.stderr)
         return ""
 
+    # GU 健全性 / PSC 復帰ゲートは機械判定済み。AI には「解釈のため」に渡すが、
+    # 判定そのものを覆させないよう決定論的な結論として明示する (KOH-603)
+    gate_section = ""
+    if gu_health:
+        gate_section = (
+            "\n\n==============================\n\n"
+            "GU 健全性 (機械判定・決定論的。この判定は覆さないこと):\n\n"
+            f"段階: {gu_health['level']} (赤信号 {gu_health['lit']}/3)\n"
+            + ("".join(f"- 点灯: {s}\n" for s in gu_health["signals"]) or "- 赤信号なし\n")
+            + "".join(f"- 判定不能: {u}\n" for u in gu_health["unknown"])
+        )
+        if psc_revival:
+            gate_section += (
+                "\nPSC 復帰ゲート (GU が HEALTHY でないため評価した):\n"
+                + "".join(f"- {n}\n" for n in psc_revival["notes"])
+                + f"- 結論: {'2ゲート通過 = 復帰候補' if psc_revival.get('recommend') else '未通過 = 復帰しない'}\n"
+            )
+        else:
+            gate_section += "\nPSC 復帰ゲート: GU が HEALTHY のため評価していない (BTも実行していない)。\n"
+
     user_content = (
         "今月のWalk-Forward結果 (現役: gapup / psc):\n\n"
         f"{wf_section}\n\n"
         "==============================\n\n"
         "今月の baseline (GU3単独) ヘルス:\n\n"
         f"{baseline_section}"
+        f"{gate_section}"
     )
 
     payload = {
@@ -383,18 +602,63 @@ def generate_captain_review(
     return "\n\n".join(parts)
 
 
+def _gu_health_field(gu_health: dict) -> dict:
+    """GU 健全性の段階表示 (毎月かならず出す。健全なときも「健全である」と表示する)"""
+    lines = [f"*{gu_health['emoji']} {gu_health['level']}*  (赤信号 {gu_health['lit']}/3)"]
+    if gu_health["signals"]:
+        lines += [f"- :small_red_triangle: {s}" for s in gu_health["signals"]]
+    else:
+        lines.append("- 赤信号なし")
+    if gu_health["unknown"]:
+        lines += [f"- :grey_question: {u}" for u in gu_health["unknown"]]
+    if gu_health["level"] == "DEGRADED":
+        lines.append(
+            "\n*DEGRADED*: 構造的劣化の可能性。PSC 復帰ゲート (下記) と併せて判断してください。"
+        )
+    return {"title": "GU 健全性", "value": "\n".join(lines), "short": False}
+
+
+def _psc_revival_field(psc_revival: dict) -> dict:
+    """PSC 復帰ゲートの結果 (GU が HEALTHY でない月のみ)"""
+    head = (
+        ":rotating_light: *PSC 復帰候補* (2ゲート通過)"
+        if psc_revival.get("recommend")
+        else "PSC 復帰ゲート: 未通過 (復帰しない)"
+    )
+    tail = (
+        "\n\n両ゲートを通過しました。**自動では戻しません** — "
+        "`lib/constants/post-surge-consolidation.ts` の `ENTRY_ENABLED` と "
+        "`combined-run.ts` の `defaultLimits.pscMax` を**両方**手動で戻すこと "
+        "(片側だけ変えると BT と live が乖離する)。"
+        if psc_revival.get("recommend")
+        else ""
+    )
+    return {
+        "title": "PSC 復帰ゲート",
+        "value": head + "\n" + "\n".join(f"- {n}" for n in psc_revival["notes"]) + tail,
+        "short": False,
+    }
+
+
 def notify_slack(
     parsed: dict,
     degradation: dict | None,
     success: bool,
     start: str,
     captain_review: str = "",
+    gu_health: dict | None = None,
+    psc_revival: dict | None = None,
 ) -> None:
     if not SLACK_WEBHOOK_URL:
         print("SLACK_WEBHOOK_URL 未設定、Slack通知をスキップ")
         return
 
     fields = []
+
+    if gu_health:
+        fields.append(_gu_health_field(gu_health))
+    if psc_revival:
+        fields.append(_psc_revival_field(psc_revival))
 
     if not success:
         fields.append({
@@ -523,11 +787,18 @@ def main():
 
     # WF 結果 (artifact) を読み込み、WF + baseline を束ねた統合レビューを生成
     wf_results = load_wf_results()
+
+    # GU 健全性の段階表示 と PSC 復帰ゲート (KOH-603)
+    # ゲートは GU が HEALTHY でない月にしか評価しない = 追加BTも通常は走らない
+    baseline_calmar = parsed["rows"].get("全体", {}).get("calmar") if success else None
+    gu_health = assess_gu_health(wf_results, baseline_calmar)
+    psc_revival = evaluate_psc_revival(gu_health, wf_results, start)
+
     captain_review = generate_captain_review(
-        parsed, degradation, wf_results, success, start
+        parsed, degradation, wf_results, success, start, gu_health, psc_revival
     )
 
-    notify_slack(parsed, degradation, success, start, captain_review)
+    notify_slack(parsed, degradation, success, start, captain_review, gu_health, psc_revival)
 
     print(f"\n{'='*60}")
     print("  サマリー")
@@ -544,6 +815,18 @@ def main():
             print("  劣化検知: なし (健全)")
     else:
         print("  実行失敗")
+
+    print(f"  GU健全性: {gu_health['level']} (赤信号 {gu_health['lit']}/3)")
+    for s in gu_health["signals"]:
+        print(f"    - 点灯: {s}")
+    for u in gu_health["unknown"]:
+        print(f"    - 判定不能: {u}")
+    if psc_revival is None:
+        print("  PSC復帰ゲート: 未評価 (GU が HEALTHY のためBTも未実行)")
+    else:
+        for n in psc_revival["notes"]:
+            print(f"    - {n}")
+        print(f"  PSC復帰ゲート: {'2ゲート通過 = 復帰候補' if psc_revival.get('recommend') else '未通過'}")
 
     if not success:
         sys.exit(1)
