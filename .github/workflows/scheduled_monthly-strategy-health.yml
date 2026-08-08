@@ -102,8 +102,27 @@ jobs:
       - name: ETF strategy health (劣化検知)
         run: npm run us-etf-health
 
+  # live↔BT パリティ監査 (KOH-606): 直近の本番約定を BT precompute と突き合わせ、
+  # SMA50 事故 (本番だけフィルターが外れて4ヶ月放置) 型の系統的乖離を1ヶ月以内に検知する
+  parity-audit:
+    needs: check-first-saturday
+    if: needs.check-first-saturday.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # WF / baseline とは独立 (本番DBの約定と precompute のみ)
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - name: live↔BT parity audit (系統的乖離の検知)
+        run: python scripts/run_monthly_parity_audit.py
+
   notify-failure:
-    needs: [check-first-saturday, walk-forward, baseline-health, us-etf-health]
+    needs: [check-first-saturday, walk-forward, baseline-health, us-etf-health, parity-audit]
     if: failure()
     runs-on: ubuntu-latest
     steps:

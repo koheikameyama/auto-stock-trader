@@ -172,7 +172,7 @@ watchlist-builderは2種類のウォッチリストを同時に構築する。
 | run-backtest-gapup | scheduled_daily-backtest-gapup.yml | `0 8 * * 1-5` | 平日 17:00 JST | ギャップアップ戦略バックテスト（直近12ヶ月） |
 | signal-replay | scheduled_backfill-prices.yml | `0 8 * * 1-5`（`stock-data` 完了後） | 平日 17:05 JST 頃 | 取引見送り日（`shouldTrade=false`）のGU/PSCシグナルを当日終値で再現し `RejectedSignal` に「相場停止」で記録。取引日は monitor が記録済みのためスキップ |
 | monthly-walk-forward | scheduled_monthly-walk-forward.yml | `0 2 1-7 * 6` | 毎月第1土曜 11:00 JST | breakout+gapup WF分析（戦略エッジ監視） |
-| monthly-strategy-health | scheduled_monthly-strategy-health.yml | `0 2 1-7 * 6` | 毎月第1土曜 11:00 JST | 全戦略 WF + combined比較 + ETFヘルスチェック |
+| monthly-strategy-health | scheduled_monthly-strategy-health.yml | `0 2 * * 6`（第1土曜ゲートで絞る） | 毎月第1土曜 11:00 JST | 現役戦略 WF + baselineヘルス + ETFヘルスチェック + live↔BTパリティ監査（KOH-606: 直近40日の本番約定買い注文を BT precompute と突き合わせ、①日次フィルター/②ユニバース/③シグナル条件で層別。①②の系統的乖離は件数に関わらず warning、3件以上で danger） |
 
 各ワークフローには `workflow_dispatch` トリガーがあり、手動実行も可能。平日ジョブは `check-market-day` ステップで休場日・システム停止チェックを行う。
 
