@@ -2,8 +2,11 @@ name: "[Scheduled] Monthly Strategy Health Check"
 
 on:
   schedule:
-    # 毎月第1土曜 11:00 JST = 02:00 UTC（1-7日の土曜）
-    - cron: "0 2 1-7 * 6"
+    # 毎週土曜 11:00 JST = 02:00 UTC に起動し、check-first-saturday が「第1土曜」に絞る。
+    # ⚠️ "0 2 1-7 * 6" と書いてはいけない: POSIX cron は day-of-month と day-of-week の
+    # 両方を指定すると OR になり「毎月1-7日の毎日 + 毎週土曜」= 月11-12回実行される
+    # (KOH-605、2026-05〜08 に実際に発生)。
+    - cron: "0 2 * * 6"
   workflow_dispatch:
 
 concurrency:
@@ -16,7 +19,27 @@ env:
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
 jobs:
+  # 第1土曜ゲート: schedule 起動は JST の日付が 1-7 日の時だけ通す (= 第1土曜)。
+  # workflow_dispatch (手動実行) は日付に関わらず通す。
+  check-first-saturday:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - id: gate
+        run: |
+          DAY=$(TZ=Asia/Tokyo date +%-d)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$DAY" -le 7 ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "JST ${DAY}日は第1土曜ではないためスキップ"
+          fi
+
   walk-forward:
+    needs: check-first-saturday
+    if: needs.check-first-saturday.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -43,8 +66,9 @@ jobs:
   baseline-health:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: walk-forward
-    if: always()  # WFが失敗しても baseline ヘルスは実行する (独立した判断材料)
+    needs: [check-first-saturday, walk-forward]
+    # WFが失敗しても baseline ヘルスは実行する (独立した判断材料)。第1土曜ゲートだけは通す
+    if: always() && needs.check-first-saturday.outputs.run == 'true'
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -62,6 +86,8 @@ jobs:
         run: python scripts/run_monthly_baseline_health.py
 
   us-etf-health:
+    needs: check-first-saturday
+    if: needs.check-first-saturday.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # WF/combined-compare とは独立 (実トレード集計のみで BT 不要)
@@ -77,7 +103,7 @@ jobs:
         run: npm run us-etf-health
 
   notify-failure:
-    needs: [walk-forward, baseline-health, us-etf-health]
+    needs: [check-first-saturday, walk-forward, baseline-health, us-etf-health]
     if: failure()
     runs-on: ubuntu-latest
     steps:
