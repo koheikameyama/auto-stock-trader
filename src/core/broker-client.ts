@@ -12,6 +12,7 @@ import {
   TACHIBANA_API_URLS,
   TACHIBANA_BUSY_RESULT_CODE,
   TACHIBANA_CLMID,
+  TACHIBANA_PNO,
   TACHIBANA_SESSION,
   type TachibanaEnv,
 } from "../lib/constants/broker";
@@ -275,8 +276,12 @@ export class TachibanaClient {
       let res = await this.fetchWithDecode(`${virtualUrl}?${this.encodeParams(fullParams)}`);
 
       // p_no順序エラー: fix→retry 間に他プロセス／並行リクエストが p_no を進めると
-      // retry も同じエラーになることがあるため最大3回までリトライする。
-      for (let attempt = 0; attempt < 3 && this.isPNoError(res); attempt += 1) {
+      // retry も同じエラーになることがあるため MAX_RETRIES 回までリトライする。
+      for (
+        let attempt = 0;
+        attempt < TACHIBANA_PNO.MAX_RETRIES && this.isPNoError(res);
+        attempt += 1
+      ) {
         this.fixPNoCounter(res);
         fullParams = {
           ...params,
@@ -345,8 +350,12 @@ export class TachibanaClient {
     let res = await this.fetchWithDecode(`${this.session!.urlPrice}?${this.encodeParams(fullParams)}`);
 
     // p_no順序エラー: fix→retry 間に他プロセス／並行リクエストが p_no を進めると
-    // retry も同じエラーになることがあるため最大3回までリトライする。
-    for (let attempt = 0; attempt < 3 && this.isPNoError(res); attempt += 1) {
+    // retry も同じエラーになることがあるため MAX_RETRIES 回までリトライする。
+    for (
+      let attempt = 0;
+      attempt < TACHIBANA_PNO.MAX_RETRIES && this.isPNoError(res);
+      attempt += 1
+    ) {
       this.fixPNoCounter(res);
       fullParams = {
         ...params,
@@ -758,15 +767,20 @@ export class TachibanaClient {
   /**
    * p_noエラーのレスポンスからサーバー側の最終p_noを読み取りカウンターを修正する。
    * エラーメッセージ例: 引数（p_no:[xxx] <= 前要求.p_no:[1776059556]）エラー。
+   *
+   * サーバ最終p_no ちょうどに合わせると再送は +1 しか先行せず、セッションを共有する
+   * 並行プロセス（常駐 worker 等）のバーストに即座に追い抜かれてリトライを使い切る。
+   * SAFETY_MARGIN 分だけ上乗せして先行し、以後しばらくは fix 無しで走れるようにする。
    */
   private fixPNoCounter(res: TachibanaResponse): void {
     const match = /前要求\.p_no:\[(\d+)\]/.exec(res.sResultText as string);
     if (match) {
       const serverLastPNo = parseInt(match[1], 10);
-      if (serverLastPNo >= this.requestCounter) {
-        this.requestCounter = serverLastPNo;
+      const target = serverLastPNo + TACHIBANA_PNO.FIX_SAFETY_MARGIN;
+      if (target > this.requestCounter) {
+        this.requestCounter = target;
         console.warn(
-          `[TachibanaClient] p_no counter fixed: jumped to ${this.requestCounter} (was behind server's last p_no)`,
+          `[TachibanaClient] p_no counter fixed: jumped to ${this.requestCounter} (server last=${serverLastPNo} + margin ${TACHIBANA_PNO.FIX_SAFETY_MARGIN})`,
         );
       }
     }
