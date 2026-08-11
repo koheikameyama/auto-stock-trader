@@ -30,7 +30,8 @@ import type { SignalStatus } from "../views/components";
 import { isMarketDay } from "../../lib/market-date";
 import { determineMarketRegime } from "../../core/market-regime";
 import { calculateDrawdownStatus } from "../../core/drawdown-manager";
-import { VIX_THRESHOLDS, CME_NIGHT_DIVERGENCE, DRAWDOWN, TIMEZONE } from "../../lib/constants";
+import { getNikkeiTrendFilterState } from "../../core/market-index";
+import { VIX_THRESHOLDS, CME_NIGHT_DIVERGENCE, DRAWDOWN, TIMEZONE, INDEX_TREND_HYSTERESIS } from "../../lib/constants";
 import { isTachibanaProduction } from "../../lib/constants/broker";
 import { COLORS } from "../views/styles";
 
@@ -63,6 +64,7 @@ app.get("/", async (c) => {
     latestSummary,
     cashBalance,
     drawdown,
+    indexTrend,
   ] = await Promise.all([
     prisma.tradingConfig.findFirst({ orderBy: { createdAt: "desc" } }),
     prisma.marketAssessment.findFirst({ orderBy: { date: "desc" } }),
@@ -75,6 +77,7 @@ app.get("/", async (c) => {
     } => ({
       weeklyDrawdownPct: 0, monthlyDrawdownPct: 0, shouldHaltTrading: false,
     })),
+    getNikkeiTrendFilterState().catch(() => null),
   ]);
 
   const totalBudget = config ? Number(config.totalBudget) : 0;
@@ -131,6 +134,14 @@ app.get("/", async (c) => {
     : cmeDivPct > CME_NIGHT_DIVERGENCE.CRITICAL ? "warning"
     : "danger";
   const cmeText = cmeDivPct !== null ? `${cmeDivPct >= 0 ? "+" : ""}${cmeDivPct.toFixed(1)}%` : "N/A";
+
+  // N225 SMA50 指数トレンドフィルター（2026-08-03 本番復活）。gapup/psc のエントリーゲート
+  const trendStatus: SignalStatus = indexTrend === null ? "warning"
+    : indexTrend.filterOn ? "ok"
+    : "danger";
+  const trendText = indexTrend !== null
+    ? `N225 ¥${formatYen(Math.round(indexTrend.close))} ${indexTrend.filterOn ? ">" : "<"} SMA ¥${formatYen(Math.round(indexTrend.sma))}`
+    : "N/A";
 
   const ddStatus: SignalStatus = drawdown.shouldHaltTrading ? "danger"
     : (drawdown.weeklyDrawdownPct >= DRAWDOWN.WEEKLY_HALT_PCT * 0.6
@@ -259,6 +270,7 @@ app.get("/", async (c) => {
             </div>
 
             ${signalRow(tt("Breadth", "SMA25超の銘柄比率。60%以上でエントリー許可"), breadthText, breadthStatus)}
+            ${signalRow(tt("指数トレンド", `N225がSMA${INDEX_TREND_HYSTERESIS.SMA_PERIOD}を下回るとエントリー見送り（前営業日終値判定）`), trendText, trendStatus)}
             ${signalRow(tt("VIX", "恐怖指数。20未満が通常、25超で警戒、30超で危機"), vixText, vixStatus)}
             ${signalRow(tt("CME乖離", "CME日経先物と前日終値の乖離率"), cmeText, cmeStatus)}
             ${signalRow(tt("ドローダウン", "週次5%/月次10%で取引停止"), ddText, ddStatus)}
