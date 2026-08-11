@@ -283,6 +283,7 @@ GitHub Actions の `scheduled_monthly-strategy-health.yml` が毎月第1土曜 1
 | **GU 健全性 (段階表示)** | 赤信号3つの点灯数で 🟢HEALTHY / 🟡WATCH / 🟠WARNING / 🔴DEGRADED (KOH-603) | **毎月かならず表示** (健全な月も「健全」と出す)。赤信号は ①直近3窓の OOS PF が2窓以上で 1.0 未満 ②IS/OOS比 > 2.0 ③baseline Calmar < INFO閾値。**①は トレード数<5 の窓を除外**して評価 (offseason の発火薄を劣化と誤認しないため)。評価できない材料は「判定不能」として点灯とは区別する |
 | **PSC 復帰ゲート** | ゲート1: PSC 単独WF が堅牢 (OOS集計PF≥1.3 かつ IS/OOS≤2.0) ／ ゲート2: combined で GU3+PSC2 > GU3単独 | **★GU が HEALTHY の月は評価しない (ゲート2 の BT も走らない)**。KOH-516 が月次 strategy-mix 比較を撤去した理由 (offseason に baseline が下がると休止戦略が勝ったように見える誤検知) を、「PSC が勝った」でなく「**GU が劣化した AND PSC が勝った**」でゲートすることで構造的に回避している。**2ゲート通過でも自動では戻さない** — `ENTRY_ENABLED` と `defaultLimits.pscMax` を**両方**手動で戻すこと (片側だけだと BT と live が乖離する = 2026-04 の SMA50 事故と同型) |
 | **米株ETF** | `us-etf-health` (実トレード集計) | 変更なし |
+| **live↔BTパリティ (KOH-606)** | 直近40日の本番約定買い注文を BT precompute と突き合わせ、不一致を ①日次フィルター / ②ユニバース / ③シグナル条件 に層別 | **①②の系統的乖離は 1件で warning・3件以上で danger** (SMA50 事故は①が17件だった)。③は 15:24判定と確定終値の構造差なので少数は正常 (総数5件以上かつ30%超のみ warning)。エントリーゼロの月は info。**⚠️ 新たな乖離修正を本番に入れたら `audit-live-vs-bt-parity.ts` の `AUDIT_FLOOR_DATE` を修正日の翌日に進めること** (床なしだと修正済みの過去注文で誤報する) |
 | **構造的却下** breakout, nr7, gapdown-reversal, ma-pullback, ddr, evs, ogf, earnings-gap, stop-high, squeeze-breakout | 対象外 (年1回手動見直し) | - |
 | **大型株 (WB/MOM largecap)** | **月次監視撤去 (KOH-516)** | ¥10M+ 運用移行時に手動再評価 (下記「復活判定の論理」) |
 
@@ -294,6 +295,9 @@ GitHub Actions の `scheduled_monthly-strategy-health.yml` が毎月第1土曜 1
    - **BT窓は直近24ヶ月ローリング** (旧: 2024-03-01 固定開始 → 毎月窓が伸びて Calmar が機械的に希釈され閾値と比較不能だった)
    - 予算 ¥500K (閾値の較正元 2026-04-22 Calmar 9.37 / MaxDD 10.0% と同一条件。旧スクリプトは ¥10M で較正元と不整合だった)
 3. **us-etf-health**: 変更なし
+4. **parity-audit** (KOH-606, ~10分): `scripts/run_monthly_parity_audit.py`
+   - `scripts/audit-live-vs-bt-parity.ts` で直近40日の本番約定を BT precompute と照合し Slack 報告
+   - 2026-08-11 の本番実走で過去の SMA50/minAvgVolume 乖離 (①17件/②4件) を正確に再現することを確認済み
 
 ### 復活判定の論理 (¥10M+ 移行時の手動再評価用)
 
