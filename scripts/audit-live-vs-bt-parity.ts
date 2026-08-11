@@ -42,6 +42,13 @@ import timezone from "dayjs/plugin/timezone";
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
+// 監査の床日付: これより前の注文は監査対象にしない。
+// 2026-08-03 に SMA50 フィルター復活 + minAvgVolume 統一が本番に入った。それ以前の注文は
+// 「既知の乖離 (発見済み・修正済み)」であり、2026-08-11 の本番実走でも 36件中21件が
+// ①②として再現することを確認済み。床なしだと初回の定期実行が修正済み事故で danger を
+// 誤報する。新たな乖離修正を本番に入れた時は、この日付をその修正日の翌日に進めること。
+const AUDIT_FLOOR_DATE = "2026-08-04";
+
 // ウォームアップ: universeゲートの80本窓 + N225 SMA50 を確保する暦日バッファ
 const WARMUP_CALENDAR_DAYS = 220;
 // 閾値の較正元と同じ現運用規模 (maxPrice は STRATEGY_UNIVERSE_MAX_PRICE でどのみちキャップされる)
@@ -83,12 +90,17 @@ async function main() {
 
   const todayJst = dayjs().tz("Asia/Tokyo");
   const auditEnd = todayJst.format("YYYY-MM-DD");
-  const auditStart = todayJst.subtract(days, "day").format("YYYY-MM-DD");
+  const rollingStart = todayJst.subtract(days, "day").format("YYYY-MM-DD");
+  const auditStart = rollingStart > AUDIT_FLOOR_DATE ? rollingStart : AUDIT_FLOOR_DATE;
   const dataStart = todayJst
     .subtract(days + WARMUP_CALENDAR_DAYS, "day")
     .format("YYYY-MM-DD");
 
-  console.log(`[parity] 監査窓: ${auditStart} 〜 ${auditEnd} (データ取得は ${dataStart} から)`);
+  console.log(
+    `[parity] 監査窓: ${auditStart} 〜 ${auditEnd} (データ取得は ${dataStart} から` +
+      (auditStart !== rollingStart ? `, 床日付 ${AUDIT_FLOOR_DATE} で切り上げ` : "") +
+      ")",
+  );
 
   const orders = await prisma.tradingOrder.findMany({
     where: {
