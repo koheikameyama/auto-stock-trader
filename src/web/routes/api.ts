@@ -10,7 +10,7 @@ import { getPendingOrders } from "../../core/order-executor";
 import { jobState } from "./dashboard";
 import { notifySlack } from "../../lib/slack";
 import { cronControl } from "../../lib/cron-control";
-import { fetchHistoricalData, fetchStockQuote, fetchStockQuotesBatch } from "../../core/market-data";
+import { fetchHistoricalData, fetchStockQuote, fetchDisplayQuotesBatch } from "../../core/market-data";
 import { analyzeTechnicals } from "../../core/technical-analysis";
 import { generatePatternsResponse } from "../../lib/candlestick-patterns";
 import { stockModal } from "../views/stock-modal";
@@ -335,7 +335,9 @@ app.get("/stock/:tickerCode/modal", async (c) => {
 });
 
 /**
- * GET /api/quotes?tickers=7203,8306 - リアルタイム株価を非同期取得
+ * GET /api/quotes?tickers=7203,8306 - 表示用株価を非同期取得
+ *
+ * 時価ソースは yfinance（15分遅延）→ DB。立花APIは呼ばない（KOH-607 高負荷警告対応）。
  */
 app.get("/quotes", async (c) => {
   const tickersParam = c.req.query("tickers");
@@ -344,13 +346,13 @@ app.get("/quotes", async (c) => {
   const tickers = tickersParam.split(",").filter(Boolean);
   if (tickers.length === 0) return c.json({});
 
-  const marketOpen = isMarketOpen();
-  const quotes = await fetchStockQuotesBatch(tickers, { yfinanceFallback: !marketOpen });
+  const quotes = await fetchDisplayQuotesBatch(tickers);
   const result: Record<string, { price: number }> = {};
   for (const [key, value] of quotes) {
     result[key] = { price: value.price };
   }
-  if (marketOpen && quotes.size < tickers.length) {
+  // yfinance・DB とも全滅した場合のみエラー表示（部分欠損は上場廃止等で正常に起きうる）
+  if (quotes.size === 0) {
     return c.json({ ...result, _error: "broker_api_failed" });
   }
   return c.json(result);
@@ -427,7 +429,8 @@ app.get("/watchlist/state", async (c) => {
       where: { date: getTodayForDB() },
       select: { shouldTrade: true },
     }),
-    fetchStockQuotesBatch(tickers, { yfinanceFallback: !isMarketOpen() }),
+    // 表示用時価: yfinance（15分遅延）→ DB。立花APIは呼ばない（KOH-607 高負荷警告対応）
+    fetchDisplayQuotesBatch(tickers),
     fetchPSCHistoricalData(tickers),
   ]);
 
@@ -617,7 +620,8 @@ app.get("/watchlist/state", async (c) => {
   const current = hour * 60 + minute;
   const inTimeWindow = current >= eh * 60 + em && current <= lh * 60 + lm;
 
-  const brokerError = isMarketOpen() && quotes.size < tickers.length;
+  // yfinance・DB とも全滅した場合のみエラー表示（部分欠損は上場廃止等で正常に起きうる）
+  const brokerError = tickers.length > 0 && quotes.size === 0;
 
   return c.json({
     tickers: tickerData,

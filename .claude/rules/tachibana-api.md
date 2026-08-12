@@ -48,6 +48,7 @@
 - **約定同期は EVENT I/F（WebSocket）を主系**にする（`src/core/broker-event-stream.ts` で実装済み）
 - **broker-reconciliation などの保有・注文照合は1日数回に絞る**（発注前・引け後など必要最小時刻のみ。場中ポーリング禁止）
 - `CLMMfdsGetMarketPrice` のバッチ取得はシグナル検出目的のみ。頻度はロジック上の必要最小限に留める
+- **画面表示用の時価に立花APIを使わない (KOH-607, 2026-08-12 の「30万回超」警告対応)**。ダッシュボードのポーリング (`/api/quotes`, `/api/watchlist/state`) は `fetchDisplayQuotesBatch()` (yfinance→DB、立花不使用)。新しい画面・エンドポイントを作る時も表示用途なら同関数を使うこと
 - `CLMMfdsGetMarketPriceHistory` を叩く場合は **18:00以降** にスケジュール
 
 ### 具体的なアクセス上限
