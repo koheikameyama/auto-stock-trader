@@ -2,9 +2,9 @@
  * 市場データ取得モジュール
  *
  * market-data-provider を使用して株価・市場指標データを取得する。
- * プライマリ: 立花証券API
- * 画面表示用フォールバック: 立花API → yfinance → DB（Stock + StockDailyBar）
- * workerではフォールバックなし（立花APIのみ）
+ * トレードパイプライン（エントリー・決済・照合）: 立花証券API（フォールバックなし）
+ * 画面表示用（fetchDisplayQuotesBatch）: yfinance → DB。立花APIは呼ばない
+ *   （立花のAPI高負荷警告対応 KOH-607。ダッシュボードのポーリングを立花から切り離す）
  */
 
 import dayjs from "dayjs";
@@ -368,6 +368,47 @@ export async function fetchStockQuotes(
     const symbol = normalizeTickerCode(ticker);
     return batchMap.get(symbol) ?? null;
   });
+}
+
+/**
+ * 画面表示用のクォートバッチ取得 — 立花APIを使わない
+ *
+ * ダッシュボードの30秒ポーリングが CLMMfdsGetMarketPrice（1リクエスト1銘柄）へ
+ * 大量アクセスする構造だったため（2026-08-12 立花の高負荷警告 30万回超, KOH-607）、
+ * 表示用時価は yfinance（サイドカーへ1回のバッチPOST、15分遅延）→ DB の順で取得する。
+ */
+export async function fetchDisplayQuotesBatch(
+  tickerCodes: string[],
+): Promise<Map<string, StockQuote>> {
+  const results = new Map<string, StockQuote>();
+  const symbols = tickerCodes.map(normalizeTickerCode);
+  if (symbols.length === 0) return results;
+
+  try {
+    const yfResults = await yfFetchQuotesBatch(symbols);
+    for (const r of yfResults) {
+      if (r && r.tickerCode && r.price > 0) {
+        results.set(r.tickerCode, r as StockQuote);
+      }
+    }
+  } catch (error) {
+    console.warn(
+      "[market-data] 表示用yfinanceバッチ取得失敗、DBフォールバックへ:",
+      error instanceof Error ? error.message : error,
+    );
+  }
+
+  const missing = symbols.filter((s) => !results.has(s));
+  if (missing.length > 0) {
+    try {
+      const dbResults = await fetchQuotesBatchFromDB(missing);
+      for (const [k, v] of dbResults) results.set(k, v);
+    } catch (dbError) {
+      console.warn("[market-data] 表示用DBフォールバックも失敗:", dbError);
+    }
+  }
+
+  return results;
 }
 
 // ========================================
