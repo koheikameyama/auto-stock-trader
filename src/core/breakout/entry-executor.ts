@@ -47,12 +47,21 @@ dayjs.extend(timezone);
  *
  * ⚠️ 判定順に依存する。より具体的なパターンを先に置くこと
  * （例: 「連敗クールダウン」は「連敗停止」より前）。
+ *
+ * ⚠️ ここは reason の**文面**に依存する後付け分類なので、呼び出し側の文言を変えると
+ * 静かに「その他」に落ちる。ラベルが決まっている経路は ExecutionResult.rejectLabel で
+ * 明示指定すること（文面変更に対して壊れない）。
+ * export しているのはテスト用（実際の reason 文字列との対応を回帰テストで固定するため）。
  */
-function getRejectedLabel(reason: string): string {
+export function getRejectedLabel(reason: string): string {
   if (/予算不足|残高不足|現金残高不足/.test(reason)) return "残高不足";
   if (/集中率上限|投資比率上限/.test(reason)) return "集中率上限";
   if (/最大同時保有数/.test(reason)) return "ポジション数上限";
-  if (/流動性/.test(reason)) return "流動性不足";
+  // checkLiquidity() の reason は「売り板 N株 < 注文 M株（スリッページリスク大）」/
+  // 「スプレッド X% > 上限 Y%」で "流動性" の語を含まない。/流動性/ だけを見ていたため
+  // 板薄・スプレッド超過の棄却が丸ごと「その他」に落ち、Slack 通知も NOTIFY_REJECT_LABELS を
+  // 素通りしていた（2026-08-14 に GU 2件が無通知で消えたのがこれ）。
+  if (/流動性|売り板|板薄|スプレッド|スリッページ/.test(reason)) return "流動性不足";
   if (/マクロファクター/.test(reason)) return "マクロ集中";
   if (/セクター/.test(reason)) return "セクター集中";
   if (/連敗クールダウン/.test(reason)) return "連敗クールダウン";
@@ -80,12 +89,17 @@ function getRejectedLabel(reason: string): string {
  * 既に `[GU/PSC] エントリー失敗` を通知しており、ここで通知すると二重になるため除外する。
  * セクター集中 / マクロ集中 / 流動性不足 はリトライ系で monitor が console.log のみ、
  * ポジション数上限は monitor が当日打ち止めで break（Slack 無し）だったため、ここで拾う。
+ *
+ * 「その他」= 分類できなかった棄却も通知する。設計上ここに落ちる経路は無いはずで、
+ * 落ちたら分類漏れ（＝弾き分析の集計も歪んでいる）というバグの signal そのものだから。
+ * 実際、流動性の分類漏れは「その他」として静かに記録され続け、3週間気付けなかった。
  */
-const NOTIFY_REJECT_LABELS = new Set<string>([
+export const NOTIFY_REJECT_LABELS = new Set<string>([
   "セクター集中",
   "マクロ集中",
   "ポジション数上限",
   "流動性不足",
+  "その他",
 ]);
 
 /** RejectedSignal を非同期で保存（エラーは握りつぶしてメイン処理を止めない） */
@@ -463,7 +477,9 @@ async function executeEntryInner(
   if (!liquidityCheck.isLiquid) {
     const liquidityReason = liquidityCheck.reason ?? "流動性不足";
     console.log(`[entry-executor] ${ticker} 流動性不足: ${liquidityReason}`);
-    return { success: false, reason: liquidityReason, retryable: true };
+    // ラベルは明示指定する（reason は checkLiquidity 側の文面で "流動性" を含まないため、
+    // getRejectedLabel の推定に任せると「その他」に落ちて Slack 通知が飛ばない）
+    return { success: false, reason: liquidityReason, retryable: true, rejectLabel: "流動性不足" };
   }
   if (liquidityCheck.riskFlags.length > 0) {
     console.log(

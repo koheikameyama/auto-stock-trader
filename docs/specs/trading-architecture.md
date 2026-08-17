@@ -366,9 +366,17 @@ interface LiquidityCheckResult {
 
 1. `executeEntry()` 内で `canOpenPosition()` 通過後に `fetchStockQuote()` で最新板情報を取得
 2. `checkLiquidity()` でスプレッド・板厚・売り圧力を検証
-3. 不合格 → `retryable: true` で返却（次スキャンで再試行可能）
+3. 不合格 → `retryable: true` + `rejectLabel: "流動性不足"` で返却（次スキャンで再試行可能）
 4. リスクフラグ → ログ出力（ブロックはしない）
 5. 板情報は `entrySnapshot.liquidity` に記録（事後分析用）
+
+不合格時は `RejectedSignal` に「流動性不足」ラベルで1行記録し、当日初回のみ Slack に
+`⛔ エントリー棄却` を通知する（15:24:00/20/40 のリトライtickで重複しないよう当日1回に集約）。
+
+⚠️ ラベルは `rejectLabel` で明示指定する。`getRejectedLabel()` は理由文の正規表現で後付け分類する
+仕組みで、`checkLiquidity()` の理由文（「売り板 N株 < 注文 M株…」「スプレッド X% > 上限 Y%」）は
+"流動性" の語を含まないため、推定に任せると「その他」に落ちて通知対象から外れる
+（2026-08-14 に GU 2件が無通知で消えた事象の原因）。
 
 ### 板情報が取得できない場合
 
