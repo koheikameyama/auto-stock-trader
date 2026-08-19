@@ -19,6 +19,13 @@ import { notifySlack, SNS_POST_SLACK_WEBHOOK_URL } from "../lib/slack";
 /** 1日にフォローする最大件数（スパム的挙動を避けるため少数固定） */
 const MAX_FOLLOWS = 5;
 
+/**
+ * フォローを実行してよいアカウント（auto-stock-trader 専用アカウント）。
+ * 認証情報の設定ミスで個人アカウント等から実行される事故を防ぐため、
+ * ログイン後にハンドルを検証し、一致しなければ何もせず中断する。
+ */
+const EXPECTED_HANDLE = process.env.BLUESKY_FOLLOW_EXPECTED_HANDLE ?? "stock-buddy.net";
+
 const KEYWORDS = [
   "日本株 投資",
   "システムトレード",
@@ -75,6 +82,20 @@ function todaysKeywords(): string[] {
 export async function runBlueskyFollow(): Promise<void> {
   const agent = await getBlueskyAgent();
   if (!agent) return;
+
+  // アカウント検証: auto-stock-trader 専用アカウント以外からは実行しない
+  const actualHandle = agent.session?.handle;
+  if (actualHandle !== EXPECTED_HANDLE) {
+    const warn = `想定アカウント（${EXPECTED_HANDLE}）と認証アカウント（${actualHandle ?? "不明"}）が一致しないため、フォローを実行せず中断しました。BLUESKY_HANDLE の設定を確認してください`;
+    console.error(`⛔ ${warn}`);
+    await notifySlack({
+      title: "⛔ Bluesky フォロー中断（アカウント不一致）",
+      message: warn,
+      color: "danger",
+      webhookUrl: SNS_POST_SLACK_WEBHOOK_URL,
+    });
+    return;
+  }
 
   const keywords = todaysKeywords();
   const candidates = new Map<
