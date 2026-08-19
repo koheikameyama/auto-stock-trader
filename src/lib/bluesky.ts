@@ -21,6 +21,11 @@ const MAX_POST_GRAPHEMES = 300;
 
 let cachedAgent: AtpAgent | null = null;
 
+/** ログイン済み AtpAgent を返す（未設定なら null）。投稿以外の API 操作にも使う */
+export async function getBlueskyAgent(): Promise<AtpAgent | null> {
+  return getAgent();
+}
+
 async function getAgent(): Promise<AtpAgent | null> {
   if (!BLUESKY_HANDLE || !BLUESKY_APP_PASSWORD) {
     console.log(
