@@ -192,6 +192,15 @@ export function runGapUpBacktest(
   let cash = config.initialBudget;
   const pendingSettlement: { amount: number; availableDayIdx: number }[] = [];
 
+  /**
+   * ポジションサイズのリスク基準額 = 現金 + 保有ポジションの簿価（総資産基準）。
+   * live の `entry-executor.ts:395` が `getEffectiveCapital() × risk%` で発注するのに合わせる
+   * （2026-08-03）。旧BTは cash 基準で、保有が増えるほど後続サイズを縮めていた。
+   * combined-simulation の `riskBase()` と同一定義。
+   */
+  const riskBase = (): number =>
+    cash + openPositions.reduce((sum, p) => sum + p.entryPrice * p.quantity, 0);
+
   let dateIndexMap: Map<string, Map<string, number>>;
   let tradingDays: string[];
   let tradingDayIndex: Map<string, number>;
@@ -419,7 +428,7 @@ export function runGapUpBacktest(
         // ポジションサイジング（リスクベース + 資金上限キャップ）
         const riskPerShare = signal.entryPrice - stopLossPrice;
         if (riskPerShare <= 0) continue;
-        const riskAmount = cash * (GAPUP_RISK_PER_TRADE_PCT / 100);
+        const riskAmount = riskBase() * (GAPUP_RISK_PER_TRADE_PCT / 100);
         const riskBasedShares = Math.floor(riskAmount / riskPerShare);
         const maxPositionPct = config.positionCapEnabled !== false ? getDynamicMaxPositionPct(cash, signal.entryPrice) : 100;
         const budgetBasedShares = Math.floor(cash * (maxPositionPct / 100) / signal.entryPrice);

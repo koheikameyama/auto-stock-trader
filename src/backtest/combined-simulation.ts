@@ -186,6 +186,76 @@ export interface SimContext {
    */
   nikkeiDropVetoLagged?: boolean;
   /**
+   * 日経発ディフェンシブ決済の閾値（%）。日経が前日比でこの値以下なら**全ポジションを当日終値で成行決済**する。
+   * 省略時は無効（＝BT本来の挙動。日経キルスイッチはエントリー veto しかしない）。
+   *
+   * ⚠️ これは **live 専用挙動の再現** であって BT 本来の仕様ではない（KOH-589）。
+   * 本番は market-assessment が日経 ≤ -3% で `sentiment="crisis"` を書き（market-assessment.ts:225）、
+   * position-monitor の `evaluateDefensiveMode` (a) がそれを拾って全ポジションを成行決済している
+   * （position-monitor.ts:95-98）。BT 側の `processDefensive` は VIX>30 でしか発火しないため、
+   * 記録されている全 BT 成績はこの決済を含んでいない。その乖離を測るためのオプション。
+   */
+  nikkeiDropDefensiveExitPct?: number;
+  /**
+   * 日経発ディフェンシブ決済の判定時制を「本番模倣＝1セッション遅延」にする。
+   * false/省略: 暴落当日Dの終値で判定し、Dの終値で決済。
+   * true: D-1（直近確定セッション）の前日比で判定し、**Dの終値で決済**。
+   *   本番は 08:02 の market-assessment が直近確定セッションを読むため、実効的にこちら。
+   *   つまり「暴落日は何もせず、その翌営業日に全部投げる」挙動になる。
+   */
+  nikkeiDropDefensiveExitLagged?: boolean;
+  /**
+   * レジーム条件付き BE 発動倍率（GU/PSC の出口のみ、--compare-conditional-be 検証用 / KOH-590）。
+   * 条件が真の日は beActivationMultiplier を `tightened` に差し替える（＝建値ガードを早く効かせる）。
+   * 省略時は無効 = baseline 完全不変。
+   *
+   * ⚠️ 却下 #37 で「BE をグローバルに 0.3 未満へ下げるのは WF で単調に悪化（純粋な過学習次元）」が
+   *    現エンジンで確定済み。本オプションは「平時は 0.3 のまま、荒れた局面だけ絞る」という
+   *    条件付き版が別の答えを出すかを測るためだけのもの。
+   *
+   * mode:
+   *   "vix"     — VIX レジームが normal 以外（elevated/high/crisis）の日。
+   *               engine 既存の todayRegime（vixData.get(today)）をそのまま使う。
+   *               ★VIX の時制は engine の従来慣習に合わせている（却下 #46 の VIX scale と同じ土俵で
+   *                 比較するため）。live の MarketAssessment.vix は前営業日終値なので厳密には半日ずれる。
+   *   "breadth" — **前営業日終値**の breadth が breadthThreshold 未満の日。
+   *               ★当日 breadth を使うと先読み（本番 15:20 の position-monitor に当日 breadth は無い）。
+   *                 却下 #41 が buyback で踏んだ罠なので、こちらは最初から D-1 で定義する。
+   */
+  conditionalBe?: {
+    mode: "vix" | "breadth";
+    /** mode="breadth" のときの閾値（0-1）。例: 0.54 = idle帯へ落ちた日 */
+    breadthThreshold?: number;
+    /** 条件成立日に使う beActivationMultiplier */
+    tightened: number;
+  };
+  /**
+   * 連休前ガード（GU/PSC のみ、--compare-holiday 検証用）。省略時は無効 = baseline 完全不変。
+   *
+   * ★live↔BT 乖離の再現。本番 position-monitor.ts:640-747 は「この先 N日以上連続で非営業日」の
+   *   セッションで breakout/gapup のトレール ATR 倍率を ×0.7 する（WEEKEND_RISK.TRAILING_TIGHTEN_*）。
+   *   **BT にはこの分岐が一切存在しない**ため、記録されている全 BT 成績はこの引き締めを含んでいない。
+   *   さらに live は対象が breakout/gapup だけで **PSC は素通し**（非対称の根拠は不明）。
+   *   これを測るためのオプション。
+   *
+   * ⚠️ 却下 #47 で「GU trail=0.3 は p<0.05・0/16窓で他が劣る＝積極的に最適」と確定済み。
+   *    連休前だけ 0.21 に絞るのは却下 #52（レジーム条件付き BE）と同型の「条件付きなら効くのでは」。
+   *
+   * 判定時制: tradingDays[dayIdx] と tradingDays[dayIdx+1] の暦日差 - 1 が非営業日数。
+   *   live の countNonTradingDaysAhead(D)（土日+祝日+TSE固有休場の連続数）と同義で、
+   *   すべて当日までの確定情報なので先読みではない（カレンダーは事前に既知）。
+   */
+  holidayGuard?: {
+    /** 発動する非営業日の連続日数。live の WEEKEND_RISK.*_THRESHOLD = 3（3連休以上） */
+    threshold: number;
+    /** トレール ATR 倍率に掛ける係数。live は 0.7。省略時はトレールを触らない */
+    trailScale?: number;
+    /** trailScale の適用対象。"gu" = live 現状（GUのみ）/ "both" = GU+PSC */
+    trailScope?: "gu" | "both";
+    /** true なら連休前セッションの GU/PSC 新規エントリーを禁止（live には無い挙動） */
+    entryVeto?: boolean;
+  };
+  /**
    * ボラ凸性サイジング（GU/PSC のみ、--compare-vol-convexity 検証用）。
    * エントリー時の20日実現ボラ（日次リターンの標準偏差%）で分位を判定し、
    * quantity に scales[quartile] を掛ける（0 = veto）。
@@ -210,6 +280,23 @@ export interface SimContext {
    * maxByBalance の現金を cashBufferPct 倍に絞る。既定 1.0（掛目なし＝現行 live 相当）。
    */
   cashBufferPct?: number;
+  /**
+   * ポジションサイズのリスク基準を「現金」でなく「総資産」にするか（2026-08-03 検証用）。
+   *
+   * true/省略（**2026-08-03 以降の既定**）: live の entry-executor と同じ
+   *   `riskAmount = effectiveCapital × risk%`
+   *   （`entry-executor.ts:395`、`getEffectiveCapital()` = 買余力 + 投資中(簿価) + 発注中）。
+   * false: 旧BTの挙動 = `riskAmount = cash × risk%`。2026-08-03 以前に記録された数値の再現用
+   *   （combined-run では `--cash-based-sizing`）。
+   *
+   * この差は「複数ポジションを持っている時」にだけ現れ、cash基準は保有が増えるほど後続の
+   * サイズを縮める。結果として**BTは複数戦略構成に構造的なペナルティを課す**（PSC が枠を
+   * 埋めると GU のサイズが縮む）。`GU3のみ vs GU3+PSC2` の比較はこの影響を受けるため、
+   * 判定の前に本番と同じ基準へ揃えて測り直す必要がある。
+   *
+   * 未決済売却代金（pendingSettlement）は live でも買余力に入らない（決済まで）ため含めない。
+   */
+  equityBasedSizing?: boolean;
 }
 
 /** ボラ凸性サイジング設定（--compare-vol-convexity） */
@@ -314,6 +401,10 @@ export interface SimResult {
   totalCapitalAdded: number;
   /** ドローダウンハルトが発動した営業日数 */
   haltDays: number;
+  /** 連休前セッション（holidayGuard 判定が真）だった営業日数。未設定時は 0 */
+  preHolidayDays: number;
+  /** 連休前 entryVeto で GU/PSC のエントリーを止めた営業日数。未設定時は 0 */
+  holidayVetoDays: number;
 }
 
 // ──────────────────────────────────────────
@@ -600,6 +691,29 @@ function processEtfExits(
   }
 }
 
+/**
+ * 日経（^N225）の前日比%を返す。判定時制を lagged にすると直近確定セッション基準になる。
+ *
+ * - lagged=false: 当日 D の終値 vs D-1 の終値（BT本来。15:24 引け直前の同日判定）
+ * - lagged=true : D-1 の終値 vs D-2 の終値（本番模倣。08:02 の market-assessment が読む値）
+ *
+ * データ欠損時は null。
+ */
+function getNikkeiPctChange(
+  indexData: Map<string, number>,
+  tradingDays: string[],
+  dayIdx: number,
+  lagged: boolean,
+): number | null {
+  const curIdx = lagged ? dayIdx - 1 : dayIdx;
+  const baseIdx = curIdx - 1;
+  if (baseIdx < 0) return null;
+  const curClose = indexData.get(tradingDays[curIdx]);
+  const prevClose = indexData.get(tradingDays[baseIdx]);
+  if (curClose == null || prevClose == null || prevClose <= 0) return null;
+  return ((curClose - prevClose) / prevClose) * 100;
+}
+
 // ──────────────────────────────────────────
 // ディフェンシブモード
 // ──────────────────────────────────────────
@@ -619,8 +733,13 @@ function processDefensive(
   settlementDays: number,
   marginInterestRate = 0,
   slippageProfile: SlippageProfile = "none",
+  /**
+   * レジームに関係なく当日終値で全決済する（KOH-589 の日経発ディフェンシブ決済用）。
+   * 既定 false = 従来通り VIX レジームのみで判定するので baseline は完全不変。
+   */
+  forceClose = false,
 ): void {
-  if (todayRegime !== "crisis" && todayRegime !== "high") return;
+  if (!forceClose && todayRegime !== "crisis" && todayRegime !== "high") return;
   if (positions.length === 0) return;
 
   const defClose: number[] = [];
@@ -631,7 +750,7 @@ function processDefensive(
     const todayBar = allData.get(pos.ticker)![defBarIdx];
 
     let shouldClose = false;
-    if (todayRegime === "crisis") {
+    if (forceClose || todayRegime === "crisis") {
       shouldClose = true;
     }
 
@@ -808,7 +927,7 @@ export function runCombinedSimulation(
     typeof maxPositions === "number"
       ? { boMax: maxPositions, guMax: maxPositions, wbMax: maxPositions, pscMax: maxPositions, momMax: maxPositions, etfMax: maxPositions, buybackMax: maxPositions, totalMax: maxPositions }
       : maxPositions;
-  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, etfCrisisBypass, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none", beTrailDetectionSource = "high", breakEvenFloor, intraBarStopModel = "stop-at-open", volConvexity, cashShrinkToFit = false, cashBufferPct = 1 } = ctx;
+  const { boConfig, guConfig, wbConfig, pscConfig, pscSignals, momConfig, momSignals, etfConfig, etfSignals, buybackConfig, buybackSignals, buybackRegimeExit, etfCrisisBypass, budget, verbose, allData, precomputed, breakoutSignals, gapupSignals, weeklyBreakSignals, vixData, monthlyAddAmount, equityCurveSmaPeriod, boVixSkipLevel, guVixSkipLevel, settlementDays: settlementDaysOpt, riskPctOverride, wbRiskPctOverride, breadthMode, breadthModeGu, breadthModePsc, tickerSectorMap, sectorRotation, riskScaleByRegime, loseStreakScaling, marginInterestRate = 0, guMaxDailyEntries, pscMaxDailyEntries, slippageProfile = "none", beTrailDetectionSource = "high", breakEvenFloor, intraBarStopModel = "stop-at-open", volConvexity, cashShrinkToFit = false, cashBufferPct = 1, equityBasedSizing = true, conditionalBe, holidayGuard } = ctx;
   const guBreadthMode = breadthModeGu ?? breadthMode;
   const pscBreadthMode = breadthModePsc ?? breadthMode;
   const { tradingDays, tradingDayIndex, dateIndexMap } = precomputed;
@@ -840,6 +959,8 @@ export function runCombinedSimulation(
   };
   let totalCapitalAdded = budget;
   let haltDays = 0;
+  let preHolidayDays = 0;
+  let holidayVetoDays = 0;
   const pendingSettlement: { amount: number; availableDayIdx: number }[] = [];
   const boPositions: SimulatedPosition[] = [];
   const guPositions: SimulatedPosition[] = [];
@@ -857,6 +978,24 @@ export function runCombinedSimulation(
   const buybackClosedTrades: SimulatedPosition[] = [];
   const lastExitDayIdx = new Map<string, number>();
   const equityCurve: DailyEquity[] = [];
+
+  /**
+   * ポジションサイズ計算のリスク基準額。
+   * 既定は現金（BT本来の挙動、baseline 完全一致）。equityBasedSizing=true で live と同じ
+   * 総資産基準（現金 + 保有ポジションの簿価）になる。live の getInvestedAmount() が
+   * entryPrice×quantity の簿価で集計しているので、時価でなく簿価で合わせる。
+   */
+  const riskBase = (): number => {
+    if (!equityBasedSizing) return cash;
+    let invested = 0;
+    for (const pos of [
+      ...boPositions, ...guPositions, ...wbPositions, ...pscPositions,
+      ...momPositions, ...etfPositions, ...buybackPositions,
+    ]) {
+      invested += pos.entryPrice * pos.quantity;
+    }
+    return cash + invested;
+  };
 
   for (let dayIdx = 0; dayIdx < tradingDays.length; dayIdx++) {
     const today = tradingDays[dayIdx];
@@ -890,13 +1029,56 @@ export function runCombinedSimulation(
       todayVix != null ? determineMarketRegime(todayVix).level : "normal";
 
     // ── 1. 出口判定 ──
+    // レジーム条件付き BE（KOH-590）。条件成立日だけ GU/PSC の beActivationMultiplier を絞る。
+    // 未設定なら guExitConfig/pscExitConfig は元の参照そのままなので baseline 完全不変。
+    let condBeActive = false;
+    if (conditionalBe) {
+      if (conditionalBe.mode === "vix") {
+        condBeActive = todayRegime !== "normal";
+      } else if (conditionalBe.mode === "breadth" && conditionalBe.breadthThreshold != null && dayIdx > 0) {
+        // ★前営業日の確定 breadth を使う（当日 breadth は本番 15:20 の position-monitor に存在しない）
+        const prevBreadth = precomputed.dailyBreadth.get(tradingDays[dayIdx - 1]);
+        condBeActive = prevBreadth != null && prevBreadth < conditionalBe.breadthThreshold;
+      }
+    }
+    let guExitConfig = condBeActive
+      ? { ...guConfigLocal, beActivationMultiplier: conditionalBe!.tightened }
+      : guConfigLocal;
+    let pscExitConfig =
+      pscConfigLocal && condBeActive
+        ? { ...pscConfigLocal, beActivationMultiplier: conditionalBe!.tightened }
+        : pscConfigLocal;
+
+    // 連休前ガード: この先の非営業日が threshold 日以上連続するセッションか。
+    // 未設定なら常に false = baseline 完全不変。最終日は次営業日が無いので false 扱い。
+    const preHolidayToday =
+      holidayGuard != null &&
+      dayIdx + 1 < tradingDays.length &&
+      dayjs(tradingDays[dayIdx + 1]).diff(dayjs(today), "day") - 1 >= holidayGuard.threshold;
+    if (preHolidayToday) {
+      preHolidayDays++;
+      if (holidayGuard!.trailScale != null) {
+        // live (position-monitor.ts:738-747) は breakout/gapup のみ。"both" で PSC まで広げた場合と比較する。
+        guExitConfig = {
+          ...guExitConfig,
+          trailMultiplier: guExitConfig.trailMultiplier * holidayGuard!.trailScale,
+        };
+        if (holidayGuard!.trailScope === "both" && pscExitConfig) {
+          pscExitConfig = {
+            ...pscExitConfig,
+            trailMultiplier: pscExitConfig.trailMultiplier * holidayGuard!.trailScale,
+          };
+        }
+      }
+    }
+
     processExits(boPositions, boConfigLocal, "breakout", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, boClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
-    processExits(guPositions, guConfigLocal, "gapup", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, guClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
+    processExits(guPositions, guExitConfig, "gapup", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, guClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
     if (wbConfigLocal) {
       processExits(wbPositions, wbConfigLocal, "weekly-break", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, wbClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
     }
     if (pscConfigLocal) {
-      processExits(pscPositions, pscConfigLocal, "post-surge-consolidation", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, pscClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
+      processExits(pscPositions, pscExitConfig!, "post-surge-consolidation", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, pscClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
     }
     if (momConfigLocal) {
       processExits(momPositions, momConfigLocal, "momentum", dayIdx, today, tradingDays, tradingDayIndex, dateIndexMap, allData, pendingSettlement, momClosedTrades, lastExitDayIdx, verbose, settlementDays, marginInterestRate, slippageProfile, beTrailDetectionSource, intraBarStopModel);
@@ -934,22 +1116,41 @@ export function runCombinedSimulation(
     }
 
     // ── 1.5 ディフェンシブモード ──
-    processDefensive(boPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, boClosedTrades, lastExitDayIdx, boConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
-    processDefensive(guPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, guClosedTrades, lastExitDayIdx, guConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
+    // 日経発の強制決済（KOH-589, live専用挙動の再現）。VIX レジーム判定とは独立に OR で発火する。
+    // 省略時は false のまま = baseline 完全不変。
+    let nikkeiForceClose = false;
+    if (ctx.nikkeiDropDefensiveExitPct != null && ctx.indexData && dayIdx > 0) {
+      const pct = getNikkeiPctChange(
+        ctx.indexData,
+        tradingDays,
+        dayIdx,
+        ctx.nikkeiDropDefensiveExitLagged === true,
+      );
+      if (pct != null && pct <= ctx.nikkeiDropDefensiveExitPct) {
+        nikkeiForceClose = true;
+        if (verbose) {
+          console.log(`  [${today}] 日経発ディフェンシブ決済: ${pct.toFixed(2)}% ≤ ${ctx.nikkeiDropDefensiveExitPct}%（全ポジション当日終値決済）`);
+        }
+      }
+    }
+    processDefensive(boPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, boClosedTrades, lastExitDayIdx, boConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile, nikkeiForceClose);
+    processDefensive(guPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, guClosedTrades, lastExitDayIdx, guConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile, nikkeiForceClose);
     if (wbConfigLocal) {
-      processDefensive(wbPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, wbClosedTrades, lastExitDayIdx, wbConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
+      processDefensive(wbPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, wbClosedTrades, lastExitDayIdx, wbConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile, nikkeiForceClose);
     }
     if (pscConfigLocal) {
-      processDefensive(pscPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, pscClosedTrades, lastExitDayIdx, pscConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
+      processDefensive(pscPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, pscClosedTrades, lastExitDayIdx, pscConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile, nikkeiForceClose);
     }
     if (momConfigLocal) {
-      processDefensive(momPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, momClosedTrades, lastExitDayIdx, momConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
+      processDefensive(momPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, momClosedTrades, lastExitDayIdx, momConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile, nikkeiForceClose);
     }
+    // etfCrisisBypass（= panic レッグ）は日経発の決済からも外す。本番も panic を
+    // DEFENSIVE_BYPASS_STRATEGIES で防御決済から除外している（position-monitor.ts:127-140）。
     if (etfConfigLocal && !etfCrisisBypass) {
-      processDefensive(etfPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, etfClosedTrades, lastExitDayIdx, etfConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
+      processDefensive(etfPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, etfClosedTrades, lastExitDayIdx, etfConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile, nikkeiForceClose);
     }
     if (buybackConfigLocal) {
-      processDefensive(buybackPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, buybackClosedTrades, lastExitDayIdx, buybackConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile);
+      processDefensive(buybackPositions, todayRegime, dayIdx, today, tradingDays, dateIndexMap, allData, pendingSettlement, buybackClosedTrades, lastExitDayIdx, buybackConfigLocal.costModelEnabled, verbose, settlementDays, marginInterestRate, slippageProfile, nikkeiForceClose);
     }
 
     // ── 1.55 モメンタム ローテーション決済（rebalance日にトップN外に落ちた銘柄をクローズ） ──
@@ -1025,26 +1226,36 @@ export function runCombinedSimulation(
       // 判定時制:
       //  - 既定(同日, BT本来): 当日終値 vs 前日終値。15:24 引け成行の直前 veto。
       //  - lagged(本番模倣, KOH-577): 前営業日終値 vs 前々営業日終値。直近確定セッションの前日比で当日を止める。
-      const lagged = ctx.nikkeiDropVetoLagged === true;
-      const curIdx = lagged ? dayIdx - 1 : dayIdx;
-      const baseIdx = curIdx - 1;
-      const curClose = baseIdx >= 0 ? ctx.indexData.get(tradingDays[curIdx]) : undefined;
-      const prevClose = baseIdx >= 0 ? ctx.indexData.get(tradingDays[baseIdx]) : undefined;
-      if (curClose != null && prevClose != null && prevClose > 0) {
-        const pctChange = ((curClose - prevClose) / prevClose) * 100;
-        if (pctChange <= ctx.nikkeiDropVetoPct) {
-          boShouldTrade = false;
-          guShouldTrade = false;
-          wbShouldTrade = false;
-          pscShouldTrade = false;
-          momShouldTrade = false;
-          etfShouldTrade = false;
-          buybackShouldTrade = false;
-          haltDays++;
-          if (verbose) {
-            console.log(`  [${today}] 日経キルスイッチ: ${pctChange.toFixed(2)}% ≤ ${ctx.nikkeiDropVetoPct}%（全戦略停止）`);
-          }
+      const pctChange = getNikkeiPctChange(
+        ctx.indexData,
+        tradingDays,
+        dayIdx,
+        ctx.nikkeiDropVetoLagged === true,
+      );
+      if (pctChange != null && pctChange <= ctx.nikkeiDropVetoPct) {
+        boShouldTrade = false;
+        guShouldTrade = false;
+        wbShouldTrade = false;
+        pscShouldTrade = false;
+        momShouldTrade = false;
+        etfShouldTrade = false;
+        buybackShouldTrade = false;
+        haltDays++;
+        if (verbose) {
+          console.log(`  [${today}] 日経キルスイッチ: ${pctChange.toFixed(2)}% ≤ ${ctx.nikkeiDropVetoPct}%（全戦略停止）`);
         }
+      }
+    }
+
+    // ── 1.85 連休前エントリー veto（GU/PSC のみ） ──
+    // 「連休は暦日でギャップ露出が伸びるので、その前は建てない」という案の測定用。
+    // live には存在しない挙動（live 側の連休前ガードはトレール引き締めだけ）。
+    if (holidayGuard?.entryVeto && preHolidayToday && (guShouldTrade || pscShouldTrade)) {
+      guShouldTrade = false;
+      pscShouldTrade = false;
+      holidayVetoDays++;
+      if (verbose) {
+        console.log(`  [${today}] 連休前エントリー veto（非営業日 ${holidayGuard.threshold}日以上）`);
       }
     }
 
@@ -1152,7 +1363,7 @@ export function runCombinedSimulation(
 
         const riskPerShare = signal.entryPrice - stopLossPrice;
         if (riskPerShare <= 0) continue;
-        const riskAmount = cash * ((riskPctOverride ?? RISK_PER_TRADE_PCT) / 100) * breadthMul;
+        const riskAmount = riskBase() * ((riskPctOverride ?? RISK_PER_TRADE_PCT) / 100) * breadthMul;
         const rawQuantity = Math.floor(riskAmount / riskPerShare);
         let quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
         {
@@ -1203,7 +1414,7 @@ export function runCombinedSimulation(
 
         const riskPerShare = signal.entryPrice - stopLossPrice;
         if (riskPerShare <= 0) continue;
-        const riskAmount = cash * ((riskPctOverride ?? GAPUP_RISK_PER_TRADE_PCT) / 100) * breadthMulGu;
+        const riskAmount = riskBase() * ((riskPctOverride ?? GAPUP_RISK_PER_TRADE_PCT) / 100) * breadthMulGu;
         const rawQuantity = Math.floor(riskAmount / riskPerShare);
         let quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
         {
@@ -1254,7 +1465,7 @@ export function runCombinedSimulation(
 
         const riskPerShare = signal.entryPrice - stopLossPrice;
         if (riskPerShare <= 0) continue;
-        const riskAmount = cash * ((wbRiskPctOverride ?? riskPctOverride ?? WEEKLY_BREAK_RISK_PER_TRADE_PCT) / 100) * breadthMul;
+        const riskAmount = riskBase() * ((wbRiskPctOverride ?? riskPctOverride ?? WEEKLY_BREAK_RISK_PER_TRADE_PCT) / 100) * breadthMul;
         const rawQuantity = Math.floor(riskAmount / riskPerShare);
         let quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
         {
@@ -1305,7 +1516,7 @@ export function runCombinedSimulation(
 
         const riskPerShare = signal.entryPrice - stopLossPrice;
         if (riskPerShare <= 0) continue;
-        const riskAmount = cash * ((riskPctOverride ?? PSC_RISK_PER_TRADE_PCT) / 100) * breadthMulPsc;
+        const riskAmount = riskBase() * ((riskPctOverride ?? PSC_RISK_PER_TRADE_PCT) / 100) * breadthMulPsc;
         const rawQuantity = Math.floor(riskAmount / riskPerShare);
         let quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
         {
@@ -1362,7 +1573,7 @@ export function runCombinedSimulation(
 
         const riskPerShare = signal.currentPrice - stopLossPrice;
         if (riskPerShare <= 0) continue;
-        const riskAmount = cash * ((riskPctOverride ?? MOMENTUM_RISK_PER_TRADE_PCT) / 100);
+        const riskAmount = riskBase() * ((riskPctOverride ?? MOMENTUM_RISK_PER_TRADE_PCT) / 100);
         const rawQuantity = Math.floor(riskAmount / riskPerShare);
         let quantity = Math.floor(rawQuantity / UNIT_SHARES) * UNIT_SHARES;
         {
@@ -1411,7 +1622,7 @@ export function runCombinedSimulation(
         if (riskPerShare <= 0) continue;
 
         // ETF はリスク% × cash で枠を取り、1株単位で丸める（GU/PSC の100株単位とは異なる）
-        const riskAmount = cash * (etfConfigLocal.riskPct);
+        const riskAmount = riskBase() * (etfConfigLocal.riskPct);
         const rawQuantity = Math.floor(riskAmount / riskPerShare);
         const unit = etfConfigLocal.unitShares;
         let quantity = Math.floor(rawQuantity / unit) * unit;
@@ -1461,7 +1672,7 @@ export function runCombinedSimulation(
         const riskPerShare = signal.entryPrice - stopLossPrice;
         if (riskPerShare <= 0) continue;
 
-        const riskAmount = cash * (buybackConfigLocal.riskPct);
+        const riskAmount = riskBase() * (buybackConfigLocal.riskPct);
         const rawQuantity = Math.floor(riskAmount / riskPerShare);
         const unit = buybackConfigLocal.unitShares;
         let quantity = Math.floor(rawQuantity / unit) * unit;
@@ -1538,5 +1749,7 @@ export function runCombinedSimulation(
     buybackTrades: buybackAllTrades,
     totalCapitalAdded,
     haltDays,
+    preHolidayDays,
+    holidayVetoDays,
   };
 }

@@ -30,7 +30,7 @@
 - **前提条件**: 期待値 > 0、PF ≥ 1.3、RR比 ≥ 1.5
 - **出口戦略**: トレーリングストップ一本で利益を伸ばし、タイムストップで塩漬けを防止
 - **損切り**: ATRベースで機械的に損切り（最大3%）、固定利確は廃止
-- **頻度**: gapup（平均保有1〜2日）+ PSC（保有1〜2日）の複数戦略で機会を積み上げ
+- **頻度**: gapup（平均保有1〜2日）を主軸に回転率で機会を積み上げ、offseason は補完戦略（米株ETF / パニック底反発）で埋める
 
 ### コアバリュー
 
@@ -79,21 +79,23 @@
 
 #### 運用戦略
 
-**gapup + PSC の2本柱で運用中。** breakout / weekly-break / スコアリング系は停止・削除済み（git履歴で復元可能）。
+**gapup 単独 + offseason 補完（米株ETF / パニック底反発）で運用中。** breakout / weekly-break / スコアリング系は停止・削除済み（git履歴で復元可能）。
+
+**PSC は 2026-08-03 に新規エントリー停止**（`POST_SURGE_CONSOLIDATION.ENTRY_ENABLED=false`、Exit は常に稼働）。PSC 単体は今も有効（fullcycle 単体BT PF 2.31 / WF OOS集計PF 2.08 堅牢✓）だが、**GU と共有プールで走らせると GU 単独構成に一貫して負ける**。両者は同じ小型株ユニバースを相関したトリガーで狩る実質 substitute で、現金と銘柄を食い合うだけだった。fullcycle 2018-2026・本番と同じ総資産基準サイジングで **Calmar 26.88 → 34.57 (+29%)**、年代別3期でも GU 単独が一度も負けず。詳細は `.claude/rules/backtest.md`「事例: PSC を停止し GU 単独構成へ」。
 
 - **エントリー**:
   - gapup: `watchlist-builder` + `gapup-monitor` + `entry-executor`（平日15:24発注、翌日のクロージング前に寄り付きギャップアップを捕捉）
-  - PSC (高騰後押し目): `watchlist-builder` + `post-surge-consolidation-monitor` + `entry-executor`（同15:24発注）
+  - ~~PSC (高騰後押し目)~~ → 停止（コード・BTは再現用に残置）
 - **バックテスト**:
-  - `npm run backtest:combined`（GU + PSC を共有資金プールでシミュレーション、本番判断の主指標）
+  - `npm run backtest:combined`（本番判断の主指標。既定は GU3 単独で本番と一致。PSC を含む構成は `--compare-split-positions` で測る）
   - `npm run backtest:gapup` / `npm run backtest:psc`（診断用の個別BT）
-- **パラメータ検証**: `npm run walk-forward:gapup` / `npm run walk-forward:psc`（6ヶ月IS / 3ヶ月OOS）
+- **パラメータ検証**: `npm run walk-forward:gapup`（6ヶ月IS / 3ヶ月OOS）
 
 #### 実装ガイドライン
 
 - 損切りは必ず設定し、例外なく実行する（ATR×0.8、最大3%）
 - 固定利確は使わない — トレーリングストップで利益を伸ばす
-- タイムストップで塩漬け防止（gapup: 1〜2営業日、PSC: 5〜7営業日）
+- タイムストップで塩漬け防止（gapup: 1〜2営業日。PSC は停止中だが再開時 5〜7営業日）
 - **約定の記録には必ずブローカーの実約定価格を使う**（KOH-547）。BTの `exitPrice` は「決済すべきか」の判定用であって「いくらで売れたか」ではなく、日中に大きく乖離する。損益・実現損益・DD判定の土台になるので、モデル値で記録してはいけない
 - **DBだけ閉じる「幻の決済」を作らない**（KOH-550）。`closePosition` は必ず実際のブローカー約定に裏付けられた経路からのみ呼ぶ。売り注文が失敗したら close も通知もせず 🚨 を上げる
 

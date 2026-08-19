@@ -51,3 +51,4 @@ env/
 
 # JPX CSV (週次同期で自動生成)
 /data/data_j.csv
+parity-audit.json

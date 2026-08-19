@@ -21,7 +21,10 @@ import {
   miniBarChart,
   detailRow,
   signalRow,
+  strategyBadge,
   tt,
+  pagination,
+  parsePage,
 } from "../views/components";
 import type { SignalStatus } from "../views/components";
 
@@ -79,12 +82,23 @@ app.get("/", async (c) => {
   const thirtyDaysAgo = dayjs().subtract(ROUTE_LOOKBACK_DAYS.HISTORY, "day").toDate();
   const ninetyDaysAgo = dayjs().subtract(90, "day").toDate();
 
+  // 日次サマリーは期間で打ち切らず、全期間をページ送りで辿れるようにする
+  const summaryPage = parsePage(c.req.query("page"));
+  const summaryPageSize = QUERY_LIMITS.HISTORY_SUMMARIES;
+
   // Parallel data fetch
-  const [summaries, closedPositions, assessments, rejectedSignals] = await Promise.all([
+  const [summaries, summaryTotal, chartSummaries, closedPositions, assessments, rejectedSignals] =
+    await Promise.all([
+    prisma.tradingDailySummary.findMany({
+      orderBy: { date: "desc" },
+      skip: (summaryPage - 1) * summaryPageSize,
+      take: summaryPageSize,
+    }),
+    prisma.tradingDailySummary.count(),
+    // 累積損益チャートは「過去30日」固定。一覧のページ送りに引きずられないよう別取得
     prisma.tradingDailySummary.findMany({
       where: { date: { gte: thirtyDaysAgo } },
       orderBy: { date: "desc" },
-      take: QUERY_LIMITS.HISTORY_SUMMARIES,
     }),
     prisma.tradingPosition.findMany({
       where: { status: "closed", exitedAt: { gte: ninetyDaysAgo } },
@@ -117,10 +131,20 @@ app.get("/", async (c) => {
   }
   const totalClosed = closedPositions.length;
   const trailingPct = totalClosed > 0 ? (exitCounts.trailing / totalClosed) * 100 : 0;
-  const trailingStatus: SignalStatus =
-    trailingPct >= 40 ? "ok" : trailingPct >= 20 ? "warning" : "danger";
-  const trailingComment =
-    trailingPct >= 40
+  // \u6C7A\u6E08\u7DCF\u6570\u304C\u5C11\u306A\u3044\u671F\u9593\u306F trailing\u6BD4\u7387\u304C\u6570\u4EF6\u306E\u30D6\u30EC\u3067\u6975\u7AEF\u306B\u632F\u308C\u3001\u5224\u5B9A\u304C\u8AA4\u8B66\u5831\u306B\u306A\u308B\u3002
+  // \u5341\u5206\u306A\u6BCD\u6570\u304C\u96C6\u307E\u308B\u307E\u3067\u306F\u4E2D\u7ACB\u8868\u793A\u306B\u3059\u308B\uFF08\u5916\u308C\u5024\u30FB\u5C11\u6570\u30B5\u30F3\u30D7\u30EB\u8AA4\u8AAD\u9632\u6B62\uFF09\u3002
+  const TRAILING_MIN_SAMPLE = 10;
+  const trailingSampleEnough = totalClosed >= TRAILING_MIN_SAMPLE;
+  const trailingStatus: SignalStatus = !trailingSampleEnough
+    ? "neutral"
+    : trailingPct >= 40
+      ? "ok"
+      : trailingPct >= 20
+        ? "warning"
+        : "danger";
+  const trailingComment = !trailingSampleEnough
+    ? `\u6C7A\u6E08${totalClosed}\u4EF6\uFF08${TRAILING_MIN_SAMPLE}\u4EF6\u4EE5\u4E0A\u3067\u5224\u5B9A\uFF09`
+    : trailingPct >= 40
       ? "\u5229\u76CA\u3092\u4F38\u3070\u305B\u3066\u3044\u308B"
       : trailingPct >= 20
         ? "\u6A19\u6E96\u7684"
@@ -200,6 +224,41 @@ app.get("/", async (c) => {
     0,
   );
 
+  // === 戦略別損益の内訳 ===
+  // closedPositions を strategy でグループ化し、戦略ごとに 件数 / 損益 / 勝率 / PF を集計する。
+  const strategyStats = new Map<
+    string,
+    { count: number; pnl: number; wins: number; grossProfit: number; grossLoss: number }
+  >();
+  for (const p of closedPositions) {
+    const stat = strategyStats.get(p.strategy) ?? {
+      count: 0,
+      pnl: 0,
+      wins: 0,
+      grossProfit: 0,
+      grossLoss: 0,
+    };
+    const pnl = getPositionPnl(p);
+    stat.count++;
+    stat.pnl += pnl;
+    if (pnl > 0) {
+      stat.wins++;
+      stat.grossProfit += pnl;
+    } else {
+      stat.grossLoss += Math.abs(pnl);
+    }
+    strategyStats.set(p.strategy, stat);
+  }
+  const strategyRows = [...strategyStats.entries()]
+    .map(([strategy, s]) => ({
+      strategy,
+      count: s.count,
+      pnl: s.pnl,
+      winRate: s.count > 0 ? (s.wins / s.count) * 100 : 0,
+      pf: s.grossLoss > 0 ? s.grossProfit / s.grossLoss : s.grossProfit > 0 ? Infinity : 0,
+    }))
+    .sort((a, b) => b.pnl - a.pnl);
+
   // === Signal selection accuracy ===
   const entryPnlPcts = closedPositions
     .filter((p) => p.entryPrice && p.exitPrice && Number(p.entryPrice) > 0)
@@ -232,12 +291,19 @@ app.get("/", async (c) => {
     rejByReason[key].avg5d /= rejByReason[key].count;
   }
 
+  const summaryTotalPages = Math.max(1, Math.ceil(summaryTotal / summaryPageSize));
+
+  // 範囲外のページは空表示のまま戻れなくなるので最終ページへ寄せる
+  if (summaryPage > summaryTotalPages) {
+    return c.redirect(`/history?page=${summaryTotalPages}`);
+  }
+
   // === Gate log ===
   const tradeDays = assessments.filter((a) => a.shouldTrade).length;
   const skipDays = assessments.filter((a) => !a.shouldTrade);
 
   // Cumulative PnL chart data (oldest first)
-  const chartData = [...summaries].reverse().reduce<
+  const chartData = [...chartSummaries].reverse().reduce<
     { label: string; value: number }[]
   >((acc, s) => {
     const prev = acc.length > 0 ? acc[acc.length - 1].value : 0;
@@ -267,7 +333,9 @@ app.get("/", async (c) => {
             <div style="margin-top:10px;padding-top:10px;border-top:1px solid ${COLORS.border}">
               ${signalRow(
                 "\u30C8\u30EC\u30FC\u30EA\u30F3\u30B0\u6BD4\u7387",
-                `${trailingPct.toFixed(0)}%: ${trailingComment}`,
+                trailingSampleEnough
+                  ? `${trailingPct.toFixed(0)}%: ${trailingComment}`
+                  : trailingComment,
                 trailingStatus,
               )}
             </div>
@@ -288,6 +356,39 @@ app.get("/", async (c) => {
             ${detailRow(tt("利益返還率", "MFEのうち返した割合。低いほど利益を守れている"), `${(avgGiveback * 100).toFixed(0)}%`)}
             ${detailRow("\u640D\u76CA", pnlText(totalPnl))}
             ${detailRow("\u53D6\u5F15\u6570", `${totalClosed}\u4EF6`)}
+          </div>
+        `
+      : html`<div class="card">${emptyState("\u6C7A\u6E08\u6E08\u307F\u30C8\u30EC\u30FC\u30C9\u306A\u3057")}</div>`}
+
+    <!-- Strategy Breakdown -->
+    <p class="section-title">${tt("\u6226\u7565\u5225\u640D\u76CA", "\u6226\u7565\u3054\u3068\u306E\u5B9F\u73FE\u640D\u76CA\u30FB\u4EF6\u6570\u30FB\u52DD\u7387\u30FBPF")}\uFF0890\u65E5\uFF09</p>
+    ${strategyRows.length > 0
+      ? html`
+          <div class="card table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>\u6226\u7565</th>
+                  <th>\u53D6\u5F15</th>
+                  <th>${tt("\u52DD\u7387", "\u5229\u76CA\u304C\u51FA\u305F\u30C8\u30EC\u30FC\u30C9\u306E\u5272\u5408")}</th>
+                  <th>${tt("PF", "\u30D7\u30ED\u30D5\u30A3\u30C3\u30C8\u30D5\u30A1\u30AF\u30BF\u30FC\u3002\u7DCF\u5229\u76CA\u00F7\u7DCF\u640D\u5931")}</th>
+                  <th>${tt("\u640D\u76CA", "\u6226\u7565\u3054\u3068\u306E\u5B9F\u73FE\u640D\u76CA\u5408\u8A08")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${strategyRows.map(
+                  (r) => html`
+                    <tr>
+                      <td data-label="\u6226\u7565">${strategyBadge(r.strategy)}</td>
+                      <td data-label="\u53D6\u5F15">${r.count}\u4EF6</td>
+                      <td data-label="\u52DD\u7387">${r.winRate.toFixed(0)}%</td>
+                      <td data-label="PF">${r.pf === Infinity ? "\u221E" : r.pf.toFixed(2)}</td>
+                      <td data-label="\u640D\u76CA">${pnlText(r.pnl)}</td>
+                    </tr>
+                  `,
+                )}
+              </tbody>
+            </table>
           </div>
         `
       : html`<div class="card">${emptyState("\u6C7A\u6E08\u6E08\u307F\u30C8\u30EC\u30FC\u30C9\u306A\u3057")}</div>`}
@@ -363,10 +464,10 @@ app.get("/", async (c) => {
     </div>
 
     <!-- Daily Summary Table -->
-    <p class="section-title">\u65E5\u6B21\u30B5\u30DE\u30EA\u30FC</p>
+    <p class="section-title">\u65E5\u6B21\u30B5\u30DE\u30EA\u30FC\uFF08\u5168\u671F\u9593 ${summaryTotal}\u65E5\uFF09</p>
     ${summaries.length > 0
       ? html`
-          <div class="card table-wrap responsive-table">
+          <div class="card table-wrap">
             <table>
               <thead>
                 <tr>
@@ -413,6 +514,7 @@ app.get("/", async (c) => {
               </tbody>
             </table>
           </div>
+          ${pagination("/history", summaryPage, summaryTotalPages)}
         `
       : html`<div class="card">${emptyState("\u65E5\u6B21\u30B5\u30DE\u30EA\u30FC\u306A\u3057")}</div>`}
   `;

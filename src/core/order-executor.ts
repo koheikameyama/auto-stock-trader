@@ -5,7 +5,8 @@
  */
 
 import { prisma } from "../lib/prisma";
-import { getStartOfDayJST } from "../lib/market-date";
+import { getStartOfDayJST, countTradingDaysBetween } from "../lib/market-date";
+import { TRADING_DEFAULTS } from "../lib/constants/trading";
 import type { TradingOrder } from "@prisma/client";
 
 /**
@@ -144,6 +145,45 @@ export async function getSameDayPendingBuyTickers(): Promise<Set<string>> {
     include: { stock: { select: { tickerCode: true } } },
   });
   return new Set(pendingBuys.map((o) => o.stock.tickerCode));
+}
+
+/**
+ * 直近 cooldown 期間内に決済（close）した銘柄を返す（再エントリー cooldown、戦略横断・global）。
+ *
+ * BT combined-simulation はある銘柄を決済すると全戦略共有の lastExitDayIdx に記録し、
+ * エントリー側で `dayIdx - lastExit < cooldownDays(=3)` の間は再エントリーを禁止する。
+ * この制約が本番エントリー経路に無く（実効 cooldown 0日）、決済した当日の 15:24 再スキャンで
+ * 同一銘柄を即再建玉できてしまう（例: 2026-07-13〜17 の 3276.T が PSC で4連続建玉）。
+ * 却下#43(KOH-558) の16窓検定で 0日は3日に符号検定 p=0.038 で有意に劣るため BT に合わせて移植する。
+ *
+ * 判定は BT の `dayIdx - lastExit < cooldownDays` と厳密一致させるため
+ * `countTradingDaysBetween(決済日, 今日) < cooldownDays`（決済当日=0で除外、3営業日後に解禁）。
+ * 銘柄の重複除外は getSameDayPendingBuyTickers と同じく全戦略横断（BTの共有 lastExitDayIdx に一致）。
+ */
+export async function getRecentlyExitedTickers(
+  cooldownTradingDays: number = TRADING_DEFAULTS.REENTRY_COOLDOWN_TRADING_DAYS,
+): Promise<Set<string>> {
+  const result = new Set<string>();
+  if (cooldownTradingDays <= 0) return result;
+
+  // cooldown 営業日は連休・祝日を跨ぐと暦日で大きく伸びるため、余裕を持って暦日で粗く絞ってから
+  // countTradingDaysBetween で厳密判定する（GW/年末年始でも 3営業日は 14暦日で確実にカバー）。
+  const lookbackCalendarDays = cooldownTradingDays * 3 + 8;
+  const since = new Date(Date.now() - lookbackCalendarDays * 24 * 60 * 60 * 1000);
+  const today = new Date();
+
+  const recentExits = await prisma.tradingPosition.findMany({
+    where: { status: "closed", exitedAt: { gte: since } },
+    select: { exitedAt: true, stock: { select: { tickerCode: true } } },
+  });
+
+  for (const p of recentExits) {
+    if (!p.exitedAt) continue;
+    if (countTradingDaysBetween(p.exitedAt, today) < cooldownTradingDays) {
+      result.add(p.stock.tickerCode);
+    }
+  }
+  return result;
 }
 
 /**

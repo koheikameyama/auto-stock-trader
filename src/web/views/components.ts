@@ -126,8 +126,48 @@ export function emptyState(message: string): HtmlContent {
   return html`<div class="empty">${message}</div>`;
 }
 
+/**
+ * ページネーション（← 前へ / n / total / 次へ →）
+ *
+ * 一覧は件数で打ち切らず、全件をページ送りで辿れるようにするための共通UI。
+ * `params` に現在のフィルター（戦略など）を渡すとページ送り時も維持される。
+ * 1ページに収まる場合は何も描画しない。
+ */
+export function pagination(
+  basePath: string,
+  page: number,
+  totalPages: number,
+  params: Record<string, string> = {},
+): HtmlContent {
+  if (totalPages <= 1) return html``;
+
+  const href = (p: number) => {
+    const query = new URLSearchParams({ ...params, page: String(p) });
+    return `${basePath}?${query.toString()}`;
+  };
+  const prevEnabled = page > 1;
+  const nextEnabled = page < totalPages;
+  // 無効側は pointer-events:none だがキーボード操作では辿れるので、
+  // href 自体を範囲内に丸めて 0 ページ目などに飛ばないようにする
+  const prevPage = prevEnabled ? page - 1 : 1;
+  const nextPage = nextEnabled ? page + 1 : totalPages;
+
+  return html`<div class="pagination">
+    <a class="pagination-link${prevEnabled ? "" : " disabled"}" href="${href(prevPage)}">← 前へ</a>
+    <span class="pagination-info">${page} / ${totalPages}</span>
+    <a class="pagination-link${nextEnabled ? "" : " disabled"}" href="${href(nextPage)}">次へ →</a>
+  </div>`;
+}
+
+/**
+ * クエリパラメータからページ番号を取り出す（不正値は 1 に丸める）
+ */
+export function parsePage(raw: string | undefined): number {
+  return Math.max(1, Number.parseInt(raw ?? "1", 10) || 1);
+}
+
 /** Signal light row (信号灯付きラベル: 値) */
-export type SignalStatus = "ok" | "warning" | "danger";
+export type SignalStatus = "ok" | "warning" | "danger" | "neutral";
 
 export function signalRow(
   label: string | HtmlContent,
@@ -135,13 +175,21 @@ export function signalRow(
   status: SignalStatus,
 ): HtmlContent {
   const emoji =
-    status === "ok" ? "\u{1F7E2}" : status === "warning" ? "\u{1F7E1}" : "\u{1F534}";
+    status === "ok"
+      ? "\u{1F7E2}"
+      : status === "warning"
+        ? "\u{1F7E1}"
+        : status === "neutral"
+          ? "⚪"
+          : "\u{1F534}";
   const color =
     status === "ok"
       ? COLORS.profit
       : status === "warning"
         ? COLORS.warning
-        : COLORS.loss;
+        : status === "neutral"
+          ? COLORS.textMuted
+          : COLORS.loss;
   return html`<div class="detail-row">
     <span class="detail-label">${label}</span>
     <span style="color:${color}">${emoji} ${valueText}</span>

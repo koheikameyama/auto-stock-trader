@@ -218,6 +218,33 @@ interface StopLossValidation {
 | ATRベース最大損切り | 損切り幅 > ATR × 2.0           | ATR × 1.5 に引き下げ                         |
 | サポートライン考慮  | サポートラインが存在           | サポートライン - ATR × 0.3 に設定            |
 
+#### SL/TP の基準価格は「約定価格」
+
+`src/core/exit-price-calculator.ts` に集約。
+
+発注時点では約定価格が分からないため、`entry-executor` はスキャン時のライブ値を基準に
+SL/TP を計算して注文に載せる。**約定したら約定価格を基準に張り直す**
+（`recalculateExitPricesOnFill()`。約定検知の2経路 `broker-fill-handler`＝EVENT I/F 主系 /
+`position-monitor`＝ポーリング補系の両方から呼ぶ）。
+
+BT（`combined-simulation.ts`）の SL は一貫して `entryPrice - ATR × 倍率`（= 約定価格基準、
+3%上限でクランプ）であり、記録されている全成績はこの定義で出ている。張り直さないと live だけ
+定義がズレる。
+
+> 旧実装は約定後に上表の `validateStopLoss()` を通すだけだった。同関数が見るのは
+> 「ATR×0.5未満 / ATR×2.0超 / 3%超」の3点なので、GU/PSC の設計値 ATR×0.8 からのズレは
+> **0.5〜2.0 の帯に収まる限り素通し**され、SL がトリガー価格基準のまま残っていた。
+> 2026-07-31 時点の本番 GU/PSC 31玉で 実効SL幅 ÷ 設計幅 = 平均 0.959（21玉が設計より狭い）。
+> 引け成行の買いはマイナススリッページが多数派なので、構造的に「狭くなる＝ノイズで刈られやすい」
+> 側へ偏っていた。
+
+対象外の戦略:
+
+| 戦略 | 扱い |
+| --- | --- |
+| buyback / panic | -12% 固定カタストロフSL。ATR で張り直さない（`fixed-sl.ts` / KOH-555） |
+| us_etf | -2% 固定SL。ATR を使わないので `SL_ATR_MULTIPLIER` に載せない |
+
 #### 損切り強制実行
 
 `position-monitor.ts` での損切り判定はルールベースで機械的に実行する。
@@ -339,9 +366,17 @@ interface LiquidityCheckResult {
 
 1. `executeEntry()` 内で `canOpenPosition()` 通過後に `fetchStockQuote()` で最新板情報を取得
 2. `checkLiquidity()` でスプレッド・板厚・売り圧力を検証
-3. 不合格 → `retryable: true` で返却（次スキャンで再試行可能）
+3. 不合格 → `retryable: true` + `rejectLabel: "流動性不足"` で返却（次スキャンで再試行可能）
 4. リスクフラグ → ログ出力（ブロックはしない）
 5. 板情報は `entrySnapshot.liquidity` に記録（事後分析用）
+
+不合格時は `RejectedSignal` に「流動性不足」ラベルで1行記録し、当日初回のみ Slack に
+`⛔ エントリー棄却` を通知する（15:24:00/20/40 のリトライtickで重複しないよう当日1回に集約）。
+
+⚠️ ラベルは `rejectLabel` で明示指定する。`getRejectedLabel()` は理由文の正規表現で後付け分類する
+仕組みで、`checkLiquidity()` の理由文（「売り板 N株 < 注文 M株…」「スプレッド X% > 上限 Y%」）は
+"流動性" の語を含まないため、推定に任せると「その他」に落ちて通知対象から外れる
+（2026-08-14 に GU 2件が無通知で消えた事象の原因）。
 
 ### 板情報が取得できない場合
 
@@ -432,8 +467,16 @@ market-scannerの判定は「機械的ゲート → 戦略決定 → 銘柄ス�
   ├─ [1.8.5] 日経平均キルスイッチ
   │   └─ 前日比 ≤ -3% → 取引停止（crisis）
   │
-  │   ※ N225 SMA50フィルターは廃止済み（2026-04-01）
-  │     WF検証でbreadth73%で十分と判定。SMA50は遅行指標でリバウンド初期を逃すため。
+  ├─ [1.8.6] N225 SMA50フィルター
+  │   └─ 直近確定セッション終値 < SMA50 → 取引停止（shouldTrade=false, sentiment=normal）
+  │      BT側 `precomputeSimData()` の `dailyIndexAboveSma` と同一ロジック
+  │      （`INDEX_TREND_HYSTERESIS` のバッファを共有、現状 0=バッファなし）
+  │
+  │   ※ 2026-04-01 に一度廃止したが 2026-08-03 に復活。廃止時に BT 側は
+  │     breakout-config しか false にしておらず gapup/psc は indexTrendFilter:true の
+  │     ままだったため、GU/PSC の検証済みパラメータ一式と本番の挙動が乖離していた。
+  │     combined BT 実測で ON が全窓優位（Calmar 31.4 → 10.7 等）。
+  │     詳細は .claude/rules/backtest.md「事例: N225 SMA50 フィルターの本番/BT 乖離」
   │
   └─ [1.9] ドローダウンチェック
       └─ 週次 -5% or 月次 -10% or 5連敗 → 取引停止

@@ -24,6 +24,47 @@ GitHub Actionsのcronスケジュールは実行タイミングが数分〜数�
 | **cron-job.org** | 平日に毎日実行するバッチ処理 | morning-analysis, order-manager, end-of-day, ghost-review, defensive-exit-followup, unfilled-order-followup, daily-backtest |
 | **GitHub Actions cron** | 週末・低頻度など、数分〜数十分のズレが許容される処理 | jpx-delisting-sync, weekly-review, scoring-accuracy-report, check-openai-usage, backfill-prices |
 
+### ⛔ cron の day-of-month と day-of-week は OR になる
+
+**「第1土曜」のつもりで `"0 2 1-7 * 6"` と書いてはいけない。**
+
+POSIX cron 仕様では、day-of-month (第3フィールド) と day-of-week (第5フィールド) の**両方**を
+`*` 以外にすると **OR 条件**になる。`"0 2 1-7 * 6"` は「毎月1〜7日の土曜」ではなく
+**「毎月1〜7日の毎日 + 毎週土曜」= 月11〜12回**実行される。
+
+実例 (KOH-605): `scheduled_monthly-strategy-health.yml` がこの書き方で 2026-05〜08 の3ヶ月間
+毎日実行され続けた (CI 約12分/回の浪費 + Slack に「月次」レポートが連日投下)。
+
+**正しい書き方**: cron は片側だけ指定し、もう片側の条件はゲートジョブで判定する。
+
+```yaml
+on:
+  schedule:
+    - cron: "0 2 * * 6"  # 毎週土曜に起動し、ジョブ側で第1土曜に絞る
+
+jobs:
+  check-first-saturday:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - id: gate
+        run: |
+          DAY=$(TZ=Asia/Tokyo date +%-d)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$DAY" -le 7 ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  main-job:
+    needs: check-first-saturday
+    if: needs.check-first-saturday.outputs.run == 'true'
+```
+
+- `workflow_dispatch` (手動実行) はゲートを素通しにする
+- 後続ジョブに `if: always()` がある場合は `always() && needs.check-first-saturday.outputs.run == 'true'` にする (ゲートまで素通ししてしまうため)
+
 ### cron-job.orgの設定方法
 
 **設定変更はcron-job.org APIを使用してください。**

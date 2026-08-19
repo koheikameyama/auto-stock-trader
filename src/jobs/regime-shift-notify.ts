@@ -98,9 +98,17 @@ async function main() {
     transitionLine = `\n\n変化: ${getLevelEmoji(previous.level)} ${getLevelLabel(previous.level)} → ${getLevelEmoji(current.level)} ${getLevelLabel(current.level)}`;
   }
 
+  // MODERATE_BULL 以上 = D期入りの可能性。即応チェックリスト (発注経路・SL板・データ鮮度
+  // の点検手順) を案内する。リターンの本体は約3年に1回のD期に集中するため (却下#21)、
+  // その入り口でシステムが止まっていないことを人間が確認する
+  const checklistLine =
+    levelRank(current.level) >= levelRank("MODERATE_BULL")
+      ? "\n\n📋 D期即応チェックリストを実施してください:\nhttps://github.com/koheikameyama/auto-stock-trader/blob/main/docs/d-period-readiness-checklist.md"
+      : "";
+
   await notifySlack({
     title: `${titlePrefix}: ${current.signalCount}/5`,
-    message: body + transitionLine,
+    message: body + transitionLine + checklistLine,
     color: COLOR_BY_LEVEL[current.level],
   });
 }

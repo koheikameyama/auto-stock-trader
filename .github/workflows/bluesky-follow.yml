@@ -1,0 +1,35 @@
+# Bluesky のフォロー候補発見＋自動フォロー（1日最大5件、KOH-638）
+# Threads は API にフォロー機能が無いため、検索リンクを Slack に通知するのみ。
+# X のフォロー自動化は規約リスクのため対象外。
+name: "Bluesky follow"
+
+on:
+  schedule:
+    # 毎日 12:05 JST（タイミング精度は不要なので GitHub Actions cron で十分）
+    - cron: "5 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: bluesky-follow
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
+  BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
+  SNS_POST_SLACK_WEBHOOK_URL: ${{ secrets.SNS_POST_SLACK_WEBHOOK_URL }}
+
+jobs:
+  bluesky-follow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - run: npx tsx src/jobs/bluesky-follow.ts

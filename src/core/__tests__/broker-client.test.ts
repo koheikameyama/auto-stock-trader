@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import crypto from "crypto";
+import iconv from "iconv-lite";
 import { TachibanaClient, resetTachibanaClient } from "../broker-client";
 
 const { mockTradingConfigFindFirst, mockTradingConfigUpdate } = vi.hoisted(() => ({
@@ -57,6 +58,17 @@ function createMockResponse(data: Record<string, string>) {
     status: 200,
     statusText: "OK",
     arrayBuffer: () => Promise.resolve(buffer.buffer),
+  };
+}
+
+/** Shift_JISエンコードのレスポンス（日本語エラーテキストが fetchWithDecode で正しく復号されるように） */
+function createMockResponseSjis(data: Record<string, string>) {
+  const buffer = iconv.encode(JSON.stringify(data), "shift_jis");
+  return {
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    arrayBuffer: () => Promise.resolve(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)),
   };
 }
 
@@ -272,6 +284,37 @@ describe("TachibanaClient", () => {
       const res = await client.request({ sCLMID: "CLMOrderList" });
       expect(res.sResultCode).toBe("0");
       expect(res.sSummaryGenkabuKaituke).toBe("20000000");
+    });
+
+    it("p_no順序エラー時はサーバ最終p_no+余裕まで先行してリトライ成功する", async () => {
+      // ログイン
+      mockFetch.mockResolvedValueOnce(loginSuccessResponse());
+      await client.login();
+
+      // 1回目: p_no順序エラー（サーバ最終p_no=5000）→ 2回目: 成功
+      // 日本語エラーテキストは fetchWithDecode が shift_jis で復号するため SJIS で返す。
+      mockFetch
+        .mockResolvedValueOnce(
+          createMockResponseSjis({
+            "287": "6",
+            "286": "引数（p_no:[2] <= 前要求.p_no:[5000]）エラー。",
+            "334": "CLMOrderList",
+          }),
+        )
+        .mockResolvedValueOnce(
+          createMockResponse({ "287": "0", "334": "CLMOrderList" }),
+        );
+
+      const res = await client.request({ sCLMID: "CLMOrderList" });
+      expect(res.sResultCode).toBe("0");
+
+      // リトライ送信のp_noが「サーバ最終5000 + 余裕1000 + インクリメント1 = 6001」であること。
+      // +1しか先行しないと並行プロセスに即追い抜かれるため、余裕分の先行が回帰しないよう固定する。
+      const retryUrl = mockFetch.mock.calls.at(-1)![0] as string;
+      const retryParams = JSON.parse(
+        decodeURIComponent(retryUrl.split("?")[1]),
+      );
+      expect(retryParams.p_no).toBe("6001");
     });
   });
 

@@ -125,10 +125,10 @@ async function syncBrokerSLStatuses(): Promise<void> {
   });
   if (positions.length === 0) return;
 
-  // 引け後発注のSLは submitOrder 応答に sEigyouDay が無く slBrokerBusinessDay が
-  // 欠落する（Issue #322 / KOH-532）。CLMOrderList の注文番号照合でバックフィルしないと
-  // 本関数・handleMissingHolding・cancelBrokerSL の全てが素通りし、SL約定を検知できない。
-  await backfillMissingSLBusinessDays(positions);
+  // slBrokerBusinessDay を CLMOrderList の現在値に同期する。欠落（引け後発注で sEigyouDay 無し、
+  // Issue #322 / KOH-532）と陳腐化（複数日逆指値が翌営業日以降に約定/失効して営業日が前進、KOH-587）
+  // の両方を補正しないと、本関数・handleMissingHolding・cancelBrokerSL が古い営業日で照会して素通りする。
+  await syncSLBusinessDays(positions);
 
   for (const pos of positions) {
     if (!pos.slBrokerOrderId || !pos.slBrokerBusinessDay) continue;
@@ -141,6 +141,16 @@ async function syncBrokerSLStatuses(): Promise<void> {
     if (!detail) continue;
 
     const brokerStatus = String(detail.sOrderStatusCode ?? detail.sOrderStatus ?? "");
+
+    // 約定済み（全部/一部）は Phase 3（reconcileHoldings → handleMissingHolding）が実約定価格で
+    // クローズする管轄。ここで残数量0を数量乖離と誤検知して cancelBrokerSL/クリアすると、約定確認
+    // 経路を壊して「幻の保有」警告を招く（KOH-587）。約定は本フェーズ対象外なので早期スキップ。
+    if (
+      brokerStatus === TACHIBANA_ORDER_STATUS.FULLY_FILLED ||
+      brokerStatus === TACHIBANA_ORDER_STATUS.PARTIAL_FILLED
+    ) {
+      continue;
+    }
 
     // (1) 取消・失効の検出
     if (
@@ -200,11 +210,18 @@ async function syncBrokerSLStatuses(): Promise<void> {
 }
 
 /**
- * slBrokerBusinessDay 欠落（null / 空文字）のSL注文を CLMOrderList の注文番号照合で
- * バックフィルする（syncBrokerOrderStatuses の TradingOrder 救済と同型、KOH-532）。
+ * SL注文の slBrokerBusinessDay を CLMOrderList の現在の実効営業日（sOrderSikkouDay）に同期する。
+ * 2つのズレを扱う:
+ *   (a) 欠落（null / 空文字）: 引け後発注で submitOrder 応答に sEigyouDay が無かった場合（KOH-532）
+ *   (b) 陳腐化（保存値 ≠ 現在値）: 複数日逆指値が発注日より後の営業日に約定/失効すると立花側の実効
+ *       営業日が前進する。保存された発注日のままだと getOrderDetail が古いインスタンス（失効）を返し、
+ *       約定確認（handleMissingHolding）・状態判定（syncBrokerSLStatuses）・SL取消（cancelBrokerSL）が
+ *       全て空振りし「幻の保有」警告＋自動クローズ失敗を招く（KOH-587）。
  * DB更新に加えて引数の positions 要素も直接書き換え、同一実行内の後続処理に反映する。
+ * 安全のため営業日は前進方向のみ更新する（逆指値のロールは常に将来日。注文番号衝突による
+ * 意図しない後退を防ぐ）。
  */
-async function backfillMissingSLBusinessDays(
+async function syncSLBusinessDays(
   positions: Array<{
     id: string;
     slBrokerOrderId: string | null;
@@ -212,10 +229,8 @@ async function backfillMissingSLBusinessDays(
     stock: { tickerCode: string };
   }>,
 ): Promise<void> {
-  const missing = positions.filter(
-    (p) => p.slBrokerOrderId && !p.slBrokerBusinessDay,
-  );
-  if (missing.length === 0) return;
+  const withOrder = positions.filter((p) => p.slBrokerOrderId);
+  if (withOrder.length === 0) return;
 
   const res = await getOrders({ statusFilter: "" }).catch(() => null);
   if (!res || res.sResultCode !== "0") return;
@@ -228,16 +243,23 @@ async function backfillMissingSLBusinessDays(
     if (orderNum && day) dayByOrderNum.set(orderNum, day);
   }
 
-  for (const pos of missing) {
-    const day = dayByOrderNum.get(pos.slBrokerOrderId!);
-    if (!day) continue;
+  for (const pos of withOrder) {
+    const currentDay = dayByOrderNum.get(pos.slBrokerOrderId!);
+    if (!currentDay) continue;
+    const storedDay = pos.slBrokerBusinessDay ?? "";
+    if (storedDay === currentDay) continue;
+    // 前進のみ許可（欠落=storedDay空 は無条件、それ以外は currentDay > storedDay のみ）
+    if (storedDay && currentDay <= storedDay) continue;
+
     await prisma.tradingPosition.update({
       where: { id: pos.id },
-      data: { slBrokerBusinessDay: day },
+      data: { slBrokerBusinessDay: currentDay },
     });
-    pos.slBrokerBusinessDay = day;
+    pos.slBrokerBusinessDay = currentDay;
     console.log(
-      `[broker-reconciliation] ${pos.stock.tickerCode}: SL注文 ${pos.slBrokerOrderId} の欠落営業日を ${day} でバックフィル`,
+      storedDay
+        ? `[broker-reconciliation] ${pos.stock.tickerCode}: SL注文 ${pos.slBrokerOrderId} の営業日を ${storedDay} → ${currentDay} に同期（逆指値ロール検出、KOH-587）`
+        : `[broker-reconciliation] ${pos.stock.tickerCode}: SL注文 ${pos.slBrokerOrderId} の欠落営業日を ${currentDay} でバックフィル（KOH-532）`,
     );
   }
 }

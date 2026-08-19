@@ -13,8 +13,12 @@ import { prisma } from "../lib/prisma";
 import { getTodayForDB } from "../lib/market-date";
 import { tachibanaFetchQuotesBatch } from "../lib/tachibana-price-client";
 import { getAllWatchlist } from "./watchlist-builder";
-import { executeEntry } from "../core/breakout/entry-executor";
-import { getSameDayPendingBuyTickers, countSameDayPendingBuys } from "../core/order-executor";
+import {
+  executeEntry,
+  recordSkippedCandidates,
+  recordSkippedByHolding,
+} from "../core/breakout/entry-executor";
+import { getSameDayPendingBuyTickers, countSameDayPendingBuys, getRecentlyExitedTickers } from "../core/order-executor";
 import { notifySlack } from "../lib/slack";
 import { TIMEZONE } from "../lib/constants";
 import { TRADING_DEFAULTS } from "../lib/constants/trading";
@@ -86,10 +90,15 @@ export async function main(): Promise<void> {
       where: { status: { in: ["open", "ordered"] } },
       include: { stock: { select: { tickerCode: true } } },
     });
-    const holdingTickers = new Set(openPositions.map((p) => p.stock.tickerCode));
+    const heldTickers = new Set(openPositions.map((p) => p.stock.tickerCode));
     // 約定前は TradingPosition が無いため、当日の pending 買い注文（全戦略横断）も保有扱いで除外。
     // 先行する GU/PSC が出した未約定注文を検知できず同一銘柄に二重建てする事故を防ぐ（Issue #322）。
-    for (const t of await getSameDayPendingBuyTickers()) holdingTickers.add(t);
+    const pendingTickers = await getSameDayPendingBuyTickers();
+    // 決済後3営業日の再エントリー cooldown（戦略横断・global）。BT combined-simulation の
+    // cooldownDays: 3 と整合させる（本番は従来 cooldown 0日で、朝決済→同日15:24に即再建玉していた。KOH-586）。
+    const cooldownTickers = await getRecentlyExitedTickers();
+    // 除外理由は弾き分析でラベル分けするため、3つの集合を個別に保持しておく
+    const holdingTickers = new Set([...heldTickers, ...pendingTickers, ...cooldownTickers]);
 
     // リアルタイム時価を一括取得
     const quotesRaw = await tachibanaFetchQuotesBatch(tickers);
@@ -121,7 +130,20 @@ export async function main(): Promise<void> {
     }));
 
     const scanner = new PostSurgeConsolidationScanner(watchlist);
-    const triggers = scanner.scan(quotes, historicalMap, holdingTickers);
+    const { triggers, skipped: skippedByHolding } = scanner.scan(
+      quotes,
+      historicalMap,
+      holdingTickers,
+    );
+
+    // シグナルは満たしたが保有中/当日発注済み/決済後cooldownで発注しなかった候補も弾き分析に載せる
+    await recordSkippedByHolding(
+      skippedByHolding,
+      "post-surge-consolidation",
+      heldTickers,
+      pendingTickers,
+      cooldownTickers,
+    );
 
     // トリガーに板情報を付与
     const rawQuoteMap = new Map(quotesNonNull.map((q) => [q.tickerCode, q]));
@@ -168,16 +190,26 @@ export async function main(): Promise<void> {
     const pscUsedSlots = pscOpenCount + pscPendingCount;
     let slotsLeft = TRADING_DEFAULTS.MAX_POSITIONS_PSC - pscUsedSlots;
     if (slotsLeft <= 0) {
-      console.log(
-        `${tag} PSC枠が既に埋まっています（保有 ${pscOpenCount} + 発注中 ${pscPendingCount} / ${TRADING_DEFAULTS.MAX_POSITIONS_PSC}）`,
-      );
+      const reason = `枠上限（保有 ${pscOpenCount} + 発注中 ${pscPendingCount} / ${TRADING_DEFAULTS.MAX_POSITIONS_PSC}）で候補を評価せず見送り`;
+      console.log(`${tag} PSC${reason}`);
+      // 候補があったのに注文に乗らなかった = 弾き分析の対象
+      await recordSkippedCandidates(triggers, "post-surge-consolidation", reason);
       lastScanDate = today;
       return;
     }
 
     let anyRetryable = false;
-    for (const trigger of triggers) {
-      if (slotsLeft <= 0) break; // 枠を使い切ったら当日確定
+    for (let i = 0; i < triggers.length; i++) {
+      const trigger = triggers[i]!;
+      if (slotsLeft <= 0) {
+        // 枠を使い切ったら当日確定。残り候補は未評価のまま見送るので弾き分析に載せる
+        await recordSkippedCandidates(
+          triggers.slice(i),
+          "post-surge-consolidation",
+          `枠上限（PSC ${TRADING_DEFAULTS.MAX_POSITIONS_PSC}枠を使い切り）で候補を評価せず見送り`,
+        );
+        break;
+      }
       console.log(
         `${tag} トリガー発火: ${trigger.ticker} 価格=¥${trigger.currentPrice} モメンタム=${(trigger.momentumReturn * 100).toFixed(1)}% 出来高サージ=${trigger.volumeSurgeRatio.toFixed(2)}x`,
       );
@@ -191,6 +223,8 @@ export async function main(): Promise<void> {
         // 当日これ以上どの銘柄も建てられない構造的理由 → 打ち止め（当日確定）
         if (/最大同時保有数|現金残高不足|予算不足|日次損失制限/.test(reason)) {
           console.log(`${tag} 当日打ち止め: ${trigger.ticker} / ${reason}`);
+          // 打ち止めの当該候補は executeEntry が記録済み。残り候補も同じ理由で見送るので載せる
+          await recordSkippedCandidates(triggers.slice(i + 1), "post-surge-consolidation", reason);
           break;
         }
         // executeEntry が retryable=true を返すのは一時障害（ブローカーのネットワーク/セッション障害・

@@ -123,6 +123,26 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
+  # 取引見送り日（shouldTrade=false）のシグナルを当日終値で再現し弾き分析に記録する。
+  # 当日バーが必要なため stock-data の後に実行する（場中の追加API取得はしない）。
+  signal-replay:
+    needs: stock-data
+    if: needs.stock-data.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ".tool-versions"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run signal-replay
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
   regime-shift-notify:
     needs: [stock-data, index-data]
     if: always() && needs.stock-data.result == 'success'
@@ -164,6 +184,7 @@ jobs:
         trading-config,
         index-data,
         breadth-notify,
+        signal-replay,
         regime-shift-notify,
       ]
     if: always() && contains(needs.*.result, 'failure')

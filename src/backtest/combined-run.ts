@@ -24,7 +24,11 @@ import {
   precomputeSimData,
 } from "./breakout-simulation";
 import { precomputeGapUpDailySignals } from "./gapup-simulation";
-import { precomputePSCDailySignals } from "./post-surge-consolidation-simulation";
+import {
+  precomputePSCDailySignals,
+  type PrecomputedPSCSignal,
+  type PrecomputedPSCSignals,
+} from "./post-surge-consolidation-simulation";
 import { precomputeMomentumSignals } from "./momentum-simulation";
 import { MOMENTUM_BACKTEST_DEFAULTS, MOMENTUM_LARGECAP_PARAMS } from "./momentum-config";
 import { precomputeWeeklyBreakSignals } from "./weekly-break-simulation";
@@ -406,6 +410,10 @@ async function main() {
   const etfDipMaxArg = getArg(args, "--etf-dip-max");
   // --etf-dip-idle: ETF押し目を idle帯(breadth<54%)限定で発火（GU/PSCと資金競合させない補完設計）
   const etfDipIdle = args.includes("--etf-dip-idle");
+  // --compare-separate-pool: 「資金無限（食い合いなし）」を模す。GU/PSC と dip を別々の ¥budget プールで
+  //   独立に回し、日次エクイティをブレンドして Calmar を測る。共有プール(#28 却下)との対比も出力する。
+  //   （--enable-etf-dip と併用。dip の breadthフィルタは既定 OFF=常時＝#28 で堅牢だった構造）
+  const compareSeparatePool = args.includes("--compare-separate-pool");
   // --enable-buyback: 自社株買いカタリスト (KOH-502) を第6戦略として idle帯で動かす
   const enableBuyback = args.includes("--enable-buyback");
   const buybackMaxArg = getArg(args, "--buyback-max");
@@ -431,6 +439,11 @@ async function main() {
   // 追加で見てしまう (buyback-simulation.ts:57-58)。本番 15:24 に当日 breadth は存在しないので
   // これは live 再現不能な先読み。`--entry-lag 1` のイベントで測る時は 1 を渡して無効化する。
   const panicBreadthMaxArg = getArg(args, "--panic-breadth-max");
+  // --etf-gap / --etf-vol: 米株ETF の発火条件スイープ用（既定 gap 0.5% / vol 1.5x = 本番と同一）。
+  // idle帯ゲート (breadthMax) は動かさない — 却下#17-24 で7回確認した「breadth filter は本質的に機能」
+  // を崩さないため、緩めるのは戦略自身のトリガーだけに限る。
+  const etfGapArg = getArg(args, "--etf-gap");
+  const etfVolArg = getArg(args, "--etf-vol");
   const comparePanicExit = args.includes("--compare-panic-exit");
   const maxPerSectorArg = getArg(args, "--max-per-sector");
   const compareSector = args.includes("--compare-sector");
@@ -438,6 +451,14 @@ async function main() {
   const compareVixRisk = args.includes("--compare-vix-risk");
   const compareStreak = args.includes("--compare-streak");
   const compareCooldown = args.includes("--compare-cooldown");
+  // 本番の checkGates() は汎用の SCORING.GATES.MIN_AVG_VOLUME_25 (50,000) を使っており、
+  // GU/PSC 専用の 100,000 (BT既定) が適用されていない。どちらが正しいかを実測するための
+  // スイープ。未指定なら baseline 完全不変。
+  const compareMinAvgVolume = args.includes("--compare-min-avg-volume");
+  // ポジションサイズのリスク基準。2026-08-03 に既定を live と同じ総資産基準へ変更した。
+  // cash基準は保有が増えるほど後続サイズを縮めるため、複数戦略構成に構造的ペナルティが乗る。
+  // --cash-based-sizing で旧挙動（2026-08-03 以前に記録された数値の再現用）に戻せる。
+  const cashBasedSizing = args.includes("--cash-based-sizing");
   const compareDailyEntries = args.includes("--compare-daily-entries");
   const comparePscTrail = args.includes("--compare-psc-trail");
   // --compare-gu-trail (KOH-563): GU trailMultiplier を現エンジンで測り直す。
@@ -455,13 +476,46 @@ async function main() {
   const compareSlippage = args.includes("--compare-slippage");
   const compareStrategyMix = args.includes("--compare-strategy-mix");
   const compareNikkeiDrop = args.includes("--compare-nikkei-drop");
+  // 本番(market-assessment)は 2026-04-01 に N225 SMA50 ゲートを撤廃したが、gapup/psc の
+  // BT config は indexTrendFilter:true のまま残っている。その乖離を実測するための検証用フラグ。
+  // 未指定なら baseline 完全不変。
+  const noIndexFilter = args.includes("--no-index-filter");
   // --compare-nikkei-killswitch (KOH-577): 日経キルスイッチの判定時制 off/same-day(BT)/lagged(本番) を
   // 単発窓で比較し、機械可読な1行サマリを出す。16窓+検定は scripts/_koh577-killswitch-windows.py が駆動。
   const compareNikkeiKillswitch = args.includes("--compare-nikkei-killswitch");
+  // --compare-nikkei-defensive-exit (KOH-589): 日経キルスイッチの「決済側」を比較する。
+  // 本番は日経 ≤ -3% で sentiment=crisis を書き、position-monitor が全ポジションを成行決済するが、
+  // BT の processDefensive は VIX>30 でしか発火しない = 記録済み BT 成績にこの決済は入っていない。
+  // 16窓+検定は scripts/_koh589-defensive-exit-windows.py が駆動。WINROW を出す。
+  const compareNikkeiDefensiveExit = args.includes("--compare-nikkei-defensive-exit");
+  // --compare-conditional-be (KOH-590): 「荒れた局面だけ BE を絞る」条件付き BE を比較。
+  // 却下 #37 は BE のグローバル変更を否定しているが、条件付き版は未測定だったため。
+  // 16窓+検定は scripts/_koh590-conditional-be-windows.py が駆動。WINROW を出す。
+  const compareConditionalBe = args.includes("--compare-conditional-be");
   // --compare-cash-buffer (KOH-580): 買余力バッファ（現金 × buffer に数量を切り下げ）を
   // 現状(1.0)/0.9/0.8 で比較。8708.T の [sub:11430] 発注失敗（規制銘柄の掛目）緩和策のCalmarコスト計測。
   // 16窓+検定は scripts/_koh580-cash-buffer-windows.py が駆動。WINROW を出す。
   const compareCashBuffer = args.includes("--compare-cash-buffer");
+  // --compare-psc-sort: PSC の「同日に複数シグナルが出た時どれから買うか」の順序を比較。
+  // live (psc-scanner.ts) は momentumReturn × volumeSurgeRatio 降順だが、BT の precompute は
+  // volumeSurgeRatio 降順のみ = live↔BT 乖離。GU は両者一致 (gapPct × volumeSurgeRatio) しており
+  // PSC だけ取り残されている。却下 #41 で buyback が「シグナル集合が同一のまま並び順だけで
+  // Calmar が約11%振れる」と実測されているため、まず差が有意かを測る。
+  // 16窓+検定は scripts/_psc-sort-windows.py が駆動。WINROW を出す。
+  const comparePscSort = args.includes("--compare-psc-sort");
+  // --compare-runup-veto: 「20日で上がりすぎた銘柄はエントリーしない」veto を測る。
+  // 契機= 生データで「上がりすぎた銘柄は翌"寄り"では落ちない（むしろ+0.4%）が、翌日の
+  // 寄→引が -0.3〜-1.2% と一貫マイナス、20日+50%超だと引→引もマイナスに転じる」と観測。
+  // ただし却下 #17/#20 が「既存フィルターへの上乗せは冗長」を4回確認しているため事前確率は低い。
+  // 16窓+検定は scripts/_runup-veto-windows.py が駆動。WINROW を出す。
+  const compareRunupVeto = args.includes("--compare-runup-veto");
+  // --compare-holiday: 連休前ガードを測る（live↔BT 乖離の4例目）。
+  // 本番 position-monitor.ts:640-747 は「この先3日以上連続で非営業日」のセッションで
+  // breakout/gapup のトレール ATR 倍率を ×0.7 する（WEEKEND_RISK）。**BT にこの分岐は無い**ので
+  // 記録されている全成績はこの引き締めを含んでいない。しかも live は PSC を素通ししている。
+  // 併せて「連休前は建てない」entry veto も測る（こちらは live にも無い純粋な候補）。
+  // 16窓+検定は scripts/_holiday-windows.py が駆動。WINROW を出す。
+  const compareHoliday = args.includes("--compare-holiday");
   const compareDetectionGranularity = args.includes("--compare-detection-granularity");
   const compareBe = args.includes("--compare-be");
   const compareIntraBar = args.includes("--compare-intrabar");
@@ -471,7 +525,7 @@ async function main() {
   const compareVolConvexity = args.includes("--compare-vol-convexity");
   const corrReport = args.includes("--corr-report");
 
-  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareDailyEntries || comparePscTrail || compareGuTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || compareDetectionGranularity || compareBe || compareIntraBar || comparePanicExit || compareVolConvexity || corrReport;
+  const quietMode = comparePositions || compareSplitPositions || compareEquityFilter || compareBudget || compareTurnover || comparePrice || comparePriceTurnover || compareEfficiency || compareBreadth || compareBreadthModes || compareBreadthZoom || compareBreadthSplit || compareMaxPrice || compareSector || compareSectorRotation || compareVixRisk || compareStreak || compareCooldown || compareMinAvgVolume || compareDailyEntries || comparePscTrail || compareGuTrail || compareGuGapvol || wfMiniGuGapvol || wfMiniSectorRotation || compareBreadthSectorTradeoff || compareConditionalRotation || compareSectorLeaders || compareSlippage || compareStrategyMix || compareNikkeiDrop || compareDetectionGranularity || compareBe || compareIntraBar || comparePanicExit || compareVolConvexity || compareSeparatePool || comparePscSort || compareRunupVeto || compareHoliday || corrReport;
   const dynamicMaxPrice = getMaxBuyablePrice(budget);
   const guConfig: GapUpBacktestConfig = { ...GAPUP_BACKTEST_DEFAULTS, startDate, endDate, initialBudget: budget, maxPrice: dynamicMaxPrice, verbose: !quietMode && verbose };
   const pscConfig: PostSurgeConsolidationBacktestConfig = {
@@ -481,6 +535,10 @@ async function main() {
     // WF最適パラメータ（config/production-params から参照）
     ...PSC_PRODUCTION_PARAMS,
   };
+  if (noIndexFilter) {
+    guConfig.indexTrendFilter = false;
+    pscConfig.indexTrendFilter = false;
+  }
   if (maxPriceOverride) {
     guConfig.maxPrice = Number(maxPriceOverride);
     pscConfig.maxPrice = Number(maxPriceOverride);
@@ -641,7 +699,11 @@ async function main() {
   let etfConfig: USEtfBacktestConfig | undefined;
   let etfSignals: PrecomputedUSEtfSignals | undefined;
   if (enableEtf) {
-    etfConfig = { ...US_ETF_DEFAULT_CONFIG };
+    etfConfig = {
+      ...US_ETF_DEFAULT_CONFIG,
+      ...(etfGapArg ? { gapMinPct: Number(etfGapArg) } : {}),
+      ...(etfVolArg ? { volumeSurgeRatio: Number(etfVolArg) } : {}),
+    };
     const etfRawData = await fetchHistoricalFromDB(etfConfig.tickers, startDate, endDate);
     const etfDataMap = new Map<string, import("../core/technical-analysis").OHLCVData[]>();
     let totalBars = 0;
@@ -659,7 +721,7 @@ async function main() {
     const sigDays = etfSignals.size;
     let sigTotal = 0;
     for (const arr of etfSignals.values()) sigTotal += arr.length;
-    console.log(`[data] US ETF シグナル: ${sigTotal}件 / ${sigDays}日 (idle帯 breadth<${(etfConfig.breadthMax * 100).toFixed(0)}%)`);
+    console.log(`[data] US ETF シグナル: ${sigTotal}件 / ${sigDays}日 (gap>=${(etfConfig.gapMinPct * 100).toFixed(2)}% / vol>=${etfConfig.volumeSurgeRatio}x / idle帯 breadth<${(etfConfig.breadthMax * 100).toFixed(0)}%)`);
 
     // precomputed.dateIndexMap に ETF 銘柄を追加（既存ロジックでは銘柄ユニバースに含まれないため必須）
     for (const [ticker, bars] of etfDataMap) {
@@ -778,12 +840,16 @@ async function main() {
     equityCurveSmaPeriod: 0,
     tickerSectorMap,
     indexData: indexData.size > 0 ? indexData : undefined,
+    ...(cashBasedSizing ? { equityBasedSizing: false } : {}),
   };
 
+  // 2026-08-03: PSC 停止に伴い pscMax を 0 に。本番 (POST_SURGE_CONSOLIDATION.ENTRY_ENABLED=false)
+  // と BT の既定を揃えないと、SMA50 で起きた「片側だけ変えた乖離」を再発させることになる。
+  // PSC を含む構成は --compare-split-positions で引き続き測れる。
   const defaultLimits: PositionLimits = {
     boMax: 0,
     guMax: 3,
-    pscMax: 2,
+    pscMax: 0,
     ...(enableMomentum ? { momMax: Number(momMaxArg ?? 2) } : {}),
     ...(enableWbLargecap ? { wbMax: Number(wbMaxArg ?? 2) } : {}),
     ...(enableEtf ? { etfMax: Number(etfMaxArg ?? 2) } : {}),
@@ -1768,17 +1834,28 @@ async function main() {
   // 戦略別ポジション分離比較モード
   if (compareSplitPositions) {
     const grid: { label: string; limits: PositionLimits }[] = [
-      { label: "GU3+PSC2（現状）",     limits: { boMax: 0, guMax: 3, pscMax: 2 } },
+      { label: "GU3+PSC2（旧構成）",     limits: { boMax: 0, guMax: 3, pscMax: 2 } },
+      // 片側だけの構成。共有プールで一方が他方を食っていないかの切り分け用
+      { label: "GU2のみ（PSC 0）",     limits: { boMax: 0, guMax: 2, pscMax: 0 } },
+      { label: "GU3のみ（PSC 0/現行）", limits: { boMax: 0, guMax: 3, pscMax: 0 } },
+      { label: "GU4のみ（PSC 0）",     limits: { boMax: 0, guMax: 4, pscMax: 0 } },
+      { label: "GU5のみ（PSC 0）",     limits: { boMax: 0, guMax: 5, pscMax: 0 } },
+      { label: "GU6のみ（PSC 0）",     limits: { boMax: 0, guMax: 6, pscMax: 0 } },
+      { label: "GU8のみ（PSC 0）",     limits: { boMax: 0, guMax: 8, pscMax: 0 } },
+      { label: "PSC2のみ（GU 0）",     limits: { boMax: 0, guMax: 0, pscMax: 2 } },
+      { label: "PSC5のみ（GU 0）",     limits: { boMax: 0, guMax: 0, pscMax: 5 } },
       { label: "GU3+PSC3",            limits: { boMax: 0, guMax: 3, pscMax: 3 } },
       { label: "GU5+PSC3",            limits: { boMax: 0, guMax: 5, pscMax: 3 } },
       { label: "GU5+PSC5",            limits: { boMax: 0, guMax: 5, pscMax: 5 } },
     ];
 
+    const yearsSplit = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+
     console.log("\n=== 戦略別ポジション分離比較 ===");
     console.log(
-      `${"パターン".padEnd(24)}| ${"Trades".padStart(6)} | ${"WinRate".padStart(7)} | ${"PF".padStart(5)} | ${"Expect".padStart(8)} | ${"MaxDD".padStart(7)} | ${"NetRet".padStart(8)} | ${"稼働率".padStart(6)}`,
+      `${"パターン".padEnd(24)}| ${"Trades".padStart(6)} | ${"WinRate".padStart(7)} | ${"PF".padStart(5)} | ${"Expect".padStart(8)} | ${"MaxDD".padStart(7)} | ${"NetRet".padStart(8)} | ${"Calmar".padStart(6)} | ${"稼働率".padStart(6)}`,
     );
-    console.log("-".repeat(92));
+    console.log("-".repeat(102));
 
     for (const row of grid) {
       const result = runCombinedSimulation(ctx, row.limits);
@@ -1788,8 +1865,10 @@ async function main() {
       const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
       const gm = result.guMetrics;
       const pm = result.pscMetrics;
+      const annRet = yearsSplit > 0 ? m.netReturnPct / yearsSplit : m.netReturnPct;
+      const calmarSplit = m.maxDrawdown > 0 ? annRet / m.maxDrawdown : 0;
       console.log(
-        `${row.label.padEnd(24)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(6)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(8)} | ${m.maxDrawdown.toFixed(1).padStart(6)}% | ${m.netReturnPct.toFixed(1).padStart(7)}% | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
+        `${row.label.padEnd(24)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(6)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(8)} | ${m.maxDrawdown.toFixed(1).padStart(6)}% | ${m.netReturnPct.toFixed(1).padStart(7)}% | ${calmarSplit.toFixed(2).padStart(6)} | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
       );
       console.log(
         `${"  GU".padEnd(24)}| ${String(gm.totalTrades).padStart(6)} | ${gm.winRate.toFixed(1).padStart(6)}% | ${(gm.profitFactor === Infinity ? "∞" : gm.profitFactor.toFixed(2)).padStart(5)} | ${((gm.expectancy >= 0 ? "+" : "") + gm.expectancy.toFixed(2) + "%").padStart(8)}`,
@@ -1871,6 +1950,87 @@ async function main() {
   }
 
   // セクター分散上限比較モード
+  // 別プール（資金無限＝食い合いなし）比較モード
+  if (compareSeparatePool) {
+    if (!enableEtfDip) throw new Error("--compare-separate-pool は --enable-etf-dip と併用してください");
+    const dipMax = Number(etfDipMaxArg ?? 2);
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+
+    const seriesStats = (eq: DailyEquity[], base: number) => {
+      const final = eq[eq.length - 1]?.totalEquity ?? base;
+      const netRet = ((final - base) / base) * 100;
+      let peak = base;
+      let maxDD = 0;
+      for (const d of eq) {
+        if (d.totalEquity > peak) peak = d.totalEquity;
+        const dd = peak > 0 ? ((peak - d.totalEquity) / peak) * 100 : 0;
+        if (dd > maxDD) maxDD = dd;
+      }
+      const ann = years > 0 ? netRet / years : netRet;
+      const calmar = maxDD > 0 ? ann / maxDD : 0;
+      return { netRet, maxDD, calmar };
+    };
+
+    // ① GU/PSC のみ（dip off）  ② dip のみ（GU/PSC off）  ③ 共有プール（#28 却下の再現）
+    const aRes = runCombinedSimulation(ctx, { ...defaultLimits, etfMax: 0 });
+    const bRes = runCombinedSimulation(ctx, { ...defaultLimits, guMax: 0, pscMax: 0, etfMax: dipMax });
+    const sRes = runCombinedSimulation(ctx, { ...defaultLimits, etfMax: dipMax });
+    const A = aRes.equityCurve;
+    const B = bRes.equityCurve;
+
+    // 別プール: A(¥budget) と B(¥budget) を独立に持ち、日次で合算（総資金 2×budget）
+    const n = Math.min(A.length, B.length);
+    const blend: DailyEquity[] = [];
+    for (let i = 0; i < n; i++) {
+      blend.push({ ...A[i], totalEquity: A[i].totalEquity + B[i].totalEquity, cash: 0, positionsValue: 0, openPositionCount: 0 });
+    }
+
+    const sa = seriesStats(A, budget);
+    const sb = seriesStats(B, budget);
+    const sBlend = seriesStats(blend, budget * 2);
+    const sShared = seriesStats(sRes.equityCurve, budget);
+
+    // 日次リターンの相関（A vs B）＝ 分散効果の源泉
+    const ra: number[] = [];
+    const rb: number[] = [];
+    for (let i = 1; i < n; i++) {
+      if (A[i - 1].totalEquity > 0) ra.push((A[i].totalEquity - A[i - 1].totalEquity) / A[i - 1].totalEquity);
+      else ra.push(0);
+      if (B[i - 1].totalEquity > 0) rb.push((B[i].totalEquity - B[i - 1].totalEquity) / B[i - 1].totalEquity);
+      else rb.push(0);
+    }
+    const corr = pearsonCorrelation(ra, rb);
+
+    const mA = aRes.totalMetrics;
+    const mB = bRes.totalMetrics;
+    const mS = sRes.totalMetrics;
+    const pf = (m: PerformanceMetrics) => (m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2));
+
+    console.log("\n=== 別プール（資金無限＝食い合いなし）検証 ===");
+    console.log(`期間: ${startDate} → ${endDate}, 各プール予算: ¥${budget.toLocaleString()} (dip枠=${dipMax}, dip breadthフィルタ=${etfDipIdle ? "idle帯限定" : "OFF/常時"})`);
+    console.log(
+      `${"構成".padEnd(28)}| ${"Trades".padStart(6)} | ${"PF".padStart(5)} | ${"MaxDD".padStart(6)} | ${"NetRet".padStart(8)} | ${"Calmar".padStart(6)}`,
+    );
+    console.log("-".repeat(80));
+    const row = (label: string, tr: number, pfStr: string, s: { netRet: number; maxDD: number; calmar: number }) =>
+      console.log(
+        `${label.padEnd(28)}| ${String(tr).padStart(6)} | ${pfStr.padStart(5)} | ${s.maxDD.toFixed(1).padStart(5)}% | ${(s.netRet >= 0 ? "+" : "") + s.netRet.toFixed(1)}%`.padEnd(0) +
+          ` | ${s.calmar.toFixed(2).padStart(6)}`,
+      );
+    row("① GU/PSC のみ (¥budget)", mA.totalTrades, pf(mA), sa);
+    row("② dip のみ (¥budget)", mB.totalTrades, pf(mB), sb);
+    row("③ 共有プール #28 (¥budget)", mS.totalTrades, pf(mS), sShared);
+    row("④ ①+② 別プール (¥2×budget)", mA.totalTrades + mB.totalTrades, "-", sBlend);
+    console.log("-".repeat(80));
+    console.log(`日次リターン相関 A(GU/PSC) vs B(dip): ${corr.toFixed(3)}`);
+    console.log(
+      `\n判定の見方: ③(共有) が ① を下回る = #28 の食い合い。④(別プール) の Calmar が ① と同等以上なら「資金無限なら dip は害にならず、分散で MaxDD が下がる」＝資金無限でエッジが生き返る。`,
+    );
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
   if (compareSector) {
     const REGIMES: { label: string; from: string; to: string }[] = [
       { label: "A: 平穏ボックス", from: "2024-03-01", to: "2024-07-31" },
@@ -2667,6 +2827,83 @@ async function main() {
     return;
   }
 
+  // --compare-min-avg-volume: 流動性ゲート minAvgVolume25 のスイープ（GU + PSC 同値）。
+  // ユニバースゲートなので値ごとに signals を張り直す必要がある（precomputeSimData は使い回せる）。
+  if (compareMinAvgVolume) {
+    const REGIMES: { label: string; from: string; to: string }[] = [
+      { label: "A: 平穏ボックス", from: "2024-03-01", to: "2024-07-31" },
+      { label: "B: ブラマン+余震", from: "2024-08-01", to: "2024-12-31" },
+      { label: "C: 関税ショック", from: "2025-02-01", to: "2025-04-30" },
+      { label: "D: 大強気相場", from: "2025-05-01", to: "2026-02-28" },
+      { label: "E: 直近急落", from: "2026-03-01", to: "2026-04-20" },
+    ];
+
+    const grid: { label: string; minVol: number }[] = [
+      { label: "30,000", minVol: 30_000 },
+      { label: "50,000 (本番実態)", minVol: 50_000 },
+      { label: "75,000", minVol: 75_000 },
+      { label: "100,000 (BT既定)", minVol: 100_000 },
+      { label: "150,000", minVol: 150_000 },
+      { label: "200,000", minVol: 200_000 },
+    ];
+
+    console.log("\n=== minAvgVolume25 比較 (GU + PSC 同値) ===");
+    console.log(`期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}`);
+    console.log(
+      `${"設定".padEnd(20)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"Expect".padStart(7)} | ${"MaxDD".padStart(6)} | ${"NetRet".padStart(7)} | ${"Calmar".padStart(6)} | ${"稼働率".padStart(6)}`,
+    );
+    console.log("-".repeat(98));
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    const overallResults: { label: string; allTrades: SimulatedPosition[]; equityCurve: DailyEquity[] }[] = [];
+
+    for (const row of grid) {
+      const gc: GapUpBacktestConfig = { ...guConfig, minAvgVolume25: row.minVol };
+      const pc: PostSurgeConsolidationBacktestConfig = { ...pscConfig, minAvgVolume25: row.minVol };
+      const guSig = precomputeGapUpDailySignals(gc, allData, precomputed);
+      const pSig = precomputePSCDailySignals(pc, allData, precomputed);
+      const result = runCombinedSimulation(
+        { ...ctx, guConfig: gc, pscConfig: pc, gapupSignals: guSig, pscSignals: pSig },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const util = calculateCapitalUtilization(result.equityCurve);
+      const expectStr = (m.expectancy >= 0 ? "+" : "") + m.expectancy.toFixed(2) + "%";
+      const pfStr = m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      console.log(
+        `${row.label.padEnd(20)}| ${String(m.totalTrades).padStart(6)} | ${m.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expectStr.padStart(7)} | ${m.maxDrawdown.toFixed(1).padStart(5)}% | ${m.netReturnPct.toFixed(1).padStart(6)}% | ${calmar.toFixed(2).padStart(6)} | ${util.capitalUtilizationPct.toFixed(1).padStart(5)}%`,
+      );
+      overallResults.push({ label: row.label, allTrades: result.allTrades, equityCurve: result.equityCurve });
+    }
+
+    console.log("\n=== レジーム別トレード指標 ===");
+    for (const regime of REGIMES) {
+      console.log(`\n[${regime.label}] ${regime.from} 〜 ${regime.to}`);
+      console.log(
+        `  ${"設定".padEnd(20)}| ${"Trades".padStart(6)} | ${"WinR".padStart(5)} | ${"PF".padStart(5)} | ${"Expect".padStart(7)} | ${"NetPnL".padStart(12)}`,
+      );
+      console.log("  " + "-".repeat(72));
+      for (const r of overallResults) {
+        const inRange = r.allTrades.filter(
+          (t) => t.entryDate >= regime.from && t.entryDate <= regime.to,
+        );
+        const sub = calculateMetrics(inRange, r.equityCurve, budget);
+        const pfStr = sub.profitFactor === Infinity ? "∞" : sub.profitFactor.toFixed(2);
+        const expStr = (sub.expectancy >= 0 ? "+" : "") + sub.expectancy.toFixed(2) + "%";
+        const netPnlStr = (sub.totalNetPnl >= 0 ? "+" : "") + `¥${sub.totalNetPnl.toLocaleString()}`;
+        console.log(
+          `  ${r.label.padEnd(20)}| ${String(sub.totalTrades).padStart(6)} | ${sub.winRate.toFixed(1).padStart(4)}% | ${pfStr.padStart(5)} | ${expStr.padStart(7)} | ${netPnlStr.padStart(12)}`,
+        );
+      }
+    }
+
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
   // --compare-be: BE発動倍率 × 建値フロアmode のスイープ（GU+PSC 共通）。
   // be/floor は exit のみに影響しシグナルは不変なので precompute は1回で使い回す。
   if (compareBe) {
@@ -2932,6 +3169,89 @@ async function main() {
     return;
   }
 
+  // --compare-nikkei-defensive-exit (KOH-589): 日経キルスイッチの決済側を比較。
+  //
+  // エントリー側 veto は全アームで本番と同じ「lagged / -3%」に固定し、決済側だけを振る
+  // （KOH-577 の結論どおりエントリー側の時制差はほぼ無害なので、ここでは交絡させない）。
+  //   exit-off     = BT本来。日経では決済しない ＝「売らない」案。
+  //                  16窓 NetRet 合計が KOH-577 の lagged 806.65% に一致するのがチェックサム。
+  //   exit-lagged  = **現在の本番の実挙動**。D-1 の確定終値で判定し D の終値で全決済
+  //                  ＝「暴落日は食らい、翌営業日に投げる」。
+  //   exit-sameday = 暴落当日Dの終値で判定し D の終値で全決済（本番が撃てない理想形）。
+  if (compareNikkeiDefensiveExit) {
+    const TH = MARKET_INDEX.NIKKEI_CRISIS_THRESHOLD; // 本番と同じ -3
+    const arms: { label: string; exitPct: number | null; exitLagged: boolean }[] = [
+      { label: "exit-off", exitPct: null, exitLagged: false },
+      { label: "exit-lagged", exitPct: TH, exitLagged: true },
+      { label: "exit-sameday", exitPct: TH, exitLagged: false },
+    ];
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    console.log(`\n=== 日経キルスイッチ 決済側比較 (KOH-589) 閾値 ${TH}% ===`);
+    console.log(`期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}, N225 ${indexData.size}日, エンジン: ${intraBarModelArg ?? "stop-at-open(既定)"}`);
+    console.log(`エントリー側 veto は全アーム固定: lagged / ${TH}%（本番と同じ）`);
+    for (const arm of arms) {
+      const result = runCombinedSimulation(
+        {
+          ...ctx,
+          nikkeiDropVetoPct: TH,
+          nikkeiDropVetoLagged: true,
+          nikkeiDropDefensiveExitPct: arm.exitPct ?? undefined,
+          nikkeiDropDefensiveExitLagged: arm.exitLagged,
+        },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      const pf = m.profitFactor === Infinity ? 999 : m.profitFactor;
+      const defExits = result.allTrades.filter((t) => t.exitReason === "defensive_exit").length;
+      // 機械可読: WINROW,<start>,<end>,<label>,<trades>,<netRet>,<maxDD>,<calmar>,<pf>,<defensiveExits>
+      console.log(
+        `WINROW,${startDate},${endDate},${arm.label},${m.totalTrades},${m.netReturnPct.toFixed(4)},${m.maxDrawdown.toFixed(4)},${calmar.toFixed(4)},${pf.toFixed(4)},${defExits}`,
+      );
+    }
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  // --compare-conditional-be (KOH-590): レジーム条件付き BE 発動倍率の比較。
+  //
+  // 問い: 却下 #37 は「BE をグローバルに 0.3 未満へ下げると WF で単調に悪化」と結論したが、
+  //       「平時は 0.3 のまま、荒れた局面だけ絞る」条件付き版なら別の答えになるか。
+  //
+  // ★条件は日経ではなく VIX / breadth を使う。日経 ≤ -3% の日は却下 #51 で
+  //   「GU/PSC は保有ゼロ＝噛む相手がいない」と実測済みで、条件として成立しないため。
+  // ★breadth は**前営業日**の確定値で判定する（当日 breadth は本番 15:20 の
+  //   position-monitor に存在しない。却下 #41 が buyback で踏んだ先読みの罠）。
+  if (compareConditionalBe) {
+    const arms: { label: string; cond?: { mode: "vix" | "breadth"; breadthThreshold?: number; tightened: number } }[] = [
+      { label: "base-0.3" },
+      { label: "vix!=normal-0.15", cond: { mode: "vix", tightened: 0.15 } },
+      { label: "vix!=normal-0.10", cond: { mode: "vix", tightened: 0.10 } },
+      { label: "breadth<60-0.15", cond: { mode: "breadth", breadthThreshold: 0.60, tightened: 0.15 } },
+      { label: "breadth<54-0.15", cond: { mode: "breadth", breadthThreshold: 0.54, tightened: 0.15 } },
+    ];
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    console.log(`\n=== レジーム条件付き BE 比較 (KOH-590) ===`);
+    console.log(`期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}, エンジン: ${intraBarModelArg ?? "stop-at-open(既定)"}`);
+    console.log(`対象: GU/PSC の出口のみ。平時は既定の be を使い、条件成立日だけ tightened に差し替える`);
+    for (const arm of arms) {
+      const result = runCombinedSimulation({ ...ctx, conditionalBe: arm.cond }, defaultLimits);
+      const m = result.totalMetrics;
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      const pf = m.profitFactor === Infinity ? 999 : m.profitFactor;
+      // 機械可読: WINROW,<start>,<end>,<label>,<trades>,<netRet>,<maxDD>,<calmar>,<pf>
+      console.log(
+        `WINROW,${startDate},${endDate},${arm.label},${m.totalTrades},${m.netReturnPct.toFixed(4)},${m.maxDrawdown.toFixed(4)},${calmar.toFixed(4)},${pf.toFixed(4)}`,
+      );
+    }
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
   // --compare-cash-buffer (KOH-580): 買余力バッファ（現金 × buffer に数量を shrink-to-fit）を
   // 現状(1.0)/0.9/0.8 で単発窓比較。16窓+検定は scripts/_koh580-cash-buffer-windows.py が駆動。
   if (compareCashBuffer) {
@@ -2962,6 +3282,200 @@ async function main() {
       // 機械可読: WINROW,<start>,<end>,<label>,<trades>,<netRet>,<maxDD>,<calmar>,<pf>
       console.log(
         `WINROW,${startDate},${endDate},${arm.label},${m.totalTrades},${m.netReturnPct.toFixed(4)},${m.maxDrawdown.toFixed(4)},${calmar.toFixed(4)},${pf.toFixed(4)}`,
+      );
+    }
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  if (compareRunupVeto) {
+    // アーム: veto なし(=baseline) / 20日騰落率が閾値以上の銘柄をエントリーから外す。
+    // エントリー可否だけを変える（出口は不変）ので、precompute 済みシグナルを間引くだけでよい。
+    // ⚠️ 判定は「エントリー日の終値 / 20営業日前の終値 - 1」。すべてエントリー日までの
+    // 確定情報なので先読みではない（本番 15:24 でも DB の過去バーから同じ値を作れる）。
+    const runup20 = (ticker: string, date: string): number | null => {
+      const bars = allData.get(ticker);
+      const idx = precomputed.dateIndexMap.get(ticker)?.get(date);
+      if (!bars || idx == null || idx < 20) return null;
+      const base = bars[idx - 20]?.close;
+      const cur = bars[idx]?.close;
+      if (base == null || cur == null || base <= 0) return null;
+      return cur / base - 1;
+    };
+
+    const arms: { label: string; maxRunup: number | null }[] = [
+      { label: "veto-off(現状)", maxRunup: null },
+      { label: "veto>=100%", maxRunup: 1.0 },
+      { label: "veto>=70%", maxRunup: 0.7 },
+      { label: "veto>=50%", maxRunup: 0.5 },
+      { label: "veto>=30%", maxRunup: 0.3 },
+    ];
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    console.log(`\n=== 上がりすぎ veto（20日騰落率）比較 ===`);
+    console.log(
+      `期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}, エンジン: ${intraBarModelArg ?? "stop-at-open(既定)"}`,
+    );
+    for (const arm of arms) {
+      let guSig = gapupSignals;
+      let pSig = pscSignals;
+      let dropped = 0;
+      if (arm.maxRunup != null) {
+        const filterMap = <T extends { ticker: string }>(src: Map<string, T[]>): Map<string, T[]> => {
+          const out = new Map<string, T[]>();
+          for (const [date, sigs] of src) {
+            const kept = sigs.filter((s) => {
+              const r = runup20(s.ticker, date);
+              if (r == null) return true; // 履歴不足は従来どおり通す（veto の対象外）
+              if (r >= arm.maxRunup!) {
+                dropped++;
+                return false;
+              }
+              return true;
+            });
+            if (kept.length > 0) out.set(date, kept);
+          }
+          return out;
+        };
+        guSig = filterMap(gapupSignals);
+        pSig = filterMap(pscSignals);
+      }
+      const result = runCombinedSimulation({ ...ctx, gapupSignals: guSig, pscSignals: pSig }, defaultLimits);
+      const m = result.totalMetrics;
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      const pf = m.profitFactor === Infinity ? 999 : m.profitFactor;
+      // 機械可読: WINROW,<start>,<end>,<label>,<trades>,<netRet>,<maxDD>,<calmar>,<pf>,<droppedSignals>
+      console.log(
+        `WINROW,${startDate},${endDate},${arm.label},${m.totalTrades},${m.netReturnPct.toFixed(4)},${m.maxDrawdown.toFixed(4)},${calmar.toFixed(4)},${pf.toFixed(4)},${dropped}`,
+      );
+    }
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  if (compareHoliday) {
+    // アーム（GU/PSC のみに効く。出口 or エントリー可否だけを変えるので precompute は不要）:
+    //   guard-off(BT本来)    = 基準。16窓 NetRet 合計 796.4% がチェックサム（KOH-558 記録）
+    //   trail0.7-gu(★live)   = 連休前セッションだけ GU のトレール ATR 倍率 ×0.7 …本番の現状
+    //   trail0.7-both        = 同じ引き締めを PSC にも広げる（live の非対称に根拠が無いため）
+    //   trail0.5-gu          = 効果の形を見るための強い版（採用候補ではない）
+    //   entry-veto           = 連休前セッションの GU/PSC 新規エントリーを止める
+    //   veto+trail0.7-gu     = live 現状 + veto
+    //
+    // ⚠️ 却下 #47（GU trail=0.3 は p<0.05・0/16窓で他が劣る）と #52（条件付き BE は全滅）から
+    //    事前確率は低い。ただし trail0.7-gu は**本番で今も動いている未検証の値**なので測る価値がある。
+    const HOLIDAY_THRESHOLD = 3; // = WEEKEND_RISK.TRAILING_TIGHTEN_THRESHOLD（3連休以上）
+    const arms: {
+      label: string;
+      guard?: { threshold: number; trailScale?: number; trailScope?: "gu" | "both"; entryVeto?: boolean };
+    }[] = [
+      { label: "guard-off(BT本来)" },
+      { label: "trail0.7-gu(live)", guard: { threshold: HOLIDAY_THRESHOLD, trailScale: 0.7, trailScope: "gu" } },
+      { label: "trail0.7-both", guard: { threshold: HOLIDAY_THRESHOLD, trailScale: 0.7, trailScope: "both" } },
+      { label: "trail0.5-gu", guard: { threshold: HOLIDAY_THRESHOLD, trailScale: 0.5, trailScope: "gu" } },
+      { label: "entry-veto", guard: { threshold: HOLIDAY_THRESHOLD, entryVeto: true } },
+      {
+        label: "veto+trail0.7-gu",
+        guard: { threshold: HOLIDAY_THRESHOLD, trailScale: 0.7, trailScope: "gu", entryVeto: true },
+      },
+    ];
+
+    // 連休前セッションが窓内に何日あるか（差がゼロだった時に「噛む相手がいたのか」を示す証拠）
+    const td = precomputed.tradingDays;
+    let preHolidaySessions = 0;
+    for (let i = 0; i + 1 < td.length; i++) {
+      if (dayjs(td[i + 1]).diff(dayjs(td[i]), "day") - 1 >= HOLIDAY_THRESHOLD) preHolidaySessions++;
+    }
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    console.log(`\n=== 連休前ガード比較（live↔BT 乖離） ===`);
+    console.log(
+      `期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}, 営業日: ${td.length}日, ` +
+        `連休前セッション: ${preHolidaySessions}日（非営業日 ${HOLIDAY_THRESHOLD}日以上が続く前日）`,
+    );
+    for (const arm of arms) {
+      const result = runCombinedSimulation({ ...ctx, holidayGuard: arm.guard }, defaultLimits);
+      const m = result.totalMetrics;
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      const pf = m.profitFactor === Infinity ? 999 : m.profitFactor;
+      // 機械可読: WINROW,<start>,<end>,<label>,<trades>,<netRet>,<maxDD>,<calmar>,<pf>,<preHolidayDays>,<vetoDays>
+      console.log(
+        `WINROW,${startDate},${endDate},${arm.label},${m.totalTrades},${m.netReturnPct.toFixed(4)},` +
+          `${m.maxDrawdown.toFixed(4)},${calmar.toFixed(4)},${pf.toFixed(4)},` +
+          `${result.preHolidayDays},${result.holidayVetoDays}`,
+      );
+    }
+    console.log("");
+    await prisma.$disconnect();
+    return;
+  }
+
+  if (comparePscSort) {
+    // アーム（PSC の同日シグナルの並び順のみを変える。発火するシグナル集合は3アームで完全同一）:
+    //   vol    = volumeSurgeRatio 降順          … BT本来 = 記録上の baseline（16窓合計 796.4% のチェックサム）
+    //   momvol = momentumReturn × volumeSurgeRatio 降順 … ★live (psc-scanner.ts:95-96) と同一
+    //   mom    = momentumReturn 降順            … 参考（momvol のどちらの因子が効いているかの切り分け）
+    //
+    // trail 系と違い出口には一切触れないので precompute は不要。ソートは stable なので
+    // 同点は precompute の元順（ティッカー順）を保ち、アーム間で決定論的に比較できる。
+    const arms: {
+      label: string;
+      cmp: (a: PrecomputedPSCSignal, b: PrecomputedPSCSignal) => number;
+    }[] = [
+      { label: "vol", cmp: (a, b) => b.volumeSurgeRatio - a.volumeSurgeRatio },
+      {
+        label: "momvol",
+        cmp: (a, b) => b.momentumReturn * b.volumeSurgeRatio - a.momentumReturn * a.volumeSurgeRatio,
+      },
+      { label: "mom", cmp: (a, b) => b.momentumReturn - a.momentumReturn },
+    ];
+
+    const resort = (
+      src: PrecomputedPSCSignals,
+      cmp: (a: PrecomputedPSCSignal, b: PrecomputedPSCSignal) => number,
+    ): PrecomputedPSCSignals => {
+      const out: PrecomputedPSCSignals = new Map();
+      for (const [date, sigs] of src) out.set(date, [...sigs].sort(cmp));
+      return out;
+    };
+
+    // 並び順が結果を動かせるのは「同日に PSC 枠(2)より多くシグナルが出た日」だけなので、
+    // その日数を出しておく（差がゼロだった時に「効く余地が無かった」ことを示す証拠になる）。
+    const pscSlots = defaultLimits.pscMax ?? 0;
+    let daysWithPscSignals = 0;
+    let daysOverSlots = 0;
+    for (const sigs of pscSignals.values()) {
+      if (sigs.length === 0) continue;
+      daysWithPscSignals++;
+      if (sigs.length > pscSlots) daysOverSlots++;
+    }
+
+    const years = dayjs(endDate).diff(dayjs(startDate), "day") / 365;
+    console.log(`\n=== PSC シグナル順比較（live↔BT 乖離） ===`);
+    console.log(
+      `期間: ${startDate} → ${endDate}, 予算: ¥${budget.toLocaleString()}, エンジン: ${intraBarModelArg ?? "stop-at-open(既定)"}`,
+    );
+    console.log(
+      `PSCシグナル発生日: ${daysWithPscSignals}日 / うち枠(${pscSlots})超の候補が出た日: ${daysOverSlots}日 = 並び順が効く余地のある日`,
+    );
+    for (const arm of arms) {
+      const result = runCombinedSimulation(
+        { ...ctx, pscSignals: resort(pscSignals, arm.cmp) },
+        defaultLimits,
+      );
+      const m = result.totalMetrics;
+      const annualizedRet = years > 0 ? m.netReturnPct / years : m.netReturnPct;
+      const calmar = m.maxDrawdown > 0 ? annualizedRet / m.maxDrawdown : 0;
+      const pf = m.profitFactor === Infinity ? 999 : m.profitFactor;
+      const pscSub = calculateMetrics(result.pscTrades, result.equityCurve, budget);
+      const pscPf = pscSub.profitFactor === Infinity ? 999 : pscSub.profitFactor;
+      // 機械可読: WINROW,<start>,<end>,<label>,<trades>,<netRet>,<maxDD>,<calmar>,<pf>,<pscTrades>,<pscPf>
+      console.log(
+        `WINROW,${startDate},${endDate},${arm.label},${m.totalTrades},${m.netReturnPct.toFixed(4)},${m.maxDrawdown.toFixed(4)},${calmar.toFixed(4)},${pf.toFixed(4)},${pscSub.totalTrades},${pscPf.toFixed(4)}`,
       );
     }
     console.log("");
@@ -3227,8 +3741,9 @@ async function main() {
     // 現状の PSC: atr=0.8, be=0.3, trail=0.5
     // BE発動後のトレール幅のみを変化させる
     const grid: { label: string; trail: number }[] = [
-      { label: "trail=0.3 (タイト)", trail: 0.3 },
-      { label: "trail=0.5 (現状)", trail: 0.5 },
+      // 本番値は KOH-552 (2026-07-15) に 0.5 → 0.3 へ変更済み
+      { label: "trail=0.3 (現状)", trail: 0.3 },
+      { label: "trail=0.5 (旧本番)", trail: 0.5 },
       { label: "trail=0.8 (ゆるめ)", trail: 0.8 },
       { label: "trail=1.0 (大幅ゆるめ)", trail: 1.0 },
       { label: "trail=1.5 (極ゆるめ)", trail: 1.5 },

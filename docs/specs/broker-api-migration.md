@@ -140,7 +140,13 @@ create → ブローカーに送信 → pending（ブローカーID付き）
 
 ### 立花API + yfinance ハイブリッド（固定）
 
-リアルタイムクォートは常に立花API、それ以外はyfinance。環境変数による切り替えは不要。
+トレードパイプライン（エントリー・決済・照合）のリアルタイムクォートは立花API、それ以外はyfinance。環境変数による切り替えは不要。
+
+**画面表示用の時価は立花APIを使わない（KOH-607, 2026-08-12）。**
+立花から「アクセス回数30万回以上の高負荷」警告を受け、ダッシュボードの30秒ポーリング
+（`/api/quotes`・`/api/watchlist/state`）を `fetchDisplayQuotesBatch()`（yfinance 15分遅延 → DB
+フォールバック、立花不使用）に切り替えた。`CLMMfdsGetMarketPrice` は1リクエスト1銘柄のため、
+ウォッチリスト約230銘柄の30秒ポーリングは約27,600リクエスト/時間に達していた。
 
 ### 実装状況
 
@@ -148,6 +154,7 @@ create → ブローカーに送信 → pending（ブローカーID付き）
 |------|--------|------|
 | `providerFetchQuote()` | 立花API `CLMMfdsGetMarketPrice` | **実装済み** |
 | `providerFetchQuotesBatch()` | 立花API（p-limit並列） | **実装済み** |
+| `fetchDisplayQuotesBatch()` | yfinance → DB（画面表示専用、立花不使用） | **実装済み（KOH-607）** |
 | `providerFetchHistorical()` | yfinance | 据え置き |
 | `providerFetchMarket()` | yfinance（US指標は立花で取得不可） | 据え置き |
 | ファンダメンタルズ（PER/PBR/EPS） | yfinance（立花APIでは取得不可） | 据え置き |

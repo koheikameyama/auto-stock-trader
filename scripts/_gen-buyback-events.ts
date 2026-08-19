@@ -70,6 +70,19 @@ function classifyYutaiTitle(title: string): boolean {
 }
 
 /**
+ * 増配 combo (却下#33 の再構築, 2026-08-08)。当時の分類器は scratchpad ごと消えており厳密再現は
+ * 不能。#33 の記述「増配/復配のうち業績予想併記 (combo) が最強で、combined ゲートは combo で測った」
+ * に従い、「増配」+「業績予想」併記を採り、訂正/減配/無配/優待を除外する。復配は #33 で
+ * イベントスタディ段階で負 (n=106) と即却下済みなので含めない。
+ */
+function classifyZohaiComboTitle(title: string): boolean {
+  const t = title ?? "";
+  if (/訂正|減配|無配|株主優待/.test(t)) return false;
+  if (!t.includes("増配")) return false;
+  return t.includes("業績予想");
+}
+
+/**
  * カタリスト種別 (KOH-557)。優待/分割は本番実装が無い (検証のみ) ため、本番の分類ロジックを
  * import できる buyback と違い、ここに分類器を持つ。SQL の LIKE は候補を粗く絞るだけで、
  * 最終判定は fn が行う。
@@ -78,6 +91,7 @@ const CLASSIFIERS: Record<string, { like: string; fn: (t: string) => boolean; la
   buyback: { like: "%自己株式取得%", fn: (t) => classifyBuybackTitle(t) === "buyback_decision", label: "自己株式取得に係る事項の決定" },
   split: { like: "%株式分割%", fn: classifySplitTitle, label: "株式分割 (会社分割・併合を除外)" },
   yutai: { like: "%株主優待%", fn: classifyYutaiTitle, label: "株主優待 新設/拡充" },
+  "zohai-combo": { like: "%増配%", fn: classifyZohaiComboTitle, label: "増配×業績予想併記 (却下#33 combo 再構築)" },
 };
 
 const FLAGS_WITH_VALUE = ["--start", "--end", "--breadth-lag", "--breadth-universe", "--max-price", "--budget", "--classifier"];

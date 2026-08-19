@@ -20,13 +20,12 @@ import { getCashBalance, getEffectiveCapital } from "../position-manager";
 import { canOpenPosition, getDynamicMaxPositionPct } from "../risk-manager";
 import { submitOrder as submitBrokerOrder } from "../broker-orders";
 import { notifyOrderPlaced, notifySlack } from "../../lib/slack";
-import { STOP_LOSS, UNIT_SHARES, POSITION_SIZING, LOSING_STREAK } from "../../lib/constants";
+import { UNIT_SHARES, POSITION_SIZING, LOSING_STREAK } from "../../lib/constants";
+import { calculateAtrExitPrices, getSlAtrMultiplier } from "../exit-price-calculator";
 import { getLosingStreak } from "../drawdown-manager";
 import { checkLiquidity } from "../market-data";
 import { determineMarketRegime, getRegimeRiskScale } from "../market-regime";
 import { TIMEZONE } from "../../lib/constants/timezone";
-import { GAPUP } from "../../lib/constants/gapup";
-import { WEEKLY_BREAK } from "../../lib/constants/weekly-break";
 import { POST_SURGE_CONSOLIDATION } from "../../lib/constants/post-surge-consolidation";
 import { TACHIBANA_ORDER } from "../../lib/constants/broker";
 import { ORDER_EXPIRY } from "../../lib/constants/jobs";
@@ -37,16 +36,47 @@ import type { PostSurgeConsolidationTrigger } from "../post-surge-consolidation/
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-/** スキップ理由を追跡対象ラベルに変換する。null = 追跡しない */
-function getRejectedLabel(reason: string): string | null {
+/**
+ * スキップ理由を追跡ラベルに変換する。
+ *
+ * ★「候補として挙がったのに注文に乗らなかった」ものは全て弾き分析（RejectedSignal）に載せる。
+ * 以前は未知の理由を null = 追跡しない としていたため、shouldTrade=false / SLクランプ /
+ * 二重建て防止 / VIXレジーム / 日次損失制限 / ドローダウン停止 / 発注失敗 / 枠上限 が
+ * 記録から丸ごと落ちていた（Slack か console にしか出ず、後から数えられなかった）。
+ * 分類できない理由は「その他」に落として**必ず1行残す**。
+ *
+ * ⚠️ 判定順に依存する。より具体的なパターンを先に置くこと
+ * （例: 「連敗クールダウン」は「連敗停止」より前）。
+ *
+ * ⚠️ ここは reason の**文面**に依存する後付け分類なので、呼び出し側の文言を変えると
+ * 静かに「その他」に落ちる。ラベルが決まっている経路は ExecutionResult.rejectLabel で
+ * 明示指定すること（文面変更に対して壊れない）。
+ * export しているのはテスト用（実際の reason 文字列との対応を回帰テストで固定するため）。
+ */
+export function getRejectedLabel(reason: string): string {
   if (/予算不足|残高不足|現金残高不足/.test(reason)) return "残高不足";
   if (/集中率上限|投資比率上限/.test(reason)) return "集中率上限";
   if (/最大同時保有数/.test(reason)) return "ポジション数上限";
-  if (/流動性/.test(reason)) return "流動性不足";
+  // checkLiquidity() の reason は「売り板 N株 < 注文 M株（スリッページリスク大）」/
+  // 「スプレッド X% > 上限 Y%」で "流動性" の語を含まない。/流動性/ だけを見ていたため
+  // 板薄・スプレッド超過の棄却が丸ごと「その他」に落ち、Slack 通知も NOTIFY_REJECT_LABELS を
+  // 素通りしていた（2026-08-14 に GU 2件が無通知で消えたのがこれ）。
+  if (/流動性|売り板|板薄|スプレッド|スリッページ/.test(reason)) return "流動性不足";
   if (/マクロファクター/.test(reason)) return "マクロ集中";
   if (/セクター/.test(reason)) return "セクター集中";
   if (/連敗クールダウン/.test(reason)) return "連敗クールダウン";
-  return null;
+  // 以下は「候補が注文に乗らなかった全経路を弾き分析に載せる」対応で追加（従来は null = 記録なし）
+  if (/枠上限|枠を使い切/.test(reason)) return "枠上限";
+  if (/二重建て/.test(reason)) return "二重建て防止";
+  if (/クランプ/.test(reason)) return "SLクランプ";
+  if (/SLがエントリー価格以上/.test(reason)) return "SL計算不可";
+  if (/VIXレジーム/.test(reason)) return "VIXレジーム";
+  if (/日次損失制限/.test(reason)) return "日次損失制限";
+  if (/ドローダウン停止/.test(reason)) return "ドローダウン停止";
+  if (/連敗/.test(reason)) return "連敗停止";
+  if (/shouldTrade|MarketAssessment|取引が無効化|TradingConfig/.test(reason)) return "相場停止";
+  if (/銘柄マスタ/.test(reason)) return "銘柄マスタ欠落";
+  return "その他";
 }
 
 /**
@@ -59,12 +89,17 @@ function getRejectedLabel(reason: string): string | null {
  * 既に `[GU/PSC] エントリー失敗` を通知しており、ここで通知すると二重になるため除外する。
  * セクター集中 / マクロ集中 / 流動性不足 はリトライ系で monitor が console.log のみ、
  * ポジション数上限は monitor が当日打ち止めで break（Slack 無し）だったため、ここで拾う。
+ *
+ * 「その他」= 分類できなかった棄却も通知する。設計上ここに落ちる経路は無いはずで、
+ * 落ちたら分類漏れ（＝弾き分析の集計も歪んでいる）というバグの signal そのものだから。
+ * 実際、流動性の分類漏れは「その他」として静かに記録され続け、3週間気付けなかった。
  */
-const NOTIFY_REJECT_LABELS = new Set<string>([
+export const NOTIFY_REJECT_LABELS = new Set<string>([
   "セクター集中",
   "マクロ集中",
   "ポジション数上限",
   "流動性不足",
+  "その他",
 ]);
 
 /** RejectedSignal を非同期で保存（エラーは握りつぶしてメイン処理を止めない） */
@@ -74,25 +109,26 @@ async function saveRejectedSignal(params: {
   reason: string;
   reasonLabel: string;
   entryPrice: number;
+  /** false で Slack 通知を抑止（枠上限などの一括記録用） */
+  notify?: boolean;
 }): Promise<void> {
   let firstToday = false;
   try {
-    // 同一銘柄×同一理由が当日既に記録済みかを先に確認（当日1件に集約）
-    // monitor がリトライで同じ銘柄を複数回弾いても、DB レコード・Slack 通知とも1回だけにする。
+    // 同一銘柄×同一ラベルが当日既に記録済みかを先に確認。
+    // 15:24:00/20/40 のリトライ tick で同じ銘柄が3回弾かれるため、行を毎回作ると
+    // 弾き分析の件数・平均フォワードリターンが tick 数で膨らんで歪む。
+    // 「その日その銘柄をこの理由で弾いた」= 1行に集約する（Slack も従来どおり当日1回）。
     const alreadyToday = await prisma.rejectedSignal.findFirst({
       where: {
         ticker: params.ticker,
+        strategy: params.strategy,
         reasonLabel: params.reasonLabel,
         rejectedAt: { gte: getStartOfDayJST() },
       },
       select: { id: true },
     });
     firstToday = !alreadyToday;
-
-    // 当日2回目以降は記録しない（一覧に同一銘柄が同日重複するのを防ぐ）
-    if (!firstToday) {
-      return;
-    }
+    if (!firstToday) return; // 当日同一ラベルは記録済み → 行も通知も増やさない
 
     await prisma.rejectedSignal.create({
       data: {
@@ -110,7 +146,7 @@ async function saveRejectedSignal(params: {
   }
 
   // 当日初回かつ「取り逃し」系ラベルのみ Slack 通知（通知失敗はメイン処理を止めない）
-  if (firstToday && NOTIFY_REJECT_LABELS.has(params.reasonLabel)) {
+  if (params.notify !== false && firstToday && NOTIFY_REJECT_LABELS.has(params.reasonLabel)) {
     await notifySlack({
       title: `⛔ エントリー棄却: ${params.ticker} [${params.strategy}]`,
       message: `理由: ${params.reason}`,
@@ -129,21 +165,121 @@ async function saveRejectedSignal(params: {
   }
 }
 
+/**
+ * executeEntry に渡されないまま見送られた候補を弾き分析に一括記録する。
+ *
+ * 枠を使い切った後の残りトリガーや、当日打ち止め（資金切れ等）以降の候補は
+ * executeEntry を通らないため、これを呼ばないと「候補はあったのに注文に乗らなかった」
+ * 事実が DB に残らない（従来は console.log のみで後から数えられなかった）。
+ *
+ * Slack は抑止する（打ち止めの原因になった当の候補は executeEntry 側で通知済みで、
+ * 残り候補まで通知すると銘柄数だけ通知が増えてノイズになる）。
+ */
+export async function recordSkippedCandidates(
+  candidates: { ticker: string; currentPrice: number }[],
+  strategy: "gapup" | "weekly-break" | "post-surge-consolidation",
+  reason: string,
+  /** ラベルを明示指定する（reason の文面から推定させない場合） */
+  label?: string,
+): Promise<void> {
+  if (candidates.length === 0) return;
+  const reasonLabel = label ?? getRejectedLabel(reason);
+  for (const c of candidates) {
+    await saveRejectedSignal({
+      ticker: c.ticker,
+      strategy,
+      reason,
+      reasonLabel,
+      entryPrice: c.currentPrice,
+      notify: false,
+    });
+  }
+  console.log(
+    `[entry-executor] 未評価候補を弾き分析に記録: ${candidates.length}件 [${strategy}] ${reasonLabel}`,
+  );
+}
+
+/**
+ * スキャナーが「シグナルは満たしたが保有中/当日発注済み/決済後cooldown」で外した候補を
+ * 除外理由別のラベルで弾き分析に記録する。
+ *
+ * スキャナーは3つの集合をマージした holdingTickers しか受け取らないため、理由の切り分けは
+ * 呼び出し側（monitor）が持つ元の集合で行う。同一銘柄が複数に該当する場合は
+ * 保有中 > 当日発注済み > 決済後cooldown の優先順で1つに寄せる。
+ */
+export async function recordSkippedByHolding(
+  skipped: { ticker: string; currentPrice: number }[],
+  strategy: "gapup" | "weekly-break" | "post-surge-consolidation",
+  held: Set<string>,
+  pending: Set<string>,
+  cooldown: Set<string>,
+): Promise<void> {
+  for (const c of skipped) {
+    const [reason, label] = held.has(c.ticker)
+      ? ["保有中の銘柄のためシグナルを見送り（1銘柄1ポジション）", "保有中"]
+      : pending.has(c.ticker)
+        ? ["当日発注済み（未約定）の銘柄のためシグナルを見送り", "当日発注済み"]
+        : cooldown.has(c.ticker)
+          ? ["決済後3営業日の再エントリーcooldown中のためシグナルを見送り", "決済後cooldown"]
+          : ["除外集合に含まれるためシグナルを見送り", "その他"];
+    await saveRejectedSignal({
+      ticker: c.ticker,
+      strategy,
+      reason,
+      reasonLabel: label,
+      entryPrice: c.currentPrice,
+      notify: false,
+    });
+  }
+  if (skipped.length > 0) {
+    console.log(
+      `[entry-executor] シグナル成立だが除外された候補を弾き分析に記録: ${skipped.length}件 [${strategy}]`,
+    );
+  }
+}
+
 export interface ExecutionResult {
   success: boolean;
   orderId?: string;
   reason?: string;
   /** true の場合、同じ銘柄の再トリガーを許可する（一時的な理由での却下） */
   retryable?: boolean;
+  /** 弾き分析のラベルを明示指定する（reason の文面から推定できない発注失敗系で使う） */
+  rejectLabel?: string;
 }
 
 /**
- * トリガーのエントリー実行（gapup / weekly-break）
+ * トリガーのエントリー実行（gapup / weekly-break / PSC）。
+ *
+ * ★注文に乗らなかった候補は必ず弾き分析（RejectedSignal）に1行残す。
+ * 判定本体は executeEntryInner で、記録はこのラッパーに集約している
+ * （早期 return が10箇所以上あり、各所に保存を書くと必ず漏れるため）。
+ */
+export async function executeEntry(
+  trigger: GapUpTrigger | WeeklyBreakTrigger | PostSurgeConsolidationTrigger,
+  strategy: "gapup" | "weekly-break" | "post-surge-consolidation" = "gapup",
+): Promise<ExecutionResult> {
+  const result = await executeEntryInner(trigger, strategy);
+  if (!result.success) {
+    const reason = result.reason ?? "不明";
+    await saveRejectedSignal({
+      ticker: trigger.ticker,
+      strategy,
+      reason,
+      reasonLabel: result.rejectLabel ?? getRejectedLabel(reason),
+      entryPrice: trigger.currentPrice,
+    });
+  }
+  return result;
+}
+
+/**
+ * エントリー判定・発注の本体（呼び出しは executeEntry 経由のみ）。
  *
  * @param trigger トリガーイベント
  * @param strategy 戦略種別
  */
-export async function executeEntry(
+async function executeEntryInner(
   trigger: GapUpTrigger | WeeklyBreakTrigger | PostSurgeConsolidationTrigger,
   strategy: "gapup" | "weekly-break" | "post-surge-consolidation" = "gapup",
 ): Promise<ExecutionResult> {
@@ -201,15 +337,21 @@ export async function executeEntry(
   }
 
   // 3. SL価格 = currentPrice - ATR × multiplier（最大3%に制限）
+  //
+  // ⚠️ ここでの基準は「スキャン時のライブ値」であって約定価格ではない。発注前なので
+  //    これは避けられないが、**約定したら約定価格を基準に張り直す必要がある**
+  //    （broker-fill-handler / position-monitor → recalculateExitPricesOnFill）。
+  //    BT の SL は一貫して約定価格基準なので、張り直さないと定義がズレる。
   const slAtrMultiplier =
-    strategy === "gapup" ? GAPUP.STOP_LOSS.ATR_MULTIPLIER
-    : strategy === "weekly-break" ? WEEKLY_BREAK.STOP_LOSS.ATR_MULTIPLIER
-    : POST_SURGE_CONSOLIDATION.STOP_LOSS.ATR_MULTIPLIER;
-  const rawStopLoss = currentPrice - atr14 * slAtrMultiplier;
-  const maxStopLoss = currentPrice * (1 - STOP_LOSS.MAX_LOSS_PCT);
-  const stopLossPrice = Math.round(Math.max(rawStopLoss, maxStopLoss));
+    getSlAtrMultiplier(strategy) ??
+    POST_SURGE_CONSOLIDATION.STOP_LOSS.ATR_MULTIPLIER;
+  const {
+    stopLossPrice,
+    takeProfitPrice,
+    rawStopLoss,
+    isClamped: isSLClamped,
+  } = calculateAtrExitPrices(currentPrice, atr14, slAtrMultiplier);
 
-  const isSLClamped = rawStopLoss < maxStopLoss;
   if (isSLClamped) {
     const reason = `SLがATRベース（¥${Math.round(rawStopLoss)}）より3%上限（¥${stopLossPrice}）でクランプされました — ノイズに狩られるリスクが高いためスキップ`;
     console.log(`[entry-executor] ${ticker} スキップ: ${reason}`);
@@ -224,9 +366,6 @@ export async function executeEntry(
     console.log(`[entry-executor] ${ticker} スキップ: ${reason}`);
     return { success: false, reason, retryable: false };
   }
-
-  // 利確参考値: ATR × 5.0（トレーリングストップが実際の利確を担う、サイジングには使わない）
-  const takeProfitPrice = Math.round(currentPrice + atr14 * 5.0);
 
   // リスク%: フラット2%（SL/TPが共にATRベースのためRR傾斜は常に固定値になり無意味）
   // 連敗時はスケールダウンして損失を抑える
@@ -275,10 +414,6 @@ export async function executeEntry(
   if (quantity === 0) {
     const reason = `予算不足でポジションサイズが0（余力: ¥${cashBalance.toLocaleString()}, リスク額: ¥${riskAmount.toLocaleString()}, リスク%: ${riskPct}%）`;
     console.log(`[entry-executor] ${ticker} スキップ: ${reason}`);
-    const label = getRejectedLabel(reason);
-    if (label) {
-      await saveRejectedSignal({ ticker, strategy, reason, reasonLabel: label, entryPrice: currentPrice });
-    }
     return { success: false, reason, retryable: true };
   }
 
@@ -292,10 +427,6 @@ export async function executeEntry(
     if (maxByBalance === 0) {
       const reason = `残高不足（必要: ¥${(currentPrice * quantity).toLocaleString()}, 買余力×${POSITION_SIZING.BUYING_POWER_BUFFER}: ¥${Math.floor(buyingPower).toLocaleString()}, 残高: ¥${cashBalance.toLocaleString()}）`;
       console.log(`[entry-executor] ${ticker} スキップ: ${reason}`);
-      const label = getRejectedLabel(reason);
-      if (label) {
-        await saveRejectedSignal({ ticker, strategy, reason, reasonLabel: label, entryPrice: currentPrice });
-      }
       return { success: false, reason, retryable: true };
     }
     console.log(`[entry-executor] ${ticker} 残高上限で縮小: ${quantity}株 → ${maxByBalance}株（買余力×${POSITION_SIZING.BUYING_POWER_BUFFER}: ¥${Math.floor(buyingPower).toLocaleString()}, 残高: ¥${cashBalance.toLocaleString()}）`);
@@ -313,10 +444,6 @@ export async function executeEntry(
     if (maxByConcentration <= 0) {
       const reason = `集中率上限（${maxPositionPct}%）を超えるためスキップ（既存投資額: ¥${existingAmountForStock.toLocaleString()}）`;
       console.log(`[entry-executor] ${ticker} スキップ: ${reason}`);
-      const label = getRejectedLabel(reason);
-      if (label) {
-        await saveRejectedSignal({ ticker, strategy, reason, reasonLabel: label, entryPrice: currentPrice });
-      }
       return { success: false, reason, retryable: false };
     }
     console.log(`[entry-executor] ${ticker} 集中率上限で縮小: ${quantity}株 → ${maxByConcentration}株（上限: ${maxPositionPct}%）`);
@@ -338,10 +465,6 @@ export async function executeEntry(
   );
   if (!riskCheck.allowed) {
     console.log(`[entry-executor] ${ticker} リスクチェック不可: ${riskCheck.reason}`);
-    const label = getRejectedLabel(riskCheck.reason);
-    if (label) {
-      await saveRejectedSignal({ ticker, strategy, reason: riskCheck.reason, reasonLabel: label, entryPrice: currentPrice });
-    }
     return { success: false, reason: riskCheck.reason, retryable: riskCheck.retryable ?? false };
   }
 
@@ -354,11 +477,9 @@ export async function executeEntry(
   if (!liquidityCheck.isLiquid) {
     const liquidityReason = liquidityCheck.reason ?? "流動性不足";
     console.log(`[entry-executor] ${ticker} 流動性不足: ${liquidityReason}`);
-    const label = getRejectedLabel(liquidityReason);
-    if (label) {
-      await saveRejectedSignal({ ticker, strategy, reason: liquidityReason, reasonLabel: label, entryPrice: currentPrice });
-    }
-    return { success: false, reason: liquidityReason, retryable: true };
+    // ラベルは明示指定する（reason は checkLiquidity 側の文面で "流動性" を含まないため、
+    // getRejectedLabel の推定に任せると「その他」に落ちて Slack 通知が飛ばない）
+    return { success: false, reason: liquidityReason, retryable: true, rejectLabel: "流動性不足" };
   }
   if (liquidityCheck.riskFlags.length > 0) {
     console.log(
@@ -400,7 +521,7 @@ export async function executeEntry(
       color: "warning",
     });
     // 例外（ネットワーク/セッション障害など）はリトライ可能とする
-    return { success: false, reason: errorMsg, retryable: true };
+    return { success: false, reason: errorMsg, retryable: true, rejectLabel: "発注失敗" };
   }
 
   if (!brokerResult.success || !brokerResult.orderNumber) {
@@ -419,7 +540,7 @@ export async function executeEntry(
       message: errorMsg,
       color: retryable ? "warning" : "danger",
     });
-    return { success: false, reason: errorMsg, retryable };
+    return { success: false, reason: errorMsg, retryable, rejectLabel: "発注失敗" };
   }
 
   console.log(
