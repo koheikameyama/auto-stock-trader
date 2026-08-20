@@ -282,4 +282,98 @@ describe("BrokerEventStream", () => {
       expect(stream.isConnected()).toBe(false);
     });
   });
+
+  // KOH-640: session inactive での無限再接続ループ防止
+  describe("session inactive 処理", () => {
+    const sessionInactiveMsg =
+      "p_no\x021\x01p_date\x022026.08.20-08:40:07.964\x01p_errno\x022\x01p_err\x02session inactive.\x01p_cmd\x02ST\x01";
+
+    const getHandleMessage = () =>
+      (stream as unknown as { handleMessage: (msg: string) => void }).handleMessage.bind(stream);
+
+    it("errno=2 で sessionInactive イベントを発火する", () => {
+      const handler = vi.fn();
+      stream.on("sessionInactive", handler);
+
+      getHandleMessage()(sessionInactiveMsg);
+
+      expect(handler).toHaveBeenCalledOnce();
+      expect(handler.mock.calls[0][0]).toEqual({
+        errno: "2",
+        message: "session inactive.",
+      });
+    });
+
+    it("sessionInactive は解消（reconnect）まで一度しか発火しない", () => {
+      const handler = vi.fn();
+      stream.on("sessionInactive", handler);
+
+      getHandleMessage()(sessionInactiveMsg);
+      getHandleMessage()(sessionInactiveMsg);
+
+      expect(handler).toHaveBeenCalledOnce();
+    });
+
+    it("session inactive 後は scheduleReconnect が再接続をスケジュールしない", () => {
+      const internal = stream as unknown as {
+        wsUrl: string | null;
+        scheduleReconnect: () => void;
+        doConnect: () => void;
+      };
+      internal.wsUrl = "wss://example.invalid/event";
+      const doConnectSpy = vi.spyOn(internal, "doConnect");
+
+      getHandleMessage()(sessionInactiveMsg);
+      internal.scheduleReconnect();
+      vi.advanceTimersByTime(10 * 60 * 1000);
+
+      expect(doConnectSpy).not.toHaveBeenCalled();
+    });
+
+    it("reconnect() で sessionDead が解除される", () => {
+      // 土曜（接続ウィンドウ外）に固定し、doConnect が実ソケットを張らないようにする
+      vi.setSystemTime(new Date("2026-03-28T01:00:00Z"));
+      const internal = stream as unknown as { sessionDead: boolean };
+
+      getHandleMessage()(sessionInactiveMsg);
+      expect(internal.sessionDead).toBe(true);
+
+      stream.reconnect("wss://example.invalid/event-new");
+      expect(internal.sessionDead).toBe(false);
+    });
+  });
+
+  describe("再接続バックオフ", () => {
+    it("openだけではバックオフをリセットせず、安定稼働60秒後にリセットする", () => {
+      const internal = stream as unknown as {
+        reconnectDelay: number;
+        startStableTimer: () => void;
+      };
+      internal.reconnectDelay = 16_000;
+
+      internal.startStableTimer();
+      vi.advanceTimersByTime(59_000);
+      expect(internal.reconnectDelay).toBe(16_000); // まだリセットされない
+
+      vi.advanceTimersByTime(1_000);
+      expect(internal.reconnectDelay).toBe(1_000); // 60秒生き延びたのでリセット
+    });
+
+    it("KPタイムアウトは即時再接続ではなくバックオフ経由で再接続する", () => {
+      const internal = stream as unknown as {
+        wsUrl: string | null;
+        resetKpTimer: () => void;
+        scheduleReconnect: () => void;
+      };
+      internal.wsUrl = "wss://example.invalid/event";
+      const scheduleSpy = vi
+        .spyOn(internal, "scheduleReconnect")
+        .mockImplementation(() => {});
+
+      internal.resetKpTimer();
+      vi.advanceTimersByTime(30_000);
+
+      expect(scheduleSpy).toHaveBeenCalledOnce();
+    });
+  });
 });

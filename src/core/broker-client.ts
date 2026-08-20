@@ -89,6 +89,10 @@ export class TachibanaClient {
   private requestMutex: Promise<void> = Promise.resolve();
   /** セッション確立時に1回だけ呼ばれるコールバック（遅延ログイン用） */
   private sessionReadyCallbacks: Array<(session: TachibanaSession) => void> = [];
+  /** ログイン成功のたびに毎回呼ばれる永続コールバック（WebSocketのURL追従用、KOH-640） */
+  private sessionRefreshCallbacks: Array<(session: TachibanaSession) => void> = [];
+  /** auto-refresh 失敗時のリトライタイマー */
+  private refreshRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(env?: TachibanaEnv) {
     this.env = env ?? ((process.env.TACHIBANA_ENV as TachibanaEnv) || "demo");
@@ -225,6 +229,12 @@ export class TachibanaClient {
 
     // セッションをDBに保存（デプロイ後の復元用）
     await this.saveSession(this.session);
+
+    // 新セッションのURLをリスナーに通知（EVENT I/F WebSocket の再接続等）。
+    // どの経路のログイン（auto-refresh / reLoginOnce / 手動）でも必ず発火する —
+    // 旧実装は auto-refresh 経由のみで、reLoginOnce() が走ると旧セッションが
+    // 無効化されたまま WebSocket が取り残されていた（KOH-640）
+    this.fireSessionRefreshCallbacks();
 
     return this.session;
   }
@@ -387,22 +397,35 @@ export class TachibanaClient {
   // ========================================
 
   /**
-   * 30分ごとに自動再ログインを開始
-   *
-   * @param onRefresh - 再ログイン成功時のコールバック（WebSocket再接続等に使用）
+   * 6時間ごとの自動再ログインを開始（保険。ログイン成功の通知は onSessionRefresh 経由）。
+   * 失敗時は AUTO_REFRESH_RETRY_MS 後にリトライする — 失敗がサービス時間外
+   * （例: 早朝の [-62] 情報提供時間外）に当たると、次の定期実行まで6時間
+   * 古いセッションのまま放置されてしまうため（KOH-640）。
    */
-  startAutoRefresh(onRefresh?: (session: TachibanaSession) => void): void {
+  startAutoRefresh(): void {
     this.stopAutoRefresh();
 
-    this.refreshTimer = setInterval(async () => {
-      try {
-        console.log("[TachibanaClient] Auto-refreshing session...");
-        const session = await this.login();
-        onRefresh?.(session);
-      } catch (e) {
-        console.error("[TachibanaClient] Auto-refresh failed:", e);
-      }
+    this.refreshTimer = setInterval(() => {
+      void this.runAutoRefresh();
     }, TACHIBANA_SESSION.AUTO_REFRESH_INTERVAL_MS);
+  }
+
+  private async runAutoRefresh(): Promise<void> {
+    try {
+      console.log("[TachibanaClient] Auto-refreshing session...");
+      await this.login();
+    } catch (e) {
+      console.error(
+        `[TachibanaClient] Auto-refresh failed (${TACHIBANA_SESSION.AUTO_REFRESH_RETRY_MS / 60_000}分後にリトライ):`,
+        e,
+      );
+      if (!this.refreshRetryTimer) {
+        this.refreshRetryTimer = setTimeout(() => {
+          this.refreshRetryTimer = null;
+          void this.runAutoRefresh();
+        }, TACHIBANA_SESSION.AUTO_REFRESH_RETRY_MS);
+      }
+    }
   }
 
   /**
@@ -412,6 +435,10 @@ export class TachibanaClient {
     if (this.refreshTimer) {
       clearInterval(this.refreshTimer);
       this.refreshTimer = null;
+    }
+    if (this.refreshRetryTimer) {
+      clearTimeout(this.refreshRetryTimer);
+      this.refreshRetryTimer = null;
     }
   }
 
@@ -522,6 +549,26 @@ export class TachibanaClient {
         cb(this.session);
       } catch (err) {
         console.error("[TachibanaClient] onSessionReady callback error:", err);
+      }
+    }
+  }
+
+  /**
+   * ログイン成功のたびに呼ばれる永続コールバックを登録（onSessionReady と違い毎回発火）。
+   * どの経路のログイン（auto-refresh / reLoginOnce / 手動）でも新セッションが通知されるので、
+   * EVENT I/F WebSocket のURL追従に使う。
+   */
+  onSessionRefresh(callback: (session: TachibanaSession) => void): void {
+    this.sessionRefreshCallbacks.push(callback);
+  }
+
+  private fireSessionRefreshCallbacks(): void {
+    if (!this.session) return;
+    for (const cb of this.sessionRefreshCallbacks) {
+      try {
+        cb(this.session);
+      } catch (err) {
+        console.error("[TachibanaClient] onSessionRefresh callback error:", err);
       }
     }
   }

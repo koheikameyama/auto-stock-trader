@@ -35,6 +35,7 @@ import { TIMEZONE } from "./lib/constants";
 import { cronControl } from "./lib/cron-control";
 import { getTachibanaClient, resetTachibanaClient, type TachibanaSession } from "./core/broker-client";
 import { getBrokerEventStream, resetBrokerEventStream, isBrokerConnectionWindow } from "./core/broker-event-stream";
+import { BROKER_WS_RECONNECT } from "./lib/constants/broker";
 import { handleBrokerFill } from "./core/broker-fill-handler";
 
 // ジョブ状態（ダッシュボード・cronルートから参照可能）
@@ -307,14 +308,57 @@ serve({ fetch: app.fetch, port }, (info) => {
       stream.on("error", (err) => {
         console.error("[worker] EventStream error:", err);
       });
+      // どの経路のログイン（auto-refresh / reLoginOnce / 手動）でも
+      // 新セッションのWS URLに追従して再接続する（KOH-640）
+      client.onSessionRefresh((newSession) => {
+        stream.reconnect(newSession.urlEventWebSocket);
+      });
+
+      // session inactive 検知 → 再ログイン（成功すれば onSessionRefresh 経由で再接続）。
+      // クールダウンとリトライで頻度を縛り、立花への高負荷アクセスを防ぐ
+      let reloginInFlight = false;
+      let reloginCoolingDown = false;
+      let reloginRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const attemptStreamRelogin = async () => {
+        if (reloginInFlight) return;
+        if (!isBrokerConnectionWindow()) {
+          // 営業時間外はログインしない — 次のウィンドウで接続に失敗すれば再度ここに来る
+          console.log("[worker] EventStream session inactive — 営業時間外のため再ログインは保留");
+          return;
+        }
+        reloginInFlight = true;
+        try {
+          console.warn("[worker] EventStream session inactive — 再ログインします");
+          await client.login();
+        } catch (err) {
+          console.error("[worker] EventStream 再ログイン失敗 — リトライを予約:", err);
+          if (!reloginRetryTimer) {
+            reloginRetryTimer = setTimeout(() => {
+              reloginRetryTimer = null;
+              if (!stream.isConnected()) void attemptStreamRelogin();
+            }, BROKER_WS_RECONNECT.RELOGIN_RETRY_MS);
+          }
+        } finally {
+          reloginInFlight = false;
+        }
+      };
+
+      stream.on("sessionInactive", () => {
+        if (reloginCoolingDown) return;
+        reloginCoolingDown = true;
+        setTimeout(() => {
+          reloginCoolingDown = false;
+        }, BROKER_WS_RECONNECT.RELOGIN_COOLDOWN_MS);
+        void attemptStreamRelogin();
+      });
+
       if (!isBrokerConnectionWindow()) {
         console.log("  WebSocket: 営業時間外 — 次の営業時間に自動接続します");
       }
       stream.connect(session.urlEventWebSocket);
 
-      client.startAutoRefresh((newSession) => {
-        stream.reconnect(newSession.urlEventWebSocket);
-      });
+      client.startAutoRefresh();
 
       console.log("  ブローカーセッション確立");
     };

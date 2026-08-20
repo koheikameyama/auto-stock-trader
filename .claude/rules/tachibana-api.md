@@ -50,6 +50,7 @@
 - `CLMMfdsGetMarketPrice` のバッチ取得はシグナル検出目的のみ。頻度はロジック上の必要最小限に留める
 - **画面表示用の時価に立花APIを使わない (KOH-607, 2026-08-12 の「30万回超」警告対応)**。ダッシュボードのポーリング (`/api/quotes`, `/api/watchlist/state`) は `fetchDisplayQuotesBatch()` (yfinance→DB、立花不使用)。新しい画面・エンドポイントを作る時も表示用途なら同関数を使うこと
 - `CLMMfdsGetMarketPriceHistory` を叩く場合は **18:00以降** にスケジュール
+- **EVENT I/F は「open成功 ≠ セッション有効」(KOH-640, 2026-08-20 の「WebSocket 2,674回接続」警告対応)**。立花はセッションが死んでいても WS 接続を一旦受け付け、ST(`p_errno=2 "session inactive."`) を返して約5秒で切断する。open でバックオフをリセットすると1秒間隔の無限再接続ループになる。対策は3点セットで維持すること: ①errno=2 検知で古いURLへの再接続を停止し `sessionInactive` イベント → worker がクールダウン付き再ログイン、②バックオフのリセットは「接続が60秒生き延びた後」のみ (`BROKER_WS_RECONNECT.STABLE_CONNECTION_MS`)、③ログイン成功は全経路 (auto-refresh / reLoginOnce / 手動) で `onSessionRefresh` を発火し WS のURLを追従させる
 
 ### 具体的なアクセス上限
 

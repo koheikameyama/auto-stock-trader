@@ -27,6 +27,12 @@ export const TACHIBANA_SESSION = {
    * 任せる方針に変更。本タイマーはあくまで保険。
    */
   AUTO_REFRESH_INTERVAL_MS: 6 * 60 * 60 * 1000,
+  /** auto-refresh 失敗時のリトライ間隔（ミリ秒） - 30分。
+   * 固定6時間間隔だと、失敗がサービス時間外（例: 05:19 JST の [-62] 情報提供時間外）に
+   * 当たった場合に次の成功まで6時間、古いセッションのまま放置され、その間 EVENT I/F が
+   * session inactive の再接続ループに陥っていた（KOH-640）。失敗時のみ短い間隔で再試行する
+   * （成功時は6時間間隔のまま。頻繁な再ログインは電話番号認証を誘発するため）。 */
+  AUTO_REFRESH_RETRY_MS: 30 * 60 * 1000,
   /** リクエストタイムアウト（ミリ秒） */
   REQUEST_TIMEOUT_MS: 30_000,
   /** システム混雑エラー(sResultCode=-2)時の最大リトライ回数。
@@ -243,6 +249,24 @@ export const BROKER_RECONCILIATION = {
 export const BROKER_WS_HOURS = {
   START_HOUR: 7, // 07:00 JST（注文受付開始前の余裕）
   END_HOUR: 18, // 18:00 JST（閉局後の余裕）
+} as const;
+
+/** EVENT I/F WebSocket の再接続制御（KOH-640: 立花からの高負荷警告への対応）。
+ *
+ * 立花サーバーはセッションが死んでいても WebSocket 接続自体は一旦受け付け、
+ * ST(p_errno=2 "session inactive.") を返して約5秒後に切断する。旧実装は
+ * open しただけでバックオフをリセットしていたため、1秒間隔の無限再接続ループ
+ * （約550接続/時、1日2,674接続）になり立花から利用停止警告を受けた。 */
+export const BROKER_WS_RECONNECT = {
+  /** 接続がこの時間切断されずに生きて初めて「健全」とみなしバックオフをリセットする。
+   * open 直後のリセットは禁止 — session inactive でも open は成功するため。 */
+  STABLE_CONNECTION_MS: 60_000,
+  /** 再接続バックオフの上限（ミリ秒）。短命切断が続く異常時でも最大5分に1回まで */
+  MAX_RECONNECT_DELAY_MS: 5 * 60 * 1000,
+  /** sessionInactive 検知による再ログイン試行の最小間隔（連続発火の抑制） */
+  RELOGIN_COOLDOWN_MS: 5 * 60 * 1000,
+  /** 再ログイン失敗時のリトライ間隔 */
+  RELOGIN_RETRY_MS: 15 * 60 * 1000,
 } as const;
 
 // ========================================
