@@ -18,7 +18,7 @@ import utc from "dayjs/plugin/utc.js";
 import tz from "dayjs/plugin/timezone.js";
 import { isMarketDay } from "../lib/market-date";
 import { TIMEZONE } from "../lib/constants";
-import { BROKER_WS_HOURS } from "../lib/constants/broker";
+import { BROKER_WS_HOURS, BROKER_WS_RECONNECT } from "../lib/constants/broker";
 
 dayjs.extend(utc);
 dayjs.extend(tz);
@@ -40,11 +40,14 @@ const DEFAULT_EVENT_TYPES = ["ST", "KP", "EC", "SS", "US"];
  */
 const KP_TIMEOUT_MS = 30_000;
 
-/** 再接続の最大リトライ間隔（ms） */
-const MAX_RECONNECT_DELAY_MS = 30_000;
+/** 再接続の最大リトライ間隔（ms）。KOH-640 で 30秒 → 5分に引き上げ */
+const MAX_RECONNECT_DELAY_MS = BROKER_WS_RECONNECT.MAX_RECONNECT_DELAY_MS;
 
 /** 再接続の初期リトライ間隔（ms） */
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
+
+/** EVENT I/F がセッション失効を示す p_errno（ST で "session inactive." とともに返る） */
+const SESSION_INACTIVE_ERRNO = "2";
 
 /** EVENT I/F 接続パラメータ */
 const EVENT_PARAMS = {
@@ -159,8 +162,16 @@ export class BrokerEventStream extends EventEmitter {
   private options: BrokerEventStreamOptions = {};
   private kpTimer: ReturnType<typeof setTimeout> | null = null;
   private windowTimer: ReturnType<typeof setTimeout> | null = null;
+  private stableTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
   private intentionalClose = false;
+  /**
+   * セッション失効（p_errno=2 "session inactive."）を検知した状態。
+   * この状態では手元の wsUrl は死んだセッションのものなので、再接続しても
+   * 同じエラーで切断されるだけ（旧実装はこれで1秒間隔の無限ループになった、KOH-640）。
+   * 再ログインによる新URLでの reconnect() まで一切接続しない。
+   */
+  private sessionDead = false;
 
   /**
    * WebSocket 接続を開始する
@@ -169,6 +180,7 @@ export class BrokerEventStream extends EventEmitter {
     this.wsUrl = wsUrl;
     this.options = options ?? {};
     this.intentionalClose = false;
+    this.sessionDead = false;
     this.reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
     this.doConnect();
   }
@@ -181,6 +193,7 @@ export class BrokerEventStream extends EventEmitter {
     this.intentionalClose = true;
     this.closeWs();
     this.intentionalClose = false;
+    this.sessionDead = false;
     this.reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
     this.doConnect();
   }
@@ -192,6 +205,7 @@ export class BrokerEventStream extends EventEmitter {
     this.intentionalClose = true;
     this.clearKpTimer();
     this.clearWindowTimer();
+    this.clearStableTimer();
     this.closeWs();
     this.wsUrl = null;
   }
@@ -209,6 +223,9 @@ export class BrokerEventStream extends EventEmitter {
 
   private doConnect(): void {
     if (!this.wsUrl) return;
+
+    // セッション失効中は再ログイン（reconnect()）まで接続しない
+    if (this.sessionDead) return;
 
     // 営業時間外は接続しない — 次のウィンドウ開始時に自動再接続
     if (!isBrokerConnectionWindow()) {
@@ -235,7 +252,10 @@ export class BrokerEventStream extends EventEmitter {
 
     this.ws.on("open", () => {
       console.log("[BrokerEventStream] Connected");
-      this.reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
+      // バックオフのリセットは open 直後ではなく「一定時間生き延びた後」に行う。
+      // session inactive でも open 自体は成功するため、open でリセットすると
+      // 「接続→5秒で切断→1秒で再接続」の無限ループになる（KOH-640）
+      this.startStableTimer();
       this.resetKpTimer();
       this.emit("connected");
     });
@@ -266,6 +286,7 @@ export class BrokerEventStream extends EventEmitter {
         `[BrokerEventStream] Disconnected (code=${code}, reason=${reason.toString()})`,
       );
       this.clearKpTimer();
+      this.clearStableTimer();
       this.emit("disconnected", code);
 
       if (!this.intentionalClose) {
@@ -296,6 +317,12 @@ export class BrokerEventStream extends EventEmitter {
         `[BrokerEventStream] Server error: errno=${fields.p_errno} err=${fields.p_err ?? ""} (cmd=${cmd})`,
       );
       this.emit("serverError", { errno: fields.p_errno, message: fields.p_err ?? "", cmd });
+
+      // セッション失効: このURLへの再接続は無意味なので停止し、再ログインを要求する
+      if (fields.p_errno === SESSION_INACTIVE_ERRNO) {
+        this.handleSessionInactive(fields);
+        return;
+      }
     }
 
     switch (cmd) {
@@ -347,6 +374,27 @@ export class BrokerEventStream extends EventEmitter {
     this.emit("execution", event);
   }
 
+  /**
+   * セッション失効の処理 — 再接続ループを止め、再ログインを待つ。
+   * 新しいセッションが確立されたら reconnect(newUrl) で復帰する。
+   */
+  private handleSessionInactive(fields: Record<string, string>): void {
+    if (this.sessionDead) return;
+    this.sessionDead = true;
+
+    console.warn(
+      "[BrokerEventStream] Session inactive — 再接続を停止し、再ログインを待ちます",
+    );
+
+    this.clearKpTimer();
+    this.clearStableTimer();
+    this.closeWs();
+    this.emit("sessionInactive", {
+      errno: fields.p_errno,
+      message: fields.p_err ?? "",
+    });
+  }
+
   private resetKpTimer(): void {
     this.clearKpTimer();
     this.kpTimer = setTimeout(() => {
@@ -354,7 +402,8 @@ export class BrokerEventStream extends EventEmitter {
         "[BrokerEventStream] KP timeout — reconnecting...",
       );
       this.closeWs();
-      this.doConnect();
+      // 直接 doConnect() せずバックオフ経由で再接続する（即時再接続の連打を防ぐ）
+      this.scheduleReconnect();
     }, KP_TIMEOUT_MS);
   }
 
@@ -365,8 +414,27 @@ export class BrokerEventStream extends EventEmitter {
     }
   }
 
+  /**
+   * 接続が STABLE_CONNECTION_MS 生き延びたらバックオフをリセットする。
+   * 短命切断（session inactive 等）が続く限り指数バックオフが維持される。
+   */
+  private startStableTimer(): void {
+    this.clearStableTimer();
+    this.stableTimer = setTimeout(() => {
+      this.stableTimer = null;
+      this.reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
+    }, BROKER_WS_RECONNECT.STABLE_CONNECTION_MS);
+  }
+
+  private clearStableTimer(): void {
+    if (this.stableTimer) {
+      clearTimeout(this.stableTimer);
+      this.stableTimer = null;
+    }
+  }
+
   private scheduleReconnect(): void {
-    if (this.intentionalClose || !this.wsUrl) return;
+    if (this.intentionalClose || !this.wsUrl || this.sessionDead) return;
 
     // 営業時間外ならウィンドウ開始まで待機
     if (!isBrokerConnectionWindow()) {
