@@ -19,7 +19,7 @@ env:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 210
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -30,7 +30,13 @@ jobs:
       - run: npx prisma generate
       - name: Start yfinance sidecar
         uses: ./.github/actions/start-yfinance
-      - run: npm run backfill:corporate-events
+      - name: Run backfill:corporate-events (with retry)
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 60
+          max_attempts: 3
+          retry_wait_seconds: 60
+          command: npm run backfill:corporate-events
 
   notify-success:
     needs: run

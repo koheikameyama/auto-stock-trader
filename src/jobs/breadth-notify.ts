@@ -4,8 +4,11 @@
  * backfill-stock-data で当日バーが StockDailyBar に投入された後に実行する。
  * scheduled_backfill-prices.yml の stock-data ジョブ完了後（17:05 JST 頃）に走る想定。
  *
- * asOfDate は getTodayForDB() を明示的に渡す。今日バーが入っていなければ throw し、
- * Slack にも通知しない（backfill 失敗の検知を兼ねる）。
+ * calculateMarketBreadth() には asOfDate を渡さず、直近60日以内で最新のJP営業日を
+ * 自動採用させる。stock-data 完了直後でも JST の日付境界（0時）を跨ぐと
+ * getTodayForDB() が翌日分を要求してしまい、その日はまだバーが存在せず throw する
+ * 事故が実際に発生した（2026-09-01）。backfill 自体が失敗していれば60日lookback越しに
+ * データが1件も無い状態になり、その場合は引き続き throw して検知する。
  */
 
 import dayjs from "dayjs";
@@ -21,7 +24,7 @@ import { prisma } from "../lib/prisma";
 
 async function main() {
   const today = getTodayForDB();
-  const breadth = await calculateMarketBreadth(today);
+  const breadth = await calculateMarketBreadth();
 
   const pct = (breadth.breadth * 100).toFixed(1);
   const asOf = breadth.asOfDate.toISOString().slice(0, 10);
