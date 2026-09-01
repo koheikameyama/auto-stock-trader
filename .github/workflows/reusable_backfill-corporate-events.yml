@@ -19,7 +19,7 @@ env:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 210
+    timeout-minutes: 260
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -30,11 +30,14 @@ jobs:
       - run: npx prisma generate
       - name: Start yfinance sidecar
         uses: ./.github/actions/start-yfinance
+      # 全銘柄(3716件)の決算・配当情報をyfinanceから逐次取得するため実処理は60-90分かかる。
+      # timeout_minutes はこの実処理時間を超える値にすること（2026-09-01、60分設定で
+      # 3回とも完走前にタイムアウトし、DB接続断より悪い「常に失敗」を引き起こした）。
       - name: Run backfill:corporate-events (with retry)
         uses: nick-fields/retry@v3
         with:
-          timeout_minutes: 60
-          max_attempts: 3
+          timeout_minutes: 120
+          max_attempts: 2
           retry_wait_seconds: 60
           command: npm run backfill:corporate-events
 
