@@ -18,6 +18,7 @@ vi.mock("../../lib/slack", () => ({
 }));
 
 import { getRejectedLabel, NOTIFY_REJECT_LABELS } from "../breakout/entry-executor";
+import { planReplay } from "../../jobs/signal-replay";
 import { checkLiquidity } from "../market-data";
 import { LIQUIDITY_FILTER } from "../../lib/constants";
 
@@ -75,5 +76,27 @@ describe("getRejectedLabel — 他経路の代表的な reason", () => {
   it("分類できない理由は「その他」に落ち、かつ通知される（分類漏れを検知するため）", () => {
     expect(getRejectedLabel("未知の理由でスキップしました")).toBe("その他");
     expect(NOTIFY_REJECT_LABELS.has("その他")).toBe(true);
+  });
+});
+
+/**
+ * signal-replay は明示ラベル付きで記録する（recordSkippedCandidates の第4引数）が、
+ * reason 文面と getRejectedLabel の分類がズレていると、同じ棄却が経路によって
+ * 別ラベルに落ちる。生成元の文字列そのもので両者の一致を固定する。
+ */
+describe("getRejectedLabel — signal-replay が生成する reason", () => {
+  it("停止中の戦略は「戦略停止」（相場が取引可の日でも撃たないので拘束条件はこちら）", () => {
+    const plan = planReplay({ entryEnabled: false, shouldTrade: true, shouldTradeValue: true })!;
+    expect(plan.label).toBe("戦略停止");
+    expect(getRejectedLabel(plan.reason)).toBe(plan.label);
+    // 一括記録なので通知はしない（銘柄数だけ Slack が増える）
+    expect(NOTIFY_REJECT_LABELS.has(plan.label)).toBe(false);
+  });
+
+  it("稼働中の戦略 × 見送り日は「相場停止」", () => {
+    const plan = planReplay({ entryEnabled: true, shouldTrade: false, shouldTradeValue: false })!;
+    expect(plan.label).toBe("相場停止");
+    expect(getRejectedLabel(plan.reason)).toBe(plan.label);
+    expect(NOTIFY_REJECT_LABELS.has(plan.label)).toBe(false);
   });
 });
