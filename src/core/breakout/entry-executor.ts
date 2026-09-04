@@ -74,6 +74,9 @@ export function getRejectedLabel(reason: string): string {
   if (/日次損失制限/.test(reason)) return "日次損失制限";
   if (/ドローダウン停止/.test(reason)) return "ドローダウン停止";
   if (/連敗/.test(reason)) return "連敗停止";
+  // 「戦略停止」は「相場停止」より先に見る。両方成立する日（停止中の戦略 × 見送り日）は
+  // 相場が許しても撃たない方が拘束条件なので、そちらのラベルに寄せる（signal-replay と同じ優先順）。
+  if (/ENTRY_ENABLED|新規エントリー停止中/.test(reason)) return "戦略停止";
   if (/shouldTrade|MarketAssessment|取引が無効化|TradingConfig/.test(reason)) return "相場停止";
   if (/銘柄マスタ/.test(reason)) return "銘柄マスタ欠落";
   return "その他";
