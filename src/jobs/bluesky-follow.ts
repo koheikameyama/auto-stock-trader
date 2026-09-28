@@ -13,6 +13,7 @@
  * X のフォロー自動化は規約違反（凍結リスク）のため対象外。
  */
 
+import { pathToFileURL } from "node:url";
 import { getBlueskyAgent } from "../lib/bluesky";
 import { notifySlack, SNS_POST_SLACK_WEBHOOK_URL } from "../lib/slack";
 
@@ -157,8 +158,12 @@ export async function runBlueskyFollow(): Promise<void> {
   console.log(`Bluesky フォロー実行: ${lines.filter((l) => l.startsWith("✅")).length} 件`);
 }
 
-// 直接実行時
-if (require.main === module) {
+// 直接実行時（ESM のため require.main は使えない）
+const isDirectRun = process.argv[1]
+  ? import.meta.url === pathToFileURL(process.argv[1]).href
+  : false;
+
+if (isDirectRun) {
   runBlueskyFollow()
     .then(() => process.exit(0))
     .catch((e) => {
