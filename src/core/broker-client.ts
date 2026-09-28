@@ -283,7 +283,7 @@ export class TachibanaClient {
         p_no: this.nextRequestNo(),
         p_sd_date: this.formatTimestamp(),
       };
-      let res = await this.fetchWithDecode(`${virtualUrl}?${this.encodeParams(fullParams)}`);
+      let res = await this.fetchWithDecodeOrSessionError(`${virtualUrl}?${this.encodeParams(fullParams)}`);
 
       // p_no順序エラー: fix→retry 間に他プロセス／並行リクエストが p_no を進めると
       // retry も同じエラーになることがあるため MAX_RETRIES 回までリトライする。
@@ -298,7 +298,7 @@ export class TachibanaClient {
           p_no: this.nextRequestNo(),
           p_sd_date: this.formatTimestamp(),
         };
-        res = await this.fetchWithDecode(`${virtualUrl}?${this.encodeParams(fullParams)}`);
+        res = await this.fetchWithDecodeOrSessionError(`${virtualUrl}?${this.encodeParams(fullParams)}`);
       }
 
       if (!["0", "2"].includes(res.sResultCode)) {
@@ -357,7 +357,7 @@ export class TachibanaClient {
       p_no: this.nextRequestNo(),
       p_sd_date: this.formatTimestamp(),
     };
-    let res = await this.fetchWithDecode(`${this.session!.urlPrice}?${this.encodeParams(fullParams)}`);
+    let res = await this.fetchWithDecodeOrSessionError(`${this.session!.urlPrice}?${this.encodeParams(fullParams)}`);
 
     // p_no順序エラー: fix→retry 間に他プロセス／並行リクエストが p_no を進めると
     // retry も同じエラーになることがあるため MAX_RETRIES 回までリトライする。
@@ -372,7 +372,7 @@ export class TachibanaClient {
         p_no: this.nextRequestNo(),
         p_sd_date: this.formatTimestamp(),
       };
-      res = await this.fetchWithDecode(`${this.session!.urlPrice}?${this.encodeParams(fullParams)}`);
+      res = await this.fetchWithDecodeOrSessionError(`${this.session!.urlPrice}?${this.encodeParams(fullParams)}`);
     }
 
     if (this.isSessionError(res)) {
@@ -919,6 +919,27 @@ export class TachibanaClient {
   private encodeParams(params: Record<string, string>): string {
     const json = JSON.stringify(params, null, 0);
     return encodeURIComponent(json);
+  }
+
+  /**
+   * fetchWithDecode を試み、HTTP層のエラー（404等）をセッション切断
+   * （sResultCode="2"）相当として扱う。
+   * DBから復元したセッションの仮想URLが失効している場合、立花サーバーは
+   * JSONエラー応答ではなく素の HTTP 404 を返す（fetchWithDecodeが例外を投げる）ため、
+   * 既存の isSessionError 起点の再ログインリトライに乗せるための変換。
+   */
+  private async fetchWithDecodeOrSessionError(url: string): Promise<TachibanaResponse> {
+    try {
+      return await this.fetchWithDecode(url);
+    } catch (err) {
+      if (err instanceof Error && /^HTTP \d+:/.test(err.message)) {
+        console.warn(
+          `[TachibanaClient] Virtual URL fetch failed (${err.message}), treating as session error`,
+        );
+        return { sResultCode: "2", sResultText: err.message, sCLMID: "" };
+      }
+      throw err;
+    }
   }
 
   private async fetchWithDecode(url: string): Promise<TachibanaResponse> {
