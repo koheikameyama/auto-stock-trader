@@ -144,6 +144,20 @@ export class TachibanaClient {
     const url = `${this.baseUrl}auth/?${this.encodeParams(params)}`;
     const raw = await this.fetchWithDecode(url);
 
+    // TODO(temp-debug, v4r10移行調査): sResultCode/sResultTextがundefinedになる原因を
+    // 特定するため、raw応答の全キーとマスク済み値を出力する。原因判明後に削除する。
+    console.log(
+      "[TachibanaClient][temp-debug] Login raw response (pre-mapping):",
+      JSON.stringify(
+        Object.fromEntries(
+          Object.entries(raw).map(([k, v]) => [
+            k,
+            typeof v === "string" && v.length > 40 ? `${v.slice(0, 40)}…(len=${v.length})` : v,
+          ]),
+        ),
+      ),
+    );
+
     if (raw.sResultCode !== "0") {
       throw new Error(
         `Tachibana login failed: [${raw.sResultCode}] ${raw.sResultText ?? ""}`,
@@ -963,6 +977,23 @@ export class TachibanaClient {
 
       // JSONパース → 数値キーを名前付きキーに変換
       const raw = JSON.parse(text) as Record<string, unknown>;
+
+      // TODO(temp-debug, v4r10移行調査): 数値キーマッピングがずれていないか確認するため、
+      // 変換前の生レスポンスを出力する。原因判明後に削除する。
+      if (url.includes("/auth/")) {
+        console.log(
+          "[TachibanaClient][temp-debug] Login raw response (numeric keys, pre-mapping):",
+          JSON.stringify(
+            Object.fromEntries(
+              Object.entries(raw).map(([k, v]) => [
+                k,
+                typeof v === "string" && v.length > 40 ? `${v.slice(0, 40)}…(len=${v.length})` : v,
+              ]),
+            ),
+          ),
+        );
+      }
+
       return mapNumericKeys(raw) as TachibanaResponse;
     } finally {
       clearTimeout(timeout);
