@@ -31,7 +31,7 @@ describe("tachibana-crypto", () => {
 
   describe("decryptVirtualUrl", () => {
     it("公開鍵で暗号化した値を秘密鍵で復号できる", () => {
-      const url = "https://kabuka.e-shiten.jp/e_api_v4r9/request/TOKEN==/";
+      const url = "https://kabuka.e-shiten.jp/e_api_v4r10/request/TOKEN==/";
       const decrypted = decryptVirtualUrl(encrypt(url), privateKey);
       expect(decrypted).toBe(url);
     });
@@ -70,7 +70,7 @@ describe("tachibana-crypto", () => {
       const b64 = Buffer.from(privateKey, "utf-8").toString("base64");
       vi.stubEnv("TACHIBANA_PRIVATE_KEY", b64);
       const loaded = loadTachibanaPrivateKey();
-      const url = "wss://kabuka.e-shiten.jp/e_api_v4r9/event/ws/";
+      const url = "wss://kabuka.e-shiten.jp/e_api_v4r10/event/ws/";
       expect(decryptVirtualUrl(encrypt(url), loaded)).toBe(url);
     });
 

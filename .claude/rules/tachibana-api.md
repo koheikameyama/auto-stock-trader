@@ -1,6 +1,12 @@
-# 立花証券 e支店 API (v4r9)
+# 立花証券 e支店 API (v4r10)
 
-> **v4r8 → v4r9 移行（2026-06-27 v4r8 廃止）**
+> **v4r9 → v4r10 移行（2026-09-27 v4r9 廃止）**
+> エンドポイントのURLパスが変わっただけで、認証方式・リクエスト/レスポンス形式は無変更。
+> 1. **エンドポイント**: `e_api_v4r9/` → `e_api_v4r10/`
+> 2. 公式告知: https://www.e-shiten.jp/api/20260728.html （リリース日 2026-08-29、旧版廃止日 2026-09-27）
+> 3. **本番障害**: 廃止日以降、旧URL(`e_api_v4r9/`)への `login()` が HTTP 404 を返し続け、session-health-check / market-assessment 等が連鎖的に失敗（2026-09-29 に発覚・修正）
+>
+> **v4r8 → v4r9 移行（2026-06-27 v4r8 廃止、歴史的記録）**
 > v4r9 では認証方式が刷新された。主な差分:
 > 1. **エンドポイント**: `e_api_v4r8/` → `e_api_v4r9/`
 > 2. **ログイン**: `sUserId` + `sPassword` → `sAuthId`（利用設定画面で発行する認証ID）
@@ -12,8 +18,8 @@
 
 | 項目 | 内容 |
 |------|------|
-| 本番URL | `https://kabuka.e-shiten.jp/e_api_v4r9/` |
-| デモURL | `https://demo-kabuka.e-shiten.jp/e_api_v4r9/` |
+| 本番URL | `https://kabuka.e-shiten.jp/e_api_v4r10/` |
+| デモURL | `https://demo-kabuka.e-shiten.jp/e_api_v4r10/` |
 | リファレンス | https://www.e-shiten.jp/e_api/mfds_json_api_refference.html |
 | 利用制限告知 | https://www.e-shiten.jp/api/20260310.html |
 | プロトコル | HTTP GET |
