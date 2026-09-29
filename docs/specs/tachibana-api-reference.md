@@ -1095,13 +1095,19 @@ p_no\x0210\x01p_date\x022026.07.06-17:44:11.367\x01p_cmd\x02KP\x01
 
 | 数値キー | 名前付きキー | 説明 |
 |---------|-------------|------|
-| 896 | sUrlRequest | 仮想URL（REQUEST）※暫定、パス検証で確定（v4r9: 873） |
-| 894 | sUrlMaster | 仮想URL（MASTER）※暫定（v4r9: 871） |
-| 895 | sUrlPrice | 仮想URL（PRICE）※暫定（v4r9: 872） |
-| 892 | sUrlEvent | 仮想URL（EVENT）※暫定（v4r9: 869） |
-| 893 | sUrlEventWebSocket | 仮想URL（EVENT-WebSocket）※暫定（v4r9: 870） |
+| 896 | sUrlRequest | 仮想URL（REQUEST）パス検証(`/request/`)で確定（v4r9: 873） |
+| 894 | sUrlMaster | 仮想URL（MASTER）パス検証(`/master/`)で確定（v4r9: 871） |
+| 895 | sUrlPrice | 仮想URL（PRICE）パス検証(`/price/`)で確定（v4r9: 872） |
+| 892 | sUrlEvent | 仮想URL（EVENT）パス検証(`/event/`)で確定（v4r9: 869） |
+| 893 | sUrlEventWebSocket | 仮想URL（EVENT-WebSocket）パス検証(`wss://`)で確定（v4r9: 870） |
 | 未検証 | sKinsyouhouMidokuFlg | 金商法交付書面未読フラグ（v4r9: 552。v4r10で未確認のため意図的に未マップ） |
-| 未検証 | sSummaryGenkabuKaituke | 株式現物買付可能額（v4r9: 743。v4r10で未確認のため意図的に未マップ） |
+
+### 買余力応答 (CLMZanKaiKanougaku)
+
+| 数値キー | 名前付きキー | 説明 |
+|---------|-------------|------|
+| 766 | sSummaryGenkabuKaituke | 株式現物買付可能額（本番実測額と一致で確定。v4r9: 743） |
+| 770 | sSummaryUpdate | 更新日時 YYYYMMDDHHMM（実測で確定。v4r9: 747） |
 
 ### 注文応答
 
