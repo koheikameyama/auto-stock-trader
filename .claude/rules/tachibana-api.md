@@ -6,22 +6,22 @@
 > 3. 公式告知: https://www.e-shiten.jp/api/20260728.html （リリース日 2026-08-29、旧版廃止日 2026-09-27）
 > 4. **本番障害**: 廃止日以降、旧URL(`e_api_v4r9/`)への `login()` が HTTP 404 を返し続け、URL修正後も数値キーシフトにより `sResultCode` が読めず再ログインが失敗し続けた。session-health-check / market-assessment 等が連鎖的に失敗（2026-09-29 に発覚、URL修正 → 原因再調査 → キーマップ修正の2段階で対応）
 >
-> **v4r10 数値キー実測結果（2026-09-29、ログイン応答のみ確認済み）**
+> **v4r10 数値キー実測結果（2026-09-29、本番実測で確定）**
 >
-> | フィールド | v4r9 | v4r10（実測） |
+> | フィールド | v4r9 | v4r10（確定） |
 > |---|---|---|
 > | sResultCode | 287 | **311** |
 > | sResultText | 286 | **310** |
 > | sCLMID | 334 | **357** |
-> | sUrlEvent | 869 | **892**（暫定、パス検証で確定） |
-> | sUrlEventWebSocket | 870 | **893**（暫定、パス検証で確定） |
-> | sUrlMaster | 871 | **894**（暫定、パス検証で確定） |
-> | sUrlPrice | 872 | **895**（暫定、パス検証で確定） |
-> | sUrlRequest | 873 | **896**（暫定、パス検証で確定） |
+> | sUrlEvent | 869 | **892**（パスセグメント`/event/`検証で確定） |
+> | sUrlEventWebSocket | 870 | **893**（`wss://`検証で確定） |
+> | sUrlMaster | 871 | **894**（`/master/`検証で確定） |
+> | sUrlPrice | 872 | **895**（`/price/`検証で確定） |
+> | sUrlRequest | 873 | **896**（`/request/`検証で確定） |
+> | sSummaryGenkabuKaituke（買余力） | 743 | **766**（本番実測額と一致で確定） |
+> | sSummaryUpdate（買余力更新日時） | 747 | **770**（YYYYMMDDHHMM形式で確定） |
 >
-> URL5本のキー割り当ては実測で個別に確定できていない（5本とも同じ公開鍵で暗号化されており復号自体は成功するため、数値キーの割り当てを間違えても気づけない）。`broker-client.ts` の `login()` が復号後にパスセグメント（`/request/` 等）を検証し、想定と異なれば例外を投げてDB保存前に止める安全策を追加済み。
->
-> 買余力(`sSummaryGenkabuKaituke`, 旧743)・注文一覧・現物保有等、ログイン以外のレスポンスの数値キーは **未検証**。実際に使用する前に必ず実測すること（`fetchWithDecode` に一時デバッグログを仕込んで確認する運用とした）。
+> URL5本は `broker-client.ts` の `login()` が復号後にパスセグメント（`/request/` 等）を検証する安全策（`assertVirtualUrlShape`）を通過したことで確定した。注文一覧・現物保有等、他のレスポンスの数値キーは引き続き **未検証**。実際に使用する前に必ず実測すること（`fetchWithDecode` に一時デバッグログを仕込んで確認する運用とした。`fetchBuyingPower`/`getHoldings` には未検証キーで誤動作しないよう明示的なエラーガードを追加済み）。
 >
 > **v4r8 → v4r9 移行（2026-06-27 v4r8 廃止、歴史的記録）**
 > v4r9 では認証方式が刷新された。主な差分:
@@ -224,13 +224,13 @@ URL: {API専用URL}/auth/?{JSON}
 
 同様の構造は `CLMZanShinkiKanoIjiritu` にもある。
 
-**レスポンス (v4r9 本番実測。⚠️ v4r10でのキーは未検証、下記の3キーとも意図的に未マップ):**
+**レスポンス（v4r10 実測・確定は太字、それ以外は v4r9 時点の値で v4r10 未検証）:**
 
-| 数値キー(v4r9) | 名前付きキー | 説明 |
+| 数値キー | 名前付きキー | 説明 |
 |---------|-------------|------|
-| 743 | sSummaryGenkabuKaituke | 株式現物買付可能額（v4r8: 744） |
-| 745 | sSummaryNseityouTousiKanougaku | NISA成長投資可能額（v4r8: 746） |
-| 747 | sSummaryUpdate | 更新日時 YYYYMMDDHHMM（新規） |
+| **766**（v4r9: 743, v4r8: 744） | sSummaryGenkabuKaituke | 株式現物買付可能額。2026-09-29 本番実測額と一致で確定 |
+| **770**（v4r9: 747） | sSummaryUpdate | 更新日時 YYYYMMDDHHMM。2026-09-29 実測で確定 |
+| 745（v4r9値、未検証） | sSummaryNseityouTousiKanougaku | NISA成長投資可能額（v4r8: 746） |
 | — | sHusokukinHasseiFlg | 不足金発生フラグ（v4r9 では名前付きキーで返る） |
 
 ### 注文一覧 (CLMOrderList)

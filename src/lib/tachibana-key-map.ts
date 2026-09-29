@@ -14,19 +14,25 @@ const NUMERIC_KEY_MAP: Record<string, string> = {
   "357": "sCLMID",       // v4r9: 334
 
   // ログインレスポンス（仮想URL5本）
-  // v4r10 実測（2026-09-29）: 892-896 の5キーで返るが、どのキーがどのURLかは
-  // 復号後のパスセグメント検証（decryptUrlOrThrow 呼び出し側）で確定させる。
-  // 暫定的に v4r8→v4r9 の並び順（Event, EventWS, Master, Price, Request の昇順）を踏襲。
-  // broker-client.ts の login() が復号直後にパスを検証し、ズレていれば例外を投げる。
-  "892": "sUrlEvent",          // 暫定（v4r9: 869）
-  "893": "sUrlEventWebSocket", // 暫定（v4r9: 870）
-  "894": "sUrlMaster",         // 暫定（v4r9: 871）
-  "895": "sUrlPrice",          // 暫定（v4r9: 872）
-  "896": "sUrlRequest",        // 暫定（v4r9: 873）
-  // v4r10 で買余力(743)ほか以下のキーは未検証。実測するまで意図的に未マップのまま
-  // （mapNumericKeys は未知キーをそのまま数値キーで残すため、誤って旧v4r9のキー
-  //   "743"→sSummaryGenkabuKaituke 等を適用して不正確な値を読むより安全）。
-  //   旧マップ: 743=sSummaryGenkabuKaituke(v4r8:744) / 549=sLastLoginDate / 552=sKinsyouhouMidokuFlg
+  // v4r10 実測・確定（2026-09-29）: broker-client.ts の login() が復号後にパスセグメント
+  // （/request/, /master/, /price/, /event/, wss://）を検証してこの割り当てが正しいことを
+  // 本番で確認済み（assertVirtualUrlShape が例外を投げずに通過し、Virtual URLs ログで実URLを確認）。
+  "892": "sUrlEvent",          // v4r9: 869
+  "893": "sUrlEventWebSocket", // v4r9: 870
+  "894": "sUrlMaster",         // v4r9: 871
+  "895": "sUrlPrice",          // v4r9: 872
+  "896": "sUrlRequest",        // v4r9: 873
+
+  // 買余力 (CLMZanKaiKanougaku)
+  // v4r10 実測・確定（2026-09-29）: ログイン後の初回呼び出しで "766":"508228"（本番の実際の
+  // 買付余力と一致する額）、"770":"202609291605"（呼び出し時刻と一致するYYYYMMDDHHMM形式）を確認。
+  "766": "sSummaryGenkabuKaituke", // v4r9: 743, v4r8: 744
+  "770": "sSummaryUpdate",         // v4r9: 747
+
+  // v4r10 で以下のキーは未検証。実測するまで意図的に未マップのまま
+  // （mapNumericKeys は未知キーをそのまま数値キーで残すため、誤って旧v4r9のキーを
+  //   適用して不正確な値を読むより安全）。
+  //   旧マップ: 549=sLastLoginDate / 552=sKinsyouhouMidokuFlg / 745=sSummaryNseityouTousiKanougaku
   // v4r9 保守通知フィールド: 数値キー未確認。名前付きキーで返るケースは
   // broker-client.ts の checkMaintenanceNotices() でフォールバック処理する。
   // 数値キーが判明したらここに追加: "???": "sUpdateInformWebDocument",
