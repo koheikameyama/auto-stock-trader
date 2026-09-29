@@ -8,24 +8,32 @@
 /** 数値キー → 名前付きキーのマッピング */
 const NUMERIC_KEY_MAP: Record<string, string> = {
   // 共通
-  "287": "sResultCode",
-  "286": "sResultText",
-  "334": "sCLMID",
+  // v4r10 でキーが全面シフト（2026-09-29 本番実測、KOH-未採番）。旧値はコメントに残す。
+  "311": "sResultCode",  // v4r9: 287
+  "310": "sResultText",  // v4r9: 286
+  "357": "sCLMID",       // v4r9: 334
 
-  // ログインレスポンス
-  // v4r9 で URL の数値キーが +1 シフト（本番DBの session URL 実態から判明）
-  "873": "sUrlRequest",       // v4r8: 872
-  "871": "sUrlMaster",        // v4r8: 870
-  "872": "sUrlPrice",         // v4r8: 871
-  "869": "sUrlEvent",         // v4r8: 868
-  "870": "sUrlEventWebSocket", // v4r8: 869
-  "743": "sSummaryGenkabuKaituke", // v4r8: 744 (v4r9 で -1 シフト、本番実測)
-  "549": "sLastLoginDate",
-  "552": "sKinsyouhouMidokuFlg",
+  // ログインレスポンス（仮想URL5本）
+  // v4r10 実測（2026-09-29）: 892-896 の5キーで返るが、どのキーがどのURLかは
+  // 復号後のパスセグメント検証（decryptUrlOrThrow 呼び出し側）で確定させる。
+  // 暫定的に v4r8→v4r9 の並び順（Event, EventWS, Master, Price, Request の昇順）を踏襲。
+  // broker-client.ts の login() が復号直後にパスを検証し、ズレていれば例外を投げる。
+  "892": "sUrlEvent",          // 暫定（v4r9: 869）
+  "893": "sUrlEventWebSocket", // 暫定（v4r9: 870）
+  "894": "sUrlMaster",         // 暫定（v4r9: 871）
+  "895": "sUrlPrice",          // 暫定（v4r9: 872）
+  "896": "sUrlRequest",        // 暫定（v4r9: 873）
+  // v4r10 で買余力(743)ほか以下のキーは未検証。実測するまで意図的に未マップのまま
+  // （mapNumericKeys は未知キーをそのまま数値キーで残すため、誤って旧v4r9のキー
+  //   "743"→sSummaryGenkabuKaituke 等を適用して不正確な値を読むより安全）。
+  //   旧マップ: 743=sSummaryGenkabuKaituke(v4r8:744) / 549=sLastLoginDate / 552=sKinsyouhouMidokuFlg
   // v4r9 保守通知フィールド: 数値キー未確認。名前付きキーで返るケースは
   // broker-client.ts の checkMaintenanceNotices() でフォールバック処理する。
   // 数値キーが判明したらここに追加: "???": "sUpdateInformWebDocument",
   //                                "???": "sUpdateInformAPISpecFunction",
+  //   v4r10 実測(2026-09-29)のログイン応答に "872":"20260927" / "873":"20261001" という
+  //   日付形式の値があり、時期的に交付書面更新予定日/APIリリース予定日の可能性が高いが
+  //   確証なし（未マップのまま。誤って登録するとcheckMaintenanceNoticesが誤発火しうる）。
 
   // 注文レスポンス（共通）
   "688": "sOrderResultCode",   // サブ結果コード（"0"以外はエラー）
