@@ -4,10 +4,10 @@ import { mapNumericKeys, getNumericKey } from "../tachibana-key-map";
 describe("mapNumericKeys", () => {
   it("数値キーを名前付きキーに変換する", () => {
     const input = {
-      "287": "0",
-      "286": "",
-      "334": "CLMAuthLoginAck",
-      "873": "https://example.com/request",
+      "311": "0",
+      "310": "",
+      "357": "CLMAuthLoginAck",
+      "896": "https://example.com/request",
     };
 
     const result = mapNumericKeys(input);
@@ -26,8 +26,8 @@ describe("mapNumericKeys", () => {
 
   it("ネストしたオブジェクトも再帰的に変換する", () => {
     const input = {
-      "334": "CLMOrderList",
-      nested: { "287": "0", "542": "1" },
+      "357": "CLMOrderList",
+      nested: { "311": "0", "542": "1" },
     };
 
     const result = mapNumericKeys(input);
@@ -60,8 +60,8 @@ describe("mapNumericKeys", () => {
 
 describe("getNumericKey", () => {
   it("名前付きキーから数値キーを逆引きする", () => {
-    expect(getNumericKey("sResultCode")).toBe("287");
-    expect(getNumericKey("sUrlRequest")).toBe("873");
+    expect(getNumericKey("sResultCode")).toBe("311");
+    expect(getNumericKey("sUrlRequest")).toBe("896");
     expect(getNumericKey("sOrderNumber")).toBe("532");
   });
 

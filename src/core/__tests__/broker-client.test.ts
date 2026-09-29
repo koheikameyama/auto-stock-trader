@@ -3,9 +3,10 @@ import crypto from "crypto";
 import iconv from "iconv-lite";
 import { TachibanaClient, resetTachibanaClient } from "../broker-client";
 
-const { mockTradingConfigFindFirst, mockTradingConfigUpdate } = vi.hoisted(() => ({
+const { mockTradingConfigFindFirst, mockTradingConfigUpdate, mockBrokerSessionUpsert } = vi.hoisted(() => ({
   mockTradingConfigFindFirst: vi.fn(),
   mockTradingConfigUpdate: vi.fn(),
+  mockBrokerSessionUpsert: vi.fn(),
 }));
 
 vi.mock("../../lib/prisma", () => ({
@@ -15,7 +16,7 @@ vi.mock("../../lib/prisma", () => ({
       update: mockTradingConfigUpdate,
     },
     brokerSession: {
-      upsert: vi.fn().mockResolvedValue({}),
+      upsert: mockBrokerSessionUpsert,
       findUnique: vi.fn().mockResolvedValue(null),
     },
   },
@@ -75,13 +76,13 @@ function createMockResponseSjis(data: Record<string, string>) {
 /** ログイン成功レスポンス（仮想URLは暗号化済み） */
 function loginSuccessResponse() {
   return createMockResponse({
-    "287": "0",
-    "334": "CLMAuthLoginAck",
-    "873": encUrl("https://vurl/request/"),
-    "871": encUrl("https://vurl/master/"),
-    "872": encUrl("https://vurl/price/"),
-    "869": encUrl("https://vurl/event/"),
-    "870": encUrl("wss://vurl/ws/"),
+    "311": "0",
+    "357": "CLMAuthLoginAck",
+    "896": encUrl("https://vurl/request/"),
+    "894": encUrl("https://vurl/master/"),
+    "895": encUrl("https://vurl/price/"),
+    "892": encUrl("https://vurl/event/"),
+    "893": encUrl("wss://vurl/ws/"),
     "552": "0",
   });
 }
@@ -99,6 +100,8 @@ describe("TachibanaClient", () => {
     mockTradingConfigFindFirst.mockResolvedValue(null);
     mockTradingConfigUpdate.mockReset();
     mockTradingConfigUpdate.mockResolvedValue({});
+    mockBrokerSessionUpsert.mockReset();
+    mockBrokerSessionUpsert.mockResolvedValue({});
   });
 
   afterEach(() => {
@@ -119,6 +122,27 @@ describe("TachibanaClient", () => {
       expect(client.isLoggedIn()).toBe(true);
     });
 
+    it("仮想URLの数値キー割り当てがズレている場合はエラーをスローし、セッションをDBに保存しない", async () => {
+      // 892(request)と896(event)を入れ替え、キー対応が壊れているケースを再現する。
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          "311": "0",
+          "357": "CLMAuthLoginAck",
+          "896": encUrl("https://vurl/event/"),
+          "894": encUrl("https://vurl/master/"),
+          "895": encUrl("https://vurl/price/"),
+          "892": encUrl("https://vurl/request/"),
+          "893": encUrl("wss://vurl/ws/"),
+          "552": "0",
+        }),
+      );
+
+      await expect(client.login()).rejects.toThrow(
+        "numeric key mapping is likely wrong",
+      );
+      expect(mockBrokerSessionUpsert).not.toHaveBeenCalled();
+    });
+
     it("秘密鍵が公開鍵と対応しない場合は復号エラーをスローする", async () => {
       // 別の鍵ペアを生成し、対応しない秘密鍵を環境変数に設定
       const other = crypto.generateKeyPairSync("rsa", {
@@ -136,9 +160,9 @@ describe("TachibanaClient", () => {
     it("ログイン失敗時にエラーをスローする", async () => {
       mockFetch.mockResolvedValueOnce(
         createMockResponse({
-          "287": "1",
-          "286": "Authentication failed",
-          "334": "CLMAuthLoginAck",
+          "311": "1",
+          "310": "Authentication failed",
+          "357": "CLMAuthLoginAck",
         }),
       );
 
@@ -146,11 +170,16 @@ describe("TachibanaClient", () => {
     });
 
     it("金商法お知らせ未読時にエラーをスローする", async () => {
+      // sKinsyouhouMidokuFlg の数値キーは v4r10 で未確定のため、名前付きキーで
+      // 直接送るケース（checkMaintenanceNotices と同様のフォールバック経路）をテストする。
       mockFetch.mockResolvedValueOnce(
         createMockResponse({
-          "287": "0",
-          "334": "CLMAuthLoginAck",
-          "552": "1",
+          "311": "0",
+          "357": "CLMAuthLoginAck",
+          sKinsyouhouMidokuFlg: "1",
+          "896": encUrl("https://vurl/request/"),
+          "894": encUrl("https://vurl/master/"),
+          "895": encUrl("https://vurl/price/"),
         }),
       );
 
@@ -184,8 +213,8 @@ describe("TachibanaClient", () => {
 
       mockFetch.mockResolvedValueOnce(
         createMockResponse({
-          "287": "0",
-          "334": "CLMAuthLoginAck",
+          "311": "0",
+          "357": "CLMAuthLoginAck",
           "688": "10033",
           "689": "account locked by server",
         }),
@@ -214,8 +243,8 @@ describe("TachibanaClient", () => {
 
       mockFetch.mockResolvedValueOnce(
         createMockResponse({
-          "287": "0",
-          "334": "CLMAuthLoginAck",
+          "311": "0",
+          "357": "CLMAuthLoginAck",
           "688": "10089",
           "689": "phone auth required",
         }),
@@ -257,9 +286,9 @@ describe("TachibanaClient", () => {
       // fetchモックが設定されていないので自動ログインが失敗する
       mockFetch.mockResolvedValueOnce(
         createMockResponse({
-          "287": "1",
-          "286": "login failed",
-          "334": "CLMAuthLoginAck",
+          "311": "1",
+          "310": "login failed",
+          "357": "CLMAuthLoginAck",
         }),
       );
       await expect(
@@ -275,15 +304,15 @@ describe("TachibanaClient", () => {
       // リクエスト
       mockFetch.mockResolvedValueOnce(
         createMockResponse({
-          "287": "0",
-          "334": "CLMOrderList",
-          "743": "20000000",
+          "311": "0",
+          "357": "CLMOrderList",
+          "688": "0",
         }),
       );
 
       const res = await client.request({ sCLMID: "CLMOrderList" });
       expect(res.sResultCode).toBe("0");
-      expect(res.sSummaryGenkabuKaituke).toBe("20000000");
+      expect(res.sOrderResultCode).toBe("0");
     });
 
     it("p_no順序エラー時はサーバ最終p_no+余裕まで先行してリトライ成功する", async () => {
@@ -296,13 +325,13 @@ describe("TachibanaClient", () => {
       mockFetch
         .mockResolvedValueOnce(
           createMockResponseSjis({
-            "287": "6",
-            "286": "引数（p_no:[2] <= 前要求.p_no:[5000]）エラー。",
-            "334": "CLMOrderList",
+            "311": "6",
+            "310": "引数（p_no:[2] <= 前要求.p_no:[5000]）エラー。",
+            "357": "CLMOrderList",
           }),
         )
         .mockResolvedValueOnce(
-          createMockResponse({ "287": "0", "334": "CLMOrderList" }),
+          createMockResponse({ "311": "0", "357": "CLMOrderList" }),
         );
 
       const res = await client.request({ sCLMID: "CLMOrderList" });
@@ -339,7 +368,7 @@ describe("TachibanaClient", () => {
 
       // ログアウト
       mockFetch.mockResolvedValueOnce(
-        createMockResponse({ "287": "0" }),
+        createMockResponse({ "311": "0" }),
       );
       await client.logout();
       expect(client.isLoggedIn()).toBe(false);

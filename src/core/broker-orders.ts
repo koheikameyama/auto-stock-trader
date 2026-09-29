@@ -367,6 +367,18 @@ export async function getHoldings(): Promise<BrokerHolding[] | null> {
   if (res.sResultCode !== "0") return null;
 
   const list = (res.aGenbutuKabuList as Record<string, unknown>[]) ?? [];
+
+  // 数値キー対応が壊れている（未検証 or ズレている）場合、要素が非空なのに
+  // sUriOrderIssueCode 等が読めず ticker="" になりうる。broker-reconciliation は
+  // この結果を元に「孤立保有」検出や closePosition を呼ぶため、誤った銘柄コードで
+  // ポジションを閉じる事故につながりかねない（KOH-550「幻の決済」と同種のリスク）。
+  // 非空リストで必須フィールドが読めない場合は fail-fast する。
+  if (list.length > 0 && list[0].sUriOrderIssueCode === undefined) {
+    throw new Error(
+      "現物保有一覧の必須フィールド(sUriOrderIssueCode)が応答に含まれていません（数値キー対応が崩れている可能性）。tachibana-key-map.ts を確認してください。",
+    );
+  }
+
   return list.map((item) => ({
     ticker: brokerCodeToTicker(String(item.sUriOrderIssueCode ?? "")),
     quantity: Number(item.sUriOrderZanKabuSuryou ?? 0),
@@ -412,8 +424,24 @@ export async function fetchBuyingPower(): Promise<BuyingPowerResult> {
     };
   }
 
+  // sSummaryGenkabuKaituke の数値キー対応が壊れている（未マップ or ズレている）場合、
+  // ?? 0 でサイレントに買付余力ゼロ扱いすると getEffectiveCapital の null チェックを
+  // すり抜けて資金計算全体が静かに壊れる（2026-09-29 v4r10移行で743が未検証だったため
+  // 顕在化した想定シナリオ）。値が存在しない・数値化できない場合は明示的にエラーにする。
+  if (res.sSummaryGenkabuKaituke === undefined) {
+    throw new Error(
+      "sSummaryGenkabuKaituke が応答に含まれていません（数値キー対応が崩れている可能性）。tachibana-key-map.ts を確認してください。",
+    );
+  }
+  const buyingPower = Number(res.sSummaryGenkabuKaituke);
+  if (Number.isNaN(buyingPower)) {
+    throw new Error(
+      `sSummaryGenkabuKaituke を数値化できませんでした: ${JSON.stringify(res.sSummaryGenkabuKaituke)}`,
+    );
+  }
+
   return {
-    buyingPower: Number(res.sSummaryGenkabuKaituke ?? 0),
+    buyingPower,
     resultCode: res.sResultCode,
   };
 }

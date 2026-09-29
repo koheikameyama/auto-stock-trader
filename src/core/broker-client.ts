@@ -82,6 +82,11 @@ export class TachibanaClient {
   /** ログインロック：手動解除まで無期限停止（Prisma/PostgreSQL互換の遠未来日時） */
   private static readonly INDEFINITE_LOCK_DATE = new Date("9999-12-31T23:59:59.999Z");
   /**
+   * TODO(temp-debug, v4r10移行調査): sCLMIDごとに最初の1回だけ生レスポンスをログ出力する
+   * ための既出クラスセット。原因判明後、このプロパティごと削除する。
+   */
+  private static loggedDebugClmids = new Set<string>();
+  /**
    * リクエストのシリアライズ用ミューテックス
    * p_no採番〜HTTPレスポンス受信までをアトミックにし、
    * 複数ジョブからの並行呼び出しによるp_no順序エラーを防ぐ。
@@ -143,20 +148,6 @@ export class TachibanaClient {
 
     const url = `${this.baseUrl}auth/?${this.encodeParams(params)}`;
     const raw = await this.fetchWithDecode(url);
-
-    // TODO(temp-debug, v4r10移行調査): sResultCode/sResultTextがundefinedになる原因を
-    // 特定するため、raw応答の全キーとマスク済み値を出力する。原因判明後に削除する。
-    console.log(
-      "[TachibanaClient][temp-debug] Login raw response (pre-mapping):",
-      JSON.stringify(
-        Object.fromEntries(
-          Object.entries(raw).map(([k, v]) => [
-            k,
-            typeof v === "string" && v.length > 40 ? `${v.slice(0, 40)}…(len=${v.length})` : v,
-          ]),
-        ),
-      ),
-    );
 
     if (raw.sResultCode !== "0") {
       throw new Error(
@@ -224,6 +215,22 @@ export class TachibanaClient {
     const urlEventWebSocket = encEventWebSocket
       ? this.decryptUrlOrThrow(encEventWebSocket, privateKey, "eventWebSocket")
       : "";
+
+    // v4r10 で仮想URLの数値キー順が未確定のため、復号後のパスセグメントで
+    // キー割り当てが正しいか検証する。ズレていた場合、誤った urlRequest 等を
+    // DBに保存してしまうと以降の全リクエストが壊れたセッションで404を繰り返す
+    // ため、保存前に検知して例外で止める（2026-09-29 KOH-未採番）。
+    this.assertVirtualUrlShape(urlRequest, "/request/", "urlRequest");
+    this.assertVirtualUrlShape(urlMaster, "/master/", "urlMaster");
+    this.assertVirtualUrlShape(urlPrice, "/price/", "urlPrice");
+    if (urlEvent) this.assertVirtualUrlShape(urlEvent, "/event/", "urlEvent");
+    if (urlEventWebSocket) {
+      if (!urlEventWebSocket.startsWith("wss://")) {
+        throw new Error(
+          `Tachibana login: urlEventWebSocket does not look like a WebSocket URL (expected wss://): ${urlEventWebSocket.slice(0, 60)}...`,
+        );
+      }
+    }
 
     this.session = {
       urlRequest,
@@ -704,6 +711,24 @@ export class TachibanaClient {
   }
 
   /**
+   * 復号済み仮想URLが期待するパスセグメントを含むか検証する。
+   * ログイン応答の数値キー→名前付きキー対応が誤っている場合、復号自体は
+   * 成功する（5本とも同じ公開鍵で暗号化されているため）が別種のURLを
+   * urlRequest 等に割り当ててしまう。DB保存前にここで検知する。
+   */
+  private assertVirtualUrlShape(
+    url: string,
+    expectedSegment: string,
+    label: string,
+  ): void {
+    if (!url.includes(expectedSegment)) {
+      throw new Error(
+        `Tachibana login: ${label} does not contain expected segment "${expectedSegment}" — numeric key mapping is likely wrong. Got: ${url.slice(0, 60)}...`,
+      );
+    }
+  }
+
+  /**
    * アカウントロック検出時の処理
    * - トレーディング停止（isActive=false）
    * - ロック理由・発生日時をDB永続化
@@ -980,9 +1005,14 @@ export class TachibanaClient {
 
       // TODO(temp-debug, v4r10移行調査): 数値キーマッピングがずれていないか確認するため、
       // 変換前の生レスポンスを出力する。原因判明後に削除する。
-      if (url.includes("/auth/")) {
+      // urlそのものはログしない（仮想URLはセッショントークンを含むため）。sCLMIDで種別を識別する。
+      // 種別（sCLMID）ごとに最初の1回だけ出力し、CLMMfdsGetMarketPrice 等の高頻度呼び出しで
+      // ログが埋まらないようにする。
+      const clmidForDebug = String(raw["334"] ?? raw["357"] ?? raw.sCLMID ?? "");
+      if (clmidForDebug && !TachibanaClient.loggedDebugClmids.has(clmidForDebug)) {
+        TachibanaClient.loggedDebugClmids.add(clmidForDebug);
         console.log(
-          "[TachibanaClient][temp-debug] Login raw response (numeric keys, pre-mapping):",
+          `[TachibanaClient][temp-debug] Raw response (numeric keys, pre-mapping, clmid=${clmidForDebug}):`,
           JSON.stringify(
             Object.fromEntries(
               Object.entries(raw).map(([k, v]) => [

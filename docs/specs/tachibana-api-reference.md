@@ -1,6 +1,6 @@
 # 立花証券 e支店 API リファレンス (v4r10)
 
-> **v4r9 → v4r10 移行（2026-09-27 v4r9 廃止）**: URLパスのみ変更（`e_api_v4r9/` → `e_api_v4r10/`）。認証方式・リクエスト/レスポンス形式は無変更。公式告知: https://www.e-shiten.jp/api/20260728.html
+> **v4r9 → v4r10 移行（2026-09-27 v4r9 廃止）**: URLパス変更（`e_api_v4r9/` → `e_api_v4r10/`）に加え、**レスポンスの数値キーが全面シフト**（公式告知に記載なし、本番実測で判明）。認証方式（`sAuthId`、仮想URL5本の公開鍵暗号化）自体は無変更。公式告知: https://www.e-shiten.jp/api/20260728.html。数値キー対応表・実測結果は `.claude/rules/tachibana-api.md` と `src/lib/tachibana-key-map.ts` を参照
 >
 > **v4r9 移行（2026-06-27 v4r8 廃止、歴史的記録）**: ログインが `sUserId`+`sPassword` → `sAuthId`（利用設定画面で発行する認証ID）に変更。応答の仮想URL5本は登録公開鍵で RSA-OAEP(SHA-256)+Base64 暗号化されて返るため、秘密鍵で復号して利用する（`src/lib/tachibana-crypto.ts`）。ログイン後のAPIは完全互換。
 
@@ -241,19 +241,22 @@
 
 #### レスポンス
 
+> **⚠️ v4r10移行（2026-09-27）で数値キーが全面シフト**。以下の注文固有キー（643, 370, 688, 689, 660, 669等）は
+> v4r9時点の値のままで、v4r10での実測未確認。使用前に `src/lib/tachibana-key-map.ts` の現行値を確認すること。
+
 | フィールド | 数値キー | 説明 |
 |-----------|---------|------|
-| `sResultCode` | 287 | 結果コード（`"0"` = 正常） |
-| `sResultText` | 286 | 結果テキスト |
+| `sResultCode` | 311（v4r9: 287） | 結果コード（`"0"` = 正常） |
+| `sResultText` | 310（v4r9: 286） | 結果テキスト |
 | `sWarningCode` | — | 警告コード（`"0"` = 正常） |
 | `sWarningText` | — | 警告テキスト |
-| `sOrderNumber` | 643 | 注文番号（注文番号+営業日でユニーク） |
-| `sEigyouDay` | 370 | 営業日 `YYYYMMDD` |
-| `sOrderResultCode` | 688 | サブ結果コード（メインが `"0"` でもこちらがエラーの場合あり） |
-| `sOrderResultText` | 689 | サブ結果テキスト |
+| `sOrderNumber` | 643（v4r9値、未検証） | 注文番号（注文番号+営業日でユニーク） |
+| `sEigyouDay` | 370（v4r9値、未検証） | 営業日 `YYYYMMDD` |
+| `sOrderResultCode` | 688（v4r9値、未検証） | サブ結果コード（メインが `"0"` でもこちらがエラーの場合あり） |
+| `sOrderResultText` | 689（v4r9値、未検証） | サブ結果テキスト |
 | `sOrderUkewatasiKingaku` | — | 注文受渡金額 |
-| `sOrderTesuryou` | 660 | 手数料 |
-| `sOrderSyouhizei` | 669 | 消費税 |
+| `sOrderTesuryou` | 660（v4r9値、未検証） | 手数料 |
+| `sOrderSyouhizei` | 669（v4r9値、未検証） | 消費税 |
 | `sKinri` | — | 金利（現物の場合 `"-"`） |
 | `sOrderDate` | — | 注文日時 `YYYYMMDDHHMMSS` |
 
@@ -1075,27 +1078,30 @@ p_no\x0210\x01p_date\x022026.07.06-17:44:11.367\x01p_cmd\x02KP\x01
 
 ## 9. 数値キーマッピング
 
-レスポンスはデフォルトで数値キーが使用される。主要なマッピング:
+レスポンスはデフォルトで数値キーが使用される。主要なマッピング。
+**現行値は `src/lib/tachibana-key-map.ts` が正。本表は参考であり、実装と食い違う場合はコードを優先すること**
+（2026-09-27 の v4r10 移行でキーが全面シフトしており、本表は2026-09-29時点の実測に更新済みだが、
+未検証のフィールドも多い）。
 
 ### 共通
 
 | 数値キー | 名前付きキー | 説明 |
 |---------|-------------|------|
-| 287 | sResultCode | 結果コード |
-| 286 | sResultText | 結果テキスト |
-| 334 | sCLMID | 機能ID |
+| 311 | sResultCode | 結果コード（v4r9: 287） |
+| 310 | sResultText | 結果テキスト（v4r9: 286） |
+| 357 | sCLMID | 機能ID（v4r9: 334） |
 
 ### ログイン応答
 
 | 数値キー | 名前付きキー | 説明 |
 |---------|-------------|------|
-| 872 | sUrlRequest | 仮想URL（REQUEST） |
-| 870 | sUrlMaster | 仮想URL（MASTER） |
-| 871 | sUrlPrice | 仮想URL（PRICE） |
-| 868 | sUrlEvent | 仮想URL（EVENT） |
-| 869 | sUrlEventWebSocket | 仮想URL（EVENT-WebSocket） |
-| 552 | sKinsyouhouMidokuFlg | 金商法交付書面未読フラグ |
-| 744 | sSummaryGenkabuKaituke | 株式現物買付可能額 |
+| 896 | sUrlRequest | 仮想URL（REQUEST）※暫定、パス検証で確定（v4r9: 873） |
+| 894 | sUrlMaster | 仮想URL（MASTER）※暫定（v4r9: 871） |
+| 895 | sUrlPrice | 仮想URL（PRICE）※暫定（v4r9: 872） |
+| 892 | sUrlEvent | 仮想URL（EVENT）※暫定（v4r9: 869） |
+| 893 | sUrlEventWebSocket | 仮想URL（EVENT-WebSocket）※暫定（v4r9: 870） |
+| 未検証 | sKinsyouhouMidokuFlg | 金商法交付書面未読フラグ（v4r9: 552。v4r10で未確認のため意図的に未マップ） |
+| 未検証 | sSummaryGenkabuKaituke | 株式現物買付可能額（v4r9: 743。v4r10で未確認のため意図的に未マップ） |
 
 ### 注文応答
 
