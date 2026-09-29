@@ -324,7 +324,7 @@ describe("TachibanaClient", () => {
       await client.login();
 
       const calledUrl = mockFetch.mock.calls[0][0] as string;
-      expect(calledUrl).toContain("https://demo-kabuka.e-shiten.jp/e_api_v4r9/auth/?");
+      expect(calledUrl).toContain("https://demo-kabuka.e-shiten.jp/e_api_v4r10/auth/?");
       // URLエンコードされたJSONが含まれる
       expect(calledUrl).toContain("%7B");
     });

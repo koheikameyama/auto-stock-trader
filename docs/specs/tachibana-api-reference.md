@@ -1,13 +1,15 @@
-# 立花証券 e支店 API リファレンス (v4r9)
+# 立花証券 e支店 API リファレンス (v4r10)
 
-> **v4r9 移行（2026-06-27 v4r8 廃止）**: ログインが `sUserId`+`sPassword` → `sAuthId`（利用設定画面で発行する認証ID）に変更。応答の仮想URL5本は登録公開鍵で RSA-OAEP(SHA-256)+Base64 暗号化されて返るため、秘密鍵で復号して利用する（`src/lib/tachibana-crypto.ts`）。ログイン後のAPIは完全互換。
+> **v4r9 → v4r10 移行（2026-09-27 v4r9 廃止）**: URLパスのみ変更（`e_api_v4r9/` → `e_api_v4r10/`）。認証方式・リクエスト/レスポンス形式は無変更。公式告知: https://www.e-shiten.jp/api/20260728.html
+>
+> **v4r9 移行（2026-06-27 v4r8 廃止、歴史的記録）**: ログインが `sUserId`+`sPassword` → `sAuthId`（利用設定画面で発行する認証ID）に変更。応答の仮想URL5本は登録公開鍵で RSA-OAEP(SHA-256)+Base64 暗号化されて返るため、秘密鍵で復号して利用する（`src/lib/tachibana-crypto.ts`）。ログイン後のAPIは完全互換。
 
 ## 基本情報
 
 | 項目 | 内容 |
 |------|------|
-| 本番URL | `https://kabuka.e-shiten.jp/e_api_v4r9/` |
-| デモURL | `https://demo-kabuka.e-shiten.jp/e_api_v4r9/` |
+| 本番URL | `https://kabuka.e-shiten.jp/e_api_v4r10/` |
+| デモURL | `https://demo-kabuka.e-shiten.jp/e_api_v4r10/` |
 | プロトコル | HTTP GET |
 | リクエスト形式 | URLクエリパラメータにJSON文字列 (`?{JSON}`) |
 | レスポンス形式 | JSON（デフォルトは数値キー） |

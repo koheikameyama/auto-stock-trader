@@ -12,8 +12,8 @@ export const isTachibanaProduction =
   process.env.TACHIBANA_ENV === "production";
 
 export const TACHIBANA_API_URLS = {
-  demo: "https://demo-kabuka.e-shiten.jp/e_api_v4r9/",
-  production: "https://kabuka.e-shiten.jp/e_api_v4r9/",
+  demo: "https://demo-kabuka.e-shiten.jp/e_api_v4r10/",
+  production: "https://kabuka.e-shiten.jp/e_api_v4r10/",
 } as const;
 
 // ========================================
