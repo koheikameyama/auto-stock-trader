@@ -343,6 +343,57 @@ describe("BrokerEventStream", () => {
     });
   });
 
+  // 2026-09-30 v4r10移行調査: errno=2以外の未知サーバーエラー（例: errno=-1
+  // "parameter error."）は再ログインしても解消しないため、放置すると
+  // scheduleReconnect が無限にchurnする（KOH-640と同型の別ケース）。
+  describe("未知サーバーエラーの連続発生", () => {
+    const unknownErrorMsg =
+      "p_no\x021\x01p_date\x022026.09.30-15:24:00.866\x01p_errno\x02-1\x01p_err\x02parameter error.\x01p_cmd\x02ST\x01";
+
+    const getHandleMessage = () =>
+      (stream as unknown as { handleMessage: (msg: string) => void }).handleMessage.bind(stream);
+
+    it("errno=-1（未知）が閾値未満なら再接続を止めない", () => {
+      const handler = vi.fn();
+      stream.on("sessionInactive", handler);
+
+      getHandleMessage()(unknownErrorMsg);
+      getHandleMessage()(unknownErrorMsg);
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it("errno=-1（未知）が閾値回数連続すると sessionInactive 経由で停止する", () => {
+      const handler = vi.fn();
+      stream.on("sessionInactive", handler);
+
+      getHandleMessage()(unknownErrorMsg);
+      getHandleMessage()(unknownErrorMsg);
+      getHandleMessage()(unknownErrorMsg);
+
+      expect(handler).toHaveBeenCalledOnce();
+      expect(handler.mock.calls[0][0]).toEqual({
+        errno: "-1",
+        message: "parameter error.",
+      });
+    });
+
+    it("KP（キープアライブ）受信でカウンターがリセットされる", () => {
+      const handler = vi.fn();
+      stream.on("sessionInactive", handler);
+      const kpMsg =
+        "p_no\x022\x01p_date\x022026.09.30-15:24:05.000\x01p_cmd\x02KP\x01";
+
+      getHandleMessage()(unknownErrorMsg);
+      getHandleMessage()(unknownErrorMsg);
+      getHandleMessage()(kpMsg);
+      getHandleMessage()(unknownErrorMsg);
+      getHandleMessage()(unknownErrorMsg);
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+  });
+
   describe("再接続バックオフ", () => {
     it("openだけではバックオフをリセットせず、安定稼働60秒後にリセットする", () => {
       const internal = stream as unknown as {
