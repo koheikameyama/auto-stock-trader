@@ -134,6 +134,24 @@ function parsePriceData(data: PriceData, symbol: string): YfQuoteResult {
   const ticker = brokerCodeToTicker(data.sTargetIssueCode || tickerToBrokerCode(symbol));
   const price = toNumber(data.pCurrentPrice);
   const previousClose = toNumber(data.pPreviousClose);
+  const high = toNumber(data.pHighPrice);
+  const low = toNumber(data.pLowPrice);
+  const open = toNumber(data.pOpenPrice);
+
+  // 数値キー対応が壊れている（ズレている）場合、復号やresultCode判定は通っても
+  // 高値<安値のような明らかに矛盾した値が出うる。この結果は position-monitor の
+  // トレーリングストップ判定やGU/PSCのギャップ計算に直結するため、サイレントに
+  // 使うと誤決済・誤エントリーにつながる。範囲整合性が崩れていれば fail-fast する
+  // （出来高0等の非取引銘柄で誤爆しないよう、全て>0の場合のみ検証）。
+  if (high > 0 && low > 0 && open > 0 && price > 0 && previousClose > 0) {
+    const rangeMin = Math.min(open, price);
+    const rangeMax = Math.max(open, price);
+    if (low > rangeMin || high < rangeMax) {
+      throw new Error(
+        `[tachibana-price] ${symbol}: 時価データの整合性チェック失敗（数値キー対応が崩れている可能性）。high=${high} low=${low} open=${open} price=${price} prevClose=${previousClose}`,
+      );
+    }
+  }
 
   const askPrice = data.pAskPrice ? toNumber(data.pAskPrice) : undefined;
   const bidPrice = data.pBidPrice ? toNumber(data.pBidPrice) : undefined;
@@ -147,9 +165,9 @@ function parsePriceData(data: PriceData, symbol: string): YfQuoteResult {
     change: toNumber(data.pChange),
     changePercent: toNumber(data.pChangePercent),
     volume: toNumber(data.pVolume),
-    high: toNumber(data.pHighPrice),
-    low: toNumber(data.pLowPrice),
-    open: toNumber(data.pOpenPrice),
+    high,
+    low,
+    open,
     // ファンダメンタルズは立花APIでは取得不可
     per: null,
     pbr: null,

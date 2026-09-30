@@ -33,13 +33,14 @@ const NUMERIC_KEY_MAP: Record<string, string> = {
   // （mapNumericKeys は未知キーをそのまま数値キーで残すため、誤って旧v4r9のキーを
   //   適用して不正確な値を読むより安全）。
   //   旧マップ: 549=sLastLoginDate / 552=sKinsyouhouMidokuFlg / 745=sSummaryNseityouTousiKanougaku
-  // v4r9 保守通知フィールド: 数値キー未確認。名前付きキーで返るケースは
-  // broker-client.ts の checkMaintenanceNotices() でフォールバック処理する。
-  // 数値キーが判明したらここに追加: "???": "sUpdateInformWebDocument",
-  //                                "???": "sUpdateInformAPISpecFunction",
-  //   v4r10 実測(2026-09-29)のログイン応答に "872":"20260927" / "873":"20261001" という
-  //   日付形式の値があり、時期的に交付書面更新予定日/APIリリース予定日の可能性が高いが
-  //   確証なし（未マップのまま。誤って登録するとcheckMaintenanceNoticesが誤発火しうる）。
+  // 保守予定日通知（v4r10 実測・確定, 2026-09-30）
+  // "872":"20260927"（= v4r9 廃止日そのもの、確度の高い一致）/ "873":"20261001"（明日）を
+  // アルファベット順（sUpdateInformAPISpecFunction < sUpdateInformWebDocument）で対応付け。
+  // checkMaintenanceNotices() は通知のみで実害がないため、この確度で登録して問題ない。
+  // ⚠️ 873=交付書面更新予定日が2026-10-01（明日）: 交付書面更新後は Web で確認するまで
+  // ログインがブロックされる可能性がある（sKinsyouhouMidokuFlg、現状未マップ）。
+  "872": "sUpdateInformAPISpecFunction", // v4r9: 未確認
+  "873": "sUpdateInformWebDocument",     // v4r9: 未確認
 
   // 注文レスポンス（共通）
   "688": "sOrderResultCode",   // サブ結果コード（"0"以外はエラー）
@@ -91,32 +92,38 @@ const NUMERIC_KEY_MAP: Record<string, string> = {
   "857": "sUriOrderGaisanHyoukagaku",
   "855": "sUriOrderGaisanHyoukaSoneki",
 
-  // 買余力 (v4r9 で -1 シフト、本番実測)
-  "745": "sSummaryNseityouTousiKanougaku", // v4r8: 746
+  // 買余力 (v4r9 で -1 シフト、本番実測。v4r10は745/747とも未検証)
+  "745": "sSummaryNseityouTousiKanougaku", // v4r8: 746。v4r10実測ログで"768"が同位置(NISA=0)の可能性高いが値"0"のみでは確証薄く未反映
   "747": "sSummaryUpdate",                  // 新規
   // sHusokukinHasseiFlg は v4r9 では名前付きキーで返る
 
   // 時価情報 (CLMMfdsGetMarketPrice)
-  "71": "aMarketPriceList",
-  "473": "sTargetIssueCode",
-  "115": "pCurrentPrice",     // pDPP - 現在値
-  "112": "pOpenPrice",        // pDOP - 始値
-  "106": "pHighPrice",        // pDHP - 高値
-  "110": "pLowPrice",         // pDLP - 安値
-  "181": "pPreviousClose",    // pPRP - 前日終値
-  "117": "pVolume",           // pDV  - 出来高
-  "108": "pTradingValue",     // pDJ  - 売買代金
-  "120": "pChange",           // pDYWP - 前日比
-  "119": "pChangePercent",    // pDYRP - 前日比率(%)
-  "182": "pAskPrice",         // pQAP - 売気配値
-  "184": "pBidPrice",         // pQBP - 買気配値
-  "183": "pAskSize",          // pQAS - 売気配数量
-  "185": "pBidSize",          // pQBS - 買気配数量
-  "213": "pVWAP",             // pVWAP
-  "938": "tPriceTime",        // tDPP:T - 約定時刻
-  "105": "pHighFlag",         // pDHF
-  "109": "pLowFlag",          // pDLF
-  "114": "pPriceFlag",        // pDPG
+  // v4r10 実測・確定（2026-09-30, KOH-未採番）: 全キーが v4r9 から一律 +24 シフト。
+  // リクエスト列(TACHIBANA_QUOTE_COLUMNS)12個の実測レスポンスで、レンジ整合性
+  // （low≦open,current≦high / prevClose+change=current 等）を満たす唯一の割当として確定。
+  // aMarketPriceList(71→81)・sTargetIssueCode(473→496)は+23（sCLMID等と同系列の別シフト量）。
+  "81": "aMarketPriceList",   // v4r9: 71
+  "496": "sTargetIssueCode",  // v4r9: 473
+  "139": "pCurrentPrice",     // pDPP - 現在値（v4r9: 115）
+  "136": "pOpenPrice",        // pDOP - 始値（v4r9: 112）
+  "130": "pHighPrice",        // pDHP - 高値（v4r9: 106）
+  "134": "pLowPrice",         // pDLP - 安値（v4r9: 110）
+  "205": "pPreviousClose",    // pPRP - 前日終値（v4r9: 181）
+  "141": "pVolume",           // pDV  - 出来高（v4r9: 117）
+  "144": "pChange",           // pDYWP - 前日比（v4r9: 120）
+  "143": "pChangePercent",    // pDYRP - 前日比率(%)（v4r9: 119）
+  "206": "pAskPrice",         // pQAP - 売気配値（v4r9: 182）
+  "208": "pBidPrice",         // pQBP - 買気配値（v4r9: 184）
+  "207": "pAskSize",          // pQAS - 売気配数量（v4r9: 183）
+  "209": "pBidSize",          // pQBS - 買気配数量（v4r9: 185）
+  // 以下は未リクエスト列（TACHIBANA_QUOTE_COLUMNSに含まれず今回の実測で確認できていない）。
+  // +24シフトの推定値のまま。実際に使用する箇所があれば実測してから使うこと。
+  "132": "pTradingValue",     // pDJ  - 売買代金（v4r9: 108）※推定
+  "237": "pVWAP",             // pVWAP（v4r9: 213）※推定
+  "962": "tPriceTime",        // tDPP:T - 約定時刻（v4r9: 938）※推定
+  "129": "pHighFlag",         // pDHF（v4r9: 105）※推定
+  "133": "pLowFlag",          // pDLF（v4r9: 109）※推定
+  "138": "pPriceFlag",        // pDPG（v4r9: 114）※推定
 };
 
 /** 配列キーのマッピング */
