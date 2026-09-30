@@ -118,6 +118,18 @@ describe("tachibanaFetchQuote", () => {
     expect(result.price).toBe(0);
     expect(result.volume).toBe(0);
   });
+
+  it("高値<安値など整合性が崩れている場合はthrowする（数値キー対応ズレの検知）", async () => {
+    mockRequestPrice.mockResolvedValueOnce(
+      createPriceResponse("7203", {
+        pHighPrice: "100", // low(2470) > high(100) という矛盾
+      }),
+    );
+
+    await expect(tachibanaFetchQuote("7203.T")).rejects.toThrow(
+      "数値キー対応が崩れている可能性",
+    );
+  });
 });
 
 describe("tachibanaFetchQuotesBatch", () => {
