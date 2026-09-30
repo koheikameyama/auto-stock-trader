@@ -49,9 +49,21 @@ const INITIAL_RECONNECT_DELAY_MS = 1_000;
 /** EVENT I/F がセッション失効を示す p_errno（ST で "session inactive." とともに返る） */
 const SESSION_INACTIVE_ERRNO = "2";
 
-/** EVENT I/F 接続パラメータ */
+/**
+ * EVENT I/F 接続パラメータ
+ *
+ * 2026-09-30 判明（v4r10移行調査）: 公式PDF「立花証券・e支店・API（v4r7）、
+ * EVENT I/F、利用方法、データ仕様」P.7「株価ボード・アプリケーション機能毎
+ * 引数設定値表」の No.1「e支店・API、時価配信機能なし」行が本ワーカーの用途
+ * （FD=時価配信を購読せず、EC等の注文約定通知のみ購読）に対応し、p_rid=0 が
+ * 正しい値。旧実装の p_rid=22 は No.2「時価配信機能あり」用でp_gyou_no/
+ * p_issue_code/p_mkt_code が必須の行だった（本ワーカーはこれらを送っていない）。
+ * v4r9では検証が緩く p_rid=22 のままでも6時間以上安定接続していたが、v4r10で
+ * パラメータ検証が厳格化され errno=-1 "parameter error." で拒否されるように
+ * なった（EC=約定検知が全滅し、本番障害の原因になっていた）。
+ */
 const EVENT_PARAMS = {
-  p_rid: "22",
+  p_rid: "0",
   p_board_no: "1000",
   p_eno: "0",
 } as const;
@@ -172,6 +184,15 @@ export class BrokerEventStream extends EventEmitter {
    * 再ログインによる新URLでの reconnect() まで一切接続しない。
    */
   private sessionDead = false;
+  /**
+   * TODO(temp-debug, v4r10移行調査): errno=2(session inactive)以外の未知サーバーエラー
+   * （2026-09-30 判明の errno=-1 "parameter error." 等）が連続発生した回数。
+   * 再ログインしても解消しない種類のエラーは無限に再接続churnを起こす
+   * （KOH-640と同型の別ケース）ため、閾値超過で停止しSlack通知する。
+   * 原因判明・修正後にこのカウンター機構ごと削除する。
+   */
+  private consecutiveUnknownServerErrors = 0;
+  private static readonly UNKNOWN_ERROR_STOP_THRESHOLD = 3;
 
   /**
    * WebSocket 接続を開始する
@@ -181,6 +202,7 @@ export class BrokerEventStream extends EventEmitter {
     this.options = options ?? {};
     this.intentionalClose = false;
     this.sessionDead = false;
+    this.consecutiveUnknownServerErrors = 0;
     this.reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
     this.doConnect();
   }
@@ -194,6 +216,7 @@ export class BrokerEventStream extends EventEmitter {
     this.closeWs();
     this.intentionalClose = false;
     this.sessionDead = false;
+    this.consecutiveUnknownServerErrors = 0;
     this.reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
     this.doConnect();
   }
@@ -323,10 +346,25 @@ export class BrokerEventStream extends EventEmitter {
         this.handleSessionInactive(fields);
         return;
       }
+
+      // TODO(temp-debug, v4r10移行調査): errno=2以外の未知エラーが連続発生した場合、
+      // 再ログインしても解消しない可能性が高い（2026-09-30 errno=-1 "parameter error."
+      // で実際に無限churnを確認）。閾値超過で再接続を止め、通常のセッション切れと
+      // 同じ経路（sessionInactiveイベント）で通知だけ行う（worker側は再ログインを試みるが、
+      // それでも直らない場合は次回も同じ閾値で止まるので churn は起きない）。
+      this.consecutiveUnknownServerErrors += 1;
+      if (this.consecutiveUnknownServerErrors >= BrokerEventStream.UNKNOWN_ERROR_STOP_THRESHOLD) {
+        console.error(
+          `[BrokerEventStream] 未知サーバーエラーが${this.consecutiveUnknownServerErrors}回連続発生 — 再接続を停止します (errno=${fields.p_errno})`,
+        );
+        this.handleSessionInactive(fields);
+        return;
+      }
     }
 
     switch (cmd) {
       case "KP":
+        this.consecutiveUnknownServerErrors = 0;
         this.emit("keepalive");
         break;
 
