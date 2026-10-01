@@ -345,6 +345,57 @@ describe("TachibanaClient", () => {
     });
   });
 
+  describe("保守通知", () => {
+    function loginWithWebDoc(webDoc: string) {
+      return createMockResponse({
+        "311": "0",
+        "357": "CLMAuthLoginAck",
+        "542": "0",
+        "873": webDoc,
+        "896": encUrl("https://vurl/request/"),
+        "894": encUrl("https://vurl/master/"),
+        "895": encUrl("https://vurl/price/"),
+      });
+    }
+    const warningCall = expect.objectContaining({ color: "warning" });
+
+    it("交付書面更新日が未来なら通知し、通知内容を DB に記録する", async () => {
+      mockTradingConfigFindFirst.mockResolvedValue({ id: "cfg1", maintenanceNoticeKey: null });
+      mockFetch.mockResolvedValueOnce(loginWithWebDoc("29991231"));
+
+      await client.login();
+
+      expect(mockNotifySlack).toHaveBeenCalledWith(warningCall);
+      expect(mockTradingConfigUpdate).toHaveBeenCalledWith({
+        where: { id: "cfg1" },
+        data: { maintenanceNoticeKey: "交付書面更新予定日: 29991231" },
+      });
+    });
+
+    it("別プロセスで通知済み（DB のキーが一致）なら再通知しない", async () => {
+      mockTradingConfigFindFirst.mockResolvedValue({
+        id: "cfg1",
+        maintenanceNoticeKey: "交付書面更新予定日: 29991231",
+      });
+      mockFetch.mockResolvedValueOnce(loginWithWebDoc("29991231"));
+
+      await client.login();
+
+      expect(mockNotifySlack).not.toHaveBeenCalledWith(warningCall);
+    });
+
+    it("交付書面更新日の当日以降は通知しない（未確認なら未読フラグ検知が 🚨 を出す）", async () => {
+      const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" })
+        .format(new Date())
+        .replaceAll("-", "");
+      mockFetch.mockResolvedValueOnce(loginWithWebDoc(today));
+
+      await client.login();
+
+      expect(mockNotifySlack).not.toHaveBeenCalled();
+    });
+  });
+
   describe("request", () => {
     it("セッションがない場合は自動ログインを試みる（失敗時はエラー）", async () => {
       // fetchモックが設定されていないので自動ログインが失敗する
