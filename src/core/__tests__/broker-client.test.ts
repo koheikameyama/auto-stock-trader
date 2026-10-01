@@ -9,6 +9,13 @@ const { mockTradingConfigFindFirst, mockTradingConfigUpdate, mockBrokerSessionUp
   mockBrokerSessionUpsert: vi.fn(),
 }));
 
+const { mockNotifySlack } = vi.hoisted(() => ({ mockNotifySlack: vi.fn() }));
+
+vi.mock("../../lib/slack", () => ({
+  notifySlack: mockNotifySlack,
+  notifyBrokerError: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("../../lib/prisma", () => ({
   prisma: {
     tradingConfig: {
@@ -83,7 +90,7 @@ function loginSuccessResponse() {
     "895": encUrl("https://vurl/price/"),
     "892": encUrl("https://vurl/event/"),
     "893": encUrl("wss://vurl/ws/"),
-    "552": "0",
+    "542": "0",
   });
 }
 
@@ -102,6 +109,8 @@ describe("TachibanaClient", () => {
     mockTradingConfigUpdate.mockResolvedValue({});
     mockBrokerSessionUpsert.mockReset();
     mockBrokerSessionUpsert.mockResolvedValue({});
+    mockNotifySlack.mockReset();
+    mockNotifySlack.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -133,7 +142,7 @@ describe("TachibanaClient", () => {
           "895": encUrl("https://vurl/price/"),
           "892": encUrl("https://vurl/request/"),
           "893": encUrl("wss://vurl/ws/"),
-          "552": "0",
+          "542": "0",
         }),
       );
 
@@ -183,7 +192,62 @@ describe("TachibanaClient", () => {
         }),
       );
 
-      await expect(client.login()).rejects.toThrow("金商法のお知らせが未読");
+      await expect(client.login()).rejects.toThrow("金商法のお知らせ（交付書面等）が未読");
+    });
+
+    it("v4r10 のログイン応答で 542=1（未読フラグ）ならブロックとして Slack に通知する", async () => {
+      // 2026-10-01 本番実測: 交付書面の確認前は "542":"1" で仮想URLが空、確認後は "0"
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          "311": "0",
+          "357": "CLMAuthLoginAck",
+          "542": "1",
+          "873": "20261001",
+          "896": "",
+        }),
+      );
+
+      await expect(client.login()).rejects.toThrow("金商法のお知らせ（交付書面等）が未読");
+      expect(mockNotifySlack).toHaveBeenCalledWith(
+        expect.objectContaining({ color: "danger" }),
+      );
+    });
+
+    it("交付書面更新日を過ぎて仮想URLが空のときは書面未確認と明示し Slack に通知する", async () => {
+      // 2026-10-01 本番実測: 書面未確認だと sResultCode=0 のまま仮想URLが空で返る
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          "311": "0",
+          "357": "CLMAuthLoginAck",
+          "873": "20000101",
+          "892": "",
+          "893": "",
+          "894": "",
+          "895": "",
+          "896": "",
+        }),
+      );
+
+      await expect(client.login()).rejects.toThrow("交付書面（更新日 20000101）が未確認");
+      expect(mockNotifySlack).toHaveBeenCalledWith(
+        expect.objectContaining({ color: "danger" }),
+      );
+    });
+
+    it("交付書面更新日が未来なら仮想URL欠落は従来どおりのエラーにする", async () => {
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          "311": "0",
+          "357": "CLMAuthLoginAck",
+          "873": "29991231",
+          "896": "",
+        }),
+      );
+
+      await expect(client.login()).rejects.toThrow("virtual URLs are missing");
+      expect(mockNotifySlack).not.toHaveBeenCalledWith(
+        expect.objectContaining({ color: "danger" }),
+      );
     });
 
     it("認証IDがない場合にエラーをスローする", async () => {

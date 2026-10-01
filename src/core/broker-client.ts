@@ -164,10 +164,17 @@ export class TachibanaClient {
     // ログインロック解除（正常ログイン成功時）
     await this.clearLockOnSuccess();
 
-    // 金商法のお知らせ未読チェック
-    if (raw.sKinsyouhouMidokuFlg === "1") {
+    // 金商法のお知らせ（交付書面等）未読チェック
+    // v4r10 のログイン応答では数値キー "542" が sKinsyouhouMidokuFlg（2026-10-01 本番実測:
+    // 交付書面の確認前 "1" → 確認後 "0" に変化し、同時に仮想URLが空→発行に変わった）。
+    // キーマップは全レスポンス共通のフラット構造で "542" は注文一覧の sOrderStatus に
+    // 割り当て済みのため、ログイン応答に限ってここで読み替える（ログイン応答に注文状態は無い）。
+    const kinsyouhouMidoku = raw.sKinsyouhouMidokuFlg ?? raw.sOrderStatus;
+    if (kinsyouhouMidoku === "1") {
+      const webDoc = typeof raw.sUpdateInformWebDocument === "string" ? raw.sUpdateInformWebDocument : "";
+      await this.notifyLoginBlockedByUnreadDocument(webDoc);
       throw new Error(
-        "Tachibana login blocked: 金商法のお知らせが未読です。Webで確認してください。",
+        "Tachibana login blocked: 金商法のお知らせ（交付書面等）が未読です。e支店の標準Webで確認してください。",
       );
     }
 
@@ -200,9 +207,7 @@ export class TachibanaClient {
     if (!encRequest || !encMaster || !encPrice) {
       console.error("[TachibanaClient] Login response missing virtual URLs. Raw keys:", Object.keys(raw));
       console.error("[TachibanaClient] Raw response (partial):", JSON.stringify(raw, null, 2).slice(0, 2000));
-      throw new Error(
-        `Tachibana login succeeded but virtual URLs are missing: urlRequest=${encRequest}, urlMaster=${encMaster}, urlPrice=${encPrice}`,
-      );
+      return this.throwMissingVirtualUrls(raw, encRequest, encMaster, encPrice);
     }
 
     const privateKey = loadTachibanaPrivateKey();
@@ -652,6 +657,54 @@ export class TachibanaClient {
    * 数値キーは未確認のため、まず名前付きキーで参照。数値キーで返る場合は
    * login() 内の raw keys dump から発見次第 tachibana-key-map.ts に追加する。
    */
+  /** 交付書面未確認でログインがブロックされた旨を 🚨 で通知する（人間の操作が必要なため） */
+  private async notifyLoginBlockedByUnreadDocument(webDoc: string): Promise<void> {
+    try {
+      await notifySlack({
+        title: "🚨 立花証券ログインがブロックされています（交付書面未確認）",
+        message: [
+          webDoc ? `交付書面更新日: ${webDoc}` : "",
+          "ログインは成功扱いだが仮想URLが発行されず、API が一切使えない状態です。",
+          "",
+          "対応: e支店の標準Webにログインして交付書面を確認 → 失敗したジョブを再実行",
+        ].filter(Boolean).join("\n"),
+        color: "danger",
+      });
+    } catch (err) {
+      console.error("[TachibanaClient] Failed to notify login block to Slack:", err);
+    }
+  }
+
+  /**
+   * ログインは sResultCode=0 で通ったのに仮想URLが空のときの例外を組み立てる。
+   *
+   * 交付書面更新日（sUpdateInformWebDocument）を過ぎて書面が未確認だと、立花はログインを
+   * 成功扱いにしたまま仮想URLを空で返す（2026-10-01 本番で実測）。未読フラグのキーが
+   * 将来またシフトして上の未読チェックをすり抜けた場合の保険として、更新日が今日以前なら
+   * 書面未確認の可能性を明示する。
+   */
+  private async throwMissingVirtualUrls(
+    raw: Record<string, unknown>,
+    encRequest: string | undefined,
+    encMaster: string | undefined,
+    encPrice: string | undefined,
+  ): Promise<never> {
+    const webDoc = typeof raw.sUpdateInformWebDocument === "string" ? raw.sUpdateInformWebDocument : "";
+    const today = dayjs().tz(TIMEZONE).format("YYYYMMDD");
+
+    if (webDoc && webDoc <= today) {
+      await this.notifyLoginBlockedByUnreadDocument(webDoc);
+      throw new Error(
+        `Tachibana login blocked: 交付書面（更新日 ${webDoc}）が未確認の可能性があります。` +
+          "e支店の標準Webにログインして書面を確認してください（仮想URLが空で返却された）",
+      );
+    }
+
+    throw new Error(
+      `Tachibana login succeeded but virtual URLs are missing: urlRequest=${encRequest}, urlMaster=${encMaster}, urlPrice=${encPrice}`,
+    );
+  }
+
   private async checkMaintenanceNotices(raw: Record<string, unknown>): Promise<void> {
     const webDoc = typeof raw.sUpdateInformWebDocument === "string" ? raw.sUpdateInformWebDocument : "";
     const apiSpec = typeof raw.sUpdateInformAPISpecFunction === "string" ? raw.sUpdateInformAPISpecFunction : "";
