@@ -646,17 +646,6 @@ export class TachibanaClient {
   // 保守通知
   // ========================================
 
-  /**
-   * 保守予定日（交付書面更新 / e支店APIリリース）の検出と Slack 通知
-   *
-   * v4r9 で追加された `sUpdateInformWebDocument` / `sUpdateInformAPISpecFunction` は
-   * 該当事象の予定日を事前にお知らせする項目。
-   * - 予定日 ≥ 当日日付 で、かつ前回通知と異なるキーの場合に Slack 通知する
-   * - 予定日が決まるまでは同値が返り続けるため、in-memory の `lastMaintenanceNoticeKey` で dedup
-   *
-   * 数値キーは未確認のため、まず名前付きキーで参照。数値キーで返る場合は
-   * login() 内の raw keys dump から発見次第 tachibana-key-map.ts に追加する。
-   */
   /** 交付書面未確認でログインがブロックされた旨を 🚨 で通知する（人間の操作が必要なため） */
   private async notifyLoginBlockedByUnreadDocument(webDoc: string): Promise<void> {
     try {
@@ -705,6 +694,17 @@ export class TachibanaClient {
     );
   }
 
+  /**
+   * 保守予定日（交付書面更新 / e支店APIリリース）の検出と Slack 通知
+   *
+   * `sUpdateInformWebDocument` / `sUpdateInformAPISpecFunction` は該当事象の予定日を
+   * 事前にお知らせする項目で、予定日を過ぎても同じ値が返り続ける。
+   * - 交付書面は予定日 > 当日（事前告知）のときだけ通知する。当日以降に未確認なら
+   *   login() の未読フラグ検知が 🚨 を出すので、確認済みなのに予定日当日いっぱい
+   *   📢 が鳴り続けるのを避ける（2026-10-01 に確認後も通知が繰り返された）
+   * - dedup は DB（TradingConfig.maintenanceNoticeKey）で行う。GitHub Actions のジョブは
+   *   毎回別プロセスでログインするため、in-memory だけではジョブの数だけ通知されていた
+   */
   private async checkMaintenanceNotices(raw: Record<string, unknown>): Promise<void> {
     const webDoc = typeof raw.sUpdateInformWebDocument === "string" ? raw.sUpdateInformWebDocument : "";
     const apiSpec = typeof raw.sUpdateInformAPISpecFunction === "string" ? raw.sUpdateInformAPISpecFunction : "";
@@ -713,14 +713,28 @@ export class TachibanaClient {
 
     const today = dayjs().tz(TIMEZONE).format("YYYYMMDD");
     const upcoming: string[] = [];
-    if (webDoc && webDoc >= today) upcoming.push(`交付書面更新予定日: ${webDoc}`);
+    if (webDoc && webDoc > today) upcoming.push(`交付書面更新予定日: ${webDoc}`);
     if (apiSpec && apiSpec >= today) upcoming.push(`e支店・APIリリース予定日: ${apiSpec}`);
 
     if (!upcoming.length) return;
 
-    const key = `webDoc:${webDoc}|apiSpec:${apiSpec}`;
+    const key = upcoming.join(" / ");
     if (this.lastMaintenanceNoticeKey === key) return;
     this.lastMaintenanceNoticeKey = key;
+
+    try {
+      const config = await prisma.tradingConfig.findFirst({ orderBy: { createdAt: "desc" } });
+      if (config?.maintenanceNoticeKey === key) return;
+      if (config) {
+        await prisma.tradingConfig.update({
+          where: { id: config.id },
+          data: { maintenanceNoticeKey: key },
+        });
+      }
+    } catch (err) {
+      // DB で dedup できなくても通知自体は出す（重複より取りこぼしの方が困る）
+      console.warn("[TachibanaClient] Failed to dedup maintenance notice via DB:", err);
+    }
 
     console.warn(`[TachibanaClient] 立花証券保守通知: ${upcoming.join(" / ")}`);
 

@@ -302,6 +302,7 @@ model TradingConfig {
   loginLockOccurredAt DateTime? // ロック発生日時（パターン分析用・クリアしない）
   loginArmedUntil     DateTime? // ログイン承認の有効期限（この時刻までに login() が走ればAPI呼び出しを許可）
   loginArmedAt        DateTime? // 承認ボタン押下日時（監査・デバッグ用）
+  maintenanceNoticeKey String?  // 立花保守通知の最終通知内容（プロセスをまたいだ重複通知防止）
 }
 
 model TradingDailySummary {

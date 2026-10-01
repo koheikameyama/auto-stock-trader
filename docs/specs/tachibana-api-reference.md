@@ -168,6 +168,7 @@
 - **自動リフレッシュ**: 6時間ごとに再ログイン（保険用）。30分間隔では再ログイン時に電話番号認証が要求されることが判明（2026-04-13確認）。セッション切れは `sResultCode=2` → `reLoginOnce()` で対応。公式仕様での有効期限は未確認。
 - 再ログイン時はWebSocket接続のURLも更新が必要
 - **ログイン承認ゲート（arm）は廃止（2026-06-29）**: v4r9 移行で電話番号認証が不要になった（6/27 以降）ため、`login()` 前の手動承認ゲートを撤去。production でも自動ログインする。立花が実際に電話番号認証(10089)/アカウントロック(10033)を返した場合のみ `handleAccountLock()` が `isActive=false` + 再開リンク付き通知を送る挙動は維持。`TradingConfig.loginArmedUntil` / `loginArmedAt` 列はデッドカラムとして残置（破壊的migration回避）
+- **保守通知（交付書面更新 / APIリリース予定日）**: ログイン応答の `sUpdateInformWebDocument`(873) / `sUpdateInformAPISpecFunction`(872) を見て 📢 を Slack 通知する。交付書面は予定日 > 当日の事前告知のみ（当日以降に未確認なら未読フラグ `542` 検知の 🚨 が担う）。予定日を過ぎても同値が返り続けるため、重複防止は `TradingConfig.maintenanceNoticeKey` に最終通知内容を記録してプロセス横断で行う（2026-10-01、Web で確認済みなのに GitHub Actions のジョブごとに通知が繰り返された対策）
 
 ### 1.2 ログアウト（CLMAuthLogoutRequest）
 
