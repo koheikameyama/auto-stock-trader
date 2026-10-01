@@ -37,8 +37,8 @@ const NUMERIC_KEY_MAP: Record<string, string> = {
   // "872":"20260927"（= v4r9 廃止日そのもの、確度の高い一致）/ "873":"20261001"（明日）を
   // アルファベット順（sUpdateInformAPISpecFunction < sUpdateInformWebDocument）で対応付け。
   // checkMaintenanceNotices() は通知のみで実害がないため、この確度で登録して問題ない。
-  // ⚠️ 873=交付書面更新予定日が2026-10-01（明日）: 交付書面更新後は Web で確認するまで
-  // ログインがブロックされる可能性がある（sKinsyouhouMidokuFlg、現状未マップ）。
+  // sKinsyouhouMidokuFlg はログイン応答で "542"（2026-10-01 実測で確定）だが、下の注文一覧の
+  // "542"=sOrderStatus と衝突するため、ここではマップせず broker-client.ts の login() で読み替える。
   "872": "sUpdateInformAPISpecFunction", // v4r9: 未確認
   "873": "sUpdateInformWebDocument",     // v4r9: 未確認
 

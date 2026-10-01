@@ -23,10 +23,11 @@
 > | 時価情報(CLMMfdsGetMarketPrice)12列 | 各種 | **一律+24シフト**（pDPP:115→139 等。レンジ整合性で確定。詳細は `tachibana-key-map.ts`） |
 > | aMarketPriceList / sTargetIssueCode | 71 / 473 | **81 / 496**（+10 / +23） |
 > | sUpdateInformAPISpecFunction / sUpdateInformWebDocument | 未確認 | **872 / 873**（値の一致で確定） |
+> | sKinsyouhouMidokuFlg（ログイン応答） | 552 | **542**（交付書面確認前後で 1→0 に変化して確定。注文一覧の sOrderStatus と衝突するため `login()` 内で読み替え） |
 >
 > URL5本は `broker-client.ts` の `login()` が復号後にパスセグメント（`/request/` 等）を検証する安全策（`assertVirtualUrlShape`）を通過したことで確定した。時価情報は `parsePriceData` に high/low/open/price のレンジ整合性チェックを追加し、数値キー対応が崩れた場合に fail-fast するようにした。注文一覧・現物保有の要素キー等、他のレスポンスの数値キーは引き続き **未検証**。実際に使用する前に必ず実測すること（`fetchWithDecode` に一時デバッグログを仕込んで確認する運用とした。`fetchBuyingPower`/`getHoldings` には未検証キーで誤動作しないよう明示的なエラーガードを追加済み）。
 >
-> **⚠️ 2026-10-01（明日）に交付書面更新予定日**（`sUpdateInformWebDocument`実測値）。交付書面更新後は e支店 Web で内容を確認するまでログインがブロックされる可能性がある（`sKinsyouhouMidokuFlg`、v4r10では未マップ）。ブロックされた場合のエラーメッセージは現状「仮想URLが欠落」等の不明瞭な形になる想定。10/1朝、08:00の `assess` が失敗したら、まず e支店 Web にログインして交付書面の確認を行うこと。
+> **交付書面更新によるログインブロック（2026-10-01 本番で発生・対応済み）**: 交付書面更新日（`sUpdateInformWebDocument`=873）以降、e支店 Web で書面を確認するまでログインは `sResultCode=0` で成功扱いのまま**仮想URL5本が空文字**で返る。このとき v4r10 のログイン応答の数値キー **`542` = `sKinsyouhouMidokuFlg` が `"1"`**（確認後 `"0"` に変化することを本番実測で確定）。キーマップはフラットで `542` は注文一覧の `sOrderStatus` と衝突するため、`login()` 内でだけ読み替えている。ブロック時は「金商法のお知らせ（交付書面等）が未読」で例外＋Slack 🚨 を出す（未読フラグをすり抜けても、仮想URLが空かつ更新日が今日以前なら同じ通知を出す保険あり）。**対応: e支店の標準Webにログインして書面を確認 → 失敗したジョブを再実行**
 >
 > **EVENT I/F（約定検知）がv4r10で全滅していた問題と修正（2026-09-30）**
 > `us-etf-monitor`の時価取得障害調査中、Railway本番ログで `BrokerEventStream` が
