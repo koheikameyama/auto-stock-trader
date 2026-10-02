@@ -40,7 +40,7 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_TITLE: "❌ IPO Calendar Notify 失敗"
           SLACK_MESSAGE: |
+            @here
             IPO上場カレンダー通知が失敗しました。
-            詳細はGitHub Actionsログを確認してください。
           SLACK_COLOR: danger
           SLACK_FOOTER: "Auto Stock Trader"

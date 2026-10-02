@@ -41,7 +41,7 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_TITLE: "❌ BE頻度ギャップ計装に失敗しました"
           SLACK_MESSAGE: |
+            @here
             BE頻度ギャップ計装のワークフローがエラーで終了しました
-            詳細はGitHub Actionsログを確認してください
           SLACK_COLOR: danger
           SLACK_FOOTER: "Auto Stock Trader"

@@ -83,7 +83,7 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_TITLE: "❌ daily-social-post 失敗"
           SLACK_MESSAGE: |
+            @here
             daily-social-post（Bluesky日次投稿）が失敗しました。
-            詳細はGitHub Actionsログを確認してください。
           SLACK_COLOR: danger
           SLACK_FOOTER: "Auto Stock Trader"

@@ -45,7 +45,7 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_TITLE: "❌ 自社株買い Phase A レビューに失敗しました"
           SLACK_MESSAGE: |
+            @here
             観察レビューのワークフローがエラーで終了しました
-            詳細はGitHub Actionsログを確認してください
           SLACK_COLOR: danger
           SLACK_FOOTER: "Auto Stock Trader"
