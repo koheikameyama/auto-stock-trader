@@ -258,12 +258,14 @@ export class BrokerEventStream extends EventEmitter {
 
     const eventTypes =
       this.options.eventTypes ?? DEFAULT_EVENT_TYPES;
-    const queryParams = new URLSearchParams({
-      ...EVENT_PARAMS,
-      p_evt_cmd: eventTypes.join(","),
-    });
-
-    const fullUrl = `${this.wsUrl}?${queryParams.toString()}`;
+    // TODO(temp-debug, v4r10移行調査): URLSearchParams はカンマを %2C に
+    // percent-encode するが、公式PDF・公式Pythonサンプルとも p_evt_cmd には
+    // 生のカンマ区切り文字列を送っている。v4r10のパラメータ検証が
+    // エンコード後の文字列をトークン照合している場合、%2Cが未知の値として
+    // 拒否される可能性があるため、クエリ文字列を手組みして生カンマで送る。
+    const query = `p_rid=${EVENT_PARAMS.p_rid}&p_board_no=${EVENT_PARAMS.p_board_no}&p_eno=${EVENT_PARAMS.p_eno}&p_evt_cmd=${eventTypes.join(",")}`;
+    const fullUrl = `${this.wsUrl}?${query}`;
+    console.log(`[BrokerEventStream][temp-debug] Connect query: ?${query}`);
 
     try {
       this.ws = new WebSocket(fullUrl);
