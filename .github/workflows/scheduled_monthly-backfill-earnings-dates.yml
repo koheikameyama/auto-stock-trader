@@ -43,7 +43,6 @@ jobs:
           SLACK_TITLE: "EarningsDate バックフィル 完了"
           SLACK_MESSAGE: |
             yfinance から決算日データの月次バックフィルが完了しました
-            詳細はGitHub Actionsログを確認してください
           SLACK_COLOR: good
           SLACK_FOOTER: "Auto Stock Trader"
 
