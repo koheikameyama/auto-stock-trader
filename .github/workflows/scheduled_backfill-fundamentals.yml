@@ -55,7 +55,7 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_TITLE: "Backfill Fundamentals 失敗"
           SLACK_MESSAGE: |
+            @here
             ファンダメンタルズバックフィルが失敗しました。
-            詳細はGitHub Actionsログを確認してください。
           SLACK_COLOR: danger
           SLACK_FOOTER: "Auto Stock Trader"

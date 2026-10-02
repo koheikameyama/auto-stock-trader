@@ -98,7 +98,7 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_TITLE: "❌ end-of-day 失敗"
           SLACK_MESSAGE: |
+            @here
             end-of-day が失敗しました。
-            詳細はGitHub Actionsログを確認してください。
           SLACK_COLOR: danger
           SLACK_FOOTER: "Auto Stock Trader"

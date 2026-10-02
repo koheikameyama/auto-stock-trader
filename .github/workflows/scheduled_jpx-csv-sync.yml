@@ -61,7 +61,7 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_TITLE: "❌ jpx-csv-sync 失敗"
           SLACK_MESSAGE: |
+            @here
             JPX 上場銘柄マスタの週次同期が失敗しました
-            詳細はGitHub Actionsログを確認してください
           SLACK_COLOR: danger
           SLACK_FOOTER: "Auto Stock Trader"

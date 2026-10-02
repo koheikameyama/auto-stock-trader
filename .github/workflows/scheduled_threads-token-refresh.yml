@@ -43,6 +43,7 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_TITLE: "❌ threads-token-refresh 失敗"
           SLACK_MESSAGE: |
+            @here
             Threads トークンの自動リフレッシュが失敗しました。
             失効前に手動でトークンを再発行し、GitHub シークレット THREADS_USER_TOKEN を更新してください。
           SLACK_COLOR: danger

@@ -42,7 +42,7 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_TITLE: "Backfill Trading Config 失敗"
           SLACK_MESSAGE: |
+            @here
             TradingConfig同期が失敗しました。
-            詳細はGitHub Actionsログを確認してください。
           SLACK_COLOR: danger
           SLACK_FOOTER: "Auto Stock Trader"

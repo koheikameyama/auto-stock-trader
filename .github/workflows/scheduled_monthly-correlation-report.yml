@@ -40,7 +40,7 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_TITLE: "Monthly Correlation Report 失敗"
           SLACK_MESSAGE: |
+            @here
             Correlation Report が失敗しました。
-            詳細はGitHub Actionsログを確認してください。
           SLACK_COLOR: danger
           SLACK_FOOTER: "Auto Stock Trader"
