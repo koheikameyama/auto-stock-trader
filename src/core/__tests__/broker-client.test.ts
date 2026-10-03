@@ -3,10 +3,16 @@ import crypto from "crypto";
 import iconv from "iconv-lite";
 import { TachibanaClient, resetTachibanaClient } from "../broker-client";
 
-const { mockTradingConfigFindFirst, mockTradingConfigUpdate, mockBrokerSessionUpsert } = vi.hoisted(() => ({
+const {
+  mockTradingConfigFindFirst,
+  mockTradingConfigUpdate,
+  mockBrokerSessionUpsert,
+  mockBrokerSessionFindUnique,
+} = vi.hoisted(() => ({
   mockTradingConfigFindFirst: vi.fn(),
   mockTradingConfigUpdate: vi.fn(),
   mockBrokerSessionUpsert: vi.fn(),
+  mockBrokerSessionFindUnique: vi.fn(),
 }));
 
 const { mockNotifySlack } = vi.hoisted(() => ({ mockNotifySlack: vi.fn() }));
@@ -24,7 +30,7 @@ vi.mock("../../lib/prisma", () => ({
     },
     brokerSession: {
       upsert: mockBrokerSessionUpsert,
-      findUnique: vi.fn().mockResolvedValue(null),
+      findUnique: mockBrokerSessionFindUnique,
     },
   },
 }));
@@ -109,12 +115,14 @@ describe("TachibanaClient", () => {
     mockTradingConfigUpdate.mockResolvedValue({});
     mockBrokerSessionUpsert.mockReset();
     mockBrokerSessionUpsert.mockResolvedValue({});
+    mockBrokerSessionFindUnique.mockReset();
+    mockBrokerSessionFindUnique.mockResolvedValue(null);
     mockNotifySlack.mockReset();
     mockNotifySlack.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
-    client.stopAutoRefresh();
+    vi.useRealTimers();
     vi.unstubAllEnvs();
   });
 
@@ -459,6 +467,137 @@ describe("TachibanaClient", () => {
         decodeURIComponent(retryUrl.split("?")[1]),
       );
       expect(retryParams.p_no).toBe("6001");
+    });
+  });
+
+  describe("ログイン頻度の抑制（2026-10-02 立花の高負荷警告）", () => {
+    /** 認証エンドポイント（/auth/）への fetch 回数 */
+    const authCalls = () =>
+      mockFetch.mock.calls.filter(([url]) => String(url).includes("/auth/")).length;
+
+    const savedSession = (loginAt: Date, prefix = "https://saved") => ({
+      env: "demo",
+      urlRequest: `${prefix}/request/`,
+      urlMaster: `${prefix}/master/`,
+      urlPrice: `${prefix}/price/`,
+      urlEvent: `${prefix}/event/`,
+      urlEventWebSocket: "wss://saved/ws/",
+      loginAt,
+    });
+
+    it("同時に呼ばれた login() は1本のログインに束ねる", async () => {
+      mockFetch.mockResolvedValueOnce(loginSuccessResponse());
+
+      const [a, b, c] = await Promise.all([client.login(), client.login(), client.login()]);
+
+      expect(authCalls()).toBe(1);
+      expect(a).toBe(b);
+      expect(b).toBe(c);
+    });
+
+    it("交付書面ブロックを検知したら DB にクールダウンを書いて全プロセスのログインを止める", async () => {
+      mockTradingConfigFindFirst.mockResolvedValue({ id: "cfg1", loginLockedUntil: null });
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({ "311": "0", "357": "CLMAuthLoginAck", "542": "1", "873": "20261001", "896": "" }),
+      );
+
+      await expect(client.login()).rejects.toThrow("未読");
+
+      const lockWrite = mockTradingConfigUpdate.mock.calls.find(
+        ([arg]) => arg.data.loginLockReason === "交付書面未確認",
+      );
+      expect(lockWrite).toBeDefined();
+      const lockedUntil = lockWrite![0].data.loginLockedUntil as Date;
+      expect(lockedUntil.getTime() - Date.now()).toBeGreaterThan(55 * 60 * 1000);
+      // ブロック検知後にロックを消してしまわない（旧実装は未読チェック前にクリアしていた）
+      expect(
+        mockTradingConfigUpdate.mock.calls.some(
+          ([arg]) => arg.data.loginLockedUntil === null,
+        ),
+      ).toBe(false);
+    });
+
+    it("セッション切れ時、別プロセスがDBに保存した新しいセッションがあればログインせず採用する", async () => {
+      mockFetch.mockResolvedValueOnce(loginSuccessResponse());
+      await client.login();
+      const newer = savedSession(new Date(Date.now() + 60_000));
+      mockBrokerSessionFindUnique.mockResolvedValue(newer);
+
+      mockFetch
+        .mockResolvedValueOnce(createMockResponse({ "311": "2", "357": "CLMOrderList" }))
+        .mockResolvedValueOnce(createMockResponse({ "311": "0", "357": "CLMOrderList" }));
+
+      const res = await client.request({ sCLMID: "CLMOrderList" });
+
+      expect(res.sResultCode).toBe("0");
+      expect(authCalls()).toBe(1); // 最初のログインのみ
+      expect(String(mockFetch.mock.calls.at(-1)![0])).toContain("https://saved/request/");
+    });
+
+    it("直近ログインから間もなくセッションが切れた場合は再ログインしない", async () => {
+      mockFetch.mockResolvedValueOnce(loginSuccessResponse());
+      const session = await client.login();
+      mockBrokerSessionFindUnique.mockResolvedValue(savedSession(session.loginAt));
+
+      mockFetch.mockResolvedValue(createMockResponse({ "311": "2", "357": "CLMOrderList" }));
+
+      await expect(client.request({ sCLMID: "CLMOrderList" })).rejects.toThrow("re-login throttled");
+      expect(authCalls()).toBe(1);
+    });
+
+    it("別プロセスがDB上で直近にログインしたばかりなら、自プロセスの初回でも再ログインしない", async () => {
+      // 自プロセスはDBから古い（同じ）セッションを復元済み、DBのloginAtは5分前
+      const recent = savedSession(new Date(Date.now() - 5 * 60_000));
+      mockBrokerSessionFindUnique.mockResolvedValue(recent);
+      await client.restoreFromDB();
+
+      mockFetch.mockResolvedValue(createMockResponse({ "311": "2", "357": "CLMOrderList" }));
+
+      await expect(client.request({ sCLMID: "CLMOrderList" })).rejects.toThrow("re-login throttled");
+      expect(authCalls()).toBe(0);
+    });
+
+    it("最小間隔を過ぎていれば再ログインする", async () => {
+      const old = savedSession(new Date(Date.now() - 3 * 60 * 60_000));
+      mockBrokerSessionFindUnique.mockResolvedValue(old);
+      await client.restoreFromDB();
+
+      mockFetch
+        .mockResolvedValueOnce(createMockResponse({ "311": "2", "357": "CLMOrderList" }))
+        .mockResolvedValueOnce(loginSuccessResponse())
+        .mockResolvedValueOnce(createMockResponse({ "311": "0", "357": "CLMOrderList" }));
+
+      const res = await client.request({ sCLMID: "CLMOrderList" });
+      expect(res.sResultCode).toBe("0");
+      expect(authCalls()).toBe(1);
+    });
+
+    describe("ensureDailySession", () => {
+      it("当日（06:00 JST以降）のセッションがDBにあればログインせず採用する", async () => {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(new Date("2026-10-05T07:00:00+09:00"));
+        mockBrokerSessionFindUnique.mockResolvedValue(
+          savedSession(new Date("2026-10-05T06:30:00+09:00")),
+        );
+
+        await client.ensureDailySession();
+
+        expect(authCalls()).toBe(0);
+        expect(client.getSession()?.urlRequest).toBe("https://saved/request/");
+      });
+
+      it("前日のセッションしか無ければログインする", async () => {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(new Date("2026-10-05T07:00:00+09:00"));
+        mockBrokerSessionFindUnique.mockResolvedValue(
+          savedSession(new Date("2026-10-04T23:00:00+09:00")),
+        );
+        mockFetch.mockResolvedValueOnce(loginSuccessResponse());
+
+        await client.ensureDailySession();
+
+        expect(authCalls()).toBe(1);
+      });
     });
   });
 

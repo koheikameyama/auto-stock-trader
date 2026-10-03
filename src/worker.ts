@@ -35,7 +35,7 @@ import { TIMEZONE } from "./lib/constants";
 import { cronControl } from "./lib/cron-control";
 import { getTachibanaClient, resetTachibanaClient, type TachibanaSession } from "./core/broker-client";
 import { getBrokerEventStream, resetBrokerEventStream, isBrokerConnectionWindow } from "./core/broker-event-stream";
-import { BROKER_WS_RECONNECT } from "./lib/constants/broker";
+import { BROKER_WS_RECONNECT, TACHIBANA_SESSION } from "./lib/constants/broker";
 import { handleBrokerFill } from "./core/broker-fill-handler";
 
 // ジョブ状態（ダッシュボード・cronルートから参照可能）
@@ -297,7 +297,20 @@ serve({ fetch: app.fetch, port }, (info) => {
     console.log("  ブローカーセッション初期化中...");
     const client = getTachibanaClient();
 
-    // WebSocket + auto-refresh セットアップ（セッション確立後に実行）
+    // 日次ログイン（平日朝に1回）。立花は「1日1回の仮想URL取得で当該営業日は継続利用可、
+    // 毎回ログインする必要はない」としている。当日分のセッションを既に持っていればログインしない
+    cron.schedule(
+      TACHIBANA_SESSION.DAILY_LOGIN_CRON,
+      () => {
+        client.ensureDailySession().catch((err) => {
+          console.error("[worker] 日次ログイン失敗（以降はセッション切れ検知時に回復）:", err);
+        });
+      },
+      { timezone: TIMEZONE },
+    );
+    console.log(`  スケジュール登録: tachibana-daily-login → ${TACHIBANA_SESSION.DAILY_LOGIN_CRON} (JST)`);
+
+    // WebSocket セットアップ（セッション確立後に実行）
     const setupBrokerConnection = (session: TachibanaSession) => {
       const stream = getBrokerEventStream();
       stream.on("execution", (event) => {
@@ -308,14 +321,16 @@ serve({ fetch: app.fetch, port }, (info) => {
       stream.on("error", (err) => {
         console.error("[worker] EventStream error:", err);
       });
-      // どの経路のログイン（auto-refresh / reLoginOnce / 手動）でも
+      // どの経路のログイン（日次ログイン / セッション回復 / 手動）でも
       // 新セッションのWS URLに追従して再接続する（KOH-640）
       client.onSessionRefresh((newSession) => {
         stream.reconnect(newSession.urlEventWebSocket);
       });
 
-      // session inactive 検知 → 再ログイン（成功すれば onSessionRefresh 経由で再接続）。
-      // クールダウンとリトライで頻度を縛り、立花への高負荷アクセスを防ぐ
+      // session inactive 検知 → セッション回復（成功すれば onSessionRefresh 経由で再接続）。
+      // recoverSession() は別プロセスがDBに保存した新しいセッションがあればログインせずに採用し、
+      // 直近ログインから間もない場合は再ログインしない。クールダウンとリトライでも頻度を縛り、
+      // 立花への高負荷アクセスを防ぐ（2026-10-02 ログイン連打の警告）
       let reloginInFlight = false;
       let reloginCoolingDown = false;
       let reloginRetryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -329,8 +344,8 @@ serve({ fetch: app.fetch, port }, (info) => {
         }
         reloginInFlight = true;
         try {
-          console.warn("[worker] EventStream session inactive — 再ログインします");
-          await client.login();
+          console.warn("[worker] EventStream session inactive — セッションを回復します");
+          await client.recoverSession();
         } catch (err) {
           console.error("[worker] EventStream 再ログイン失敗 — リトライを予約:", err);
           if (!reloginRetryTimer) {
@@ -357,8 +372,6 @@ serve({ fetch: app.fetch, port }, (info) => {
         console.log("  WebSocket: 営業時間外 — 次の営業時間に自動接続します");
       }
       stream.connect(session.urlEventWebSocket);
-
-      client.startAutoRefresh();
 
       console.log("  ブローカーセッション確立");
     };

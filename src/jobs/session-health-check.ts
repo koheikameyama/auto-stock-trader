@@ -11,7 +11,7 @@
  *
  * 仕組み:
  *   getBuyingPower() → client.request() → requestWithRetry() → ensureSession()
- *   セッション切れの場合は reLoginOnce() → login() が自動で走る。
+ *   セッション切れの場合は recoverSession() が（DBの新しいセッション採用 or 間隔制限付きの再ログインで）自動で回復する。
  *   login() で電話番号認証（10089）が検出されると handleAccountLock() が
  *   Slack通知を送信し、ユーザーが15:20前に対応できる。
  */

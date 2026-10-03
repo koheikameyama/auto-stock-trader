@@ -93,7 +93,7 @@ const PRICE_CONCURRENCY = 10;
  * CLMMfdsGetMarketPrice は1銘柄ずつしか取得できないため、
  * p-limit で同時10件に制限しつつ並列呼び出しする。
  * requestPrice はミューテックス不使用のため並列実行可能。
- * セッション切断時は reLoginOnce で1回だけ再ログインし全スロットで共有する。
+ * セッション切断時は recoverSession で1回だけ回復し全スロットで共有する。
  */
 export async function tachibanaFetchQuotesBatch(
   symbols: string[],
