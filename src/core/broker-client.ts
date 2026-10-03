@@ -66,12 +66,15 @@ export interface TachibanaResponse {
 
 export class TachibanaClient {
   private session: TachibanaSession | null = null;
-  private refreshTimer: ReturnType<typeof setInterval> | null = null;
   private requestCounter = 0;
   private env: TachibanaEnv;
   private baseUrl: string;
-  /** 再ログイン中の Promise（同時多発再ログインを防ぐ） */
-  private reLoginPromise: Promise<void> | null = null;
+  /** 実行中のログイン Promise（どの経路から呼ばれても同時に1本しか飛ばさない） */
+  private loginPromise: Promise<TachibanaSession> | null = null;
+  /** セッション回復（DB採用 or 再ログイン）中の Promise（同時多発を防ぐ） */
+  private recoverPromise: Promise<void> | null = null;
+  /** このプロセスで最後にログインを試行した時刻（再ログインの間隔制限用） */
+  private lastLoginAttemptAt: Date | null = null;
   private ensureSessionPromise: Promise<void> | null = null;
   /** ログインロック検出時刻（nullなら正常） */
   private loginLockedUntil: Date | null = null;
@@ -96,8 +99,6 @@ export class TachibanaClient {
   private sessionReadyCallbacks: Array<(session: TachibanaSession) => void> = [];
   /** ログイン成功のたびに毎回呼ばれる永続コールバック（WebSocketのURL追従用、KOH-640） */
   private sessionRefreshCallbacks: Array<(session: TachibanaSession) => void> = [];
-  /** auto-refresh 失敗時のリトライタイマー */
-  private refreshRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(env?: TachibanaEnv) {
     this.env = env ?? ((process.env.TACHIBANA_ENV as TachibanaEnv) || "demo");
@@ -110,16 +111,31 @@ export class TachibanaClient {
 
   /**
    * ログイン — 仮想URLを5つ取得しセッションに保持
+   *
+   * 立花は「1日1回ログインすれば当該営業日は継続利用できる」としており、ログイン連打は
+   * 高負荷として利用停止の対象になる（2026-10-02 警告）。経路（日次ログイン / セッション回復 /
+   * 手動再開）が同時に呼んでも実際のログインは1本に束ねる。
    */
   async login(): Promise<TachibanaSession> {
+    if (!this.loginPromise) {
+      this.loginPromise = this.doLogin().finally(() => {
+        this.loginPromise = null;
+      });
+    }
+    return this.loginPromise;
+  }
+
+  private async doLogin(): Promise<TachibanaSession> {
     // ログインロック中はDBから確認してクールダウン期間スキップ
     let dbLockedUntil: Date | null = null;
+    let dbLockReason: string | null = null;
     try {
       const configForLockCheck = await prisma.tradingConfig.findFirst({
         orderBy: { createdAt: "desc" },
-        select: { loginLockedUntil: true },
+        select: { loginLockedUntil: true, loginLockReason: true },
       });
       dbLockedUntil = configForLockCheck?.loginLockedUntil ?? null;
+      dbLockReason = configForLockCheck?.loginLockReason ?? null;
     } catch (err) {
       console.warn("[TachibanaClient] Failed to read loginLockedUntil from DB, falling back to in-memory state", err);
       dbLockedUntil = this.loginLockedUntil;
@@ -127,7 +143,8 @@ export class TachibanaClient {
     if (dbLockedUntil && new Date() < dbLockedUntil) {
       this.loginLockedUntil = dbLockedUntil;
       throw new Error(
-        `Tachibana login is locked until ${dbLockedUntil.toISOString()}. Call the support center to unlock.`,
+        `Tachibana login is locked until ${dbLockedUntil.toISOString()}${dbLockReason ? ` (${dbLockReason})` : ""}. ` +
+          "原因を解消してからダッシュボードの「再開」で解除してください。",
       );
     }
 
@@ -147,6 +164,7 @@ export class TachibanaClient {
     };
 
     const url = `${this.baseUrl}auth/?${this.encodeParams(params)}`;
+    this.lastLoginAttemptAt = new Date();
     const raw = await this.fetchWithDecode(url);
 
     if (raw.sResultCode !== "0") {
@@ -161,9 +179,6 @@ export class TachibanaClient {
       await this.handleAccountLock(raw, orderResultCode);
     }
 
-    // ログインロック解除（正常ログイン成功時）
-    await this.clearLockOnSuccess();
-
     // 金商法のお知らせ（交付書面等）未読チェック
     // v4r10 のログイン応答では数値キー "542" が sKinsyouhouMidokuFlg（2026-10-01 本番実測:
     // 交付書面の確認前 "1" → 確認後 "0" に変化し、同時に仮想URLが空→発行に変わった）。
@@ -172,6 +187,7 @@ export class TachibanaClient {
     const kinsyouhouMidoku = raw.sKinsyouhouMidokuFlg ?? raw.sOrderStatus;
     if (kinsyouhouMidoku === "1") {
       const webDoc = typeof raw.sUpdateInformWebDocument === "string" ? raw.sUpdateInformWebDocument : "";
+      await this.persistTemporaryLoginBlock("交付書面未確認");
       await this.notifyLoginBlockedByUnreadDocument(webDoc);
       throw new Error(
         "Tachibana login blocked: 金商法のお知らせ（交付書面等）が未読です。e支店の標準Webで確認してください。",
@@ -237,6 +253,9 @@ export class TachibanaClient {
       }
     }
 
+    // ログインロック解除（仮想URLまで揃った完全な成功時のみ。ブロック中のクールダウンを消さないため）
+    await this.clearLockOnSuccess();
+
     this.session = {
       urlRequest,
       urlMaster,
@@ -269,8 +288,6 @@ export class TachibanaClient {
    * ログアウト
    */
   async logout(): Promise<void> {
-    this.stopAutoRefresh();
-
     if (!this.session) return;
 
     try {
@@ -405,7 +422,7 @@ export class TachibanaClient {
       console.warn(
         `[TachibanaClient] Session disconnected (${res.sResultText ?? ""}), re-logging in...`,
       );
-      await this.reLoginOnce();
+      await this.recoverSession();
       const retryParams = {
         ...params,
         p_no: this.nextRequestNo(),
@@ -423,49 +440,120 @@ export class TachibanaClient {
   // ========================================
 
   /**
-   * 6時間ごとの自動再ログインを開始（保険。ログイン成功の通知は onSessionRefresh 経由）。
-   * 失敗時は AUTO_REFRESH_RETRY_MS 後にリトライする — 失敗がサービス時間外
-   * （例: 早朝の [-62] 情報提供時間外）に当たると、次の定期実行まで6時間
-   * 古いセッションのまま放置されてしまうため（KOH-640）。
+   * 日次ログイン（worker の cron から平日朝に1回呼ぶ）。
+   *
+   * 当日分のセッションを既に持っている（このプロセス or 別プロセスがDBに保存済み）なら
+   * ログインしない。立花は「1日1回の仮想URL取得で当該営業日は継続利用可」としている。
+   * 失敗してもリトライタイマーは張らない — 以降はセッション切れ検知時の recoverSession()
+   * が間隔制限付きで回復する（旧 auto-refresh の30分リトライが 2026-10-01 に一晩中
+   * ログインを繰り返した反省）。
    */
-  startAutoRefresh(): void {
-    this.stopAutoRefresh();
+  async ensureDailySession(): Promise<void> {
+    const dayStart = dayjs()
+      .tz(TIMEZONE)
+      .startOf("day")
+      .hour(TACHIBANA_SESSION.SESSION_DAY_START_HOUR);
 
-    this.refreshTimer = setInterval(() => {
-      void this.runAutoRefresh();
-    }, TACHIBANA_SESSION.AUTO_REFRESH_INTERVAL_MS);
+    if (this.session && !dayjs(this.session.loginAt).isBefore(dayStart)) {
+      console.log("[TachibanaClient] Daily login: 当日のセッションを保持済み — スキップ");
+      return;
+    }
+
+    const saved = await this.loadSavedSession();
+    if (saved && !dayjs(saved.loginAt).isBefore(dayStart)) {
+      console.log("[TachibanaClient] Daily login: 当日のセッションをDBから採用 — ログインしない");
+      this.adoptSession(saved);
+      return;
+    }
+
+    console.log("[TachibanaClient] Daily login: ログインします");
+    await this.login();
   }
 
-  private async runAutoRefresh(): Promise<void> {
-    try {
-      console.log("[TachibanaClient] Auto-refreshing session...");
-      await this.login();
-    } catch (e) {
-      console.error(
-        `[TachibanaClient] Auto-refresh failed (${TACHIBANA_SESSION.AUTO_REFRESH_RETRY_MS / 60_000}分後にリトライ):`,
-        e,
+  /**
+   * セッション切れ（sResultCode=2 / EVENT I/F の session inactive）からの回復。
+   *
+   * 1. 別プロセスがより新しいセッションをDBに保存していればそれを採用する（ログインしない）。
+   *    立花は新規ログインで旧セッションを無効化するため、各プロセスが自前でログインすると
+   *    互いのセッションを潰し合う連鎖になる（2026-10-01 に worker と各ジョブで発生）。
+   * 2. 直近ログイン（このプロセスの試行 / DB上の成功）から RELOGIN_MIN_INTERVAL_MS 以内なら
+   *    ログインせずエラーにする。直前に取ったセッションがもう切れているなら再ログインでは
+   *    解消しない異常で、連打は高負荷として利用停止の対象になる。
+   * 3. それ以外のときだけ再ログインする。
+   *
+   * 同時多発呼び出しは同一 Promise を共有する。
+   */
+  async recoverSession(): Promise<void> {
+    if (!this.recoverPromise) {
+      this.recoverPromise = this.doRecoverSession().finally(() => {
+        this.recoverPromise = null;
+      });
+    }
+    await this.recoverPromise;
+  }
+
+  private async doRecoverSession(): Promise<void> {
+    const saved = await this.loadSavedSession();
+    if (
+      saved &&
+      (!this.session || dayjs(saved.loginAt).isAfter(this.session.loginAt))
+    ) {
+      console.log(
+        `[TachibanaClient] より新しいセッションがDBにあるため採用します（loginAt=${saved.loginAt.toISOString()}）`,
       );
-      if (!this.refreshRetryTimer) {
-        this.refreshRetryTimer = setTimeout(() => {
-          this.refreshRetryTimer = null;
-          void this.runAutoRefresh();
-        }, TACHIBANA_SESSION.AUTO_REFRESH_RETRY_MS);
-      }
+      this.adoptSession(saved);
+      return;
+    }
+
+    const now = dayjs();
+    const minInterval = TACHIBANA_SESSION.RELOGIN_MIN_INTERVAL_MS;
+    const recentAttempt =
+      this.lastLoginAttemptAt && now.diff(this.lastLoginAttemptAt) < minInterval
+        ? this.lastLoginAttemptAt
+        : saved && now.diff(saved.loginAt) < minInterval
+          ? saved.loginAt
+          : null;
+    if (recentAttempt) {
+      throw new Error(
+        `Tachibana re-login throttled: 直近のログイン（${recentAttempt.toISOString()}）から` +
+          `${minInterval / 60_000}分以内のため再ログインしません（立花へのログイン連打防止）`,
+      );
+    }
+
+    console.warn("[TachibanaClient] セッション切れのため再ログインします");
+    await this.login();
+  }
+
+  /** DBに保存されたセッションを読む（失敗時は null） */
+  private async loadSavedSession(): Promise<TachibanaSession | null> {
+    try {
+      const saved = await prisma.brokerSession.findUnique({
+        where: { env: this.env },
+      });
+      if (!saved) return null;
+      return {
+        urlRequest: saved.urlRequest,
+        urlMaster: saved.urlMaster,
+        urlPrice: saved.urlPrice,
+        urlEvent: saved.urlEvent,
+        urlEventWebSocket: saved.urlEventWebSocket,
+        loginAt: saved.loginAt,
+      };
+    } catch (err) {
+      console.warn("[TachibanaClient] Failed to load session from DB:", err);
+      return null;
     }
   }
 
   /**
-   * 自動再ログインを停止
+   * 別プロセスが取得したセッションを採用する（ログインしない）。
+   * p_no はセッション内で単調増加が必要なので restoreFromDB と同じく秒タイムスタンプから再開し、
+   * EVENT I/F の URL 追従のため onSessionRefresh を発火する。
    */
-  stopAutoRefresh(): void {
-    if (this.refreshTimer) {
-      clearInterval(this.refreshTimer);
-      this.refreshTimer = null;
-    }
-    if (this.refreshRetryTimer) {
-      clearTimeout(this.refreshRetryTimer);
-      this.refreshRetryTimer = null;
-    }
+  private adoptSession(session: TachibanaSession): void {
+    this.session = session;
+    this.requestCounter = Math.max(this.requestCounter, Math.floor(Date.now() / 1000));
+    this.fireSessionRefreshCallbacks();
   }
 
   /**
@@ -646,6 +734,29 @@ export class TachibanaClient {
   // 保守通知
   // ========================================
 
+  /**
+   * 人間の操作なしには解消しないログインブロック（交付書面未確認等）を検知したとき、
+   * DB の loginLockedUntil にクールダウンを書いて全プロセスのログインを止める。
+   * 2026-10-01 は書面確認までの約10時間、auto-refresh・各ジョブ・EVENT I/F の再ログインが
+   * それぞれログインを繰り返し、立花から高負荷警告を受けた。isActive は変えない
+   * （書面確認後にクールダウン経過 or 「再開」で自然に復帰させるため）。
+   */
+  private async persistTemporaryLoginBlock(reason: string): Promise<void> {
+    const lockedUntil = dayjs().add(TACHIBANA_SESSION.LOGIN_BLOCK_COOLDOWN_MS, "millisecond").toDate();
+    this.loginLockedUntil = lockedUntil;
+    try {
+      const config = await prisma.tradingConfig.findFirst({ orderBy: { createdAt: "desc" } });
+      if (config) {
+        await prisma.tradingConfig.update({
+          where: { id: config.id },
+          data: { loginLockedUntil: lockedUntil, loginLockReason: reason },
+        });
+      }
+    } catch (err) {
+      console.warn("[TachibanaClient] Failed to persist temporary login block to DB", err);
+    }
+  }
+
   /** 交付書面未確認でログインがブロックされた旨を 🚨 で通知する（人間の操作が必要なため） */
   private async notifyLoginBlockedByUnreadDocument(webDoc: string): Promise<void> {
     try {
@@ -655,7 +766,9 @@ export class TachibanaClient {
           webDoc ? `交付書面更新日: ${webDoc}` : "",
           "ログインは成功扱いだが仮想URLが発行されず、API が一切使えない状態です。",
           "",
-          "対応: e支店の標準Webにログインして交付書面を確認 → 失敗したジョブを再実行",
+          `立花への負荷を避けるため、全プロセスのログインを${TACHIBANA_SESSION.LOGIN_BLOCK_COOLDOWN_MS / 60_000}分間停止しました。`,
+          "",
+          "対応: e支店の標準Webにログインして交付書面を確認 → ダッシュボードの「再開」で即時解除（または停止時間の経過を待つ）→ 失敗したジョブを再実行",
         ].filter(Boolean).join("\n"),
         color: "danger",
       });
@@ -682,6 +795,7 @@ export class TachibanaClient {
     const today = dayjs().tz(TIMEZONE).format("YYYYMMDD");
 
     if (webDoc && webDoc <= today) {
+      await this.persistTemporaryLoginBlock("交付書面未確認");
       await this.notifyLoginBlockedByUnreadDocument(webDoc);
       throw new Error(
         `Tachibana login blocked: 交付書面（更新日 ${webDoc}）が未確認の可能性があります。` +
@@ -958,7 +1072,7 @@ export class TachibanaClient {
       console.warn(
         `[TachibanaClient] Session disconnected (${res.sResultText ?? ""}), re-logging in...`,
       );
-      await this.reLoginOnce();
+      await this.recoverSession();
       res = await this.requestToVirtualUrl(getUrl(), params);
     }
 
@@ -979,23 +1093,6 @@ export class TachibanaClient {
     }
 
     return res;
-  }
-
-  /**
-   * 再ログインを1回だけ実行する（同時多発呼び出し時は同一 Promise を共有）
-   */
-  private async reLoginOnce(): Promise<void> {
-    if (!this.reLoginPromise) {
-      this.reLoginPromise = this.login()
-        .then(() => {
-          this.reLoginPromise = null;
-        })
-        .catch((e) => {
-          this.reLoginPromise = null;
-          throw e;
-        });
-    }
-    await this.reLoginPromise;
   }
 
   private async ensureSession(): Promise<void> {
@@ -1118,10 +1215,7 @@ export function getTachibanaClient(): TachibanaClient {
  * シングルトンインスタンスをリセット（テスト用）
  */
 export function resetTachibanaClient(): void {
-  if (clientInstance) {
-    clientInstance.stopAutoRefresh();
-    clientInstance = null;
-  }
+  clientInstance = null;
 }
 
 // ========================================
