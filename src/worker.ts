@@ -302,6 +302,10 @@ serve({ fetch: app.fetch, port }, (info) => {
     cron.schedule(
       TACHIBANA_SESSION.DAILY_LOGIN_CRON,
       () => {
+        if (!isMarketDay()) {
+          console.log(`[${nowJST()}] tachibana-daily-login スキップ（休場日）`);
+          return;
+        }
         client.ensureDailySession().catch((err) => {
           console.error("[worker] 日次ログイン失敗（以降はセッション切れ検知時に回復）:", err);
         });
