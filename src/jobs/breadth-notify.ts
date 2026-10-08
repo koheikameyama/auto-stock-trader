@@ -2,7 +2,7 @@
  * 翌日エントリー可否通知（今日の終値ベースのbreadth）
  *
  * backfill-stock-data で当日バーが StockDailyBar に投入された後に実行する。
- * scheduled_backfill-prices.yml の stock-data ジョブ完了後（17:05 JST 頃）に走る想定。
+ * cronjob_backfill-prices.yml の stock-data ジョブ完了後（17:05 JST 頃）に走る想定。
  *
  * calculateMarketBreadth() には asOfDate を渡さず、直近60日以内で最新のJP営業日を
  * 自動採用させる。stock-data 完了直後でも JST の日付境界（0時）を跨ぐと

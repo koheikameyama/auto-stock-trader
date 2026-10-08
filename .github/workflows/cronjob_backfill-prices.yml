@@ -1,9 +1,15 @@
-name: "[Scheduled] Backfill Prices"
+name: "[Cronjob] Backfill Prices"
 
+# 平日 17:00 JST は cron-job.org から workflow_dispatch で起動する（KOH-644）。
+#
+# 旧 `schedule: cron: "0 8 * * 1-5"` は GitHub Actions 側の高負荷により
+# 2026-09以降、数時間〜9時間規模の遅延、および 2026-10-07 は実行自体のドロップが発生していた
+# （GitHub公式ドキュメント通りの既知動作: "schedule event can be delayed during periods of
+#   high load... some queued jobs may be dropped"）。
+# panic-monitor 等が前営業日の確定 N225/VIX/breadth に依存しているため、この遅延が
+# 「判定不能」の頻発に直結していた。end-of-day 等の既存 workflow_dispatch 系ジョブは
+# 同時期も秒単位の正確さで起動しており、schedule と異なりキュー遅延の影響を受けない。
 on:
-  schedule:
-    # 平日 17:00 JST = 08:00 UTC (月-金)
-    - cron: "0 8 * * 1-5"
   workflow_dispatch:
     inputs:
       skip_market_day_check:
@@ -13,6 +19,7 @@ on:
       job:
         description: "実行するジョブ（空欄=全て）"
         type: choice
+        default: all
         options:
           - all
           - stock-data

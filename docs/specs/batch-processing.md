@@ -156,6 +156,8 @@ watchlist-builderは2種類のウォッチリストを同時に構築する。
 
 > 米株ETF の発注/Exit は Railway Worker の node-cron (15:24) に移行（`us-etf-monitor`）。旧 cron-job.org 「ETF Entry Executor」「ETF Position Monitor」はマージ後に無効化する。
 
+| stock-data + index-data + corporate-events + trading-config → breadth-notify / signal-replay / regime-shift-notify | cronjob_backfill-prices.yml | 平日 17:00 JST | 株価・市場指数（^N225/^VIX）・コーポレートイベント・TradingConfigの日次バックフィル。完了後に breadth-notify（翌日エントリー可否通知）、signal-replay（**monitor がスキャンしなかった戦略**のGU/PSCシグナルを当日終値で再現し `RejectedSignal` に記録。見送り日は「相場停止」、停止中の戦略は取引日でも「戦略停止」）、regime-shift-notify（強気モニター）を実行。panic-monitor が前営業日の確定 N225/VIX/breadth に依存しているため index-data/stock-data の鮮度が重要。旧 GitHub Actions cron（`0 8 * * 1-5`）は2026-09以降、高負荷により数時間〜9時間のドリフトおよび 2026-10-07 の実行ドロップが発生し「パニック底反発: 判定不能」が頻発したため cron-job.org 起動へ移行（KOH-644） |
+
 ### GitHub Actions cron
 
 時間の正確性が不要なジョブを担当。閉場後の分析・週末処理など、数分〜数十分のズレが許容される処理。
@@ -170,7 +172,6 @@ watchlist-builderは2種類のウォッチリストを同時に構築する。
 | data-cleanup | scheduled_data-cleanup.yml | `0 18 * * 0` | 月曜 3:00 JST | 全テーブルのリテンション期間超過データ削除 |
 | run-backtest | scheduled_daily-backtest.yml | `30 7 * * 1-5` | 平日 16:30 JST | ブレイクアウト戦略バックテスト（直近12ヶ月） |
 | run-backtest-gapup | scheduled_daily-backtest-gapup.yml | `0 8 * * 1-5` | 平日 17:00 JST | ギャップアップ戦略バックテスト（直近12ヶ月） |
-| signal-replay | scheduled_backfill-prices.yml | `0 8 * * 1-5`（`stock-data` 完了後） | 平日 17:05 JST 頃 | **monitor がスキャンしなかった戦略**のGU/PSCシグナルを当日終値で再現し `RejectedSignal` に記録。見送り日（`shouldTrade=false`）は「相場停止」、停止中の戦略（`ENTRY_ENABLED=false`、現在は PSC）は取引日でも「戦略停止」。取引日に稼働中の戦略は monitor が記録済みのため再現しない |
 | monthly-walk-forward | scheduled_monthly-walk-forward.yml | `0 2 1-7 * 6` | 毎月第1土曜 11:00 JST | breakout+gapup WF分析（戦略エッジ監視） |
 | monthly-strategy-health | scheduled_monthly-strategy-health.yml | `0 2 * * 6`（第1土曜ゲートで絞る） | 毎月第1土曜 11:00 JST | 現役戦略 WF + baselineヘルス + ETFヘルスチェック + live↔BTパリティ監査（KOH-606: 直近40日の本番約定買い注文を BT precompute と突き合わせ、①日次フィルター/②ユニバース/③シグナル条件で層別。①②の系統的乖離は件数に関わらず warning、3件以上で danger） |
 
