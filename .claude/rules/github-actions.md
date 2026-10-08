@@ -21,8 +21,10 @@ GitHub Actionsのcronスケジュールは実行タイミングが数分〜数�
 
 | スケジューラ | 用途 | 対象ジョブ |
 |-------------|------|-----------|
-| **cron-job.org** | 平日に毎日実行するバッチ処理 | morning-analysis, order-manager, end-of-day, ghost-review, defensive-exit-followup, unfilled-order-followup, daily-backtest |
-| **GitHub Actions cron** | 週末・低頻度など、数分〜数十分のズレが許容される処理 | jpx-delisting-sync, weekly-review, scoring-accuracy-report, check-openai-usage, backfill-prices |
+| **cron-job.org** | 平日に毎日実行するバッチ処理 | morning-analysis, order-manager, end-of-day, ghost-review, defensive-exit-followup, unfilled-order-followup, daily-backtest, backfill-prices |
+| **GitHub Actions cron** | 週末・低頻度など、数分〜数十分のズレが許容される処理 | jpx-delisting-sync, weekly-review, scoring-accuracy-report, check-openai-usage |
+
+**backfill-prices は 2026-10 に cron-job.org へ移行済み（KOH-644）**。旧 `schedule` cron は高負荷時に数時間規模で遅延・ドロップされ、panic-monitor 等の前営業日データ依存ジョブに「判定不能」を頻発させた。
 
 ### ⛔ cron の day-of-month と day-of-week は OR になる
 
