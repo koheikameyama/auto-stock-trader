@@ -273,6 +273,8 @@ def notify_slack(results: list[dict]) -> None:
             "footer": "Auto Stock Trader",
         }],
     }
+    if color == "danger":
+        payload["text"] = "<!here>"
 
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(

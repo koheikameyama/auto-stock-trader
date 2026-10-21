@@ -162,6 +162,8 @@ def notify_slack(success: bool, evaluation: dict | None) -> None:
             "footer": "Auto Stock Trader",
         }],
     }
+    if color == "danger":
+        payload["text"] = "<!here>"
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         SLACK_WEBHOOK_URL, data=data, headers={"Content-Type": "application/json"}

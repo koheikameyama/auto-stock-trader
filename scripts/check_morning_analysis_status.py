@@ -141,6 +141,8 @@ def post_slack(webhook: str, title: str, text: str, color: str) -> None:
             }
         ]
     }
+    if color == "danger":
+        payload["text"] = "<!here>"
     req = urllib.request.Request(
         webhook,
         data=json.dumps(payload).encode("utf-8"),

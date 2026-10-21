@@ -53,7 +53,14 @@ jobs:
         with:
           node-version-file: ".tool-versions"
           cache: "npm"
-      - run: npm ci
+      - name: Install dependencies
+        run: |
+          for i in 1 2 3; do
+            npm ci && exit 0
+            echo "npm ci failed (attempt $i), retrying in 10s..."
+            sleep 10
+          done
+          exit 1
       - run: npx prisma generate
 
       - name: Check market day and system active
@@ -86,7 +93,14 @@ jobs:
         with:
           node-version-file: ".tool-versions"
           cache: "npm"
-      - run: npm ci
+      - name: Install dependencies
+        run: |
+          for i in 1 2 3; do
+            npm ci && exit 0
+            echo "npm ci failed (attempt $i), retrying in 10s..."
+            sleep 10
+          done
+          exit 1
       - run: npx prisma generate
       - run: npm run news-collect
 
@@ -105,7 +119,14 @@ jobs:
         with:
           node-version-file: ".tool-versions"
           cache: "npm"
-      - run: npm ci
+      - name: Install dependencies
+        run: |
+          for i in 1 2 3; do
+            npm ci && exit 0
+            echo "npm ci failed (attempt $i), retrying in 10s..."
+            sleep 10
+          done
+          exit 1
       - run: npx prisma generate
       - name: Start yfinance sidecar
         uses: ./.github/actions/start-yfinance
@@ -149,7 +170,14 @@ jobs:
         with:
           node-version-file: ".tool-versions"
           cache: "npm"
-      - run: npm ci
+      - name: Install dependencies
+        run: |
+          for i in 1 2 3; do
+            npm ci && exit 0
+            echo "npm ci failed (attempt $i), retrying in 10s..."
+            sleep 10
+          done
+          exit 1
       - run: npx prisma generate
       - run: npm run watchlist-build
 
@@ -195,7 +223,14 @@ jobs:
         with:
           node-version-file: ".tool-versions"
           cache: "npm"
-      - run: npm ci
+      - name: Install dependencies
+        run: |
+          for i in 1 2 3; do
+            npm ci && exit 0
+            echo "npm ci failed (attempt $i), retrying in 10s..."
+            sleep 10
+          done
+          exit 1
       - run: npx prisma generate
       - name: Post morning regime to Bluesky
         run: npm run social:post-morning
